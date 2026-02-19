@@ -1,0 +1,120 @@
+---
+name: entrypoint
+description: entrypoint for coding agents working in this repository
+---
+
+## 1) Project Intent (Read First)
+
+IndeRun is an open-source (MIT) AI execution framework. It provides one unified app-facing API while routing execution across local, edge, and cloud providers.
+
+Core product truths:
+
+- IndeRun is an execution abstraction layer, not a model-training project.
+- Policy-driven provider routing is the main differentiator.
+- Cross-platform consistency and deterministic fallback behavior are critical.
+- Developer experience and predictable behavior are first-class goals.
+
+## 2) Source-of-Truth Docs
+
+Before changing code or docs, read these files:
+
+1. `docs/architecture/technical-brief.md`
+2. `docs/architecture/architecture.md`
+3. `docs/architecture/providers.md`
+
+Treat them as the architecture baseline.
+
+## 3) Scope Boundaries (Current Phase)
+
+In scope now:
+
+- Mode 1: `run()`
+- Mode 2: `stream()` + cancellation semantics
+- Mode 3: `openSession()` / realtime session model
+
+Out of scope now:
+
+- Mode 4 submit/jobs infrastructure
+- Durable queues/job stores/schedulers
+- Full MLOps concerns
+
+Design seams for Mode 4 can exist, but do not optimize implementation around it yet.
+
+## 4) Architecture Rules You Must Preserve
+
+1. Keep layering clear:
+   - App/API surface
+   - Engine core (routing/orchestration/events)
+   - Host services (platform/OS access)
+   - Provider adapters (backend-specific)
+2. Do not leak provider-specific behavior through public APIs when a normalized IndeRun shape exists.
+3. Preserve standardized cancellation guarantees:
+   - no events delivered after cancel/interrupt
+   - terminal cancellation outcome
+4. Keep routing deterministic and inspectable.
+5. Never put raw secrets in request payloads; use secure credential references (`authContextRef` pattern).
+6. Keep privacy constraints enforceable both at route selection and pre-attempt checks.
+
+## 5) Provider Contract Expectations
+
+Any provider integration should explicitly define:
+
+- static descriptor (`describe`)
+- dynamic capability check (`capabilities(host)`)
+- supported interaction modes (`run`, optional `stream`, optional `openSession`)
+- cancellation behavior (`hard` / `soft` / `none`)
+- mapped error taxonomy and normalized telemetry
+
+Do not bypass these contract boundaries for short-term convenience.
+
+## 6) Repository Reality (Do Not Invent Tooling)
+
+This repo is currently architecture-first. As of now, there are no authoritative build/test/lint commands checked in.
+
+Rules:
+
+1. Do not fabricate commands or claim tests passed if no test harness exists.
+2. Prefer small, reviewable edits.
+3. If you add new tooling, document exact commands in `README.md` and update this `AGENTS.md`.
+
+Useful discovery commands:
+
+- `rg --files`
+- `find . -maxdepth 3 -type f | sort`
+
+## 7) How Agents Should Work Here
+
+1. Read the three architecture docs first.
+2. Restate constraints relevant to the requested task.
+3. Propose/implement the smallest change that satisfies the request.
+4. Document assumptions and unresolved decisions.
+5. Keep changes aligned with cross-platform parity goals (TS/Web, iOS/Swift, Android/Kotlin, Capacitor bridge behavior).
+
+## 8) Documentation Requirements
+
+When behavior or contracts change, update docs in the same task:
+
+- architecture semantics: `docs/architecture/architecture.md`
+- provider semantics/capabilities: `docs/architecture/providers.md`
+- project framing/scope: `docs/architecture/technical-brief.md`
+
+If the change is material and docs are not updated, the task is incomplete.
+
+## 9) Definition of Done for Agent Tasks
+
+A task is done only when:
+
+1. The change respects architecture boundaries above.
+2. Any new behavior is documented in the correct source-of-truth file.
+3. Claims about validation are truthful (run commands only if they exist).
+4. Risks, tradeoffs, and follow-ups are clearly listed.
+
+## 10) If You Are Unsure
+
+Prefer explicitness over assumptions:
+
+- state ambiguity
+- offer 1-2 concrete options with tradeoffs
+- proceed with the safest architecture-consistent default
+
+Avoid hidden assumptions that create future migration work.

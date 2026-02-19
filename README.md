@@ -1,7 +1,12 @@
 # IndeRun
 
-IndeRun is an open, reusable AI execution library that lets applications run the same AI tasks through **one unified
-interface**, independent of where the model runs (**on-device**, **embedded runtime**, **edge**, **cloud**).
+IndeRun is an open, reusable AI execution framework that lets applications run the same AI tasks through **one unified
+interface**, independent of where execution happens (**on-device**, **embedded runtime**, **edge**, **cloud**).
+
+## Project status
+
+This repository is currently in an **architecture-first phase**. Core design, contracts, and provider strategy are
+defined in `docs/architecture/*`; implementation is incremental.
 
 It will support:
 
@@ -15,13 +20,27 @@ It will support:
 
 ---
 
+## Why IndeRun
+
+Teams building AI features often need to choose between privacy, latency, cost, and reliability. IndeRun separates
+task execution from provider specifics so applications can:
+
+- call one API surface from app code
+- route execution by policy and runtime capabilities
+- fallback predictably when preferred providers are unavailable
+
+---
+
 ## Packages & SDKs
 
 ### JavaScript/TypeScript (npm, under `@independo/…`)
 
-- `@independo/inderun-types` — canonical schema (JSON Schema) + generated TS types + validators
+- `@independo/inderun-contracts` — canonical schema (JSON Schema) + generated TS types + validators
 - `@independo/inderun-web` — Web SDK (public API + web HostServices + web providers)
 - `@independo/capacitor-inderun` — Capacitor facade/bridge (thin wrapper delegating to web + native SDKs)
+
+> Naming note: `@types/*` packages are typically for community-maintained declarations (DefinitelyTyped) for
+> packages that do not ship their own types. IndeRun publishes first-party typed packages under `@independo/*`.
 
 ### Native SDKs
 
@@ -35,11 +54,14 @@ It will support:
 
 ## Documentation
 
-- Architecture: `docs/architecture/inderun-architecture.md`
+- Technical brief: `docs/architecture/technical-brief.md`
+- Architecture: `docs/architecture/architecture.md`
+- Providers: `docs/architecture/providers.md`
+- Agent entrypoint: `AGENTS.md`
 
 ---
 
-## Repository layout (high-level)
+## Repository layout (target high-level structure)
 
 ```
 inderun/
@@ -63,7 +85,8 @@ This repository is designed to support multiple platforms and packaging formats.
 - adapter contract tests (error mapping + event normalization)
 - platform integration tests (AsyncStream / Flow / Capacitor event channels)
 
-> Add concrete commands once the build tooling is finalized (pnpm/npm, Gradle, SwiftPM, etc.).
+> Add concrete commands once build tooling is finalized (pnpm/npm, Gradle, SwiftPM, etc.).
+> Do not assume or document commands as available until they are checked into this repository.
 
 ---
 
@@ -79,4 +102,11 @@ This repository is designed to support multiple platforms and packaging formats.
 
 ## License
 
-TBD. (Choose an OSI-approved license for OSS components; keep provider-specific integrations appropriately licensed.)
+MIT. See `LICENSE`.
+
+---
+
+## Sponsorship & Development
+
+This project is sponsored by [netidee](https://www.netidee.at/inderun) and developed
+by [Independo GmbH](https://www.independo.app).

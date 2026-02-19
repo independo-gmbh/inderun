@@ -1,4 +1,4 @@
-# IndeRun Architecture (Mode 1–3)
+# Architecture
 
 **Project:** IndeRun (by Independo)  
 **Scope in this document:** Interaction **Modes 1–3** (Run, Stream, Session).  
@@ -505,7 +505,7 @@ Host Services are the only place that touches OS APIs directly. Engine Core neve
 ```
 inderun/
   packages/                          # JS/TS workspace
-    inderun-types/                   # schema + generated TS types
+    inderun-contracts/               # schema + generated TS types
     inderun-web/                     # web sdk (public API + web host services + web providers)
     capacitor-inderun/               # capacitor facade + native bridge code
   core/                              # shared engine core (tech choice: Rust/TS/etc.)
@@ -572,7 +572,7 @@ We explicitly do **not** implement now:
 
 ## 16) Implementation plan (starter)
 
-1) Ship `@independo/inderun-types` (schema + TS types + validators).
+1) Ship `@independo/inderun-contracts` (schema + TS types + validators).
 2) Implement Engine Core minimal:
     - ProviderRegistry, Router (simple scoring), Orchestrator for Mode 1 & Mode 2,
     - Event Gate + cancellation semantics,
