@@ -69,13 +69,23 @@ Do not bypass these contract boundaries for short-term convenience.
 
 ## 6) Repository Reality (Do Not Invent Tooling)
 
-This repo is currently architecture-first. As of now, there are no authoritative build/test/lint commands checked in.
+This repo is currently architecture-first. Only commands checked into package manifests are authoritative.
 
 Rules:
 
 1. Do not fabricate commands or claim tests passed if no test harness exists.
 2. Prefer small, reviewable edits.
 3. If you add new tooling, document exact commands in `README.md` and update this `AGENTS.md`.
+
+Checked-in JavaScript commands:
+
+- `pnpm install`
+- `pnpm build`
+- `pnpm test`
+- `pnpm generate`
+- `pnpm --filter @independo/inderun-contracts generate`
+- `pnpm --filter @independo/inderun-contracts build`
+- `pnpm --filter @independo/inderun-contracts test`
 
 Useful discovery commands:
 

@@ -1,0 +1,34 @@
+{
+  "name": "@independo/inderun-contracts",
+  "version": "0.1.0",
+  "description": "Canonical JSON Schemas, generated TypeScript types, and validators for IndeRun contracts.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/*.json": "./schemas/*.json"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "generate": "node scripts/generate-types.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "json-schema-to-typescript": "^15.0.4",
+    "vitest": "^3.2.4"
+  }
+}

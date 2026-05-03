@@ -61,6 +61,11 @@ At project completion, a new developer should be able to:
 - Rely on automatic fallback across provider options.
 - Run documented examples on real devices.
 
+## First Implementation Milestone
+Milestone 1 starts with `@independo/inderun-contracts`: JSON Schema source files, generated TypeScript types, and runtime
+validators for Mode-1 text-to-text requests/results/errors. This package establishes the shared contract used by the
+later Web, iOS, Android, provider, and engine tickets.
+
 ## Success Criteria
 ### Minimum success
 - Fully functional IndeRun framework with policy-based runtime selection.

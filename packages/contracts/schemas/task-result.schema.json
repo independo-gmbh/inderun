@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/task-result.schema.json",
+  "title": "TaskResult",
+  "description": "Milestone-1 text-to-text result contract for Mode 1 run().",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "runId", "output", "finishReason", "telemetry"],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type", "text"],
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "finishReason": {
+      "enum": ["stop", "length", "cancelled", "error"]
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalTokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["providerUsed", "totalMs"],
+      "properties": {
+        "providerUsed": {
+          "type": "string",
+          "minLength": 1
+        },
+        "totalMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "errorClass": {
+          "enum": [
+            "CapabilityMismatch",
+            "Offline",
+            "AuthError",
+            "RateLimited",
+            "Timeout",
+            "Unavailable",
+            "Internal"
+          ]
+        }
+      }
+    }
+  }
+}

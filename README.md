@@ -85,8 +85,37 @@ This repository is designed to support multiple platforms and packaging formats.
 - adapter contract tests (error mapping + event normalization)
 - platform integration tests (AsyncStream / Flow / Capacitor event channels)
 
-> Add concrete commands once build tooling is finalized (pnpm/npm, Gradle, SwiftPM, etc.).
+> Add additional concrete commands once more build tooling is finalized (Gradle, SwiftPM, etc.).
 > Do not assume or document commands as available until they are checked into this repository.
+
+### Checked-in commands
+
+Install JavaScript dependencies:
+
+```sh
+pnpm install
+```
+
+Run all currently checked-in package builds and tests:
+
+```sh
+pnpm build
+pnpm test
+```
+
+Regenerate generated contract artifacts from JSON Schema:
+
+```sh
+pnpm generate
+```
+
+Contracts package only:
+
+```sh
+pnpm --filter @independo/inderun-contracts generate
+pnpm --filter @independo/inderun-contracts build
+pnpm --filter @independo/inderun-contracts test
+```
 
 ---
 
