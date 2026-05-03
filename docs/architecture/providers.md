@@ -221,7 +221,7 @@ These providers enable **developer-supplied** models for tasks like TTS, embeddi
 ## 4) How routing “sees” these providers (examples)
 
 ### 4.1 Milestone 1 (text→text, policy toggle)
-Policy: `execution = on_device | cloud`
+Request contract field: `policy.execution = on_device | cloud`
 
 - iOS candidates:
   - on-device: `AppleFoundationModelsProvider`
@@ -235,6 +235,9 @@ Policy: `execution = on_device | cloud`
 Routing rule (initial milestone):
 - if `on_device`: choose on-device provider if available else `CapabilityMismatch`
 - if `cloud`: choose OpenAI provider if online + auth else `Offline/AuthError`
+
+Providers must not require provider-specific public request fields for this milestone. Cloud credentials are referenced
+through `authContextRef`; direct keys or tokens in `TaskRequest` are invalid.
 
 ### 4.2 Later expansion (custom models)
 If you add Core ML or ExecuTorch:

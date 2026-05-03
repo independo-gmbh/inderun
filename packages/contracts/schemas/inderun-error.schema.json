@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/inderun-error.schema.json",
+  "title": "IndeRunError",
+  "description": "Normalized Milestone-1 error contract.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "errorClass", "message"],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "errorClass": {
+      "enum": [
+        "CapabilityMismatch",
+        "Offline",
+        "AuthError",
+        "RateLimited",
+        "Timeout",
+        "Unavailable",
+        "Internal"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "providerId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "retryAfterMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

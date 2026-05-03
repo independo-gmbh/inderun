@@ -151,6 +151,22 @@ Why:
 
 > Internally, native SDKs can use strongly typed structs/classes; the canonical wire form remains JSON.
 
+### 4.1.1 Milestone-1 contract subset
+
+The first implementation artifact is `@independo/inderun-contracts`, which defines the Mode-1 text-to-text subset:
+
+- `TaskRequest` with `schemaVersion = "1.0"`, `task.kind = "text_to_text"`, text input via `prompt` or text
+  `messages`, `policy.execution = "on_device" | "cloud"`, optional generation hints, telemetry preferences, and
+  `authContextRef`.
+- `TaskResult` with text output, finish reason, optional token usage, and required telemetry fields `providerUsed` and
+  `totalMs`.
+- `IndeRunError` with normalized milestone error classes: `CapabilityMismatch`, `Offline`, `AuthError`, `RateLimited`,
+  `Timeout`, `Unavailable`, and `Internal`.
+
+Milestone-1 schemas intentionally allow unknown fields for forward-compatible parsing. Implementations must ignore
+unknown fields they do not understand, but must still reject inline secret-like fields; credentials belong behind
+`authContextRef`.
+
 ### 4.2 Versioning rules
 
 - Every request/result/event includes `schemaVersion`.
