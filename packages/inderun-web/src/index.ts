@@ -32,3 +32,10 @@ export {
 } from "./errors.js";
 
 export { IndeRun } from "./engine.js";
+
+export {
+  type TelemetryEventType,
+  type TelemetryEvent,
+  type TelemetryService,
+  NoOpTelemetryService
+} from "./telemetry.js";

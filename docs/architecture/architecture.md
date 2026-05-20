@@ -403,7 +403,11 @@ Computed per request (or per session tick) using Host Services:
 
 7) **Telemetry**
 
-- standardized spans/events, configurable levels (off/minimal/debug)
+- Standardized spans/events, configurable levels (off/minimal/debug)
+- Emits structured telemetry events via the `TelemetryService` hook interface:
+  - `route_decided`: Emitted once the Router selects a deterministic provider. Contains selected provider ID, task kind, execution policy, and routing explanation.
+  - `attempt_succeeded`: Emitted on successful provider run, detailing provider ID and elapsed duration.
+  - `attempt_failed`: Emitted on validation, routing, or provider execution errors, detailing duration, error class, and message.
 
 ### 9.2 Routing algorithm (deterministic, inspectable)
 
