@@ -145,11 +145,13 @@ contract validation layer.
 #### C) `OpenAIProvider` (Web + iOS + Android)
 - **Type:** `cloud`
 - **Transport:** `http` (Mode 1), later `sse` (Mode 2), later `realtime` (Mode 3)
-- **Runtime:** OpenAI API (Responses API recommended)
+- **Runtime:** OpenAI Responses API for Mode 1
 - **Models:** configured by model name per environment/policy
 - **Primary tasks:** `text_to_text` (initially), later many modalities
 - **Notes:**
-  - **Production** should use a proxy/your backend (do not ship API keys to clients)
+  - **Production browser apps** should use a proxy/your backend (do not ship API keys to clients)
+  - the Web provider posts Responses-compatible JSON to either the OpenAI endpoint or a configured proxy endpoint
+  - direct OpenAI authentication must use `authContextRef` and `SecureStorageService`, never raw request fields
   - rate limits and transient errors require typed mapping and optional retry policies
 - **Cancellation:** `hard` for aborting HTTP/SSE where supported; otherwise `soft`
 
@@ -158,6 +160,13 @@ contract validation layer.
 - `supports.streaming = false` (until implemented)
 - `supports.realtime = false` (until implemented)
 - `privacy.dataLeavesDevice = true` (cloud egress)
+
+**Mode-1 Web error mapping:**
+- `401` / `403` -> `AuthError`
+- `429` -> `RateLimited`
+- `408` / `504` -> `Timeout`
+- `409` / `5xx` -> `Unavailable`
+- other non-2xx responses or malformed success payloads -> `Internal`
 
 ---
 
