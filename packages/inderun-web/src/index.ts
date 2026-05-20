@@ -42,3 +42,22 @@ export {
   type TelemetryService,
   NoOpTelemetryService
 } from "./telemetry.js";
+
+export {
+  BrowserConnectivityService,
+  FetchHttpClient,
+  SystemClockService,
+  createBrowserHostServices,
+  type CreateBrowserHostServicesOptions,
+  type FetchHttpClientOptions
+} from "./browser-host.js";
+
+export {
+  OpenAIResponsesProvider,
+  type OpenAIResponsesProviderOptions
+} from "./openai-provider.js";
+
+export {
+  createIndeRunWeb,
+  type CreateIndeRunWebOptions
+} from "./web-sdk.js";
