@@ -16,38 +16,47 @@
   ],
   "properties": {
     "schemaVersion": {
+      "description": "Contract schema version used to interpret the request payload.",
       "const": "1.0"
     },
     "requestId": {
+      "description": "Optional caller-provided idempotency/debug identifier for this request.",
       "type": "string",
       "minLength": 1
     },
     "task": {
+      "description": "Task descriptor used by routing and provider capability matching.",
       "type": "object",
       "additionalProperties": true,
       "required": ["kind"],
       "properties": {
         "kind": {
+          "description": "Milestone-1 task kind for text input to text output.",
           "const": "text_to_text"
         }
       }
     },
     "prompt": {
+      "description": "Single text prompt input for simple text-to-text execution.",
       "type": "string",
       "minLength": 1
     },
     "messages": {
+      "description": "Conversation-style text input for chat-like text-to-text execution.",
       "type": "array",
       "minItems": 1,
       "items": {
+        "description": "One message in the conversation input.",
         "type": "object",
         "additionalProperties": true,
         "required": ["role", "content"],
         "properties": {
           "role": {
+            "description": "Role of the message author.",
             "enum": ["system", "user", "assistant"]
           },
           "content": {
+            "description": "Text content for this message.",
             "type": "string",
             "minLength": 1
           }
@@ -55,27 +64,33 @@
       }
     },
     "generation": {
+      "description": "Optional provider-neutral generation hints.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "maxOutputTokens": {
+          "description": "Optional upper bound for generated output tokens.",
           "type": "integer",
           "minimum": 1
         },
         "temperature": {
+          "description": "Optional randomness hint where 0 is most deterministic and 2 is highest supported variance.",
           "type": "number",
           "minimum": 0,
           "maximum": 2
         },
         "topP": {
+          "description": "Optional nucleus sampling probability hint.",
           "type": "number",
           "minimum": 0,
           "maximum": 1
         },
         "seed": {
+          "description": "Optional deterministic generation seed when supported by the provider.",
           "type": "integer"
         },
         "stop": {
+          "description": "Optional stop sequences that should end generation when matched.",
           "type": "array",
           "items": {
             "type": "string"
@@ -84,26 +99,32 @@
       }
     },
     "policy": {
+      "description": "Execution policy constraints used by the router.",
       "type": "object",
       "additionalProperties": true,
       "required": ["execution"],
       "properties": {
         "execution": {
+          "description": "Required execution target for milestone routing.",
           "enum": ["on_device", "cloud"]
         }
       }
     },
     "telemetry": {
+      "description": "Caller telemetry preferences for this request.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "consent": {
+          "description": "Whether the caller consents to telemetry collection for this request.",
           "type": "boolean"
         },
         "level": {
+          "description": "Requested telemetry detail level.",
           "enum": ["off", "minimal", "debug"]
         },
         "tags": {
+          "description": "Optional caller-provided non-secret labels for telemetry correlation.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -112,6 +133,7 @@
       }
     },
     "authContextRef": {
+      "description": "Reference to a secure credential slot. Raw credentials must not be placed in the request.",
       "type": "string",
       "minLength": 1
     }

@@ -130,7 +130,10 @@ export class IndeRun {
       // 3. Execute the run task on the selected provider
       let result: TaskResult;
       try {
-        result = await provider.run(request, { runId });
+        result = await provider.run(request, {
+          runId,
+          hostServices: this.hostServices
+        });
       } catch (err) {
         const exc = toIndeRunException(err, {
           providerId: provider.describe().id,

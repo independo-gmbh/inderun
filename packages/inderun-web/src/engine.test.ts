@@ -4,7 +4,12 @@ import {
   IndeRun,
   ProviderRegistry,
   IndeRunException,
+  createAuthError,
+  createUnavailable,
   type HostServices,
+  type HttpClientService,
+  type HttpRequest,
+  type HttpResponse,
   type ProviderAdapter
 } from "./index.js";
 
@@ -90,9 +95,49 @@ function createMockCloudProvider(id: string, available = true): ProviderAdapter 
   };
 }
 
-function createMockHostServices(online = true): HostServices {
+class MockSecureStorage {
+  private slots = new Map<string, string>();
+
+  constructor(initialSlots: Record<string, string> = {}) {
+    for (const [slotId, secret] of Object.entries(initialSlots)) {
+      this.slots.set(slotId, secret);
+    }
+  }
+
+  async getSecret(slotId: string): Promise<string | null> {
+    return this.slots.get(slotId) ?? null;
+  }
+
+  async setSecret(slotId: string, secret: string): Promise<void> {
+    this.slots.set(slotId, secret);
+  }
+
+  async deleteSecret(slotId: string): Promise<void> {
+    this.slots.delete(slotId);
+  }
+}
+
+class MockHttpClient implements HttpClientService {
+  public readonly requests: HttpRequest[] = [];
+
+  async send(request: HttpRequest): Promise<HttpResponse> {
+    this.requests.push(request);
+
+    return {
+      status: 200,
+      statusText: "OK",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ outputText: "Mock authenticated cloud response" })
+    };
+  }
+}
+
+function createMockHostServices(
+  online = true,
+  services: Pick<Partial<HostServices>, "secureStorage" | "httpClient"> = {}
+): HostServices {
   let timeVal = 1000;
-  return {
+  const host: HostServices = {
     connectivity: {
       async isOnline() {
         return online;
@@ -104,6 +149,94 @@ function createMockHostServices(online = true): HostServices {
         timeVal += 50;
         return timeVal;
       }
+    }
+  };
+
+  if (services.secureStorage) {
+    host.secureStorage = services.secureStorage;
+  }
+
+  if (services.httpClient) {
+    host.httpClient = services.httpClient;
+  }
+
+  return host;
+}
+
+function createAuthenticatedMockCloudProvider(id: string): ProviderAdapter {
+  return {
+    describe() {
+      return {
+        id,
+        type: "cloud",
+        transport: "http",
+        supports: {
+          run: true,
+          streaming: false,
+          realtime: false,
+          tools: false,
+          reasoningEvents: false,
+          structuredOutput: false,
+          multimodal: false
+        },
+        cancel: "none",
+        tasks: ["text_to_text"],
+        privacy: { dataLeavesDevice: true }
+      };
+    },
+    async capabilities(host) {
+      if (host.secureStorage && host.httpClient) {
+        return { available: true };
+      }
+
+      return {
+        available: false,
+        reason: "Secure storage and HTTP client host services are required."
+      };
+    },
+    async run(req: TaskRequest, ctx): Promise<TaskResult> {
+      if (!req.authContextRef) {
+        throw createAuthError("AuthError: cloud provider requires authContextRef.");
+      }
+
+      const secret = await ctx.hostServices.secureStorage?.getSecret(req.authContextRef);
+      if (!secret) {
+        throw createAuthError(
+          `AuthError: no credential found for authContextRef '${req.authContextRef}'.`
+        );
+      }
+
+      const httpClient = ctx.hostServices.httpClient;
+      if (!httpClient) {
+        throw createUnavailable("Unavailable: HTTP client host service is not configured.");
+      }
+
+      const response = await httpClient.send({
+        method: "POST",
+        url: "https://api.example.test/v1/responses",
+        headers: {
+          Authorization: `Bearer ${secret}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          input: req.prompt
+        })
+      });
+
+      const body = JSON.parse(response.body) as { outputText: string };
+      return {
+        schemaVersion: "1.0",
+        runId: ctx.runId,
+        output: {
+          type: "text",
+          text: body.outputText
+        },
+        finishReason: "stop",
+        telemetry: {
+          providerUsed: id,
+          totalMs: 0
+        }
+      };
     }
   };
 }
@@ -363,6 +496,100 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         expect(err).toBeInstanceOf(IndeRunException);
         const exception = err as IndeRunException;
         expect(exception.errorClass).toBe("Unavailable");
+      }
+    });
+  });
+
+  describe("No secrets in requests via authContextRef", () => {
+    it("resolves authContextRef through SecureStorage and sends the HTTP Authorization header", async () => {
+      const provider = createAuthenticatedMockCloudProvider("mock-auth-cloud");
+      registry.register(provider);
+
+      const secureStorage = new MockSecureStorage({
+        "openai-dev": "sk-test-from-secure-storage"
+      });
+      const httpClient = new MockHttpClient();
+      const host = createMockHostServices(true, {
+        secureStorage,
+        httpClient
+      });
+      const engine = new IndeRun(registry, host);
+
+      const req: TaskRequest = {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "test prompt",
+        policy: { execution: "cloud" },
+        authContextRef: "openai-dev"
+      };
+
+      const result = await engine.run(req);
+
+      expect(result.output.text).toBe("Mock authenticated cloud response");
+      expect(result.telemetry.providerUsed).toBe("mock-auth-cloud");
+      expect(httpClient.requests).toHaveLength(1);
+      expect(httpClient.requests[0]?.headers?.Authorization).toBe(
+        "Bearer sk-test-from-secure-storage"
+      );
+      expect(httpClient.requests[0]?.body).not.toContain("sk-test-from-secure-storage");
+      expect(req).not.toHaveProperty("apiKey");
+      expect(req).not.toHaveProperty("token");
+    });
+
+    it("throws AuthError when authContextRef is missing", async () => {
+      const provider = createAuthenticatedMockCloudProvider("mock-auth-cloud");
+      registry.register(provider);
+
+      const host = createMockHostServices(true, {
+        secureStorage: new MockSecureStorage({
+          "openai-dev": "sk-test-from-secure-storage"
+        }),
+        httpClient: new MockHttpClient()
+      });
+      const engine = new IndeRun(registry, host);
+
+      const req: TaskRequest = {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "test prompt",
+        policy: { execution: "cloud" }
+      };
+
+      await expect(engine.run(req)).rejects.toThrowError(/requires authContextRef/);
+
+      try {
+        await engine.run(req);
+      } catch (err) {
+        expect(err).toBeInstanceOf(IndeRunException);
+        expect((err as IndeRunException).errorClass).toBe("AuthError");
+      }
+    });
+
+    it("throws AuthError when authContextRef points to an empty SecureStorage slot", async () => {
+      const provider = createAuthenticatedMockCloudProvider("mock-auth-cloud");
+      registry.register(provider);
+
+      const host = createMockHostServices(true, {
+        secureStorage: new MockSecureStorage(),
+        httpClient: new MockHttpClient()
+      });
+      const engine = new IndeRun(registry, host);
+
+      const req: TaskRequest = {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "test prompt",
+        policy: { execution: "cloud" },
+        authContextRef: "missing-slot"
+      };
+
+      await expect(engine.run(req)).rejects.toThrowError(/no credential found/);
+
+      try {
+        await engine.run(req);
+      } catch (err) {
+        expect(err).toBeInstanceOf(IndeRunException);
+        expect((err as IndeRunException).errorClass).toBe("AuthError");
       }
     });
   });

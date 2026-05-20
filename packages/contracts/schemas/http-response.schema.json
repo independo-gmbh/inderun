@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/http-response.schema.json",
+  "title": "HttpResponse",
+  "description": "Normalized HTTP response payload returned by host-provided cloud transport.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["status", "statusText", "headers", "body"],
+  "properties": {
+    "status": {
+      "description": "HTTP status code returned by the provider transport.",
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599
+    },
+    "statusText": {
+      "description": "HTTP status text returned by the provider transport.",
+      "type": "string"
+    },
+    "headers": {
+      "description": "HTTP response headers normalized to string key-value pairs.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "body": {
+      "description": "Serialized response body returned by the provider transport.",
+      "type": "string"
+    }
+  }
+}

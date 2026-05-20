@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getHttpRequestValidationIssues,
+  getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
   getTaskRequestValidationIssues,
+  getTelemetryEventValidationIssues,
+  validateHttpRequest,
+  validateHttpResponse,
   validateIndeRunError,
   validateTaskRequest,
-  validateTaskResult
+  validateTaskResult,
+  validateTelemetryEvent
 } from "./index.js";
 
 describe("TaskRequest validation", () => {
@@ -143,6 +149,88 @@ describe("IndeRunError validation", () => {
         errorClass: "ProviderExploded",
         message: "Nope"
       }).some((issue) => issue.path === "/errorClass")
+    ).toBe(true);
+  });
+});
+
+describe("Host-adjacent data validation", () => {
+  it("accepts a normalized HTTP request with Authorization after secure storage resolution", () => {
+    expect(
+      validateHttpRequest({
+        method: "POST",
+        url: "https://api.example.test/v1/responses",
+        headers: {
+          Authorization: "Bearer resolved-secret"
+        },
+        body: "{}",
+        timeoutMs: 1000
+      })
+    ).toBe(true);
+  });
+
+  it("rejects unsupported HTTP methods", () => {
+    expect(
+      getHttpRequestValidationIssues({
+        method: "TRACE",
+        url: "https://api.example.test"
+      }).some((issue) => issue.path === "/method")
+    ).toBe(true);
+  });
+
+  it("accepts a normalized HTTP response", () => {
+    expect(
+      validateHttpResponse({
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "application/json" },
+        body: "{}"
+      })
+    ).toBe(true);
+  });
+
+  it("rejects invalid HTTP status codes", () => {
+    expect(
+      getHttpResponseValidationIssues({
+        status: 99,
+        statusText: "Invalid",
+        headers: {},
+        body: ""
+      }).some((issue) => issue.path === "/status")
+    ).toBe(true);
+  });
+
+  it("accepts a normalized telemetry event", () => {
+    expect(
+      validateTelemetryEvent({
+        type: "route_decided",
+        runId: "run_123",
+        timestamp: 123,
+        payload: { selectedProviderId: "openai" }
+      })
+    ).toBe(true);
+  });
+
+  it("rejects unsupported telemetry event types", () => {
+    expect(
+      getTelemetryEventValidationIssues({
+        type: "unknown_event",
+        runId: "run_123",
+        timestamp: 123,
+        payload: {}
+      }).some((issue) => issue.path === "/type")
+    ).toBe(true);
+  });
+
+  it("rejects secret-like fields in telemetry payloads", () => {
+    expect(
+      getTelemetryEventValidationIssues({
+        type: "attempt_failed",
+        runId: "run_123",
+        timestamp: 123,
+        payload: {
+          apiKey: "sk-should-not-be-here"
+        }
+      }).some((issue) => issue.keyword === "forbiddenSecretKey")
     ).toBe(true);
   });
 });

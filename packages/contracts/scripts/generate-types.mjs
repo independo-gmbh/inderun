@@ -22,6 +22,21 @@ const schemas = [
     input: "inderun-error.schema.json",
     typeOutput: "inderun-error.ts",
     constName: "inderunErrorSchema"
+  },
+  {
+    input: "http-request.schema.json",
+    typeOutput: "http-request.ts",
+    constName: "httpRequestSchema"
+  },
+  {
+    input: "http-response.schema.json",
+    typeOutput: "http-response.ts",
+    constName: "httpResponseSchema"
+  },
+  {
+    input: "telemetry-event.schema.json",
+    typeOutput: "telemetry-event.ts",
+    constName: "telemetryEventSchema"
   }
 ];
 

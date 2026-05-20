@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/http-request.schema.json",
+  "title": "HttpRequest",
+  "description": "Normalized HTTP request payload for host-provided cloud transport.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["method", "url"],
+  "properties": {
+    "method": {
+      "description": "HTTP method to use for the request.",
+      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
+    },
+    "url": {
+      "description": "Absolute target URL for the provider transport request.",
+      "type": "string",
+      "minLength": 1
+    },
+    "headers": {
+      "description": "HTTP headers to send after the provider adapter has applied any required transport-level credentials.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "body": {
+      "description": "Optional serialized request body. For JSON APIs this should be a JSON string.",
+      "type": "string"
+    },
+    "timeoutMs": {
+      "description": "Optional maximum duration for the host transport attempt in milliseconds.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

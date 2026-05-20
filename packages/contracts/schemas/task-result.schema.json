@@ -8,60 +8,74 @@
   "required": ["schemaVersion", "runId", "output", "finishReason", "telemetry"],
   "properties": {
     "schemaVersion": {
+      "description": "Contract schema version used to interpret the result payload.",
       "const": "1.0"
     },
     "runId": {
+      "description": "Opaque run identifier assigned or normalized by the engine.",
       "type": "string",
       "minLength": 1
     },
     "output": {
+      "description": "Normalized text output returned by the selected provider.",
       "type": "object",
       "additionalProperties": true,
       "required": ["type", "text"],
       "properties": {
         "type": {
+          "description": "Output payload kind for milestone text-to-text execution.",
           "const": "text"
         },
         "text": {
+          "description": "Generated text returned to the caller.",
           "type": "string"
         }
       }
     },
     "finishReason": {
+      "description": "Normalized reason why generation ended.",
       "enum": ["stop", "length", "cancelled", "error"]
     },
     "usage": {
+      "description": "Optional normalized token usage information reported by the provider.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "inputTokens": {
+          "description": "Number of input tokens consumed, when reported by the provider.",
           "type": "integer",
           "minimum": 0
         },
         "outputTokens": {
+          "description": "Number of output tokens generated, when reported by the provider.",
           "type": "integer",
           "minimum": 0
         },
         "totalTokens": {
+          "description": "Total token count, when reported by the provider.",
           "type": "integer",
           "minimum": 0
         }
       }
     },
     "telemetry": {
+      "description": "Required minimal telemetry summary attached to every result.",
       "type": "object",
       "additionalProperties": true,
       "required": ["providerUsed", "totalMs"],
       "properties": {
         "providerUsed": {
+          "description": "Identifier of the provider selected for the completed attempt.",
           "type": "string",
           "minLength": 1
         },
         "totalMs": {
+          "description": "Total measured execution duration in milliseconds.",
           "type": "number",
           "minimum": 0
         },
         "errorClass": {
+          "description": "Optional normalized error class if the result represents a provider-level error outcome.",
           "enum": [
             "CapabilityMismatch",
             "Offline",
