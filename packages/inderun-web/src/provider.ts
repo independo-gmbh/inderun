@@ -99,6 +99,11 @@ export interface RunContext {
    * Unique execution run ID.
    */
   runId: string;
+  /**
+   * Host service boundary for provider adapters. Cloud adapters use this to
+   * resolve authContextRef through secure storage and dispatch HTTP requests.
+   */
+  hostServices: HostServices;
 }
 
 /**

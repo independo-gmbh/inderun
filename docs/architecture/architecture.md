@@ -469,7 +469,20 @@ interface ProviderSession {
   interrupt(reason?: string): Promise<void>
   close(reason?: string): Promise<void>
 }
+
+interface RunContext {
+  runId: string
+  hostServices: HostServices
+}
 ```
+
+Provider adapters receive `HostServices` through `RunContext` so provider-specific integration stays behind the adapter
+boundary. Cloud adapters must resolve `request.authContextRef` with `hostServices.secureStorage.getSecret(...)` and then
+dispatch provider HTTP calls through `hostServices.httpClient.send(...)`. They must not require raw credentials in
+`TaskRequest`.
+
+Serializable payloads used by these boundaries, such as `HttpRequest`, `HttpResponse`, and `TelemetryEvent`, are
+schema-backed contracts so TypeScript, Swift, Kotlin, and bridge implementations can share the same data shapes.
 
 ### 10.1 Bridging reality (what adapters normalize)
 
@@ -490,11 +503,17 @@ Host Services are the only place that touches OS APIs directly. Engine Core neve
 
 ### 11.1 Minimum HostServices
 
-- `ConnectivityService`: online, metered, bandwidth class, DNS reachability
-- `DeviceConstraintsService`: thermal state, low power mode, memory class, battery level
-- `SecureStorage`: Keychain/Keystore/WebCrypto wrappers; credential slots
-- `Clock`: monotonic and wall clock
-- `Crypto`: hashing/signature verification (for cache keys / fingerprints)
+- `ConnectivityService`: online/offline reachability for cloud route selection.
+- `DeviceConstraintsService`: thermal state and low power mode signals.
+- `SecureStorageService`: Keychain/Keystore/WebCrypto-style credential slots addressed by `authContextRef`.
+- `ClockService`: wall clock and optional monotonic clock for timeout and telemetry timing.
+- `HttpClientService`: normalized HTTP request/response transport for cloud providers. Its `HttpRequest` and
+  `HttpResponse` payloads are schema-backed.
+- `TelemetryService`: normalized engine/provider event hook. Its `TelemetryEvent` payload is schema-backed.
+
+Credential material belongs in `SecureStorageService`, not in app-facing request payloads. A cloud provider may place a
+resolved secret into the provider transport layer, such as an HTTP `Authorization` header, only after resolving it inside
+the adapter from `authContextRef`.
 
 ### 11.2 Optional HostServices for Mode 3 (sessions)
 

@@ -2,13 +2,19 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
 import type { IndeRunError } from "./generated/inderun-error.js";
+import type { HttpRequest } from "./generated/http-request.js";
+import type { HttpResponse } from "./generated/http-response.js";
 import {
+  httpRequestSchema,
+  httpResponseSchema,
   inderunErrorSchema,
   taskRequestSchema,
-  taskResultSchema
+  taskResultSchema,
+  telemetryEventSchema
 } from "./generated/index.js";
 import type { TaskRequest } from "./generated/task-request.js";
 import type { TaskResult } from "./generated/task-result.js";
+import type { TelemetryEvent } from "./generated/telemetry-event.js";
 
 type Ajv2020Constructor = typeof import("ajv/dist/2020.js").Ajv2020;
 
@@ -30,6 +36,9 @@ const ajv = new Ajv2020Constructor({
 const validateTaskRequestSchema = ajv.compile(taskRequestSchema);
 const validateTaskResultSchema = ajv.compile(taskResultSchema);
 const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
+const validateHttpRequestSchema = ajv.compile(httpRequestSchema);
+const validateHttpResponseSchema = ajv.compile(httpResponseSchema);
+const validateTelemetryEventSchema = ajv.compile(telemetryEventSchema);
 
 export function validateTaskRequest(value: unknown): value is TaskRequest {
   return getTaskRequestValidationIssues(value).length === 0;
@@ -43,26 +52,65 @@ export function validateIndeRunError(value: unknown): value is IndeRunError {
   return getIndeRunErrorValidationIssues(value).length === 0;
 }
 
+export function validateHttpRequest(value: unknown): value is HttpRequest {
+  return getHttpRequestValidationIssues(value).length === 0;
+}
+
+export function validateHttpResponse(value: unknown): value is HttpResponse {
+  return getHttpResponseValidationIssues(value).length === 0;
+}
+
+export function validateTelemetryEvent(value: unknown): value is TelemetryEvent {
+  return getTelemetryEventValidationIssues(value).length === 0;
+}
+
 export function getTaskRequestValidationIssues(value: unknown): ValidationIssue[] {
-  return getValidationIssues(validateTaskRequestSchema, value);
+  return getValidationIssues(validateTaskRequestSchema, value, {
+    forbidInlineSecrets: true
+  });
 }
 
 export function getTaskResultValidationIssues(value: unknown): ValidationIssue[] {
-  return getValidationIssues(validateTaskResultSchema, value);
+  return getValidationIssues(validateTaskResultSchema, value, {
+    forbidInlineSecrets: true
+  });
 }
 
 export function getIndeRunErrorValidationIssues(value: unknown): ValidationIssue[] {
-  return getValidationIssues(validateIndeRunErrorSchema, value);
+  return getValidationIssues(validateIndeRunErrorSchema, value, {
+    forbidInlineSecrets: true
+  });
 }
 
-function getValidationIssues(validateSchema: ValidateFunction, value: unknown): ValidationIssue[] {
+export function getHttpRequestValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateHttpRequestSchema, value);
+}
+
+export function getHttpResponseValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateHttpResponseSchema, value);
+}
+
+export function getTelemetryEventValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateTelemetryEventSchema, value, {
+    forbidInlineSecrets: true
+  });
+}
+
+function getValidationIssues(
+  validateSchema: ValidateFunction,
+  value: unknown,
+  options: { forbidInlineSecrets?: boolean } = {}
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
   if (!validateSchema(value)) {
     issues.push(...formatAjvIssues(validateSchema.errors ?? []));
   }
 
-  issues.push(...findInlineSecretKeys(value));
+  if (options.forbidInlineSecrets) {
+    issues.push(...findInlineSecretKeys(value));
+  }
+
   return issues;
 }
 

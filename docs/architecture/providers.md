@@ -87,8 +87,13 @@ Evaluated at runtime (per request or per session tick):
 
 - availability of system API/runtime
 - network reachability (for cloud)
-- auth availability (credential slots)
+- host service availability, including secure credential storage and normalized HTTP transport for cloud providers
+- auth availability (credential slots referenced by `authContextRef`)
 - device constraints (thermal/low-power/memory class)
+
+Cloud providers must resolve credentials through `host.secureStorage` using `request.authContextRef` during execution.
+They must not accept raw API keys, bearer tokens, or provider secrets on `TaskRequest`; those fields are invalid at the
+contract validation layer.
 
 ---
 
@@ -238,6 +243,11 @@ Routing rule (initial milestone):
 
 Providers must not require provider-specific public request fields for this milestone. Cloud credentials are referenced
 through `authContextRef`; direct keys or tokens in `TaskRequest` are invalid.
+
+At execution time the cloud adapter resolves the credential slot via `SecureStorageService` and performs provider network
+calls through `HttpClientService`. Missing or empty credential slots map to the normalized `AuthError` class.
+The `HttpRequest` and `HttpResponse` transport payloads are schema-backed contracts; the `HttpClientService` callable
+interface remains a language-native host service.
 
 ### 4.2 Later expansion (custom models)
 If you add Core ML or ExecuTorch:

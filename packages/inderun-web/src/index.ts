@@ -3,6 +3,9 @@ export {
   type DeviceConstraintsService,
   type SecureStorageService,
   type ClockService,
+  type HttpClientService,
+  type HttpRequest,
+  type HttpResponse,
   type HostServices,
   type ThermalState
 } from "./host.js";

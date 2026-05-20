@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/telemetry-event.schema.json",
+  "title": "TelemetryEvent",
+  "description": "Normalized telemetry event emitted by the orchestrator and providers.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["type", "runId", "timestamp", "payload"],
+  "properties": {
+    "type": {
+      "description": "Telemetry event kind emitted by the orchestrator or provider integration.",
+      "enum": ["route_decided", "attempt_succeeded", "attempt_failed"]
+    },
+    "runId": {
+      "description": "Opaque run identifier associated with this execution event.",
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "description": "Wall-clock event timestamp in Unix epoch milliseconds.",
+      "type": "number",
+      "minimum": 0
+    },
+    "payload": {
+      "description": "Event-specific metadata. It must not contain prompt payloads or raw secrets.",
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
