@@ -190,8 +190,8 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const result = await engine.run(req);
       expect(result.output.text).toBe("Mock local response: test prompt");
       expect(result.telemetry.providerUsed).toBe("mock-local-1");
-      // Timings: the mock clock is read only at start and end, so total elapsed time is one 50ms increment.
-      expect(result.telemetry.totalMs).toBe(50);
+      // Timings: mock clock is read at start, route_decided emission, and end telemetry (total 3 reads).
+      expect(result.telemetry.totalMs).toBe(100);
     });
 
     it("ensures the result runId matches the engine's runId", async () => {
@@ -284,7 +284,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const result = await engine.run(req);
       expect(result.output.text).toBe("Mock cloud response: test prompt");
       expect(result.telemetry.providerUsed).toBe("mock-cloud-1");
-      expect(result.telemetry.totalMs).toBe(50);
+      expect(result.telemetry.totalMs).toBe(100);
     });
 
     it("throws Offline if cloud execution is selected but the device is offline", async () => {
@@ -364,6 +364,171 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         const exception = err as IndeRunException;
         expect(exception.errorClass).toBe("Unavailable");
       }
+    });
+  });
+
+  describe("Telemetry Event Emission", () => {
+    class MockTelemetryService {
+      public events: any[] = [];
+      emit(event: any) {
+        this.events.push(event);
+      }
+    }
+
+    it("emits route_decided and attempt_succeeded on successful run", async () => {
+      const provider = createMockLocalProvider("mock-local-1", true);
+      registry.register(provider);
+
+      const host = createMockHostServices(true);
+      const telemetry = new MockTelemetryService();
+      const engine = new IndeRun(registry, host, telemetry);
+
+      const req: TaskRequest = {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "hello telemetry",
+        policy: { execution: "on_device" },
+        requestId: "test-run-1"
+      };
+
+      await engine.run(req);
+
+      expect(telemetry.events).toHaveLength(2);
+      expect(telemetry.events[0]).toMatchObject({
+        type: "route_decided",
+        runId: "test-run-1",
+        payload: {
+          selectedProviderId: "mock-local-1",
+          executionPolicy: "on_device",
+          taskKind: "text_to_text"
+        }
+      });
+      expect(telemetry.events[1]).toMatchObject({
+        type: "attempt_succeeded",
+        runId: "test-run-1",
+        payload: {
+          providerId: "mock-local-1",
+          durationMs: 100
+        }
+      });
+    });
+
+    it("emits attempt_failed on routing failure (e.g. offline)", async () => {
+      const provider = createMockCloudProvider("mock-cloud-1", true);
+      registry.register(provider);
+
+      const host = createMockHostServices(false); // offline
+      const telemetry = new MockTelemetryService();
+      const engine = new IndeRun(registry, host, telemetry);
+
+      const req: TaskRequest = {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "hello telemetry fail",
+        policy: { execution: "cloud" },
+        requestId: "test-run-fail"
+      };
+
+      await expect(engine.run(req)).rejects.toThrow();
+
+      expect(telemetry.events).toHaveLength(1);
+      expect(telemetry.events[0]).toMatchObject({
+        type: "attempt_failed",
+        runId: "test-run-fail",
+        payload: {
+          providerId: null, // no provider selected since offline routing failed early
+          durationMs: 50,
+          errorClass: "Offline",
+          message: "Device is offline."
+        }
+      });
+    });
+
+    it("emits route_decided and attempt_failed if provider execution throws", async () => {
+      const failingProvider: ProviderAdapter = {
+        describe() {
+          return {
+            id: "failing-provider",
+            type: "local",
+            transport: "system_service",
+            supports: {
+              run: true,
+              streaming: false,
+              realtime: false,
+              tools: false,
+              reasoningEvents: false,
+              structuredOutput: false,
+              multimodal: false
+            },
+            cancel: "none",
+            tasks: ["text_to_text"]
+          };
+        },
+        async capabilities() {
+          return { available: true };
+        },
+        async run() {
+          throw new Error("Simulated provider failure");
+        }
+      };
+      registry.register(failingProvider);
+
+      const host = createMockHostServices(true);
+      const telemetry = new MockTelemetryService();
+      const engine = new IndeRun(registry, host, telemetry);
+
+      const req: TaskRequest = {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "hello provider fail",
+        policy: { execution: "on_device" },
+        requestId: "test-run-provider-fail"
+      };
+
+      await expect(engine.run(req)).rejects.toThrow();
+
+      expect(telemetry.events).toHaveLength(2);
+      expect(telemetry.events[0]).toMatchObject({
+        type: "route_decided",
+        runId: "test-run-provider-fail",
+        payload: {
+          selectedProviderId: "failing-provider"
+        }
+      });
+      expect(telemetry.events[1]).toMatchObject({
+        type: "attempt_failed",
+        runId: "test-run-provider-fail",
+        payload: {
+          providerId: "failing-provider",
+          durationMs: 100,
+          errorClass: "Internal",
+          message: "An internal engine error occurred."
+        }
+      });
+    });
+
+    it("does not fail execution if the telemetry service emit throws an error", async () => {
+      const provider = createMockLocalProvider("mock-local-1", true);
+      registry.register(provider);
+
+      const host = createMockHostServices(true);
+      const throwingTelemetry = {
+        emit() {
+          throw new Error("Simulated telemetry service failure");
+        }
+      };
+      const engine = new IndeRun(registry, host, throwingTelemetry);
+
+      const req: TaskRequest = {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "hello telemetry throw",
+        policy: { execution: "on_device" }
+      };
+
+      // Execution should complete successfully even if emit throws
+      const result = await engine.run(req);
+      expect(result.output.text).toBe("Mock local response: hello telemetry throw");
     });
   });
 });

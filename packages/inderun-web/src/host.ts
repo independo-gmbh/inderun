@@ -1,3 +1,5 @@
+import type { TelemetryService } from "./telemetry.js";
+
 /**
  * Service to inspect and monitor network connectivity status.
  */
@@ -81,4 +83,8 @@ export interface HostServices {
    * Clock service.
    */
   clock?: ClockService;
+  /**
+   * Telemetry service to monitor execution steps, latency, and success rates.
+   */
+  telemetry?: TelemetryService;
 }
