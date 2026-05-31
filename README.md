@@ -35,7 +35,7 @@ task execution from provider specifics so applications can:
 
 ### JavaScript/TypeScript (npm, under `@independo/…`)
 
-- `@independo/inderun-contracts` — canonical schema (JSON Schema) + generated TS types + validators
+- `@independo/inderun-contracts` — generated TS types, schema constants, and validators
 - `@independo/inderun-web` — Web SDK (public API + web HostServices + web providers)
 - `@independo/capacitor-inderun` — Capacitor facade/bridge (thin wrapper delegating to web + native SDKs)
 
@@ -65,6 +65,8 @@ task execution from provider specifics so applications can:
 
 ```
 inderun/
+  contracts/
+    schemas/                  # canonical JSON Schema sources shared by TS, Swift, Kotlin, and bridges
   packages/                 # JS/TS workspace (@independo/*)
   core/                     # shared engine core (routing/policy/orchestrator/events)
   ios/                      # iOS SDK (Swift Package)
@@ -103,7 +105,7 @@ pnpm build
 pnpm test
 ```
 
-Regenerate generated contract artifacts from JSON Schema:
+Regenerate generated contract artifacts from `contracts/schemas`:
 
 ```sh
 pnpm generate
@@ -112,9 +114,22 @@ pnpm generate
 Contracts package only:
 
 ```sh
-pnpm --filter @independo/inderun-contracts generate
 pnpm --filter @independo/inderun-contracts build
 pnpm --filter @independo/inderun-contracts test
+```
+
+### Swift (iOS SDK) Package commands
+
+Build the iOS/Swift SDK:
+
+```sh
+cd ios/IndeRun && swift build
+```
+
+Run iOS/Swift SDK unit tests:
+
+```sh
+cd ios/IndeRun && swift test
 ```
 
 ---

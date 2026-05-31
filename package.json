@@ -6,9 +6,11 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "generate": "pnpm -r generate"
+    "generate": "node contracts/scripts/generate-contracts.mjs",
+    "upgrade": "corepack prepare pnpm@latest --activate && pnpm --recursive update"
   },
   "devDependencies": {
+    "quicktype": "^23.2.6",
     "typescript": "^5.9.3"
   }
 }

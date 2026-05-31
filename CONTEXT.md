@@ -83,9 +83,13 @@ Checked-in JavaScript commands:
 - `pnpm build`
 - `pnpm test`
 - `pnpm generate`
-- `pnpm --filter @independo/inderun-contracts generate`
 - `pnpm --filter @independo/inderun-contracts build`
 - `pnpm --filter @independo/inderun-contracts test`
+
+Checked-in Swift commands:
+
+- `cd ios/IndeRun && swift build`
+- `cd ios/IndeRun && swift test`
 
 Useful discovery commands:
 
