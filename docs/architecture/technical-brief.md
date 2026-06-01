@@ -62,9 +62,10 @@ At project completion, a new developer should be able to:
 - Run documented examples on real devices.
 
 ## First Implementation Milestone
-Milestone 1 starts with `@independo/inderun-contracts`: JSON Schema source files, generated TypeScript types, runtime
-validators for Mode-1 text-to-text requests/results/errors, and shared HostServices interfaces for platform services.
-This package establishes the shared contract used by the later Web, iOS, Android, provider, and engine tickets.
+Milestone 1 starts with repository-level JSON Schema source files under `contracts/schemas`, generated TypeScript types,
+generated Swift contract models, runtime validators for Mode-1 text-to-text requests/results/errors, and shared
+HostServices interfaces/protocols for platform services. These artifacts establish the shared contract used by the later
+Web, iOS, Android, provider, and engine tickets.
 
 HostServices in this milestone cover connectivity, secure credential slots, clock access, telemetry hooks, device
 constraints, and normalized HTTP transport for cloud providers. Cloud credentials must be referenced by `authContextRef`

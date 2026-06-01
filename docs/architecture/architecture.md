@@ -483,6 +483,8 @@ dispatch provider HTTP calls through `hostServices.httpClient.send(...)`. They m
 
 Serializable payloads used by these boundaries, such as `HttpRequest`, `HttpResponse`, and `TelemetryEvent`, are
 schema-backed contracts so TypeScript, Swift, Kotlin, and bridge implementations can share the same data shapes.
+Repository-level schemas under `contracts/schemas` are the source of truth; language-specific contract models are
+generated from those schemas.
 
 ### 10.1 Bridging reality (what adapters normalize)
 
@@ -543,17 +545,19 @@ the adapter from `authContextRef`.
 
 ```
 inderun/
+  contracts/
+    schemas/                          # canonical JSON schema (source of truth)
   packages/                          # JS/TS workspace
-    inderun-contracts/               # schema + generated TS types
+    inderun-contracts/               # generated TS types, schema constants, validators
     inderun-web/                     # web sdk (public API + web host services + web providers)
     capacitor-inderun/               # capacitor facade + native bridge code
   core/                              # shared engine core (tech choice: Rust/TS/etc.)
     engine/                          # routing/policy/orchestrator/event gate
-    schema/                          # canonical JSON schema (source of truth)
     providers/                       # built-in provider adapters (optional)
     tests/
   ios/
     IndeRun/                         # Swift Package
+      Sources/IndeRunContracts/      # generated Swift schema-backed contracts
       Sources/IndeRunSwift/
       Sources/IndeRunCore/
   android/
