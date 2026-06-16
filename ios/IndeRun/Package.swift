@@ -17,6 +17,10 @@ let package = Package(
             targets: ["IndeRunSwift"]
         ),
         .library(
+            name: "IndeRunCore",
+            targets: ["IndeRunCore"]
+        ),
+        .library(
             name: "IndeRunAppleProviders",
             targets: ["IndeRunAppleProviders"]
         )

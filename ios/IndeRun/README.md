@@ -90,6 +90,11 @@ Runtime availability depends on the host OS and Apple system model state. The pr
 when the framework is present and the runtime is available; otherwise `capabilities()` returns unavailable and the
 router rejects `onDevice` requests with `CapabilityMismatch`.
 
+## Sample App
+
+A checked-in iOS smoke-test app lives at `ios/SampleApps/AppleOnDeviceSmokeTest`.
+Use its local README for device requirements, Xcode setup, and manual run steps on a real Apple Intelligence device.
+
 ---
 
 ## Development
