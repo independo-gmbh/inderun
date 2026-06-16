@@ -15,6 +15,14 @@ let package = Package(
         .library(
             name: "IndeRun",
             targets: ["IndeRunSwift"]
+        ),
+        .library(
+            name: "IndeRunCore",
+            targets: ["IndeRunCore"]
+        ),
+        .library(
+            name: "IndeRunAppleProviders",
+            targets: ["IndeRunAppleProviders"]
         )
     ],
     dependencies: [],
@@ -31,9 +39,13 @@ let package = Package(
             name: "IndeRunCore",
             dependencies: ["IndeRunContracts"]
         ),
+        .target(
+            name: "IndeRunAppleProviders",
+            dependencies: ["IndeRunCore", "IndeRunContracts"]
+        ),
         .testTarget(
             name: "IndeRunTests",
-            dependencies: ["IndeRunSwift", "IndeRunContracts", "IndeRunCore"]
+            dependencies: ["IndeRunSwift", "IndeRunContracts", "IndeRunCore", "IndeRunAppleProviders"]
         )
     ]
 )

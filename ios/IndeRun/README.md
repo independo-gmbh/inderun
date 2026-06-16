@@ -25,6 +25,8 @@ The package is split into two targets to separate the core orchestrator infrastr
   - `Errors.swift`: Unified exceptions mapping.
 - **`IndeRunSwift`**:
   - `IndeRun.swift`: The public API surface for initiating runs.
+- **`IndeRunAppleProviders`**:
+  - `AppleFoundationModelsProvider.swift`: iOS/macOS on-device Mode-1 text-to-text provider backed by Apple Foundation Models.
 
 ---
 
@@ -50,16 +52,16 @@ Or add it directly in Xcode using the local folder reference.
 ```swift
 import IndeRunSwift
 import IndeRunCore
+import IndeRunAppleProviders
 
 // 1. Initialize host services
 let hostServices = DefaultHostServices.make(
     telemetry: MyTelemetryService()
 )
 
-// 2. Setup registry and register providers
-let registry = ProviderRegistry()
-try registry.register(MyLocalModelProvider())
-try registry.register(OpenAICloudProvider())
+// 2. Setup registry and register providers. This helper registers the Apple
+// Foundation Models on-device provider; add cloud providers separately.
+let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
 
 // 3. Initialize the SDK
 let inderun = IndeRun(registry: registry, hostServices: hostServices)
@@ -77,6 +79,21 @@ do {
     print("Task failed: \(error.errorClass) - \(error.message)")
 }
 ```
+
+### Apple Foundation Models provider
+
+`AppleFoundationModelsProvider` is available through the `IndeRunAppleProviders` product. It supports Mode-1
+`text_to_text` requests with `Policy(execution: .onDevice)`, reports local/system-service provider metadata, and maps
+Apple system model unavailability to the normalized `CapabilityMismatch` flow.
+
+Runtime availability depends on the host OS and Apple system model state. The provider uses Apple Foundation Models only
+when the framework is present and the runtime is available; otherwise `capabilities()` returns unavailable and the
+router rejects `onDevice` requests with `CapabilityMismatch`.
+
+## Sample App
+
+A checked-in iOS smoke-test app lives at `ios/SampleApps/AppleOnDeviceSmokeTest`.
+Use its local README for device requirements, Xcode setup, and manual run steps on a real Apple Intelligence device.
 
 ---
 
