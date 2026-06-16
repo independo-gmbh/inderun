@@ -106,18 +106,23 @@ contract validation layer.
 - **Transport:** `system_service` (conceptually; implementation may be framework calls)
 - **Runtime:** Apple Foundation Models framework
 - **Models:** Apple-managed on-device models (not shipped as your weights)
-- **Primary tasks:** `text_to_text` (initially)
+- **Primary tasks:** `text_to_text` for Mode 1 `run()`
 - **Notes:**
-  - availability varies by device/OS/region and must be checked dynamically
+  - implemented in the iOS Swift package as an explicitly registered provider through `IndeRunAppleProviders`
+  - availability varies by OS, device eligibility, Apple Intelligence enablement, and model readiness, and is checked dynamically
   - model choice/config may be constrained by system API
-- **Cancellation:** often `soft` (unless API supports interrupt); IndeRun enforces “no events after cancel” via gating
+- **Cancellation:** `soft`; Mode 2 stream/session cancellation is not implemented in this provider yet
 
 **Typical capability flags (initial milestone):**
 - `supports.run = true`
-- `supports.streaming = false` (until confirmed/implemented)
-- `supports.realtime = false` (until confirmed/implemented)
-- `supports.tools = false` (until implemented)
+- `supports.streaming = false`
+- `supports.realtime = false`
+- `supports.tools = false`
 - `privacy.dataLeavesDevice = false`
+
+**Mode-1 Swift error mapping:**
+- system model unavailable before route selection or execution -> `CapabilityMismatch`
+- unexpected Foundation Models/runtime failures -> `Internal`
 
 ---
 

@@ -154,6 +154,24 @@ function addJSONAnyValueInitializer(source) {
   );
 }
 
+/**
+ * Replaces quicktype's deprecated Swift `JSONNull.hashValue` implementation
+ * with the modern `hash(into:)` Hashable requirement.
+ *
+ * @param {string} source Generated Swift contract source.
+ * @returns {string} Swift source with warning-free JSONNull Hashable conformance.
+ */
+function updateJSONNullHashableConformance(source) {
+  return source.replace(
+    `    public var hashValue: Int {
+            return 0
+    }`,
+    `    public func hash(into hasher: inout Hasher) {
+            hasher.combine(0)
+    }`
+  );
+}
+
 const tempDir = await mkdtemp(join(tmpdir(), "inderun-quicktype-"));
 const quicktypeOutputPath = join(tempDir, "Contracts.swift");
 
@@ -179,6 +197,7 @@ try {
 
   let swiftSource = await readFile(quicktypeOutputPath, "utf8");
   swiftSource = addJSONAnyValueInitializer(swiftSource);
+  swiftSource = updateJSONNullHashableConformance(swiftSource);
   swiftSource = replaceAll(swiftSource, [
     ["HTTPRequest", "HttpRequest"],
     ["HTTPResponse", "HttpResponse"],

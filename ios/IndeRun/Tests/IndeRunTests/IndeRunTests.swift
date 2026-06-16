@@ -1,6 +1,7 @@
 import XCTest
 import IndeRunContracts
 import IndeRunCore
+@testable import IndeRunAppleProviders
 @testable import IndeRunSwift
 
 // MARK: - Mocks for Testing
@@ -79,6 +80,31 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
             finishReason: .stop,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
         )
+    }
+}
+
+/// Test double for the Apple provider runtime seam.
+///
+/// Keeps provider tests independent of the host OS, hardware eligibility, and
+/// Apple Intelligence model readiness.
+final class MockAppleFoundationModelsRuntime: AppleFoundationModelsRuntime, @unchecked Sendable {
+    var availabilityValue: AppleFoundationModelsAvailability = .available
+    var responseText = "Apple response"
+    var thrownError: Error?
+    private(set) var receivedPrompt: String?
+    private(set) var receivedOptions: AppleFoundationModelsGenerationOptions?
+
+    func availability() async -> AppleFoundationModelsAvailability {
+        availabilityValue
+    }
+
+    func respond(to prompt: String, options: AppleFoundationModelsGenerationOptions) async throws -> String {
+        receivedPrompt = prompt
+        receivedOptions = options
+        if let thrownError {
+            throw thrownError
+        }
+        return responseText
     }
 }
 
@@ -313,5 +339,123 @@ final class IndeRunTests: XCTestCase {
         await storage.deleteSecret(slotId: slotId)
         let deleted = await storage.getSecret(slotId: slotId)
         XCTAssertNil(deleted)
+    }
+
+    func testAppleFoundationModelsDescriptor() {
+        let provider = AppleFoundationModelsProvider(runtime: MockAppleFoundationModelsRuntime())
+        let descriptor = provider.describe()
+
+        XCTAssertEqual(descriptor.id, AppleFoundationModelsProvider.defaultId)
+        XCTAssertEqual(descriptor.type, .local)
+        XCTAssertEqual(descriptor.transport, .systemService)
+        XCTAssertTrue(descriptor.supports.run)
+        XCTAssertFalse(descriptor.supports.streaming)
+        XCTAssertFalse(descriptor.supports.realtime)
+        XCTAssertEqual(descriptor.cancel, .soft)
+        XCTAssertEqual(descriptor.tasks, ["text_to_text"])
+        XCTAssertEqual(descriptor.privacy?.dataLeavesDevice, false)
+    }
+
+    func testAppleFoundationModelsCapabilitiesUnavailable() async {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.availabilityValue = .unavailable(reason: "model not ready")
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertFalse(capabilities.available)
+    }
+
+    func testAppleFoundationModelsRunReturnsTaskResult() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.responseText = "Bonjour"
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(
+            prompt: "Translate hello",
+            generation: Generation(maxOutputTokens: 32, seed: 123, stop: ["."], temperature: 0.2, topP: 0.9),
+            policy: Policy(execution: .onDevice)
+        )
+
+        let result = try await provider.run(
+            request: request,
+            context: RunContext(runId: "run_apple", hostServices: hostServices)
+        )
+
+        XCTAssertEqual(result.runId, "run_apple")
+        XCTAssertEqual(result.output.text, "Bonjour")
+        XCTAssertEqual(result.finishReason, .stop)
+        XCTAssertEqual(result.telemetry.providerUsed, AppleFoundationModelsProvider.defaultId)
+        XCTAssertEqual(runtime.receivedPrompt, "Translate hello")
+        XCTAssertEqual(runtime.receivedOptions?.maxOutputTokens, 32)
+        XCTAssertEqual(runtime.receivedOptions?.temperature, 0.2)
+    }
+
+    func testAppleFoundationModelsRunNormalizesMessages() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(
+            prompt: "ignored when messages exist",
+            messages: [
+                Message(role: .system, content: "Be concise."),
+                Message(role: .user, content: "Summarize this.")
+            ],
+            policy: Policy(execution: .onDevice)
+        )
+
+        _ = try await provider.run(
+            request: request,
+            context: RunContext(runId: "run_messages", hostServices: hostServices)
+        )
+
+        XCTAssertEqual(runtime.receivedPrompt, "system: Be concise.\nuser: Summarize this.")
+    }
+
+    func testAppleFoundationModelsRunThrowsCapabilityMismatchWhenUnavailable() async {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.availabilityValue = .unavailable(reason: "Apple Intelligence disabled")
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(prompt: "Hello", policy: Policy(execution: .onDevice))
+
+        do {
+            _ = try await provider.run(
+                request: request,
+                context: RunContext(runId: "run_unavailable", hostServices: hostServices)
+            )
+            XCTFail("Should have thrown CapabilityMismatch")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .CapabilityMismatch)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+        } catch {
+            XCTFail("Expected IndeRunException")
+        }
+    }
+
+    func testAppleFoundationModelsRunMapsUnexpectedFailureToInternal() async {
+        struct RuntimeFailure: Error {}
+
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.thrownError = RuntimeFailure()
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(prompt: "Hello", policy: Policy(execution: .onDevice))
+
+        do {
+            _ = try await provider.run(
+                request: request,
+                context: RunContext(runId: "run_failure", hostServices: hostServices)
+            )
+            XCTFail("Should have thrown Internal")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .Internal)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+        } catch {
+            XCTFail("Expected IndeRunException")
+        }
+    }
+
+    func testAppleProviderRegistryFactoryRegistersFoundationModelsProvider() throws {
+        let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
+
+        XCTAssertNotNil(registry.get(id: AppleFoundationModelsProvider.defaultId))
+        XCTAssertEqual(registry.list().count, 1)
     }
 }
