@@ -91,6 +91,11 @@ Checked-in Swift commands:
 - `cd ios/IndeRun && swift build`
 - `cd ios/IndeRun && swift test`
 
+Checked-in Android commands:
+
+- `cd android && ./gradlew build`
+- `cd android && ./gradlew test`
+
 Useful discovery commands:
 
 - `rg --files`

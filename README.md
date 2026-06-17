@@ -132,6 +132,22 @@ Run iOS/Swift SDK unit tests:
 cd ios/IndeRun && swift test
 ```
 
+### Android SDK commands
+
+Build the Android SDK:
+
+```sh
+cd android && ./gradlew build
+```
+
+Run Android SDK unit tests:
+
+```sh
+cd android && ./gradlew test
+```
+
+The Android build expects a local Android SDK configured via `ANDROID_HOME` or `android/local.properties`.
+
 ---
 
 ## Design principles (quick)

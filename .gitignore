@@ -35,6 +35,9 @@ dist/
 # Gradle
 .idea/**/gradle.xml
 .idea/**/libraries
+.gradle/
+android/.gradle-home/
+android/local.properties
 
 # Gradle and Maven with auto-import
 # When using Gradle or Maven with auto-import, you should exclude module files,
@@ -134,6 +137,7 @@ fabric.properties
 
 # Package Files #
 *.jar
+!android/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear
