@@ -16,5 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "inderun-android"
 
+include(":inderun-contracts")
 include(":inderun-core")
+include(":inderun-mlkit-providers")
 include(":inderun-kotlin")
