@@ -1,0 +1,35 @@
+#!/bin/sh
+
+set -eu
+
+APP_HOME=$(
+  CDPATH='' cd -- "$(dirname "$0")" && pwd
+)
+
+CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+
+if [ "$(uname -s)" = "Darwin" ] && [ -x "/usr/libexec/java_home" ]; then
+  for version in 21 17; do
+    if JAVA_HOME_CANDIDATE=$(/usr/libexec/java_home -v "$version" 2>/dev/null); then
+      JAVA_HOME="$JAVA_HOME_CANDIDATE"
+      break
+    fi
+  done
+fi
+
+if [ -n "${JAVA_HOME:-}" ]; then
+  JAVACMD="$JAVA_HOME/bin/java"
+else
+  JAVACMD="java"
+fi
+
+if [ ! -x "$JAVACMD" ] && ! command -v "$JAVACMD" >/dev/null 2>&1; then
+  echo "Java 17 is required to run this build." >&2
+  exit 1
+fi
+
+exec "$JAVACMD" \
+  -Dorg.gradle.appname=gradlew \
+  -classpath "$CLASSPATH" \
+  org.gradle.wrapper.GradleWrapperMain \
+  "$@"
