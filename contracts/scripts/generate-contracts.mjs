@@ -20,6 +20,19 @@ const swiftContractsPath = join(
   "IndeRunContracts",
   "Contracts.swift"
 );
+const kotlinContractsPath = join(
+  repoRoot,
+  "android",
+  "inderun-contracts",
+  "src",
+  "main",
+  "kotlin",
+  "com",
+  "independo",
+  "inderun",
+  "contracts",
+  "Contracts.kt"
+);
 
 const schemas = [
   {
@@ -133,6 +146,151 @@ async function generateTypeScriptContracts() {
   }
 }
 
+function replaceExactly(source, replacements) {
+  let output = source;
+  for (const [from, to] of replacements) {
+    if (!output.includes(from)) {
+      throw new Error(`Expected Kotlin normalization pattern not found:\n${from}`);
+    }
+    output = output.replace(from, to);
+  }
+  return output;
+}
+
+function normalizeKotlinContractsSource(source) {
+  let output = `/* This file was generated from JSON Schema using quicktype. Do not edit by hand. */\n\n${source}`;
+
+  output = replaceExactly(output, [
+    ["data class HTTPRequest (", "data class HttpRequest ("],
+    ["data class HTTPResponse (", "data class HttpResponse ("],
+    ["val role: Role", "val role: MessageRole"],
+    ["val execution: Execution", "val execution: ExecutionPolicy"],
+    ["val kind: Kind", "val kind: TaskKind = TaskKind.TEXT_TO_TEXT"],
+    ["val level: Level? = null", "val level: TelemetryLevel? = null"],
+    ["val errorClass: ErrorClass? = null", "val errorClass: IndeRunErrorClass? = null"],
+    ["val errorClass: ErrorClass,", "val errorClass: IndeRunErrorClass,"],
+    ["val type: OutputType", "val type: OutputType = OutputType.TEXT"],
+    ["val schemaVersion: SchemaVersion,\n\n    /**\n     * Task descriptor used by routing and provider capability matching.\n     */\n    val task: Task,",
+      "val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n\n    /**\n     * Task descriptor used by routing and provider capability matching.\n     */\n    val task: Task = Task(),"],
+    ["val schemaVersion: SchemaVersion,\n\n    /**\n     * Required minimal telemetry summary attached to every result.\n     */\n    val telemetry: TaskResultTelemetry,",
+      "val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n\n    /**\n     * Required minimal telemetry summary attached to every result.\n     */\n    val telemetry: TaskResultTelemetry,"],
+    ["val schemaVersion: SchemaVersion\n)", "val schemaVersion: SchemaVersion = SchemaVersion.V1_0\n)"],
+    [`data class Message (
+    /**
+     * Text content for this message.
+     */
+    val content: String,
+
+    /**
+     * Role of the message author.
+     */
+    val role: MessageRole
+)`, `data class Message (
+    /**
+     * Role of the message author.
+     */
+    val role: MessageRole,
+
+    /**
+     * Text content for this message.
+     */
+    val content: String
+)`]
+  ]);
+
+  output = output.replace(
+    /enum class SchemaVersion \{\s+The10\s+\}/m,
+    `enum class SchemaVersion(val rawValue: String) {
+    V1_0("1.0")
+}`
+  );
+  output = output.replace(
+    /enum class Kind \{\s+TextToText\s+\}/m,
+    `enum class TaskKind(val rawValue: String) {
+    TEXT_TO_TEXT("text_to_text")
+}`
+  );
+  output = output.replace(
+    /enum class Role \{\s+Assistant,\s+RoleSystem,\s+User\s+\}/m,
+    `enum class MessageRole(val rawValue: String) {
+    ASSISTANT("assistant"),
+    SYSTEM("system"),
+    USER("user")
+}`
+  );
+  output = output.replace(
+    /enum class Execution \{\s+Cloud,\s+OnDevice\s+\}/m,
+    `enum class ExecutionPolicy(val rawValue: String) {
+    CLOUD("cloud"),
+    ON_DEVICE("on_device")
+}`
+  );
+  output = output.replace(
+    /enum class Level \{\s+Debug,\s+Minimal,\s+Off\s+\}/m,
+    `enum class TelemetryLevel(val rawValue: String) {
+    DEBUG("debug"),
+    MINIMAL("minimal"),
+    OFF("off")
+}`
+  );
+  output = output.replace(
+    /enum class FinishReason \{\s+Cancelled,\s+Error,\s+Length,\s+Stop\s+\}/m,
+    `enum class FinishReason(val rawValue: String) {
+    CANCELLED("cancelled"),
+    ERROR("error"),
+    LENGTH("length"),
+    STOP("stop")
+}`
+  );
+  output = output.replace(
+    /enum class OutputType \{\s+Text\s+\}/m,
+    `enum class OutputType(val rawValue: String) {
+    TEXT("text")
+}`
+  );
+  output = output.replace(
+    /enum class ErrorClass \{\s+AuthError,\s+CapabilityMismatch,\s+Internal,\s+Offline,\s+RateLimited,\s+Timeout,\s+Unavailable\s+\}/m,
+    `enum class IndeRunErrorClass(val rawValue: String) {
+    AuthError("AuthError"),
+    CapabilityMismatch("CapabilityMismatch"),
+    Internal("Internal"),
+    Offline("Offline"),
+    RateLimited("RateLimited"),
+    Timeout("Timeout"),
+    Unavailable("Unavailable")
+}`
+  );
+
+  return `${output}\n`;
+}
+
+async function generateKotlinContracts(tempDir) {
+  const quicktypeOutputPath = join(tempDir, "Contracts.kt");
+
+  await execFileAsync(quicktypeBinary(), [
+    "--lang",
+    "kotlin",
+    "--src-lang",
+    "schema",
+    "--framework",
+    "just-types",
+    "--acronym-style",
+    "original",
+    "--package",
+    "com.independo.inderun.contracts",
+    ...schemas.map((schema) => join(schemasDir, schema.input)),
+    "--out",
+    quicktypeOutputPath
+  ]);
+
+  const kotlinSource = normalizeKotlinContractsSource(
+    await readFile(quicktypeOutputPath, "utf8")
+  );
+
+  await mkdir(dirname(kotlinContractsPath), { recursive: true });
+  await writeFile(kotlinContractsPath, kotlinSource);
+}
+
 function replaceAll(source, replacements) {
   let output = source;
   for (const [from, to] of replacements) {
@@ -177,6 +335,7 @@ const quicktypeOutputPath = join(tempDir, "Contracts.swift");
 
 try {
   await generateTypeScriptContracts();
+  await generateKotlinContracts(tempDir);
 
   await execFileAsync(quicktypeBinary(), [
     "--lang",

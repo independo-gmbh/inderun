@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.independo.inderun.sdk"
+    namespace = "com.independo.inderun.providers.mlkit"
     compileSdk = 34
 
     defaultConfig {
@@ -23,7 +23,7 @@ android {
 dependencies {
     implementation(project(":inderun-contracts"))
     implementation(project(":inderun-core"))
-    implementation(project(":inderun-mlkit-providers"))
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
