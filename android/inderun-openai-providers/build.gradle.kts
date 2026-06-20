@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.independo.inderun.core"
+    namespace = "com.independo.inderun.providers.openai"
     compileSdk = 34
 
     defaultConfig {
@@ -22,8 +22,9 @@ android {
 
 dependencies {
     implementation(project(":inderun-contracts"))
-    implementation("androidx.core:core-ktx:1.13.1")
+    implementation(project(":inderun-core"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("org.json:json:20240303")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")

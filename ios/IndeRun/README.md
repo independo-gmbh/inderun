@@ -27,6 +27,8 @@ The package is split into two targets to separate the core orchestrator infrastr
   - `IndeRun.swift`: The public API surface for initiating runs.
 - **`IndeRunAppleProviders`**:
   - `AppleFoundationModelsProvider.swift`: iOS/macOS on-device Mode-1 text-to-text provider backed by Apple Foundation Models.
+- **`IndeRunOpenAIProviders`**:
+  - `OpenAIProvider.swift`: OpenAI Responses-compatible cloud provider for Mode-1 text-to-text execution.
 
 ---
 
@@ -53,6 +55,7 @@ Or add it directly in Xcode using the local folder reference.
 import IndeRunSwift
 import IndeRunCore
 import IndeRunAppleProviders
+import IndeRunOpenAIProviders
 
 // 1. Initialize host services
 let hostServices = DefaultHostServices.make(
@@ -62,6 +65,15 @@ let hostServices = DefaultHostServices.make(
 // 2. Setup registry and register providers. This helper registers the Apple
 // Foundation Models on-device provider; add cloud providers separately.
 let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
+try registry.register(
+    OpenAIProvider(
+        options: OpenAIProviderOptions(
+            model: "gpt-5.2",
+            endpointURL: "https://api.openai.com/v1/responses",
+            authContextRef: "openai_primary"
+        )
+    )
+)
 
 // 3. Initialize the SDK
 let inderun = IndeRun(registry: registry, hostServices: hostServices)
@@ -89,6 +101,31 @@ Apple system model unavailability to the normalized `CapabilityMismatch` flow.
 Runtime availability depends on the host OS and Apple system model state. The provider uses Apple Foundation Models only
 when the framework is present and the runtime is available; otherwise `capabilities()` returns unavailable and the
 router rejects `onDevice` requests with `CapabilityMismatch`.
+
+### OpenAI cloud provider
+
+`OpenAIProvider` is available through the `IndeRunOpenAIProviders` product. It supports Mode-1
+`text_to_text` requests with `Policy(execution: .cloud)`, resolves credentials through
+`authContextRef`, and sends Responses-compatible HTTP requests through the host-provided
+`HttpClientService`.
+
+Configuration is provider-local rather than request-local:
+
+```swift
+let provider = OpenAIProvider(
+    options: OpenAIProviderOptions(
+        model: "gpt-5.2",
+        endpointURL: "https://api.openai.com/v1/responses",
+        auth: .authContextRef,
+        authContextRef: "openai_primary",
+        timeoutMs: 30_000
+    )
+)
+```
+
+For proxy deployments, set a custom `endpointURL` and use `auth: .none` so your app does not
+resolve or transmit OpenAI credentials on-device. Do not place API keys or bearer tokens directly
+in `TaskRequest`.
 
 ## Sample App
 

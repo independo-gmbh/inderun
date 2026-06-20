@@ -2,6 +2,7 @@ import XCTest
 import IndeRunContracts
 import IndeRunCore
 @testable import IndeRunAppleProviders
+@testable import IndeRunOpenAIProviders
 @testable import IndeRunSwift
 
 // MARK: - Mocks for Testing
@@ -35,6 +36,47 @@ final class MockTelemetryService: TelemetryService, @unchecked Sendable {
         _events.append(event)
     }
 }
+
+actor MockSecureStorageService: SecureStorageService {
+    private var slots: [String: String]
+
+    init(slots: [String: String] = [:]) {
+        self.slots = slots
+    }
+
+    func getSecret(slotId: String) async -> String? {
+        return slots[slotId]
+    }
+
+    func setSecret(slotId: String, secret: String) async {
+        slots[slotId] = secret
+    }
+
+    func deleteSecret(slotId: String) async {
+        slots.removeValue(forKey: slotId)
+    }
+}
+
+actor MockHttpClientService: HttpClientService {
+    private var requests: [HttpRequest] = []
+    var responses: [Result<HttpResponse, Error>]
+
+    init(responses: [Result<HttpResponse, Error>]) {
+        self.responses = responses
+    }
+
+    func send(request: HttpRequest) async throws -> HttpResponse {
+        requests.append(request)
+        let response = responses.removeFirst()
+        return try response.get()
+    }
+
+    func snapshotRequests() -> [HttpRequest] {
+        requests
+    }
+}
+
+struct TestCancellationError: Error {}
 
 final class MockProvider: ProviderAdapter, @unchecked Sendable {
     let id: String
@@ -456,6 +498,175 @@ final class IndeRunTests: XCTestCase {
         let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
 
         XCTAssertNotNil(registry.get(id: AppleFoundationModelsProvider.defaultId))
+        XCTAssertEqual(registry.list().count, 1)
+    }
+
+    func testOpenAIProviderPostsResponsesRequest() async throws {
+        let httpClient = MockHttpClientService(
+            responses: [
+                .success(
+                    HttpResponse(
+                        body: #"{"output_text":"Hello from Responses.","status":"completed","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}"#,
+                        headers: [:],
+                        status: 200,
+                        statusText: "OK"
+                    )
+                )
+            ]
+        )
+        let secureStorage = MockSecureStorageService(slots: ["openai-dev": "sk-from-slot"])
+        let provider = OpenAIProvider(
+            options: OpenAIProviderOptions(model: "gpt-5.2", authContextRef: "openai-dev", timeoutMs: 30_000)
+        )
+        let request = TaskRequest(
+            prompt: "Say hello.",
+            generation: Generation(maxOutputTokens: 64, seed: nil, stop: ["END"], temperature: 0.2, topP: 0.9),
+            policy: Policy(execution: .cloud)
+        )
+        let hostServices = HostServices(
+            connectivity: connectivity,
+            secureStorage: secureStorage,
+            clock: clock,
+            httpClient: httpClient
+        )
+
+        let result = try await provider.run(
+            request: request,
+            context: RunContext(runId: "run_openai", hostServices: hostServices)
+        )
+
+        XCTAssertEqual(result.output.text, "Hello from Responses.")
+        XCTAssertEqual(result.finishReason, .stop)
+        XCTAssertEqual(result.usage?.inputTokens, 3)
+        XCTAssertEqual(result.usage?.outputTokens, 4)
+        XCTAssertEqual(result.usage?.totalTokens, 7)
+        let requests = await httpClient.snapshotRequests()
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests[0].headers?["Authorization"], "Bearer sk-from-slot")
+        XCTAssertEqual(requests[0].timeoutMs, 30_000)
+
+        let bodyData = try XCTUnwrap(requests[0].body?.data(using: .utf8))
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        XCTAssertEqual(body["model"] as? String, "gpt-5.2")
+        XCTAssertEqual(body["input"] as? String, "Say hello.")
+        XCTAssertEqual(body["max_output_tokens"] as? Int, 64)
+        XCTAssertEqual(body["temperature"] as? Double, 0.2)
+        XCTAssertEqual(body["top_p"] as? Double, 0.9)
+        XCTAssertEqual(body["stop"] as? [String], ["END"])
+    }
+
+    func testOpenAIProviderMapsMessagesToDeveloperRole() async throws {
+        let httpClient = MockHttpClientService(
+            responses: [
+                .success(HttpResponse(body: #"{"output_text":"Done."}"#, headers: [:], status: 200, statusText: "OK"))
+            ]
+        )
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+        let hostServices = HostServices(connectivity: connectivity, clock: clock, httpClient: httpClient)
+        let request = TaskRequest(
+            messages: [
+                Message(role: .system, content: "Be concise."),
+                Message(role: .user, content: "Say hello.")
+            ],
+            policy: Policy(execution: .cloud)
+        )
+
+        _ = try await provider.run(
+            request: request,
+            context: RunContext(runId: "run_messages", hostServices: hostServices)
+        )
+
+        let requests = await httpClient.snapshotRequests()
+        let bodyData = try XCTUnwrap(requests[0].body?.data(using: .utf8))
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        let input = try XCTUnwrap(body["input"] as? [[String: String]])
+        XCTAssertEqual(input, [
+            ["role": "developer", "content": "Be concise."],
+            ["role": "user", "content": "Say hello."]
+        ])
+    }
+
+    func testOpenAIProviderRequiresAuthContextRefWhenAuthEnabled() async {
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2"))
+        let hostServices = HostServices(
+            connectivity: connectivity,
+            secureStorage: MockSecureStorageService(),
+            clock: clock,
+            httpClient: MockHttpClientService(responses: [])
+        )
+        let request = TaskRequest(prompt: "Hello", policy: Policy(execution: .cloud))
+
+        do {
+            _ = try await provider.run(
+                request: request,
+                context: RunContext(runId: "run_auth", hostServices: hostServices)
+            )
+            XCTFail("Should have thrown AuthError")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .AuthError)
+        } catch {
+            XCTFail("Expected IndeRunException")
+        }
+    }
+
+    func testOpenAIProviderMapsRateLimitErrors() async {
+        let httpClient = MockHttpClientService(
+            responses: [
+                .success(
+                    HttpResponse(
+                        body: #"{"error":{"message":"Too many requests","type":"rate_limit"}}"#,
+                        headers: ["Retry-After": "2"],
+                        status: 429,
+                        statusText: "Too Many Requests"
+                    )
+                )
+            ]
+        )
+        let hostServices = HostServices(
+            connectivity: connectivity,
+            clock: clock,
+            httpClient: httpClient
+        )
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+
+        do {
+            _ = try await provider.run(
+                request: TaskRequest(prompt: "Hello", policy: Policy(execution: .cloud)),
+                context: RunContext(runId: "run_rate", hostServices: hostServices)
+            )
+            XCTFail("Should have thrown RateLimited")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .RateLimited)
+            XCTAssertEqual(error.retryAfterMs, 2_000)
+        } catch {
+            XCTFail("Expected IndeRunException")
+        }
+    }
+
+    func testOpenAIProviderPropagatesCancellation() async {
+        let httpClient = MockHttpClientService(responses: [.failure(TestCancellationError())])
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+        let hostServices = HostServices(connectivity: connectivity, clock: clock, httpClient: httpClient)
+
+        do {
+            _ = try await provider.run(
+                request: TaskRequest(prompt: "Hello", policy: Policy(execution: .cloud)),
+                context: RunContext(runId: "run_cancel", hostServices: hostServices)
+            )
+            XCTFail("Should have thrown Unavailable")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Unavailable)
+        } catch {
+            XCTFail("Expected IndeRunException")
+        }
+    }
+
+    func testAppleCloudProviderRegistryFactoryRegistersOpenAIProvider() throws {
+        let registry = try AppleCloudProviderRegistryFactory.makeOpenAIRegistry(
+            options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none)
+        )
+
+        XCTAssertNotNil(registry.get(id: "openai"))
         XCTAssertEqual(registry.list().count, 1)
     }
 }

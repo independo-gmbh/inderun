@@ -113,6 +113,8 @@ public final class IndeRun: Sendable {
                     request: request,
                     context: RunContext(runId: runId, hostServices: hostServices)
                 )
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 throw toIndeRunException(error, fallbackRunId: runId, fallbackProviderId: providerId)
             }
@@ -137,6 +139,8 @@ public final class IndeRun: Sendable {
             
             return result
             
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
             let totalMs = Double(endTime - startTime)

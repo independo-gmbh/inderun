@@ -184,7 +184,7 @@ private class SystemAndroidMlKitGenAiRuntime(
     override suspend fun availability(): AndroidMlKitGenAiAvailability {
         return try {
             when (generativeModel.checkStatus()) {
-                FeatureStatus.AVAILABLE -> AndroidMlKitGenaiAvailability.Available
+                FeatureStatus.AVAILABLE -> AndroidMlKitGenAiAvailability.Available
                 FeatureStatus.DOWNLOADABLE -> AndroidMlKitGenAiAvailability.Downloadable(
                     "Gemini Nano can be downloaded on this device, but is not currently installed."
                 )
