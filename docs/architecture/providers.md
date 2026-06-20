@@ -155,10 +155,10 @@ contract validation layer.
 - **Primary tasks:** `text_to_text` (initially), later many modalities
 - **Notes:**
   - **Production browser apps** should use a proxy/your backend (do not ship API keys to clients)
-  - the Web provider posts Responses-compatible JSON to either the OpenAI endpoint or a configured proxy endpoint
+  - Web, iOS, and Android providers all post the same Responses-compatible JSON subset to either the OpenAI endpoint or a configured proxy/gateway endpoint
   - direct OpenAI authentication must use `authContextRef` and `SecureStorageService`, never raw request fields
   - rate limits and transient errors require typed mapping and optional retry policies
-- **Cancellation:** `hard` for aborting HTTP/SSE where supported; otherwise `soft`
+- **Cancellation:** for Mode 1, cancellation follows the native async primitive (`AbortController`, `Task.cancel()`, coroutine cancellation) and should abort the active HTTP attempt where the host transport supports it
 
 **Typical capability flags (initial milestone):**
 - `supports.run = true`
@@ -166,7 +166,10 @@ contract validation layer.
 - `supports.realtime = false` (until implemented)
 - `privacy.dataLeavesDevice = true` (cloud egress)
 
-**Mode-1 Web error mapping:**
+**Mode-1 parity behavior (Web/iOS/Android):**
+- request mapping uses `model` plus either prompt text or a Responses `input` array built from canonical `messages`
+- `system` messages are mapped to OpenAI `developer` role in the Responses input array
+- supported generation fields are `max_output_tokens`, `temperature`, `top_p`, and `stop`
 - `401` / `403` -> `AuthError`
 - `429` -> `RateLimited`
 - `408` / `504` -> `Timeout`

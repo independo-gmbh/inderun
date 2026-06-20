@@ -38,6 +38,7 @@ dist/
 .gradle/
 android/.gradle-home/
 android/local.properties
+.gradle-home
 
 # Gradle and Maven with auto-import
 # When using Gradle or Maven with auto-import, you should exclude module files,

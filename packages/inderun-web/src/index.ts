@@ -54,7 +54,9 @@ export {
 
 export {
   OpenAIResponsesProvider,
-  type OpenAIResponsesProviderOptions
+  type OpenAIResponsesProviderOptions,
+  OpenAIResponsesProvider as OpenAIProvider,
+  type OpenAIResponsesProviderOptions as OpenAIProviderOptions
 } from "./openai-provider.js";
 
 export {

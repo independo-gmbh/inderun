@@ -74,6 +74,8 @@ IndeRun must support **three** interaction modes now.
 
 - Use when the caller waits for a final result.
 - API: `run(request) -> Result`
+- Cancellation for Mode 1 stays native to the host async primitive:
+  cancel the in-flight Promise/Task/coroutine, and the underlying cloud transport should abort where supported.
 
 ### Mode 2 — Stream (streaming)
 
@@ -166,6 +168,10 @@ The first implementation artifact is `@independo/inderun-contracts`, which defin
 Milestone-1 schemas intentionally allow unknown fields for forward-compatible parsing. Implementations must ignore
 unknown fields they do not understand, but must still reject inline secret-like fields; credentials belong behind
 `authContextRef`.
+
+The initial cloud-provider parity target is the OpenAI-compatible Responses subset on Web, iOS, and Android. The
+supported normalized request mapping is intentionally narrow for Milestone 1: text input via `prompt` or `messages`,
+plus `maxOutputTokens`, `temperature`, `topP`, and `stop`.
 
 ### 4.2 Versioning rules
 

@@ -24,6 +24,8 @@ dependencies {
     implementation(project(":inderun-contracts"))
     implementation(project(":inderun-core"))
     implementation(project(":inderun-mlkit-providers"))
+    implementation(project(":inderun-openai-providers"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")

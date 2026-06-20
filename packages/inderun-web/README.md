@@ -7,11 +7,11 @@ It implements:
 - `Router` for deterministic routing based on policy and host capability snapshots.
 - Standard error taxonomy (`IndeRunException`) and error mapping.
 - Core orchestrator flow with timing and telemetry measurements.
-- `OpenAIResponsesProvider` for Mode-1 text-to-text cloud execution through the OpenAI Responses API.
+- `OpenAIProvider` for Mode-1 text-to-text cloud execution through the OpenAI Responses API.
 
 ## Mode 1 cloud run with OpenAI
 
-Use `createIndeRunWeb` to create a Web SDK instance with the OpenAI Responses provider registered:
+Use `createIndeRunWeb` to create a Web SDK instance with the OpenAI provider registered:
 
 ```ts
 import { createIndeRunWeb } from "@independo/inderun-web";
@@ -99,6 +99,9 @@ const inderun = createIndeRunWeb({
 In this mode, the request must provide `authContextRef`, or the provider config must define a default `authContextRef`.
 The provider resolves that slot through `SecureStorageService` and only then adds the transport-level `Authorization`
 header. Do not place API keys, bearer tokens, or other secrets directly in `TaskRequest`.
+
+`OpenAIResponsesProvider` remains exported as a compatibility alias; `OpenAIProvider` is the canonical name going
+forward for cross-SDK parity.
 
 ## Error mapping
 

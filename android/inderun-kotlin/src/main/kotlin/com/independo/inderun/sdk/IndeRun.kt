@@ -14,6 +14,7 @@ import com.independo.inderun.core.createInternal
 import com.independo.inderun.core.toIndeRunException
 import com.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 /**
  * The primary entry point for the IndeRun Android SDK.
@@ -52,6 +53,8 @@ class IndeRun private constructor(
                     request = request,
                     context = RunContext(runId = runId, hostServices = hostServices)
                 )
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Throwable) {
                 throw toIndeRunException(
                     error,
@@ -68,6 +71,8 @@ class IndeRun private constructor(
                     totalMs = totalMs
                 )
             )
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             throw toIndeRunException(
                 error,

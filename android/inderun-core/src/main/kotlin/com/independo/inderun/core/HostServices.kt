@@ -2,6 +2,9 @@ package com.independo.inderun.core
 
 import android.content.Context
 import androidx.annotation.RequiresPermission
+import com.independo.inderun.contracts.HttpRequest
+import com.independo.inderun.contracts.HttpResponse
+import com.independo.inderun.contracts.TelemetryEvent
 
 /**
  * Service responsible for monitoring network connectivity status.
@@ -48,6 +51,20 @@ interface ClockService {
 }
 
 /**
+ * Service responsible for dispatching normalized HTTP transport requests.
+ */
+interface HttpClientService {
+    suspend fun send(request: HttpRequest): HttpResponse
+}
+
+/**
+ * Optional telemetry sink for normalized engine and provider events.
+ */
+interface TelemetryService {
+    fun emit(event: TelemetryEvent)
+}
+
+/**
  * A factory for creating the default implementation of [HostServices].
  */
 object HostServicesFactory {
@@ -62,7 +79,8 @@ object HostServicesFactory {
         return HostServices(
             connectivity = ConnectivityServiceImpl(appContext),
             secureStorage = SecureStorageServiceImpl(appContext),
-            clock = ClockServiceImpl()
+            clock = ClockServiceImpl(),
+            httpClient = URLConnectionHttpClientService()
         )
     }
 }
@@ -73,5 +91,7 @@ object HostServicesFactory {
 data class HostServices(
     val connectivity: ConnectivityService,
     val secureStorage: SecureStorageService,
-    val clock: ClockService
+    val clock: ClockService,
+    val httpClient: HttpClientService? = null,
+    val telemetry: TelemetryService? = null
 )

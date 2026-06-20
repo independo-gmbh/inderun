@@ -41,9 +41,9 @@ IndeRun is a framework that provides:
 ## Initial Provider Scope
 Primary providers in baseline scope:
 
-1. OpenAI HTTP
+1. OpenAI/OpenAI-compatible Responses HTTP
 2. Apple Foundation Models
-3. Android AI Edge
+3. Android ML Kit GenAI
 
 Extended scope target (ideas not final):
 
@@ -70,6 +70,9 @@ Web, iOS, Android, provider, and engine tickets.
 HostServices in this milestone cover connectivity, secure credential slots, clock access, telemetry hooks, device
 constraints, and normalized HTTP transport for cloud providers. Cloud credentials must be referenced by `authContextRef`
 and resolved through secure storage; raw secrets must not be carried in `TaskRequest` payloads.
+
+The baseline cloud path is the OpenAI-compatible Responses transport implemented across Web, iOS, and Android with the
+same normalized request subset, error mapping, endpoint configuration, and `authContextRef` credential flow.
 
 Serializable HostServices-adjacent payloads (`HttpRequest`, `HttpResponse`, and `TelemetryEvent`) are schema-backed so
 native SDKs and bridge layers can generate matching data shapes. Callable host service interfaces remain language-native
