@@ -69,7 +69,7 @@ export class FetchHttpClient implements HttpClientService {
    * @throws Error when no fetch implementation is available.
    */
   constructor(options: FetchHttpClientOptions = {}) {
-    const fetchFn = options.fetchFn ?? globalThis.fetch;
+    const fetchFn = options.fetchFn ?? globalThis.fetch?.bind(globalThis);
     if (!fetchFn) {
       throw new Error("FetchHttpClient requires a fetch implementation.");
     }
