@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A10000000000000000000050"
-               BuildableName = "AppleOnDeviceSmokeTest.app"
-               BlueprintName = "AppleOnDeviceSmokeTest"
-               ReferencedContainer = "container:AppleOnDeviceSmokeTest.xcodeproj">
+               BuildableName = "IndeRunDemo.app"
+               BlueprintName = "IndeRunDemo"
+               ReferencedContainer = "container:IndeRunDemo.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -47,9 +47,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A10000000000000000000050"
-            BuildableName = "AppleOnDeviceSmokeTest.app"
-            BlueprintName = "AppleOnDeviceSmokeTest"
-            ReferencedContainer = "container:AppleOnDeviceSmokeTest.xcodeproj">
+            BuildableName = "IndeRunDemo.app"
+            BlueprintName = "IndeRunDemo"
+            ReferencedContainer = "container:IndeRunDemo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -64,9 +64,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A10000000000000000000050"
-            BuildableName = "AppleOnDeviceSmokeTest.app"
-            BlueprintName = "AppleOnDeviceSmokeTest"
-            ReferencedContainer = "container:AppleOnDeviceSmokeTest.xcodeproj">
+            BuildableName = "IndeRunDemo.app"
+            BlueprintName = "IndeRunDemo"
+            ReferencedContainer = "container:IndeRunDemo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

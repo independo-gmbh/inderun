@@ -129,8 +129,9 @@ in `TaskRequest`.
 
 ## Sample App
 
-A checked-in iOS smoke-test app lives at `ios/SampleApps/AppleOnDeviceSmokeTest`.
-Use its local README for device requirements, Xcode setup, and manual run steps on a real Apple Intelligence device.
+A checked-in iOS demo app lives at `ios/SampleApps/IndeRunDemo`.
+It exercises both Apple Foundation Models on-device and the OpenAI-compatible cloud path through a configurable demo
+proxy endpoint. Use its local README for device requirements, Xcode setup, and manual run steps.
 
 ---
 

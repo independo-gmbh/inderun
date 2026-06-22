@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AppleOnDeviceSmokeTestApp: App {
+struct IndeRunDemoApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
