@@ -27,7 +27,7 @@ const kotlinContractsPath = join(
   "src",
   "main",
   "kotlin",
-  "com",
+  "app",
   "independo",
   "inderun",
   "contracts",
@@ -277,7 +277,7 @@ async function generateKotlinContracts(tempDir) {
     "--acronym-style",
     "original",
     "--package",
-    "com.independo.inderun.contracts",
+    "app.independo.inderun.contracts",
     ...schemas.map((schema) => join(schemasDir, schema.input)),
     "--out",
     quicktypeOutputPath

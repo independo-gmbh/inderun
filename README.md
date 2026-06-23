@@ -48,6 +48,7 @@ task execution from provider specifics so applications can:
 
 - **iOS**: IndeRun Swift Package (Swift-first API + HostServices + core engine)
 - **Android**: IndeRun Android SDK (Kotlin-first API + HostServices + core engine)
+- **Android demo app**: checked-in Compose demo under `android/inderun-demo-app`
 
 > Capacitor is **not** a peer runtime — it is a thin wrapper that exposes a JS API and delegates to
 `@independo/inderun-web` (web) or the native SDKs (iOS/Android).

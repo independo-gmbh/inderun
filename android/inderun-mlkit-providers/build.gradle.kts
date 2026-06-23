@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.independo.inderun.providers.mlkit"
+    namespace = "app.independo.inderun.providers.mlkit"
     compileSdk = 34
 
     defaultConfig {
