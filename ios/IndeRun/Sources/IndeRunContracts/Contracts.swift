@@ -7,6 +7,8 @@
 //   let hTTPRequest = try HttpRequest(json)
 //   let hTTPResponse = try HttpResponse(json)
 //   let telemetryEvent = try TelemetryEvent(json)
+//   let routePlannerInput = try RoutePlannerInput(json)
+//   let routePlan = try RoutePlan(json)
 
 import Foundation
 
@@ -28,11 +30,11 @@ public struct TaskRequest: Codable, Sendable {
     /// Contract schema version used to interpret the request payload.
     public var schemaVersion: SchemaVersion
     /// Task descriptor used by routing and provider capability matching.
-    public var task: Task
+    public var task: TaskRequestTask
     /// Caller telemetry preferences for this request.
     public var telemetry: TaskRequestTelemetry?
 
-    public init(authContextRef: String?, generation: Generation?, messages: [Message]?, policy: Policy, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: Task, telemetry: TaskRequestTelemetry?) {
+    public init(authContextRef: String?, generation: Generation?, messages: [Message]?, policy: Policy, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
         self.authContextRef = authContextRef
         self.generation = generation
         self.messages = messages
@@ -71,7 +73,7 @@ public extension TaskRequest {
         prompt: String?? = nil,
         requestId: String?? = nil,
         schemaVersion: SchemaVersion? = nil,
-        task: Task? = nil,
+        task: TaskRequestTask? = nil,
         telemetry: TaskRequestTelemetry?? = nil
     ) -> TaskRequest {
         return TaskRequest(
@@ -268,6 +270,8 @@ public extension Policy {
 }
 
 /// Required execution target for milestone routing.
+///
+/// Required execution target for the route plan.
 public enum Execution: String, Codable, Sendable {
     case cloud = "cloud"
     case onDevice = "on_device"
@@ -278,8 +282,8 @@ public enum SchemaVersion: String, Codable, Sendable {
 }
 
 /// Task descriptor used by routing and provider capability matching.
-// MARK: - Task
-public struct Task: Codable, Sendable {
+// MARK: - TaskRequestTask
+public struct TaskRequestTask: Codable, Sendable {
     /// Milestone-1 task kind for text input to text output.
     public var kind: Kind
 
@@ -288,11 +292,11 @@ public struct Task: Codable, Sendable {
     }
 }
 
-// MARK: Task convenience initializers and mutators
+// MARK: TaskRequestTask convenience initializers and mutators
 
-public extension Task {
+public extension TaskRequestTask {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Task.self, from: data)
+        self = try newJSONDecoder().decode(TaskRequestTask.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -308,8 +312,8 @@ public extension Task {
 
     func with(
         kind: Kind? = nil
-    ) -> Task {
-        return Task(
+    ) -> TaskRequestTask {
+        return TaskRequestTask(
             kind: kind ?? self.kind
         )
     }
@@ -933,6 +937,690 @@ public enum TelemetryEventType: String, Codable, Sendable {
     case attemptFailed = "attempt_failed"
     case attemptSucceeded = "attempt_succeeded"
     case routeDecided = "route_decided"
+}
+
+/// Pure data input contract for deterministic shared-core Mode-1 route planning.
+// MARK: - RoutePlannerInput
+public struct RoutePlannerInput: Codable, Sendable {
+    /// Hard routing constraints evaluated before provider selection.
+    public var constraints: Constraints
+    /// Soft route ordering preferences applied after hard filtering.
+    public var preferences: Preferences
+    /// Static descriptors plus dynamic capability snapshots for planning.
+    public var providers: [Provider]
+    /// Minimal task descriptor for provider task matching.
+    public var task: RoutePlannerInputTask
+
+    public init(constraints: Constraints, preferences: Preferences, providers: [Provider], task: RoutePlannerInputTask) {
+        self.constraints = constraints
+        self.preferences = preferences
+        self.providers = providers
+        self.task = task
+    }
+}
+
+// MARK: RoutePlannerInput convenience initializers and mutators
+
+public extension RoutePlannerInput {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(RoutePlannerInput.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        constraints: Constraints? = nil,
+        preferences: Preferences? = nil,
+        providers: [Provider]? = nil,
+        task: RoutePlannerInputTask? = nil
+    ) -> RoutePlannerInput {
+        return RoutePlannerInput(
+            constraints: constraints ?? self.constraints,
+            preferences: preferences ?? self.preferences,
+            providers: providers ?? self.providers,
+            task: task ?? self.task
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Hard routing constraints evaluated before provider selection.
+// MARK: - Constraints
+public struct Constraints: Codable, Sendable {
+    /// Required execution target for the route plan.
+    public var executionTarget: Execution
+    /// Current connectivity snapshot used for cloud route planning.
+    public var networkOnline: Bool
+
+    public init(executionTarget: Execution, networkOnline: Bool) {
+        self.executionTarget = executionTarget
+        self.networkOnline = networkOnline
+    }
+}
+
+// MARK: Constraints convenience initializers and mutators
+
+public extension Constraints {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Constraints.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        executionTarget: Execution? = nil,
+        networkOnline: Bool? = nil
+    ) -> Constraints {
+        return Constraints(
+            executionTarget: executionTarget ?? self.executionTarget,
+            networkOnline: networkOnline ?? self.networkOnline
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Soft route ordering preferences applied after hard filtering.
+// MARK: - Preferences
+public struct Preferences: Codable, Sendable {
+    /// Provider IDs ordered from highest to lowest preference.
+    public var preferredProviderIds: [String]
+
+    public init(preferredProviderIds: [String]) {
+        self.preferredProviderIds = preferredProviderIds
+    }
+}
+
+// MARK: Preferences convenience initializers and mutators
+
+public extension Preferences {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Preferences.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        preferredProviderIds: [String]? = nil
+    ) -> Preferences {
+        return Preferences(
+            preferredProviderIds: preferredProviderIds ?? self.preferredProviderIds
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - Provider
+public struct Provider: Codable, Sendable {
+    public var capabilities: Capabilities
+    public var descriptor: Descriptor
+
+    public init(capabilities: Capabilities, descriptor: Descriptor) {
+        self.capabilities = capabilities
+        self.descriptor = descriptor
+    }
+}
+
+// MARK: Provider convenience initializers and mutators
+
+public extension Provider {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Provider.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        capabilities: Capabilities? = nil,
+        descriptor: Descriptor? = nil
+    ) -> Provider {
+        return Provider(
+            capabilities: capabilities ?? self.capabilities,
+            descriptor: descriptor ?? self.descriptor
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - Capabilities
+public struct Capabilities: Codable, Sendable {
+    public var available: Bool
+    public var reason: String?
+
+    public init(available: Bool, reason: String?) {
+        self.available = available
+        self.reason = reason
+    }
+}
+
+// MARK: Capabilities convenience initializers and mutators
+
+public extension Capabilities {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Capabilities.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        available: Bool? = nil,
+        reason: String?? = nil
+    ) -> Capabilities {
+        return Capabilities(
+            available: available ?? self.available,
+            reason: reason ?? self.reason
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - Descriptor
+public struct Descriptor: Codable, Sendable {
+    public var id: String
+    public var supports: Supports
+    public var tasks: [String]
+    public var type: DescriptorType
+
+    public init(id: String, supports: Supports, tasks: [String], type: DescriptorType) {
+        self.id = id
+        self.supports = supports
+        self.tasks = tasks
+        self.type = type
+    }
+}
+
+// MARK: Descriptor convenience initializers and mutators
+
+public extension Descriptor {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Descriptor.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        id: String? = nil,
+        supports: Supports? = nil,
+        tasks: [String]? = nil,
+        type: DescriptorType? = nil
+    ) -> Descriptor {
+        return Descriptor(
+            id: id ?? self.id,
+            supports: supports ?? self.supports,
+            tasks: tasks ?? self.tasks,
+            type: type ?? self.type
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - Supports
+public struct Supports: Codable, Sendable {
+    public var run: Bool
+
+    public init(run: Bool) {
+        self.run = run
+    }
+}
+
+// MARK: Supports convenience initializers and mutators
+
+public extension Supports {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Supports.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        run: Bool? = nil
+    ) -> Supports {
+        return Supports(
+            run: run ?? self.run
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+public enum DescriptorType: String, Codable, Sendable {
+    case cloud = "cloud"
+    case edge = "edge"
+    case local = "local"
+}
+
+/// Minimal task descriptor for provider task matching.
+// MARK: - RoutePlannerInputTask
+public struct RoutePlannerInputTask: Codable, Sendable {
+    public var kind: String
+
+    public init(kind: String) {
+        self.kind = kind
+    }
+}
+
+// MARK: RoutePlannerInputTask convenience initializers and mutators
+
+public extension RoutePlannerInputTask {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(RoutePlannerInputTask.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        kind: String? = nil
+    ) -> RoutePlannerInputTask {
+        return RoutePlannerInputTask(
+            kind: kind ?? self.kind
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Deterministic shared-core Mode-1 route planning result.
+// MARK: - RoutePlan
+public struct RoutePlan: Codable, Sendable {
+    /// Eligible candidates in deterministic order.
+    public var candidates: [Candidate]
+    /// Human-readable selection or failure explanation suitable for telemetry/debugging.
+    public var explanation: Explanation
+    /// Normalized routing failure class when no provider is selected.
+    public var failureCode: FailureCode?
+    /// Fallback provider IDs ordered after the primary selection.
+    public var fallbackProviderIds: [String]
+    /// Providers filtered out during planning together with machine-readable reasons.
+    public var rejectedProviders: [RejectedProvider]
+    /// Chosen primary provider ID, if any.
+    public var selectedProviderId: String?
+
+    public init(candidates: [Candidate], explanation: Explanation, failureCode: FailureCode?, fallbackProviderIds: [String], rejectedProviders: [RejectedProvider], selectedProviderId: String?) {
+        self.candidates = candidates
+        self.explanation = explanation
+        self.failureCode = failureCode
+        self.fallbackProviderIds = fallbackProviderIds
+        self.rejectedProviders = rejectedProviders
+        self.selectedProviderId = selectedProviderId
+    }
+}
+
+// MARK: RoutePlan convenience initializers and mutators
+
+public extension RoutePlan {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(RoutePlan.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        candidates: [Candidate]? = nil,
+        explanation: Explanation? = nil,
+        failureCode: FailureCode?? = nil,
+        fallbackProviderIds: [String]? = nil,
+        rejectedProviders: [RejectedProvider]? = nil,
+        selectedProviderId: String?? = nil
+    ) -> RoutePlan {
+        return RoutePlan(
+            candidates: candidates ?? self.candidates,
+            explanation: explanation ?? self.explanation,
+            failureCode: failureCode ?? self.failureCode,
+            fallbackProviderIds: fallbackProviderIds ?? self.fallbackProviderIds,
+            rejectedProviders: rejectedProviders ?? self.rejectedProviders,
+            selectedProviderId: selectedProviderId ?? self.selectedProviderId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - Candidate
+public struct Candidate: Codable, Sendable {
+    public var order: Int
+    public var providerId: String
+
+    public init(order: Int, providerId: String) {
+        self.order = order
+        self.providerId = providerId
+    }
+}
+
+// MARK: Candidate convenience initializers and mutators
+
+public extension Candidate {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Candidate.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        order: Int? = nil,
+        providerId: String? = nil
+    ) -> Candidate {
+        return Candidate(
+            order: order ?? self.order,
+            providerId: providerId ?? self.providerId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Human-readable selection or failure explanation suitable for telemetry/debugging.
+// MARK: - Explanation
+public struct Explanation: Codable, Sendable {
+    public var selectedProviderId: String?
+    public var summary: String
+
+    public init(selectedProviderId: String?, summary: String) {
+        self.selectedProviderId = selectedProviderId
+        self.summary = summary
+    }
+}
+
+// MARK: Explanation convenience initializers and mutators
+
+public extension Explanation {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Explanation.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        selectedProviderId: String?? = nil,
+        summary: String? = nil
+    ) -> Explanation {
+        return Explanation(
+            selectedProviderId: selectedProviderId ?? self.selectedProviderId,
+            summary: summary ?? self.summary
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Normalized routing failure class when no provider is selected.
+public enum FailureCode: String, Codable, Sendable {
+    case capabilityMismatch = "capability_mismatch"
+    case offline = "offline"
+    case unavailable = "unavailable"
+}
+
+// MARK: - RejectedProvider
+public struct RejectedProvider: Codable, Sendable {
+    public var providerId: String
+    public var reasons: [Reason]
+
+    public init(providerId: String, reasons: [Reason]) {
+        self.providerId = providerId
+        self.reasons = reasons
+    }
+}
+
+// MARK: RejectedProvider convenience initializers and mutators
+
+public extension RejectedProvider {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(RejectedProvider.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        providerId: String? = nil,
+        reasons: [Reason]? = nil
+    ) -> RejectedProvider {
+        return RejectedProvider(
+            providerId: providerId ?? self.providerId,
+            reasons: reasons ?? self.reasons
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - Reason
+public struct Reason: Codable, Sendable {
+    public var code: Code
+    public var message: String
+
+    public init(code: Code, message: String) {
+        self.code = code
+        self.message = message
+    }
+}
+
+// MARK: Reason convenience initializers and mutators
+
+public extension Reason {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Reason.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        code: Code? = nil,
+        message: String? = nil
+    ) -> Reason {
+        return Reason(
+            code: code ?? self.code,
+            message: message ?? self.message
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+public enum Code: String, Codable, Sendable {
+    case capabilityUnavailable = "capability_unavailable"
+    case executionTargetMismatch = "execution_target_mismatch"
+    case offline = "offline"
+    case runNotSupported = "run_not_supported"
+    case taskNotSupported = "task_not_supported"
 }
 
 // MARK: - Helper functions for creating encoders and decoders

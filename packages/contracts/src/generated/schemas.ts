@@ -462,3 +462,268 @@ export const telemetryEventSchema = {
     }
   }
 } as const;
+
+export const routePlannerInputSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/route-planner-input.schema.json",
+  "title": "RoutePlannerInput",
+  "description": "Pure data input contract for deterministic shared-core Mode-1 route planning.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "task",
+    "constraints",
+    "preferences",
+    "providers"
+  ],
+  "properties": {
+    "task": {
+      "description": "Minimal task descriptor for provider task matching.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "constraints": {
+      "description": "Hard routing constraints evaluated before provider selection.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "executionTarget",
+        "networkOnline"
+      ],
+      "properties": {
+        "executionTarget": {
+          "description": "Required execution target for the route plan.",
+          "enum": [
+            "on_device",
+            "cloud"
+          ]
+        },
+        "networkOnline": {
+          "description": "Current connectivity snapshot used for cloud route planning.",
+          "type": "boolean"
+        }
+      }
+    },
+    "preferences": {
+      "description": "Soft route ordering preferences applied after hard filtering.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "preferredProviderIds"
+      ],
+      "properties": {
+        "preferredProviderIds": {
+          "description": "Provider IDs ordered from highest to lowest preference.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "providers": {
+      "description": "Static descriptors plus dynamic capability snapshots for planning.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "descriptor",
+          "capabilities"
+        ],
+        "properties": {
+          "descriptor": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "type",
+              "supports",
+              "tasks"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "enum": [
+                  "local",
+                  "edge",
+                  "cloud"
+                ]
+              },
+              "supports": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "run"
+                ],
+                "properties": {
+                  "run": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "available"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+} as const;
+
+export const routePlanSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/route-plan.schema.json",
+  "title": "RoutePlan",
+  "description": "Deterministic shared-core Mode-1 route planning result.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "fallbackProviderIds",
+    "candidates",
+    "rejectedProviders",
+    "explanation"
+  ],
+  "properties": {
+    "selectedProviderId": {
+      "description": "Chosen primary provider ID, if any.",
+      "type": "string",
+      "minLength": 1
+    },
+    "fallbackProviderIds": {
+      "description": "Fallback provider IDs ordered after the primary selection.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "candidates": {
+      "description": "Eligible candidates in deterministic order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "providerId",
+          "order"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "rejectedProviders": {
+      "description": "Providers filtered out during planning together with machine-readable reasons.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "providerId",
+          "reasons"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "code",
+                "message"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "task_not_supported",
+                    "run_not_supported",
+                    "execution_target_mismatch",
+                    "offline",
+                    "capability_unavailable"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "failureCode": {
+      "description": "Normalized routing failure class when no provider is selected.",
+      "enum": [
+        "capability_mismatch",
+        "offline",
+        "unavailable"
+      ]
+    },
+    "explanation": {
+      "description": "Human-readable selection or failure explanation suitable for telemetry/debugging.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selectedProviderId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+} as const;

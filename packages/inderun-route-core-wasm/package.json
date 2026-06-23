@@ -1,7 +1,7 @@
 {
-  "name": "@independo/inderun-web",
+  "name": "@independo/inderun-route-core-wasm",
   "version": "0.1.0",
-  "description": "TypeScript/Web SDK for IndeRun.",
+  "description": "WASM wrapper package for the IndeRun Rust route-planning core.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,15 +18,9 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@independo/inderun-contracts": "workspace:^",
-    "@independo/inderun-route-core-wasm": "workspace:^"
+    "test": "pnpm build && node test/smoke.mjs"
   },
   "devDependencies": {
-    "@types/node": "^24.12.4",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.6"
+    "typescript": "^5.9.3"
   }
 }

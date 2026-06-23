@@ -44,7 +44,7 @@ data class TaskRequest (
     /**
      * Task descriptor used by routing and provider capability matching.
      */
-    val task: Task = Task(),
+    val task: TaskRequestTask = TaskRequestTask(),
 
     /**
      * Caller telemetry preferences for this request.
@@ -119,6 +119,8 @@ data class Policy (
 
 /**
  * Required execution target for milestone routing.
+ *
+ * Required execution target for the route plan.
  */
 enum class ExecutionPolicy(val rawValue: String) {
     CLOUD("cloud"),
@@ -132,7 +134,7 @@ enum class SchemaVersion(val rawValue: String) {
 /**
  * Task descriptor used by routing and provider capability matching.
  */
-data class Task (
+data class TaskRequestTask (
     /**
      * Milestone-1 task kind for text input to text output.
      */
@@ -435,5 +437,164 @@ enum class TelemetryEventType {
     AttemptFailed,
     AttemptSucceeded,
     RouteDecided
+}
+
+/**
+ * Pure data input contract for deterministic shared-core Mode-1 route planning.
+ */
+data class RoutePlannerInput (
+    /**
+     * Hard routing constraints evaluated before provider selection.
+     */
+    val constraints: Constraints,
+
+    /**
+     * Soft route ordering preferences applied after hard filtering.
+     */
+    val preferences: Preferences,
+
+    /**
+     * Static descriptors plus dynamic capability snapshots for planning.
+     */
+    val providers: List<Provider>,
+
+    /**
+     * Minimal task descriptor for provider task matching.
+     */
+    val task: RoutePlannerInputTask
+)
+
+/**
+ * Hard routing constraints evaluated before provider selection.
+ */
+data class Constraints (
+    /**
+     * Required execution target for the route plan.
+     */
+    val executionTarget: ExecutionPolicy,
+
+    /**
+     * Current connectivity snapshot used for cloud route planning.
+     */
+    val networkOnline: Boolean
+)
+
+/**
+ * Soft route ordering preferences applied after hard filtering.
+ */
+data class Preferences (
+    /**
+     * Provider IDs ordered from highest to lowest preference.
+     */
+    val preferredProviderIds: List<String>
+)
+
+data class Provider (
+    val capabilities: Capabilities,
+    val descriptor: Descriptor
+)
+
+data class Capabilities (
+    val available: Boolean,
+    val reason: String? = null
+)
+
+data class Descriptor (
+    val id: String,
+    val supports: Supports,
+    val tasks: List<String>,
+    val type: DescriptorType
+)
+
+data class Supports (
+    val run: Boolean
+)
+
+enum class DescriptorType {
+    Cloud,
+    Edge,
+    Local
+}
+
+/**
+ * Minimal task descriptor for provider task matching.
+ */
+data class RoutePlannerInputTask (
+    val kind: String
+)
+
+/**
+ * Deterministic shared-core Mode-1 route planning result.
+ */
+data class RoutePlan (
+    /**
+     * Eligible candidates in deterministic order.
+     */
+    val candidates: List<Candidate>,
+
+    /**
+     * Human-readable selection or failure explanation suitable for telemetry/debugging.
+     */
+    val explanation: Explanation,
+
+    /**
+     * Normalized routing failure class when no provider is selected.
+     */
+    val failureCode: FailureCode? = null,
+
+    /**
+     * Fallback provider IDs ordered after the primary selection.
+     */
+    val fallbackProviderIds: List<String>,
+
+    /**
+     * Providers filtered out during planning together with machine-readable reasons.
+     */
+    val rejectedProviders: List<RejectedProvider>,
+
+    /**
+     * Chosen primary provider ID, if any.
+     */
+    val selectedProviderId: String? = null
+)
+
+data class Candidate (
+    val order: Long,
+    val providerId: String
+)
+
+/**
+ * Human-readable selection or failure explanation suitable for telemetry/debugging.
+ */
+data class Explanation (
+    val selectedProviderId: String? = null,
+    val summary: String
+)
+
+/**
+ * Normalized routing failure class when no provider is selected.
+ */
+enum class FailureCode {
+    CapabilityMismatch,
+    Offline,
+    Unavailable
+}
+
+data class RejectedProvider (
+    val providerId: String,
+    val reasons: List<Reason>
+)
+
+data class Reason (
+    val code: Code,
+    val message: String
+)
+
+enum class Code {
+    CapabilityUnavailable,
+    ExecutionTargetMismatch,
+    Offline,
+    RunNotSupported,
+    TaskNotSupported
 }
 

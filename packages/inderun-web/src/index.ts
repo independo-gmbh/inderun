@@ -20,6 +20,12 @@ export {
 export { ProviderRegistry } from "./registry.js";
 
 export { type RouteSelection, Router } from "./router.js";
+export {
+  type RoutePlanner,
+  type SharedPlannerInput,
+  type SharedPlannerRoutePlan,
+  WasmRoutePlanner
+} from "./route-planner.js";
 
 export {
   type IndeRunExceptionParams,

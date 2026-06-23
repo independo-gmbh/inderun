@@ -1,6 +1,7 @@
 package app.independo.inderun.core
 
 import app.independo.inderun.contracts.ExecutionPolicy
+import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.Policy
@@ -44,6 +45,40 @@ class ProviderEngineTest {
         )
 
         assertEquals("provider_a", selection.provider.describe().id)
+    }
+
+    @Test
+    fun routerUsesSharedPlannerSelectionWhenAvailable() = runTest {
+        val registry = ProviderRegistry()
+        registry.register(FakeProvider("provider_a", available = true))
+        registry.register(FakeProvider("provider_b", available = true))
+
+        val planner = object : RoutePlanner {
+            override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan {
+                return SharedPlannerRoutePlan(
+                    candidates = emptyList(),
+                    selectedProviderId = "provider_b",
+                    fallbackProviderIds = listOf("provider_a"),
+                    failureCode = null,
+                    explanation = Explanation(
+                        summary = "Selected provider 'provider_b' from shared Rust planner.",
+                        selectedProviderId = "provider_b"
+                    ),
+                    rejectedProviders = emptyList()
+                )
+            }
+        }
+
+        val selection = Router.withPlanner(registry, planner).selectRoute(
+            request = TaskRequest(
+                prompt = "Hello",
+                policy = Policy(ExecutionPolicy.ON_DEVICE)
+            ),
+            hostServices = fakeHostServices()
+        )
+
+        assertEquals("provider_b", selection.provider.describe().id)
+        assertTrue(selection.explanation.contains("shared Rust planner"))
     }
 
     @Test

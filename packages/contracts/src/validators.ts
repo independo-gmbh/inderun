@@ -4,10 +4,14 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 import type { IndeRunError } from "./generated/inderun-error.js";
 import type { HttpRequest } from "./generated/http-request.js";
 import type { HttpResponse } from "./generated/http-response.js";
+import type { RoutePlan } from "./generated/route-plan.js";
+import type { RoutePlannerInput } from "./generated/route-planner-input.js";
 import {
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
+  routePlanSchema,
+  routePlannerInputSchema,
   taskRequestSchema,
   taskResultSchema,
   telemetryEventSchema
@@ -39,6 +43,8 @@ const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
 const validateHttpRequestSchema = ajv.compile(httpRequestSchema);
 const validateHttpResponseSchema = ajv.compile(httpResponseSchema);
 const validateTelemetryEventSchema = ajv.compile(telemetryEventSchema);
+const validateRoutePlannerInputSchema = ajv.compile(routePlannerInputSchema);
+const validateRoutePlanSchema = ajv.compile(routePlanSchema);
 
 export function validateTaskRequest(value: unknown): value is TaskRequest {
   return getTaskRequestValidationIssues(value).length === 0;
@@ -62,6 +68,14 @@ export function validateHttpResponse(value: unknown): value is HttpResponse {
 
 export function validateTelemetryEvent(value: unknown): value is TelemetryEvent {
   return getTelemetryEventValidationIssues(value).length === 0;
+}
+
+export function validateRoutePlannerInput(value: unknown): value is RoutePlannerInput {
+  return getRoutePlannerInputValidationIssues(value).length === 0;
+}
+
+export function validateRoutePlan(value: unknown): value is RoutePlan {
+  return getRoutePlanValidationIssues(value).length === 0;
 }
 
 export function getTaskRequestValidationIssues(value: unknown): ValidationIssue[] {
@@ -94,6 +108,14 @@ export function getTelemetryEventValidationIssues(value: unknown): ValidationIss
   return getValidationIssues(validateTelemetryEventSchema, value, {
     forbidInlineSecrets: true
   });
+}
+
+export function getRoutePlannerInputValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateRoutePlannerInputSchema, value);
+}
+
+export function getRoutePlanValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateRoutePlanSchema, value);
 }
 
 function getValidationIssues(

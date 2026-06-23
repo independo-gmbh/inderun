@@ -20,6 +20,10 @@ A **Provider** is a pluggable execution backend. It must implement the IndeRun a
 
 Providers are what the **Router** chooses at runtime.
 
+For Mode 1 route planning, providers do not participate directly in cross-platform selection logic. Each platform
+adapter supplies its `describe()` output plus a dynamic `capabilities(host)` snapshot to the shared Rust planner, which
+returns a deterministic route plan containing selected provider ID, fallback order, and rejection reasons.
+
 ### Runtime (inside a provider)
 A **Runtime** is the underlying inference mechanism a provider uses, e.g.:
 
@@ -94,6 +98,19 @@ Evaluated at runtime (per request or per session tick):
 Cloud providers must resolve credentials through `host.secureStorage` using `request.authContextRef` during execution.
 They must not accept raw API keys, bearer tokens, or provider secrets on `TaskRequest`; those fields are invalid at the
 contract validation layer.
+
+### 2.3 Shared route-planning boundary
+
+The shared Rust planner only consumes normalized provider descriptor data and dynamic capability snapshots. It does not:
+
+- execute providers
+- access host services directly
+- resolve credentials
+- make HTTP calls
+- own Mode 2 or Mode 3 orchestration
+
+Platform SDKs remain responsible for mapping the selected provider ID back to a concrete provider adapter instance and
+then executing the request locally.
 
 ---
 

@@ -3,6 +3,8 @@ export {
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
+  routePlanSchema,
+  routePlannerInputSchema,
   taskRequestSchema,
   taskResultSchema,
   telemetryEventSchema
@@ -11,12 +13,16 @@ export {
   getHttpRequestValidationIssues,
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
+  getRoutePlanValidationIssues,
+  getRoutePlannerInputValidationIssues,
   getTaskRequestValidationIssues,
   getTaskResultValidationIssues,
   getTelemetryEventValidationIssues,
   validateHttpRequest,
   validateHttpResponse,
   validateIndeRunError,
+  validateRoutePlan,
+  validateRoutePlannerInput,
   validateTaskRequest,
   validateTaskResult,
   validateTelemetryEvent,
@@ -27,6 +33,8 @@ export type {
   FinishReason,
   IndeRunErrorClass,
   SchemaVersion,
+  SharedRoutePlan,
+  SharedRoutePlannerInput,
   TaskKind
 } from "./types.js";
 

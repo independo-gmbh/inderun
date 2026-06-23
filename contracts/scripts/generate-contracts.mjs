@@ -64,6 +64,16 @@ const schemas = [
     input: "telemetry-event.schema.json",
     typeOutput: "telemetry-event.ts",
     constName: "telemetryEventSchema"
+  },
+  {
+    input: "route-planner-input.schema.json",
+    typeOutput: "route-planner-input.ts",
+    constName: "routePlannerInputSchema"
+  },
+  {
+    input: "route-plan.schema.json",
+    typeOutput: "route-plan.ts",
+    constName: "routePlanSchema"
   }
 ];
 
@@ -165,16 +175,12 @@ function normalizeKotlinContractsSource(source) {
     ["data class HTTPResponse (", "data class HttpResponse ("],
     ["val role: Role", "val role: MessageRole"],
     ["val execution: Execution", "val execution: ExecutionPolicy"],
+    ["val executionTarget: Execution", "val executionTarget: ExecutionPolicy"],
     ["val kind: Kind", "val kind: TaskKind = TaskKind.TEXT_TO_TEXT"],
     ["val level: Level? = null", "val level: TelemetryLevel? = null"],
     ["val errorClass: ErrorClass? = null", "val errorClass: IndeRunErrorClass? = null"],
     ["val errorClass: ErrorClass,", "val errorClass: IndeRunErrorClass,"],
     ["val type: OutputType", "val type: OutputType = OutputType.TEXT"],
-    ["val schemaVersion: SchemaVersion,\n\n    /**\n     * Task descriptor used by routing and provider capability matching.\n     */\n    val task: Task,",
-      "val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n\n    /**\n     * Task descriptor used by routing and provider capability matching.\n     */\n    val task: Task = Task(),"],
-    ["val schemaVersion: SchemaVersion,\n\n    /**\n     * Required minimal telemetry summary attached to every result.\n     */\n    val telemetry: TaskResultTelemetry,",
-      "val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n\n    /**\n     * Required minimal telemetry summary attached to every result.\n     */\n    val telemetry: TaskResultTelemetry,"],
-    ["val schemaVersion: SchemaVersion\n)", "val schemaVersion: SchemaVersion = SchemaVersion.V1_0\n)"],
     [`data class Message (
     /**
      * Text content for this message.
@@ -197,6 +203,19 @@ function normalizeKotlinContractsSource(source) {
     val content: String
 )`]
   ]);
+
+  output = output.replace(
+    /val schemaVersion: SchemaVersion,\n(\s*\/\*\*\n\s*\* Task descriptor used by routing and provider capability matching\.\n\s*\*\/\n\s*val task: TaskRequestTask),/m,
+    `val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n$1 = TaskRequestTask(),`
+  );
+  output = output.replace(
+    /val schemaVersion: SchemaVersion,\n(\s*\/\*\*\n\s*\* Required minimal telemetry summary attached to every result\.\n\s*\*\/\n\s*val telemetry: TaskResultTelemetry),/m,
+    `val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n$1,`
+  );
+  output = output.replace(
+    /val schemaVersion: SchemaVersion\n\)/g,
+    "val schemaVersion: SchemaVersion = SchemaVersion.V1_0\n)"
+  );
 
   output = output.replace(
     /enum class SchemaVersion \{\s+The10\s+\}/m,

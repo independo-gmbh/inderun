@@ -49,6 +49,7 @@ task execution from provider specifics so applications can:
 - **iOS**: IndeRun Swift Package (Swift-first API + HostServices + core engine)
 - **Android**: IndeRun Android SDK (Kotlin-first API + HostServices + core engine)
 - **Android demo app**: checked-in Compose demo under `android/inderun-demo-app`
+- **Rust shared core**: deterministic route-planning core under `rust/inderun-route-core`
 
 > Capacitor is **not** a peer runtime — it is a thin wrapper that exposes a JS API and delegates to
 `@independo/inderun-web` (web) or the native SDKs (iOS/Android).
@@ -172,6 +173,50 @@ cd android && ./gradlew test
 ```
 
 The Android build expects a local Android SDK configured via `ANDROID_HOME` or `android/local.properties`.
+
+### Rust shared-core commands
+
+Build and test the shared route-planning core:
+
+```sh
+cargo build -p inderun_route_core
+cargo test -p inderun_route_core
+```
+
+Build the wasm target with the rustup-managed toolchain:
+
+```sh
+RUSTC="$(rustup which rustc --toolchain stable)" \
+  rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown
+
+wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
+  --target web \
+  --out-dir packages/inderun-route-core-wasm/generated \
+  --out-name inderun_route_core
+
+pnpm --filter @independo/inderun-route-core-wasm test
+```
+
+### Rust setup
+
+Minimal setup for the shared route planner:
+
+```sh
+brew install rust
+brew install rustup-init
+rustup-init
+rustup default stable
+rustup target add wasm32-unknown-unknown
+rustup target add aarch64-apple-ios
+rustup target add aarch64-apple-ios-sim
+cargo install wasm-pack
+cargo install wasm-bindgen-cli
+```
+
+If `wasm-pack` reports that `wasm32-unknown-unknown` is missing while `rustup target list --installed` shows it, your
+shell is probably picking Homebrew `rustc` instead of the rustup-managed toolchain. In that case, use the explicit
+`RUSTC=... rustup run stable cargo build --target wasm32-unknown-unknown` command above or move the rustup shims ahead of Homebrew in
+your PATH.
 
 ---
 

@@ -1,0 +1,5 @@
+[workspace]
+members = [
+  "rust/inderun-route-core",
+]
+resolver = "2"

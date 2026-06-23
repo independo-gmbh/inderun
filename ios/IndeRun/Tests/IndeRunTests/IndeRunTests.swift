@@ -1,6 +1,6 @@
 import XCTest
 import IndeRunContracts
-import IndeRunCore
+@testable import IndeRunCore
 @testable import IndeRunAppleProviders
 @testable import IndeRunOpenAIProviders
 @testable import IndeRunSwift
@@ -125,6 +125,14 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
     }
 }
 
+struct MockRoutePlanner: RoutePlanning {
+    let plan: SharedPlannerRoutePlan?
+
+    func planRoute(input: SharedPlannerInput) -> SharedPlannerRoutePlan? {
+        plan
+    }
+}
+
 /// Test double for the Apple provider runtime seam.
 ///
 /// Keeps provider tests independent of the host OS, hardware eligibility, and
@@ -200,6 +208,41 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(telemetry.events.count, 2)
         XCTAssertEqual(telemetry.events[0].type, .routeDecided)
         XCTAssertEqual(telemetry.events[1].type, .attemptSucceeded)
+    }
+
+    func testRouterUsesSharedPlannerSelectionWhenAvailable() async throws {
+        let providerA = MockProvider(id: "local_a", type: .local)
+        let providerB = MockProvider(id: "local_b", type: .local)
+        try registry.register(providerA)
+        try registry.register(providerB)
+
+        let router = Router(
+            registry: registry,
+            planner: MockRoutePlanner(
+                plan: SharedPlannerRoutePlan(
+                    candidates: [],
+                    explanation: SharedPlannerExplanation(
+                        selectedProviderId: "local_b",
+                        summary: "Selected provider 'local_b' from shared Rust planner."
+                    ),
+                    failureCode: nil,
+                    fallbackProviderIds: ["local_a"],
+                    rejectedProviders: [],
+                    selectedProviderId: "local_b",
+                )
+            )
+        )
+
+        let selection = try await router.selectRoute(
+            request: TaskRequest(
+                prompt: "shared planner",
+                policy: Policy(execution: .onDevice)
+            ),
+            hostServices: hostServices
+        )
+
+        XCTAssertEqual(selection.provider.describe().id, "local_b")
+        XCTAssertTrue(selection.explanation.contains("shared Rust planner"))
     }
     
     func testRoutingOnDeviceMismatch() async throws {

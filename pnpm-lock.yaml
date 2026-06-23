@@ -40,11 +40,20 @@ importers:
         specifier: ^3.2.6
         version: 3.2.6(@types/node@24.12.4)(happy-dom@20.10.6)(yaml@2.9.0)
 
+  packages/inderun-route-core-wasm:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/inderun-web:
     dependencies:
       '@independo/inderun-contracts':
         specifier: workspace:^
         version: link:../contracts
+      '@independo/inderun-route-core-wasm':
+        specifier: workspace:^
+        version: link:../inderun-route-core-wasm
     devDependencies:
       '@types/node':
         specifier: ^24.12.4
