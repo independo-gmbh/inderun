@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.independo.inderun.providers.openai"
+    namespace = "app.independo.inderun.providers.openai"
     compileSdk = 34
 
     defaultConfig {

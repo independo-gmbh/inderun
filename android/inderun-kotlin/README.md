@@ -21,9 +21,9 @@ val indeRun = IndeRun.initialize(this)
 To register the OpenAI-compatible cloud provider explicitly:
 
 ```kotlin
-import com.independo.inderun.core.ProviderRegistry
-import com.independo.inderun.providers.openai.OpenAIProvider
-import com.independo.inderun.providers.openai.OpenAIProviderOptions
+import app.independo.inderun.core.ProviderRegistry
+import app.independo.inderun.providers.openai.OpenAIProvider
+import app.independo.inderun.providers.openai.OpenAIProviderOptions
 
 val registry = ProviderRegistry().apply {
     register(

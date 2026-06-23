@@ -1,0 +1,26 @@
+{
+  "name": "@independo/inderun-demo-proxy",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Standalone OpenAI-compatible proxy backend for IndeRun demo apps.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "pnpm build && node dist/server.js",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.6"
+  }
+}

@@ -85,6 +85,14 @@ Checked-in JavaScript commands:
 - `pnpm generate`
 - `pnpm --filter @independo/inderun-contracts build`
 - `pnpm --filter @independo/inderun-contracts test`
+- `pnpm --filter @independo/inderun-demo-proxy dev`
+- `pnpm --filter @independo/inderun-demo-proxy start`
+- `pnpm --filter @independo/inderun-demo-proxy build`
+- `pnpm --filter @independo/inderun-demo-proxy test`
+- `pnpm --filter @independo/inderun-web-demo dev`
+- `pnpm --filter @independo/inderun-web-demo build`
+- `pnpm --filter @independo/inderun-web-demo preview`
+- `pnpm --filter @independo/inderun-web-demo test`
 
 Checked-in Swift commands:
 

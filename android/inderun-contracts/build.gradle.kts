@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.independo.inderun.contracts"
+    namespace = "app.independo.inderun.contracts"
     compileSdk = 34
 
     defaultConfig {

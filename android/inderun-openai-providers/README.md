@@ -13,9 +13,9 @@ It provides:
 Registration example:
 
 ```kotlin
-import com.independo.inderun.core.ProviderRegistry
-import com.independo.inderun.providers.openai.OpenAIProvider
-import com.independo.inderun.providers.openai.OpenAIProviderOptions
+import app.independo.inderun.core.ProviderRegistry
+import app.independo.inderun.providers.openai.OpenAIProvider
+import app.independo.inderun.providers.openai.OpenAIProviderOptions
 
 val registry = ProviderRegistry().apply {
     register(

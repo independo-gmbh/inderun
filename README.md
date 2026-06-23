@@ -37,6 +37,8 @@ task execution from provider specifics so applications can:
 
 - `@independo/inderun-contracts` — generated TS types, schema constants, and validators
 - `@independo/inderun-web` — Web SDK (public API + web HostServices + web providers)
+- `@independo/inderun-demo-proxy` — private standalone proxy backend for demo apps
+- `@independo/inderun-web-demo` — private web demo client for reviewing the Mode-1 cloud flow
 - `@independo/capacitor-inderun` — Capacitor facade/bridge (thin wrapper delegating to web + native SDKs)
 
 > Naming note: `@types/*` packages are typically for community-maintained declarations (DefinitelyTyped) for
@@ -46,6 +48,7 @@ task execution from provider specifics so applications can:
 
 - **iOS**: IndeRun Swift Package (Swift-first API + HostServices + core engine)
 - **Android**: IndeRun Android SDK (Kotlin-first API + HostServices + core engine)
+- **Android demo app**: checked-in Compose demo under `android/inderun-demo-app`
 
 > Capacitor is **not** a peer runtime — it is a thin wrapper that exposes a JS API and delegates to
 `@independo/inderun-web` (web) or the native SDKs (iOS/Android).
@@ -117,6 +120,28 @@ Contracts package only:
 pnpm --filter @independo/inderun-contracts build
 pnpm --filter @independo/inderun-contracts test
 ```
+
+Demo proxy package:
+
+```sh
+pnpm --filter @independo/inderun-demo-proxy dev
+pnpm --filter @independo/inderun-demo-proxy start
+pnpm --filter @independo/inderun-demo-proxy build
+pnpm --filter @independo/inderun-demo-proxy test
+```
+
+Web demo package:
+
+```sh
+pnpm --filter @independo/inderun-web-demo dev
+pnpm --filter @independo/inderun-web-demo build
+pnpm --filter @independo/inderun-web-demo preview
+pnpm --filter @independo/inderun-web-demo test
+```
+
+The web demo client calls the standalone demo proxy, so the browser does not carry raw provider secrets in request
+payloads. The proxy can target the default OpenAI Responses endpoint with `OPENAI_API_KEY`, or a custom
+OpenAI-compatible endpoint via `INDERUN_OPENAI_ENDPOINT_URL` with optional bearer auth.
 
 ### Swift (iOS SDK) Package commands
 
