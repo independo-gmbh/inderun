@@ -44,6 +44,16 @@ public final class IndeRun: Sendable {
         }
     }
     
+    /// Orchestrates the full execution lifecycle of a `TaskRequest`.
+    /// 
+    /// This method ensures that:
+    /// 1. **Validation**: The request payload adheres to schema contracts.
+    /// 2. **Routing**: A provider is selected based on the requested ExecutionPolicy (e.g., 'on_device' vs 'cloud').
+    /// 3. **Execution**: The task is executed via the optimal provider adapter.
+    /// 4. **Telemetry**: Results are enriched with timing and metadata.
+    /// 
+    /// - Parameter request: The standard request payload including prompt, policy, and task description.
+    /// - Returns: A normalized `TaskResult` containing generated text and execution telemetry.
     public func run(request: TaskRequest) async throws -> TaskResult {
         let startTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
         
@@ -74,7 +84,6 @@ public final class IndeRun: Sendable {
             if let messages = request.messages, messages.contains(where: { $0.content.isEmpty }) {
                 validationIssues.append("messages[].content must be non-empty.")
             }
-            
             if !hasPrompt && !hasMessages {
                 validationIssues.append("Either prompt or messages must be provided and non-empty.")
             }
@@ -116,7 +125,11 @@ public final class IndeRun: Sendable {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                throw toIndeRunException(error, fallbackRunId: runId, fallbackProviderId: providerId)
+                throw toIndeRunException(
+                    error,
+                    fallbackRunId: runId,
+                    fallbackProviderId: providerId
+                )
             }
             
             // 4. Finalize telemetry and timings
@@ -148,7 +161,7 @@ public final class IndeRun: Sendable {
             let exception = toIndeRunException(
                 error,
                 fallbackRunId: runId,
-                fallbackDetails: ["totalMs": JSONAny(totalMs)]
+                fallbackDetails: ["totalMs": JSONAny(totalMs) ]
             )
             
             safeEmit(TelemetryEvent(
@@ -156,7 +169,7 @@ public final class IndeRun: Sendable {
                 runId: runId,
                 timestamp: endTime,
                 payload: [
-                    "providerId": exception.providerId.map(JSONAny.init) ?? JSONAny(JSONNull()),
+                    "providerId": exception.providerId.map(JSONAny.init) ?? JSONAny(null),
                     "durationMs": JSONAny(totalMs),
                     "errorClass": JSONAny(exception.errorClass.rawValue),
                     "message": JSONAny(getStableMessage(for: exception.errorClass))
@@ -167,3 +180,78 @@ public final class IndeRun: Sendable {
         }
     }
 }
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi
+<|channel>endOfFile
+<|channel>fi

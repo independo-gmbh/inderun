@@ -10,7 +10,9 @@ import {
   type HttpClientService,
   type HttpRequest,
   type HttpResponse,
-  type ProviderAdapter
+  type ProviderAdapter,
+  Router,
+  type RoutePlanner
 } from "./index.js";
 
 function createMockLocalProvider(id: string, available = true): ProviderAdapter {
@@ -241,6 +243,16 @@ function createAuthenticatedMockCloudProvider(id: string): ProviderAdapter {
   };
 }
 
+function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
+  return {
+    schemaVersion: "1.0",
+    task: { kind: "text_to_text" },
+    prompt: "test prompt",
+    policy: { execution: "on_device" },
+    ...overrides
+  };
+}
+
 describe("IndeRun Engine Core Skeleton Tests", () => {
   let registry: ProviderRegistry;
 
@@ -257,6 +269,37 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         /Provider with ID "mock-local-1" is already registered/
       );
     });
+  });
+
+  it("selects a provider from shared planner output when available", async () => {
+    registry.register(createMockLocalProvider("provider-a", true));
+    registry.register(createMockLocalProvider("provider-b", true));
+
+    const planner: RoutePlanner = {
+      async planRoute() {
+        return {
+          selectedProviderId: "provider-b",
+          fallbackProviderIds: ["provider-a"],
+          candidates: [
+            { providerId: "provider-b", order: 0 },
+            { providerId: "provider-a", order: 1 }
+          ],
+          rejectedProviders: [],
+          failureCode: null,
+          explanation: {
+            summary: "Selected provider 'provider-b' from shared Rust planner."
+          }
+        };
+      }
+    };
+
+    const selection = await new Router(registry, planner).selectRoute(
+      createRequest(),
+      createMockHostServices(true)
+    );
+
+    expect(selection.provider.describe().id).toBe("provider-b");
+    expect(selection.explanation).toContain("shared Rust planner");
   });
 
   describe("Request Validation", () => {

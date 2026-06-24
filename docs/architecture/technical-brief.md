@@ -78,6 +78,10 @@ Serializable HostServices-adjacent payloads (`HttpRequest`, `HttpResponse`, and 
 native SDKs and bridge layers can generate matching data shapes. Callable host service interfaces remain language-native
 interfaces/protocols.
 
+Route planning now also has a shared-core foundation in Rust. The Rust core owns deterministic Mode-1 route planning as
+pure data-in/data-out logic, while platform SDKs continue to own provider adapters, host services, secure credential
+resolution, HTTP transport, and actual execution.
+
 ## Success Criteria
 ### Minimum success
 - Fully functional IndeRun framework with policy-based runtime selection.

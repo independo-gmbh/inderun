@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/route-planner-input.schema.json",
+  "title": "RoutePlannerInput",
+  "description": "Pure data input contract for deterministic shared-core Mode-1 route planning.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["task", "constraints", "preferences", "providers"],
+  "properties": {
+    "task": {
+      "description": "Minimal task descriptor for provider task matching.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "constraints": {
+      "description": "Hard routing constraints evaluated before provider selection.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["executionTarget", "networkOnline"],
+      "properties": {
+        "executionTarget": {
+          "description": "Required execution target for the route plan.",
+          "enum": ["on_device", "cloud"]
+        },
+        "networkOnline": {
+          "description": "Current connectivity snapshot used for cloud route planning.",
+          "type": "boolean"
+        }
+      }
+    },
+    "preferences": {
+      "description": "Soft route ordering preferences applied after hard filtering.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["preferredProviderIds"],
+      "properties": {
+        "preferredProviderIds": {
+          "description": "Provider IDs ordered from highest to lowest preference.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "providers": {
+      "description": "Static descriptors plus dynamic capability snapshots for planning.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["descriptor", "capabilities"],
+        "properties": {
+          "descriptor": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "type", "supports", "tasks"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "enum": ["local", "edge", "cloud"]
+              },
+              "supports": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["run"],
+                "properties": {
+                  "run": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["available"],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

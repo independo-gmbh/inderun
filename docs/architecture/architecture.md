@@ -390,6 +390,8 @@ Computed per request (or per session tick) using Host Services:
 - scores candidates deterministically (inspectable scoring)
 - produces a primary + fallback chain
 - outputs a **route explanation** for debugging
+- for Mode 1, delegates pure route-plan construction to the shared Rust core and then maps the selected provider ID back
+  to a platform-local adapter instance
 
 5) **Orchestrator**
 
@@ -432,6 +434,25 @@ inputs: request, policy, capabilitiesSnapshot, providerDescriptors, healthState
 ```
 
 **Key requirement:** expose “why selected” and “why rejected” for debugging.
+
+### 9.2.1 Shared Rust route-planning boundary
+
+For Mode 1 deterministic route planning, IndeRun uses a small shared Rust core so Web, iOS, Android, and later
+Capacitor-backed native flows do not reimplement provider filtering and fallback ordering independently.
+
+- Rust owns: route-planning DTOs, hard-filter logic, deterministic ordering, fallback chain construction, and rejection
+  reasons.
+- Platform SDKs own: provider registration, dynamic capability probing via Host Services, secure credential access,
+  provider execution, transport, and telemetry emission.
+- The Rust boundary is intentionally pure data-in/data-out. It returns provider IDs, fallback order, and rejection
+  reasons. It does not call providers, access the network, or resolve credentials.
+- Initial bindings are:
+  - Web/TypeScript via wasm + `@independo/inderun-route-core-wasm`
+  - iOS/Swift via JSON-string C ABI wrapper
+  - Android/Kotlin via JSON-string JNI wrapper
+
+This boundary is intentionally limited to Mode 1 in the current phase. Mode 2 and Mode 3 orchestration remain
+platform-owned until shared-core requirements are clearer.
 
 ### 9.3 Fallback nuance for streaming/session
 

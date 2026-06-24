@@ -1,6 +1,7 @@
 package app.independo.inderun.core
 
 import app.independo.inderun.contracts.ExecutionPolicy
+import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.TaskRequest
 
 data class RouteSelection(
@@ -8,26 +9,86 @@ data class RouteSelection(
     val explanation: String
 )
 
-class Router(
-    private val registry: ProviderRegistry
+class Router private constructor(
+    private val registry: ProviderRegistry,
+    private val planner: RoutePlanner
 ) {
+    constructor(registry: ProviderRegistry) : this(registry, SharedCoreRoutePlanner)
+
     suspend fun selectRoute(
         request: TaskRequest,
         hostServices: HostServices
     ): RouteSelection {
-        val taskKind = request.task.kind.rawValue
-        val candidates = registry.list()
-            .map { provider -> provider to provider.describe() }
-            .sortedBy { (_, descriptor) -> descriptor.id }
+        val online = hostServices.connectivity.isOnline()
+        val snapshots = collectProviderSnapshots(hostServices)
 
-        val taskCandidates = candidates.filter { (_, descriptor) ->
-            descriptor.tasks.contains(taskKind) && descriptor.supports.run
+        planner.planRoute(
+            buildSharedPlannerInput(
+                request = request,
+                online = online,
+                snapshots = snapshots
+            )
+        )?.let { routePlan ->
+            return selectFromSharedPlan(request, snapshots, routePlan)
+        }
+
+        return selectLegacyRoute(request, snapshots, online)
+    }
+
+    private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> {
+        return registry.list()
+            .map { provider ->
+                ProviderSnapshot(
+                    provider = provider,
+                    descriptor = provider.describe(),
+                    capabilities = provider.capabilities(hostServices)
+                )
+            }
+            .sortedBy { snapshot -> snapshot.descriptor.id }
+    }
+
+    private fun selectFromSharedPlan(
+        request: TaskRequest,
+        snapshots: List<ProviderSnapshot>,
+        routePlan: SharedPlannerRoutePlan
+    ): RouteSelection {
+        routePlan.selectedProviderId?.let { selectedProviderId ->
+            snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == selectedProviderId }?.let { snapshot ->
+                return RouteSelection(
+                    provider = snapshot.provider,
+                    explanation = routePlan.explanation.summary
+                )
+            }
+        }
+
+        val message = routePlan.explanation.summary
+        when (routePlan.failureCode) {
+            FailureCode.Offline -> throw createOffline(message)
+            FailureCode.CapabilityMismatch -> throw createCapabilityMismatch(message)
+            FailureCode.Unavailable -> throw createUnavailable(message)
+            else -> {
+                when (request.policy.execution) {
+                    ExecutionPolicy.ON_DEVICE -> throw createCapabilityMismatch(message)
+                    ExecutionPolicy.CLOUD -> throw createUnavailable(message)
+                }
+            }
+        }
+    }
+
+    private fun selectLegacyRoute(
+        request: TaskRequest,
+        snapshots: List<ProviderSnapshot>,
+        online: Boolean
+    ): RouteSelection {
+        val taskKind = request.task.kind.rawValue
+        val taskCandidates = snapshots.filter { snapshot ->
+            snapshot.descriptor.tasks.contains(taskKind) && snapshot.descriptor.supports.run
         }
 
         return when (request.policy.execution) {
             ExecutionPolicy.ON_DEVICE -> {
-                val localCandidates = taskCandidates.filter { (_, descriptor) ->
-                    descriptor.type == ProviderDescriptor.ProviderType.local
+                val localCandidates = taskCandidates.filter { snapshot ->
+                    snapshot.descriptor.type == ProviderDescriptor.ProviderType.local
                 }
 
                 if (localCandidates.isEmpty()) {
@@ -36,30 +97,28 @@ class Router(
                     )
                 }
 
-                for ((provider, descriptor) in localCandidates) {
-                    val capabilities = provider.capabilities(hostServices)
-                    if (capabilities.available) {
-                        return RouteSelection(
-                            provider = provider,
-                            explanation = "Selected on-device provider '${descriptor.id}' deterministically."
-                        )
-                    }
+                val selected = localCandidates.firstOrNull { snapshot -> snapshot.capabilities.available }
+                if (selected != null) {
+                    RouteSelection(
+                        provider = selected.provider,
+                        explanation = "Selected on-device provider '${selected.descriptor.id}' deterministically."
+                    )
+                } else {
+                    throw createCapabilityMismatch(
+                        "Capability mismatch: on-device execution selected, but on-device provider is currently unavailable."
+                    )
                 }
-
-                throw createCapabilityMismatch(
-                    "Capability mismatch: on-device execution selected, but on-device provider is currently unavailable."
-                )
             }
 
             ExecutionPolicy.CLOUD -> {
-                if (!hostServices.connectivity.isOnline()) {
+                if (!online) {
                     throw createOffline(
                         "Offline: cloud execution selected, but no network connection is available."
                     )
                 }
 
-                val cloudCandidates = taskCandidates.filter { (_, descriptor) ->
-                    descriptor.type == ProviderDescriptor.ProviderType.cloud
+                val cloudCandidates = taskCandidates.filter { snapshot ->
+                    snapshot.descriptor.type == ProviderDescriptor.ProviderType.cloud
                 }
 
                 if (cloudCandidates.isEmpty()) {
@@ -68,20 +127,24 @@ class Router(
                     )
                 }
 
-                for ((provider, descriptor) in cloudCandidates) {
-                    val capabilities = provider.capabilities(hostServices)
-                    if (capabilities.available) {
-                        return RouteSelection(
-                            provider = provider,
-                            explanation = "Selected cloud provider '${descriptor.id}' deterministically."
-                        )
-                    }
+                val selected = cloudCandidates.firstOrNull { snapshot -> snapshot.capabilities.available }
+                if (selected != null) {
+                    RouteSelection(
+                        provider = selected.provider,
+                        explanation = "Selected cloud provider '${selected.descriptor.id}' deterministically."
+                    )
+                } else {
+                    throw createUnavailable(
+                        "Unavailable: cloud execution selected, but no cloud provider is currently available."
+                    )
                 }
-
-                throw createUnavailable(
-                    "Unavailable: cloud execution selected, but no cloud provider is currently available."
-                )
             }
+        }
+    }
+
+    internal companion object {
+        fun withPlanner(registry: ProviderRegistry, planner: RoutePlanner): Router {
+            return Router(registry, planner)
         }
     }
 }

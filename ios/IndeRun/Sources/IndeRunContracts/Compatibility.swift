@@ -1,6 +1,6 @@
 import Foundation
 
-public typealias TaskDescriptor = Task
+public typealias TaskDescriptor = TaskRequestTask
 public typealias GenerationHints = Generation
 public typealias TelemetryPreferences = TaskRequestTelemetry
 public typealias UsageInfo = Usage
@@ -15,7 +15,7 @@ public extension TaskRequest {
     init(
         schemaVersion: String = "1.0",
         requestId: String? = nil,
-        task: TaskDescriptor = TaskDescriptor(),
+        task: TaskDescriptor = TaskDescriptor(kind: .textToText),
         prompt: String? = nil,
         messages: [Message]? = nil,
         generation: GenerationHints? = nil,
@@ -34,12 +34,6 @@ public extension TaskRequest {
             task: task,
             telemetry: telemetry
         )
-    }
-}
-
-public extension Task {
-    init(kind: String = "text_to_text") {
-        self.init(kind: Kind(rawValue: kind) ?? .textToText)
     }
 }
 

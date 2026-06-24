@@ -8,29 +8,35 @@ export interface AppDependencies {
     model: string;
     proxyEndpointUrl: string;
   };
-  runPrompt(prompt: string): Promise<TaskResult>;
+  runPrompt(prompt: string, executionMode: "on_device" | "cloud"): Promise<TaskResult>;
 }
+
+type ExecutionMode = "on_device" | "cloud";
 
 type AppState =
   | {
       status: "idle" | "running";
       prompt: string;
+      executionMode: ExecutionMode;
     }
   | {
       status: "success";
       prompt: string;
+      executionMode: ExecutionMode;
       result: TaskResult;
     }
   | {
       status: "error";
       prompt: string;
+      executionMode: ExecutionMode;
       error: IndeRunException;
     };
 
 export function mountApp(root: HTMLElement, deps: AppDependencies): void {
   let state: AppState = {
     status: "idle",
-    prompt: DEFAULT_PROMPT
+    prompt: DEFAULT_PROMPT,
+    executionMode: "cloud"
   };
 
   const render = () => {
@@ -41,49 +47,55 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
       <main class="shell">
         <section class="hero">
           <p class="eyebrow">Issue #11 / Web Workpackage</p>
-          <h1>IndeRun Cloud Run Demo</h1>
+          <h1 class="title">IndeRun Execution Demo</h1>
           <p class="lede">
-            Minimal review app for the canonical <code>run()</code> flow on the web:
-            prompt in, cloud execution through the local proxy, normalized result or error out.
+            Minimal review app for the canonical <code class="code">run()</code> flow on the web:
+            prompt in, execution through the local proxy, normalized result or error out.
           </p>
           <div class="pill-row">
             <span class="pill">Mode 1</span>
-            <span class="pill">Cloud Only</span>
+            <span class="pill">Policy Driven</span>
             <span class="pill">Proxy-Backed</span>
           </div>
         </section>
 
         <section class="panel composer">
+          <h2 class="subtitle">Execution Mode</h2>
+          <div class="mode-selector">
+            <button id="mode-on-device" class="mode-btn ${state.executionMode === 'on_device' ? 'active' : ''}">On Device</button>
+            <button id="mode-cloud" class="mode-btn ${state.executionMode === 'cloud' ? 'active' : ''}">Cloud</button>
+          </div>
+
           <label class="label" for="prompt">Prompt</label>
           <textarea id="prompt" name="prompt" rows="8" placeholder="Enter text to send through IndeRun.">${escapeHtml(
             state.prompt
           )}</textarea>
           <div class="actions">
             <button id="run-button" type="button" ${state.status === "running" ? "disabled" : ""}>
-              ${state.status === "running" ? "Running..." : "Run Through Cloud"}
+              ${state.status === "running" ? "Running..." : state.executionMode === 'on_device' ? "Run On Device" : "Run Through Cloud"}
             </button>
-            <p class="hint">Endpoint: <code>${escapeHtml(deps.config.proxyEndpointUrl)}</code></p>
+            <p class="hint">Endpoint: <code class="code">${escapeHtml(deps.config.proxyEndpointUrl)}</code></p>
           </div>
         </section>
 
         <section class="grid">
           <article class="panel">
-            <h2>Result</h2>
+            <h2 class="subtitle">Result</h2>
             ${outputPanel}
           </article>
 
           <article class="panel">
-            <h2>Attempt Metadata</h2>
+            <h2 class="subtitle">Attempt Metadata</h2>
             ${runMetadata}
           </article>
         </section>
 
         <section class="panel limitations">
-          <h2>Known Limitations</h2>
+          <h2 class="subtitle">Known Limitations</h2>
           <ul>
-            <li>This demo is intentionally cloud-only; on-device routing belongs to the native demo workpackages.</li>
+            <li>On-device routing requires a local provider setup that matches the policy.</li>
             <li>The browser never carries production secrets. The standalone demo proxy resolves upstream endpoint and bearer-token configuration server-side.</li>
-            <li>The canonical result field is <code>telemetry.totalMs</code>, not <code>timing.totalMs</code>.</li>
+            <li>The canonical result field is <code class="code">telemetry.totalMs</code>, not <code class="timing">timing.totalMs</code>.</li>
           </ul>
         </section>
       </main>
@@ -91,8 +103,10 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
 
     const promptField = root.querySelector<HTMLTextAreaElement>("#prompt");
     const runButton = root.querySelector<HTMLButtonElement>("#run-button");
+    const modeOnDeviceBtn = root.querySelector<HTMLButtonElement>("#mode-on-device");
+    const modeCloudBtn = root.querySelector<HTMLButtonElement>("#mode-cloud");
 
-    if (!promptField || !runButton) {
+    if (!promptField || !runButton || !modeOnDeviceBtn || !modeCloudBtn) {
       throw new Error("Demo UI failed to render required controls.");
     }
 
@@ -101,22 +115,32 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
       state = { ...state, prompt: target.value };
     });
 
+    modeOnDeviceBtn.addEventListener("click", () => {
+      state = { ...state, executionMode: "on_device" };
+      render();
+    });
+
+    modeCloudBtn.addEventListener("click", () => {
+      state = { ...state, executionMode: "cloud" };
+      render();
+    });
+
     runButton.addEventListener("click", async () => {
       const prompt = promptField.value.trim();
-      state = { status: "running", prompt };
+      state = { ...state, status: "running", prompt };
       render();
 
       try {
-        const result = await deps.runPrompt(prompt);
+        const result = await deps.runPrompt(prompt, state.executionMode);
         state = {
+          ...state,
           status: "success",
-          prompt,
           result
         };
       } catch (error) {
         state = {
+          ...state,
           status: "error",
-          prompt,
           error: toIndeRunException(error)
         };
       }
@@ -145,7 +169,7 @@ function renderOutputPanel(state: AppState): string {
       return `
         <div class="result failure">
           <p class="result-label">Normalized error</p>
-          <p><strong>${escapeHtml(state.error.errorClass)}</strong></p>
+          <p><strong class="error-class">${escapeHtml(state.error.errorClass)}</strong></p>
           <pre>${escapeHtml(state.error.message)}</pre>
           ${renderErrorDetails(state.error)}
         </div>
@@ -157,10 +181,10 @@ function renderRunMetadata(state: AppState): string {
   if (state.status === "success") {
     return `
       <dl class="meta">
-        <div><dt>Run ID</dt><dd>${escapeHtml(state.result.runId)}</dd></div>
-        <div><dt>Provider Used</dt><dd>${escapeHtml(state.result.telemetry.providerUsed)}</dd></div>
-        <div><dt>Total ms</dt><dd>${formatMs(state.result.telemetry.totalMs)}</dd></div>
-        <div><dt>Finish Reason</dt><dd>${escapeHtml(state.result.finishReason)}</dd></div>
+        <div class="meta-item"><dt>Run ID</dt><dd>${escapeHtml(state.result.runId)}</dd></div>
+        <div class="meta-item"><dt>Provider Used</dt><dd>${escapeHtml(state.result.telemetry.providerUsed)}</dd></div>
+        <div class="meta-item"><dt>Total ms</dt><dd>${formatMs(state.result.telemetry.totalMs)}</dd></div>
+        <div class="meta-item"><dt>Finish Reason</dt><dd>${escapeHtml(state.result.finishReason)}</dd></div>
       </dl>
     `;
   }
@@ -168,10 +192,10 @@ function renderRunMetadata(state: AppState): string {
   if (state.status === "error") {
     return `
       <dl class="meta">
-        <div><dt>Run ID</dt><dd>${escapeHtml(state.error.runId ?? "unavailable")}</dd></div>
-        <div><dt>Provider Used</dt><dd>${escapeHtml(state.error.providerId ?? "unavailable")}</dd></div>
-        <div><dt>Total ms</dt><dd>${formatMs(getErrorTotalMs(state.error.details))}</dd></div>
-        <div><dt>Error Class</dt><dd>${escapeHtml(state.error.errorClass)}</dd></div>
+        <div class="meta-item"><dt>Run ID</dt><dd>${escapeHtml(state.error.runId ?? "unavailable")}</dd></div>
+        <div class="meta-item"><dt>Provider Used</dt><dd>${escapeHtml(state.error.providerId ?? "unavailable")}</dd></div>
+        <div class="meta-item"><dt>Total ms</dt><dd>${formatMs(getErrorTotalMs(state.error.details))}</dd></div>
+        <div class="meta-item"><dt>Error Class</dt><dd>${escapeHtml(state.error.errorClass)}</dd></div>
       </dl>
     `;
   }
@@ -202,7 +226,7 @@ function renderErrorDetails(error: IndeRunException): string {
 
   return `
     <p class="result-label">Fetch detail</p>
-    <pre>${escapeHtml(`${name}: ${message}`)}</pre>
+    <pre class="code">${escapeHtml(`${name}: ${message}`)}</pre>
   `;
 }
 

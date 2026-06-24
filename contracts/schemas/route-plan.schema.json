@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/route-plan.schema.json",
+  "title": "RoutePlan",
+  "description": "Deterministic shared-core Mode-1 route planning result.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["fallbackProviderIds", "candidates", "rejectedProviders", "explanation"],
+  "properties": {
+    "selectedProviderId": {
+      "description": "Chosen primary provider ID, if any.",
+      "type": "string",
+      "minLength": 1
+    },
+    "fallbackProviderIds": {
+      "description": "Fallback provider IDs ordered after the primary selection.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "candidates": {
+      "description": "Eligible candidates in deterministic order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["providerId", "order"],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "rejectedProviders": {
+      "description": "Providers filtered out during planning together with machine-readable reasons.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["providerId", "reasons"],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["code", "message"],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "task_not_supported",
+                    "run_not_supported",
+                    "execution_target_mismatch",
+                    "offline",
+                    "capability_unavailable"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "failureCode": {
+      "description": "Normalized routing failure class when no provider is selected.",
+      "enum": ["capability_mismatch", "offline", "unavailable"]
+    },
+    "explanation": {
+      "description": "Human-readable selection or failure explanation suitable for telemetry/debugging.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["summary"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selectedProviderId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

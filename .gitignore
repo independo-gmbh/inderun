@@ -7,6 +7,8 @@
 
 node_modules/
 dist/
+.DS_Store
+packages/inderun-route-core-wasm/generated/
 
 .idea
 
