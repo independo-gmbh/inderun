@@ -15,7 +15,10 @@ export async function runPrompt(prompt: string, executionMode: "on_device" | "cl
     schemaVersion: "1.0",
     task: { kind: "text_to_text" },
     prompt,
-    policy: { execution: executionMode }
+    constraints:
+      executionMode === "on_device"
+        ? { privacy: "local_required" }
+        : { privacy: "cloud_required" }
   });
 }
 

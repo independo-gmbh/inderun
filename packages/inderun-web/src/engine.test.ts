@@ -248,7 +248,7 @@ function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
     schemaVersion: "1.0",
     task: { kind: "text_to_text" },
     prompt: "test prompt",
-    policy: { execution: "on_device" },
+    constraints: { privacy: "local_required" },
     ...overrides
   };
 }
@@ -311,7 +311,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const invalidRequest = {
         schemaVersion: "1.0",
         task: { kind: "invalid_task" },
-        policy: { execution: "cloud" }
+        constraints: { privacy: "cloud_required" }
       } as unknown as TaskRequest;
 
       await expect(engine.run(invalidRequest)).rejects.toThrowError(
@@ -338,7 +338,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "Hello",
-        policy: { execution: "cloud" },
+        constraints: { privacy: "cloud_required" },
         apiKey: "sk-should-not-be-here" // forbidden key
       } as unknown as TaskRequest;
 
@@ -360,7 +360,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "on_device" }
+        constraints: { privacy: "local_required" }
       };
 
       const result = await engine.run(req);
@@ -381,7 +381,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "on_device" },
+        constraints: { privacy: "local_required" },
         requestId: "orchestrator-run-999"
       };
 
@@ -397,11 +397,11 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "on_device" }
+        constraints: { privacy: "local_required" }
       };
 
       await expect(engine.run(req)).rejects.toThrowError(
-        /no on-device provider found/
+        /No on-device provider found\./
       );
 
       try {
@@ -425,11 +425,11 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "on_device" }
+        constraints: { privacy: "local_required" }
       };
 
       await expect(engine.run(req)).rejects.toThrowError(
-        /on-device provider is currently unavailable/
+        /No on-device provider is currently available\./
       );
 
       try {
@@ -454,7 +454,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "cloud" }
+        constraints: { privacy: "cloud_required" }
       };
 
       const result = await engine.run(req);
@@ -474,11 +474,11 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "cloud" }
+        constraints: { privacy: "cloud_required" }
       };
 
       await expect(engine.run(req)).rejects.toThrowError(
-        /no network connection is available/
+        /No network connection is available\./
       );
 
       try {
@@ -499,11 +499,11 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "cloud" }
+        constraints: { privacy: "cloud_required" }
       };
 
       await expect(engine.run(req)).rejects.toThrowError(
-        /no cloud provider found/
+        /No cloud provider found\./
       );
 
       try {
@@ -526,11 +526,11 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "cloud" }
+        constraints: { privacy: "cloud_required" }
       };
 
       await expect(engine.run(req)).rejects.toThrowError(
-        /no cloud provider is currently available/
+        /No cloud provider is currently available\./
       );
 
       try {
@@ -562,7 +562,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "cloud" },
+        constraints: { privacy: "cloud_required" },
         authContextRef: "openai-dev"
       };
 
@@ -595,7 +595,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "cloud" }
+        constraints: { privacy: "cloud_required" }
       };
 
       await expect(engine.run(req)).rejects.toThrowError(/requires authContextRef/);
@@ -622,7 +622,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
-        policy: { execution: "cloud" },
+        constraints: { privacy: "cloud_required" },
         authContextRef: "missing-slot"
       };
 
@@ -657,7 +657,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "hello telemetry",
-        policy: { execution: "on_device" },
+        constraints: { privacy: "local_required" },
         requestId: "test-run-1"
       };
 
@@ -669,7 +669,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         runId: "test-run-1",
         payload: {
           selectedProviderId: "mock-local-1",
-          executionPolicy: "on_device",
+          constraints: { privacy: "local_required" },
           taskKind: "text_to_text"
         }
       });
@@ -695,7 +695,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "hello telemetry fail",
-        policy: { execution: "cloud" },
+        constraints: { privacy: "cloud_required" },
         requestId: "test-run-fail"
       };
 
@@ -751,7 +751,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "hello provider fail",
-        policy: { execution: "on_device" },
+        constraints: { privacy: "local_required" },
         requestId: "test-run-provider-fail"
       };
 
@@ -793,7 +793,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "hello telemetry throw",
-        policy: { execution: "on_device" }
+        constraints: { privacy: "local_required" }
       };
 
       // Execution should complete successfully even if emit throws

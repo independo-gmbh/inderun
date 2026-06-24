@@ -15,12 +15,12 @@ final class DemoViewModel: ObservableObject {
 
         var id: String { rawValue }
 
-        var policyExecution: Execution {
+        var requestConstraints: TaskRequestConstraints {
             switch self {
             case .onDevice:
-                return .onDevice
+                return TaskRequestConstraints(privacy: .localRequired)
             case .cloud:
-                return .cloud
+                return TaskRequestConstraints(privacy: .cloudRequired)
             }
         }
 
@@ -222,7 +222,7 @@ final class DemoViewModel: ObservableObject {
             let inderun = try makeIndeRun()
             let request = TaskRequest(
                 prompt: trimmedPrompt,
-                policy: Policy(execution: executionMode.policyExecution)
+                constraints: executionMode.requestConstraints
             )
             let taskResult = try await inderun.run(request: request)
 

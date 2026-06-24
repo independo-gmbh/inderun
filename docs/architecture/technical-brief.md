@@ -13,14 +13,14 @@ Teams building AI-enabled apps currently face fragmented infrastructure:
 - No standard way to apply routing rules like "prefer local", "prefer low cost", or "prefer low latency".
 - Custom fallback logic in each app, causing duplication and inconsistent behavior.
 
-IndeRun addresses this by separating task execution from provider specifics and making runtime routing policy-driven.
+IndeRun addresses this by separating task execution from provider specifics and making runtime routing constraint-driven.
 
 ## Vision
 IndeRun should become a trusted execution layer for AI features in cross-platform applications:
 
 - One task call from app code.
 - Multiple interchangeable providers underneath.
-- Automatic provider selection based on capability and policy.
+- Automatic provider selection based on capability and constraints.
 - Deterministic fallback behavior when execution paths fail.
 
 ## Who IndeRun Is For
@@ -34,7 +34,7 @@ IndeRun is a framework that provides:
 - Cross-platform SDK surface for Swift, Kotlin, and TypeScript.
 - Pluggable provider model for local, edge, and cloud execution.
 - Runtime capability checks to detect what is actually usable on a device/session.
-- Policy-based routing engine to choose the best provider for each task.
+- Constraint-based routing engine to choose the best provider for each task.
 - Fallback orchestration when the preferred provider is unavailable or fails.
 - Documentation and runnable examples for fast onboarding.
 
@@ -84,7 +84,7 @@ resolution, HTTP transport, and actual execution.
 
 ## Success Criteria
 ### Minimum success
-- Fully functional IndeRun framework with policy-based runtime selection.
+- Fully functional IndeRun framework with constraint-based runtime selection.
 - Baseline providers integrated and operational on target platforms.
 - Public documentation and demo flows validated on real devices.
 - At least one external integration and initial OSS adoption.
@@ -122,7 +122,7 @@ resolution, HTTP transport, and actual execution.
 When joining the project, first internalize this mental model:
 
 1. IndeRun is an execution abstraction layer, not an AI model project.
-2. Policy-driven provider routing is the core differentiator.
+2. Constraint-driven provider routing is the core differentiator.
 3. Cross-platform consistency and fallback reliability are product-critical.
 4. Developer experience (clarity, predictability, onboarding speed) is as important as raw model performance.
 

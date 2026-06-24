@@ -3,7 +3,7 @@ import type { HostServices } from "./host.js";
 
 /**
  * Static metadata descriptor defining the capabilities, requirements, and constraints
- * of a provider. This is used by the PolicyEngine and Router to select candidate providers.
+ * of a provider. This is used by the routing engine and Router to select candidate providers.
  */
 export interface ProviderDescriptor {
   /**

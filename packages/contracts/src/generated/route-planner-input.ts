@@ -28,31 +28,45 @@ export type RoutePlannerInput = {
  */
 export type Constraints = {
     /**
-     * Required execution target for the route plan.
+     * Cloud execution constraint.
      */
-    executionTarget: ExecutionTarget;
+    cloud?: Cloud;
     /**
      * Current connectivity snapshot used for cloud route planning.
      */
-    networkOnline: boolean;
+    networkOnline?: boolean;
+    /**
+     * Privacy requirement or preference for execution placement.
+     */
+    privacy?: PrivacyEnum;
     [property: string]: unknown;
 }
 
 /**
- * Required execution target for the route plan.
+ * Cloud execution constraint.
  */
-export type ExecutionTarget = "on_device" | "cloud";
+export type Cloud = "forbidden" | "allowed" | "required";
+
+/**
+ * Privacy requirement or preference for execution placement.
+ */
+export type PrivacyEnum = "local_required" | "local_preferred" | "cloud_allowed" | "cloud_required";
 
 /**
  * Soft route ordering preferences applied after hard filtering.
  */
 export type Preferences = {
     /**
-     * Provider IDs ordered from highest to lowest preference.
+     * Primary optimization goal when multiple providers remain eligible.
      */
-    preferredProviderIds: string[];
+    optimizeFor?: OptimizeFor;
     [property: string]: unknown;
 }
+
+/**
+ * Primary optimization goal when multiple providers remain eligible.
+ */
+export type OptimizeFor = "privacy" | "latency" | "cost" | "balanced";
 
 export type Provider = {
     capabilities: Capabilities;
@@ -67,10 +81,23 @@ export type Capabilities = {
 }
 
 export type Descriptor = {
-    id:       string;
+    id: string;
+    /**
+     * Descriptor privacy metadata used to enforce local/cloud routing rules.
+     */
+    privacy?: PrivacyObject;
     supports: Supports;
     tasks:    string[];
     type:     Type;
+    [property: string]: unknown;
+}
+
+/**
+ * Descriptor privacy metadata used to enforce local/cloud routing rules.
+ */
+export type PrivacyObject = {
+    dataLeavesDevice: boolean;
+    regions?:         string[];
     [property: string]: unknown;
 }
 

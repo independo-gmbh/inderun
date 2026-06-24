@@ -102,16 +102,21 @@ export function buildSharedPlannerInput(
   snapshots: ProviderRuntimeSnapshot[],
   networkOnline: boolean
 ): SharedPlannerInput {
+  const constraints = request.constraints ?? {};
+  const preferences = request.preferences ?? {};
+
   return {
     task: {
       kind: request.task.kind
     },
     constraints: {
-      executionTarget: request.policy.execution,
-      networkOnline
+      privacy: constraints.privacy ?? "cloud_allowed",
+      cloud: constraints.cloud ?? "allowed",
+      networkOnline,
+      ...(constraints.timeoutMs !== undefined ? { timeoutMs: constraints.timeoutMs } : {})
     },
     preferences: {
-      preferredProviderIds: []
+      optimizeFor: preferences.optimizeFor ?? "balanced"
     },
     providers: snapshots.map((snapshot) => ({
       descriptor: snapshot.descriptor,
@@ -129,7 +134,15 @@ function toSharedPlannerDescriptor(
     supports: {
       run: descriptor.supports.run
     },
-    tasks: descriptor.tasks
+    tasks: descriptor.tasks,
+    ...(descriptor.privacy
+      ? {
+          privacy: {
+            dataLeavesDevice: descriptor.privacy.dataLeavesDevice,
+            ...(descriptor.privacy.regions ? { regions: descriptor.privacy.regions } : {})
+          }
+        }
+      : {})
   };
 }
 

@@ -11,6 +11,10 @@ export type TaskRequest = {
      */
     authContextRef?: string;
     /**
+     * Request-level routing constraints used by the planner.
+     */
+    constraints?: Constraints;
+    /**
      * Optional configuration for fine-tuning how the AI model generates its response.
      */
     generation?: Generation;
@@ -19,10 +23,9 @@ export type TaskRequest = {
      */
     messages?: Message[];
     /**
-     * Execution constraints that determine where the request is routed (e.g., local/on-device
-     * vs remote cloud).
+     * Soft routing preferences used for deterministic provider ordering.
      */
-    policy: Policy;
+    preferences?: Preferences;
     /**
      * A simple, single-turn text prompt used to trigger a response from the AI model.
      */
@@ -46,6 +49,35 @@ export type TaskRequest = {
     telemetry?: Telemetry;
     [property: string]: unknown;
 }
+
+/**
+ * Request-level routing constraints used by the planner.
+ */
+export type Constraints = {
+    /**
+     * Cloud execution constraint.
+     */
+    cloud?: Cloud;
+    /**
+     * Privacy requirement or preference for execution placement.
+     */
+    privacy?: Privacy;
+    /**
+     * Optional routing timeout budget in milliseconds.
+     */
+    timeoutMs?: number;
+    [property: string]: unknown;
+}
+
+/**
+ * Cloud execution constraint.
+ */
+export type Cloud = "forbidden" | "allowed" | "required";
+
+/**
+ * Privacy requirement or preference for execution placement.
+ */
+export type Privacy = "local_required" | "local_preferred" | "cloud_allowed" | "cloud_required";
 
 /**
  * Optional configuration for fine-tuning how the AI model generates its response.
@@ -96,23 +128,20 @@ export type Message = {
 export type Role = "system" | "user" | "assistant";
 
 /**
- * Execution constraints that determine where the request is routed (e.g., local/on-device
- * vs remote cloud).
+ * Soft routing preferences used for deterministic provider ordering.
  */
-export type Policy = {
+export type Preferences = {
     /**
-     * The target execution environment: 'on_device' for local ML models, or 'cloud' for
-     * remote-hosted providers.
+     * Primary optimization goal when multiple providers remain eligible.
      */
-    execution: Execution;
+    optimizeFor?: OptimizeFor;
     [property: string]: unknown;
 }
 
 /**
- * The target execution environment: 'on_device' for local ML models, or 'cloud' for
- * remote-hosted providers.
+ * Primary optimization goal when multiple providers remain eligible.
  */
-export type Execution = "on_device" | "cloud";
+export type OptimizeFor = "privacy" | "latency" | "cost" | "balanced";
 
 /**
  * A descriptor specifying the type of work to be performed. For text-to-text, the kind must

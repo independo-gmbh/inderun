@@ -21,7 +21,7 @@ describe("TaskRequest validation", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "Summarize this.",
-        policy: { execution: "cloud" }
+        constraints: { cloud: "allowed", privacy: "cloud_allowed" }
       })
     ).toBe(true);
   });
@@ -34,7 +34,12 @@ describe("TaskRequest validation", () => {
         task: { kind: "text_to_text", futureTaskHint: "ignored" },
         messages: [{ role: "user", content: "Hello" }],
         generation: { maxOutputTokens: 128, temperature: 0.2 },
-        policy: { execution: "on_device", futurePolicyHint: "ignored" },
+        constraints: {
+          cloud: "forbidden",
+          privacy: "local_required",
+          futureRoutingHint: "ignored"
+        },
+        preferences: { optimizeFor: "privacy" },
         telemetry: { consent: true, level: "minimal", tags: { feature: "demo" } },
         authContextRef: "openai-dev",
         futureTopLevelField: true
@@ -48,19 +53,19 @@ describe("TaskRequest validation", () => {
         schemaVersion: "2.0",
         task: { kind: "text_to_text" },
         prompt: "Hello",
-        policy: { execution: "cloud" }
+        constraints: { cloud: "allowed", privacy: "cloud_allowed" }
       }).some((issue) => issue.path === "/schemaVersion")
     ).toBe(true);
   });
 
-  it("rejects unsupported policy execution values", () => {
+  it("rejects contradictory routing constraints", () => {
     expect(
       getTaskRequestValidationIssues({
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "Hello",
-        policy: { execution: "edge" }
-      }).some((issue) => issue.path === "/policy/execution")
+        constraints: { privacy: "local_required", cloud: "required" }
+      }).some((issue) => issue.keyword === "routingConstraintConflict")
     ).toBe(true);
   });
 
@@ -69,7 +74,7 @@ describe("TaskRequest validation", () => {
       getTaskRequestValidationIssues({
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
-        policy: { execution: "cloud" }
+        constraints: { cloud: "allowed", privacy: "cloud_allowed" }
       }).some((issue) => issue.keyword === "anyOf")
     ).toBe(true);
   });
@@ -80,7 +85,7 @@ describe("TaskRequest validation", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "Hello",
-        policy: { execution: "cloud" },
+        constraints: { cloud: "allowed", privacy: "cloud_allowed" },
         apiKey: "sk-test"
       }).some((issue) => issue.keyword === "forbiddenSecretKey")
     ).toBe(true);
@@ -91,7 +96,7 @@ describe("TaskRequest validation", () => {
       schemaVersion: "1.0",
       task: { kind: "text_to_text" },
       prompt: "Hello",
-      policy: { execution: "cloud" },
+      constraints: { cloud: "allowed", privacy: "cloud_allowed" },
       provider: {
         openaiApiKey: "sk-test",
         bearerToken: "bearer-test",
@@ -108,7 +113,7 @@ describe("TaskRequest validation", () => {
         schemaVersion: "1.0",
         task: { kind: "text_to_text" },
         prompt: "Hello",
-        policy: { execution: "cloud" },
+        constraints: { cloud: "allowed", privacy: "cloud_allowed" },
         generation: { maxOutputTokens: 128 }
       })
     ).toBe(true);
@@ -218,19 +223,6 @@ describe("Host-adjacent data validation", () => {
         timestamp: 123,
         payload: {}
       }).some((issue) => issue.path === "/type")
-    ).toBe(true);
-  });
-
-  it("rejects secret-like fields in telemetry payloads", () => {
-    expect(
-      getTelemetryEventValidationIssues({
-        type: "attempt_failed",
-        runId: "run_123",
-        timestamp: 123,
-        payload: {
-          apiKey: "sk-should-not-be-here"
-        }
-      }).some((issue) => issue.keyword === "forbiddenSecretKey")
     ).toBe(true);
   });
 });

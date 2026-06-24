@@ -12,8 +12,8 @@ protocol RoutePlanning: Sendable {
 
 typealias SharedPlannerInput = RoutePlannerInput
 typealias SharedPlannerTask = RoutePlannerInputTask
-typealias SharedPlannerConstraints = Constraints
-typealias SharedPlannerPreferences = Preferences
+typealias SharedPlannerConstraints = RoutePlannerInputConstraints
+typealias SharedPlannerPreferences = RoutePlannerInputPreferences
 typealias SharedPlannerProviderInput = Provider
 typealias SharedPlannerProviderDescriptor = Descriptor
 typealias SharedPlannerProviderSupports = Supports

@@ -1,11 +1,13 @@
 package app.independo.inderun.core
 
-import app.independo.inderun.contracts.ExecutionPolicy
 import app.independo.inderun.contracts.FailureCode
+import app.independo.inderun.contracts.Candidate
 import app.independo.inderun.contracts.TaskRequest
 
 data class RouteSelection(
     val provider: ProviderAdapter,
+    val fallbackProviders: List<ProviderAdapter>,
+    val routePlan: SharedPlannerRoutePlan,
     val explanation: String
 )
 
@@ -29,10 +31,10 @@ class Router private constructor(
                 snapshots = snapshots
             )
         )?.let { routePlan ->
-            return selectFromSharedPlan(request, snapshots, routePlan)
+            return selectFromRoutePlan(snapshots, routePlan)
         }
 
-        return selectLegacyRoute(request, snapshots, online)
+        return selectFallbackRoute(request, snapshots, online)
     }
 
     private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> {
@@ -47,98 +49,119 @@ class Router private constructor(
             .sortedBy { snapshot -> snapshot.descriptor.id }
     }
 
-    private fun selectFromSharedPlan(
-        request: TaskRequest,
+    private fun selectFromRoutePlan(
         snapshots: List<ProviderSnapshot>,
         routePlan: SharedPlannerRoutePlan
     ): RouteSelection {
         routePlan.selectedProviderId?.let { selectedProviderId ->
-            snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == selectedProviderId }?.let { snapshot ->
+            val orderedSnapshots = routePlan.candidates.mapNotNull { candidate ->
+                snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == candidate.providerId }
+            }.ifEmpty {
+                snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == selectedProviderId }
+                    ?.let { listOf(it) }
+                    .orEmpty()
+            }
+
+            val selected = orderedSnapshots.firstOrNull { snapshot ->
+                snapshot.descriptor.id == selectedProviderId
+            } ?: orderedSnapshots.firstOrNull()
+
+            if (selected != null) {
                 return RouteSelection(
-                    provider = snapshot.provider,
+                    provider = selected.provider,
+                    fallbackProviders = orderedSnapshots.drop(1).map { it.provider },
+                    routePlan = routePlan,
                     explanation = routePlan.explanation.summary
                 )
             }
         }
 
-        val message = routePlan.explanation.summary
-        when (routePlan.failureCode) {
-            FailureCode.Offline -> throw createOffline(message)
-            FailureCode.CapabilityMismatch -> throw createCapabilityMismatch(message)
-            FailureCode.Unavailable -> throw createUnavailable(message)
-            else -> {
-                when (request.policy.execution) {
-                    ExecutionPolicy.ON_DEVICE -> throw createCapabilityMismatch(message)
-                    ExecutionPolicy.CLOUD -> throw createUnavailable(message)
-                }
-            }
-        }
+        throw routePlanFailure(routePlan)
     }
 
-    private fun selectLegacyRoute(
+    private fun selectFallbackRoute(
         request: TaskRequest,
         snapshots: List<ProviderSnapshot>,
         online: Boolean
     ): RouteSelection {
-        val taskKind = request.task.kind.rawValue
-        val taskCandidates = snapshots.filter { snapshot ->
-            snapshot.descriptor.tasks.contains(taskKind) && snapshot.descriptor.supports.run
+        val plan = createFallbackPlan(request, snapshots, online)
+        return selectFromRoutePlan(snapshots, plan)
+    }
+
+    private fun createFallbackPlan(
+        request: TaskRequest,
+        snapshots: List<ProviderSnapshot>,
+        online: Boolean
+    ): SharedPlannerRoutePlan {
+        val planInput = buildSharedPlannerInput(
+            request = request,
+            online = online,
+            snapshots = snapshots
+        )
+
+        val eligible = snapshots.filter { snapshot ->
+            snapshot.descriptor.tasks.contains(planInput.task.kind) && snapshot.descriptor.supports.run
         }
 
-        return when (request.policy.execution) {
-            ExecutionPolicy.ON_DEVICE -> {
-                val localCandidates = taskCandidates.filter { snapshot ->
-                    snapshot.descriptor.type == ProviderDescriptor.ProviderType.local
-                }
+        val selected = eligible.firstOrNull { snapshot ->
+            val descriptor = snapshot.descriptor
+            val constraints = planInput.constraints
+            val isPrivate = descriptor.privacy?.dataLeavesDevice == false || descriptor.type != ProviderDescriptor.ProviderType.cloud
 
-                if (localCandidates.isEmpty()) {
-                    throw createCapabilityMismatch(
-                        "Capability mismatch: no on-device provider found supporting task '$taskKind'."
-                    )
-                }
+            if (constraints.cloud == app.independo.inderun.contracts.Cloud.Forbidden && descriptor.type == ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
+            if (constraints.cloud == app.independo.inderun.contracts.Cloud.Required && descriptor.type != ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
+            if (constraints.privacy == app.independo.inderun.contracts.PrivacyEnum.LocalRequired && !isPrivate) return@firstOrNull false
+            if (constraints.privacy == app.independo.inderun.contracts.PrivacyEnum.CloudRequired && descriptor.type != ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
+            if (!online && descriptor.type == ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
+            snapshot.capabilities.available
+        }
 
-                val selected = localCandidates.firstOrNull { snapshot -> snapshot.capabilities.available }
-                if (selected != null) {
-                    RouteSelection(
-                        provider = selected.provider,
-                        explanation = "Selected on-device provider '${selected.descriptor.id}' deterministically."
-                    )
-                } else {
-                    throw createCapabilityMismatch(
-                        "Capability mismatch: on-device execution selected, but on-device provider is currently unavailable."
-                    )
-                }
+        val ordered = selected?.let { selectedSnapshot ->
+            listOf(selectedSnapshot) + eligible.filter { it.descriptor.id != selectedSnapshot.descriptor.id }
+        } ?: emptyList()
+
+        if (ordered.isEmpty()) {
+            val failureCode = when {
+                !online -> FailureCode.Offline
+                planInput.constraints.cloud == app.independo.inderun.contracts.Cloud.Required ||
+                    planInput.constraints.privacy == app.independo.inderun.contracts.PrivacyEnum.CloudRequired -> FailureCode.Unavailable
+                else -> FailureCode.CapabilityMismatch
             }
 
-            ExecutionPolicy.CLOUD -> {
-                if (!online) {
-                    throw createOffline(
-                        "Offline: cloud execution selected, but no network connection is available."
-                    )
-                }
+            return SharedPlannerRoutePlan(
+                candidates = emptyList(),
+                explanation = SharedPlannerExplanation(
+                    summary = "No eligible provider found for the current routing constraints.",
+                    selectedProviderId = null
+                ),
+                failureCode = failureCode,
+                fallbackProviderIds = emptyList(),
+                rejectedProviders = emptyList(),
+                selectedProviderId = null
+            )
+        }
 
-                val cloudCandidates = taskCandidates.filter { snapshot ->
-                    snapshot.descriptor.type == ProviderDescriptor.ProviderType.cloud
-                }
+        return SharedPlannerRoutePlan(
+            candidates = ordered.mapIndexed { index, snapshot ->
+                Candidate(providerId = snapshot.descriptor.id, order = index.toLong())
+            },
+            explanation = SharedPlannerExplanation(
+                summary = "Selected provider '${ordered.first().descriptor.id}' deterministically from ${ordered.size} eligible candidate(s).",
+                selectedProviderId = ordered.first().descriptor.id
+            ),
+            failureCode = null,
+            fallbackProviderIds = ordered.drop(1).map { it.descriptor.id },
+            rejectedProviders = emptyList(),
+            selectedProviderId = ordered.first().descriptor.id
+        )
+    }
 
-                if (cloudCandidates.isEmpty()) {
-                    throw createUnavailable(
-                        "Unavailable: no cloud provider found supporting task '$taskKind'."
-                    )
-                }
-
-                val selected = cloudCandidates.firstOrNull { snapshot -> snapshot.capabilities.available }
-                if (selected != null) {
-                    RouteSelection(
-                        provider = selected.provider,
-                        explanation = "Selected cloud provider '${selected.descriptor.id}' deterministically."
-                    )
-                } else {
-                    throw createUnavailable(
-                        "Unavailable: cloud execution selected, but no cloud provider is currently available."
-                    )
-                }
-            }
+    private fun routePlanFailure(routePlan: SharedPlannerRoutePlan): Throwable {
+        val message = routePlan.explanation.summary
+        return when (routePlan.failureCode) {
+            FailureCode.Offline -> createOffline(message)
+            FailureCode.Unavailable -> createUnavailable(message)
+            FailureCode.CapabilityMismatch, null -> createCapabilityMismatch(message)
         }
     }
 
@@ -148,3 +171,9 @@ class Router private constructor(
         }
     }
 }
+
+internal data class ProviderSnapshot(
+    val provider: ProviderAdapter,
+    val descriptor: ProviderDescriptor,
+    val capabilities: ProviderDynamicCapabilities
+)

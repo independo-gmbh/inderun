@@ -29,13 +29,14 @@ export {
   type ValidationIssue
 } from "./validators.js";
 export type {
-  ExecutionPolicy,
   FinishReason,
   IndeRunErrorClass,
   SchemaVersion,
   SharedRoutePlan,
   SharedRoutePlannerInput,
-  TaskKind
+  TaskKind,
+  RoutingConstraints,
+  RoutingPreferences
 } from "./types.js";
 
 export type {

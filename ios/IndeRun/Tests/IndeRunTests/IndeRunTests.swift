@@ -119,7 +119,7 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
         return TaskResult(
             runId: context.runId,
             output: Output(text: "Hello from \(id)"),
-            finishReason: .stop,
+            finishReason: FinishReason.stop,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
         )
     }
@@ -198,7 +198,7 @@ final class IndeRunTests: XCTestCase {
         
         let request = TaskRequest(
             prompt: "Test on-device",
-            policy: Policy(execution: .onDevice)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
         )
         
         let result = try await inderun.run(request: request)
@@ -236,7 +236,7 @@ final class IndeRunTests: XCTestCase {
         let selection = try await router.selectRoute(
             request: TaskRequest(
                 prompt: "shared planner",
-                policy: Policy(execution: .onDevice)
+                constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
             ),
             hostServices: hostServices
         )
@@ -248,7 +248,7 @@ final class IndeRunTests: XCTestCase {
     func testRoutingOnDeviceMismatch() async throws {
         let request = TaskRequest(
             prompt: "Test missing device",
-            policy: Policy(execution: .onDevice)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
         )
         
         do {
@@ -270,7 +270,7 @@ final class IndeRunTests: XCTestCase {
         
         let request = TaskRequest(
             prompt: "Test offline cloud",
-            policy: Policy(execution: .cloud)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)
         )
         
         do {
@@ -285,7 +285,7 @@ final class IndeRunTests: XCTestCase {
         // Invalid request shape: schema-backed types can only represent valid enum constants,
         // but runtime validation still rejects requests without text input.
         let request = TaskRequest(
-            policy: Policy(execution: .onDevice)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
         )
         
         do {
@@ -305,7 +305,7 @@ final class IndeRunTests: XCTestCase {
             requestId: "",
             prompt: "",
             messages: [Message(role: .user, content: "")],
-            policy: Policy(execution: .cloud),
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil),
             authContextRef: ""
         )
 
@@ -330,7 +330,7 @@ final class IndeRunTests: XCTestCase {
         
         let request = TaskRequest(
             prompt: "Fail me",
-            policy: Policy(execution: .cloud)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)
         )
         
         do {
@@ -355,14 +355,14 @@ final class IndeRunTests: XCTestCase {
           "schemaVersion": "1.0",
           "task": { "kind": "text_to_text" },
           "prompt": "Hello",
-          "policy": { "execution": "cloud" },
+          "constraints": { "privacy": "cloud_required" },
           "authContextRef": "openai/main"
         }
         """
         let request = try decoder.decode(TaskRequest.self, from: Data(requestJSON.utf8))
         XCTAssertEqual(request.schemaVersion, .the10)
         XCTAssertEqual(request.task.kind, .textToText)
-        XCTAssertEqual(request.policy.execution, .cloud)
+        XCTAssertEqual(request.constraints?.privacy, .cloudRequired)
         XCTAssertEqual(request.authContextRef, "openai/main")
 
         let resultJSON = """
@@ -376,7 +376,7 @@ final class IndeRunTests: XCTestCase {
         """
         let result = try decoder.decode(TaskResult.self, from: Data(resultJSON.utf8))
         XCTAssertEqual(result.output.text, "Hi")
-        XCTAssertEqual(result.finishReason, .stop)
+        XCTAssertEqual(result.finishReason, FinishReason.stop)
         XCTAssertEqual(result.telemetry.providerUsed, "cloud_p")
 
         let httpRequestJSON = """
@@ -458,7 +458,7 @@ final class IndeRunTests: XCTestCase {
         let request = TaskRequest(
             prompt: "Translate hello",
             generation: Generation(maxOutputTokens: 32, seed: 123, stop: ["."], temperature: 0.2, topP: 0.9),
-            policy: Policy(execution: .onDevice)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
         )
 
         let result = try await provider.run(
@@ -468,7 +468,7 @@ final class IndeRunTests: XCTestCase {
 
         XCTAssertEqual(result.runId, "run_apple")
         XCTAssertEqual(result.output.text, "Bonjour")
-        XCTAssertEqual(result.finishReason, .stop)
+        XCTAssertEqual(result.finishReason, FinishReason.stop)
         XCTAssertEqual(result.telemetry.providerUsed, AppleFoundationModelsProvider.defaultId)
         XCTAssertEqual(runtime.receivedPrompt, "Translate hello")
         XCTAssertEqual(runtime.receivedOptions?.maxOutputTokens, 32)
@@ -484,7 +484,7 @@ final class IndeRunTests: XCTestCase {
                 Message(role: .system, content: "Be concise."),
                 Message(role: .user, content: "Summarize this.")
             ],
-            policy: Policy(execution: .onDevice)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
         )
 
         _ = try await provider.run(
@@ -499,7 +499,7 @@ final class IndeRunTests: XCTestCase {
         let runtime = MockAppleFoundationModelsRuntime()
         runtime.availabilityValue = .unavailable(reason: "Apple Intelligence disabled")
         let provider = AppleFoundationModelsProvider(runtime: runtime)
-        let request = TaskRequest(prompt: "Hello", policy: Policy(execution: .onDevice))
+        let request = TaskRequest(prompt: "Hello", constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil))
 
         do {
             _ = try await provider.run(
@@ -521,7 +521,7 @@ final class IndeRunTests: XCTestCase {
         let runtime = MockAppleFoundationModelsRuntime()
         runtime.thrownError = RuntimeFailure()
         let provider = AppleFoundationModelsProvider(runtime: runtime)
-        let request = TaskRequest(prompt: "Hello", policy: Policy(execution: .onDevice))
+        let request = TaskRequest(prompt: "Hello", constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil))
 
         do {
             _ = try await provider.run(
@@ -564,7 +564,7 @@ final class IndeRunTests: XCTestCase {
         let request = TaskRequest(
             prompt: "Say hello.",
             generation: Generation(maxOutputTokens: 64, seed: nil, stop: ["END"], temperature: 0.2, topP: 0.9),
-            policy: Policy(execution: .cloud)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)
         )
         let hostServices = HostServices(
             connectivity: connectivity,
@@ -579,7 +579,7 @@ final class IndeRunTests: XCTestCase {
         )
 
         XCTAssertEqual(result.output.text, "Hello from Responses.")
-        XCTAssertEqual(result.finishReason, .stop)
+        XCTAssertEqual(result.finishReason, FinishReason.stop)
         XCTAssertEqual(result.usage?.inputTokens, 3)
         XCTAssertEqual(result.usage?.outputTokens, 4)
         XCTAssertEqual(result.usage?.totalTokens, 7)
@@ -611,7 +611,7 @@ final class IndeRunTests: XCTestCase {
                 Message(role: .system, content: "Be concise."),
                 Message(role: .user, content: "Say hello.")
             ],
-            policy: Policy(execution: .cloud)
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)
         )
 
         _ = try await provider.run(
@@ -637,7 +637,7 @@ final class IndeRunTests: XCTestCase {
             clock: clock,
             httpClient: MockHttpClientService(responses: [])
         )
-        let request = TaskRequest(prompt: "Hello", policy: Policy(execution: .cloud))
+        let request = TaskRequest(prompt: "Hello", constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil))
 
         do {
             _ = try await provider.run(
@@ -674,7 +674,7 @@ final class IndeRunTests: XCTestCase {
 
         do {
             _ = try await provider.run(
-                request: TaskRequest(prompt: "Hello", policy: Policy(execution: .cloud)),
+                request: TaskRequest(prompt: "Hello", constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)),
                 context: RunContext(runId: "run_rate", hostServices: hostServices)
             )
             XCTFail("Should have thrown RateLimited")
@@ -693,7 +693,7 @@ final class IndeRunTests: XCTestCase {
 
         do {
             _ = try await provider.run(
-                request: TaskRequest(prompt: "Hello", policy: Policy(execution: .cloud)),
+                request: TaskRequest(prompt: "Hello", constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)),
                 context: RunContext(runId: "run_cancel", hostServices: hostServices)
             )
             XCTFail("Should have thrown Unavailable")

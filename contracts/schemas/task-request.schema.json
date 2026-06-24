@@ -5,7 +5,7 @@
   "description": "The standard request payload for initiating a text-to-text execution task within the IndeRun framework.",
   "type": "object",
   "additionalProperties": true,
-  "required": ["schemaVersion", "task", "policy"],
+  "required": ["schemaVersion", "task"],
   "anyOf": [
     {
       "required": ["prompt"]
@@ -98,15 +98,34 @@
         }
       }
     },
-    "policy": {
-      "description": "Execution constraints that determine where the request is routed (e.g., local/on-device vs remote cloud).",
+    "constraints": {
+      "description": "Request-level routing constraints used by the planner.",
       "type": "object",
       "additionalProperties": true,
-      "required": ["execution"],
       "properties": {
-        "execution": {
-          "description": "The target execution environment: 'on_device' for local ML models, or 'cloud' for remote-hosted providers.",
-          "enum": ["on_device", "cloud"]
+        "privacy": {
+          "description": "Privacy requirement or preference for execution placement.",
+          "enum": ["local_required", "local_preferred", "cloud_allowed", "cloud_required"]
+        },
+        "cloud": {
+          "description": "Cloud execution constraint.",
+          "enum": ["forbidden", "allowed", "required"]
+        },
+        "timeoutMs": {
+          "description": "Optional routing timeout budget in milliseconds.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "preferences": {
+      "description": "Soft routing preferences used for deterministic provider ordering.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "optimizeFor": {
+          "description": "Primary optimization goal when multiple providers remain eligible.",
+          "enum": ["privacy", "latency", "cost", "balanced"]
         }
       }
     },

@@ -6,7 +6,7 @@ This document defines the core interaction model for the IndeRun engine. It serv
 
 The `IndeRun` class is the central entry point of the framework. It acts as an execution orchestrator that manages several critical respons been:
 1. **Validation**: Ensures incoming requests adhere to strict schema contracts.
-2. **Routing**: Selects the appropriate provider based on the provided `ExecutionPolicy` and current host capabilities.
+2. **Routing**: Selects the appropriate provider based on the provided `request constraints` and current host capabilities.
 3. **Execution**: Triggers the selected provider's adapter.
 4. **Telemetry**: Measures execution timing and enriches the result with runtime metadata.
 
@@ -18,9 +18,9 @@ When a developer calls the `run(request)` method, the engine follows a determini
 The engine first validates the `TaskRequest` against the published JSON schema contracts. This step catches malformed payloads (e.g., missing required fields like `task.kind`) before any side effects occur. If validation fails, an `IndeRunException` with a `Validation` error class is thrown.
 
 ### 2. Intelligent Routing
-The engine consults the configured `Router`. The router evaluates the `ExecutionPolicy` provided in the request:
-* **On-Device Policy**: The router looks for providers that are currently available and capable of running on the local host (e.g., mobile device's native ML capabilities).
-* **Cloud Policy**: The router prioritsizes remote execution via configured endpoints.
+The engine consults the configured `Router`. The router evaluates the `request constraints` provided in the request:
+* **On-Device Constraints**: The router looks for providers that are currently available and capable of running on the local host (e.g., mobile device's native ML capabilities).
+* **Cloud Constraints**: The router prioritizes remote execution via configured endpoints.
 
 The result is a `RouteSelection` containing the selected provider and an explanation of why that provider was chosen (useful for debugging routing decisions).
 

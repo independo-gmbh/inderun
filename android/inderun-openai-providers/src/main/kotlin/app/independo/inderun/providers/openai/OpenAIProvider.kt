@@ -4,6 +4,7 @@ import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.Method
 import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -172,6 +173,7 @@ class OpenAIProvider(
             finishReason = finishReason(json),
             output = Output(text = outputText),
             runId = context.runId,
+            schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = options.id, totalMs = totalMs),
             usage = usage
         )

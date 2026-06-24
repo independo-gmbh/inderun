@@ -79,9 +79,12 @@ export function validateRoutePlan(value: unknown): value is RoutePlan {
 }
 
 export function getTaskRequestValidationIssues(value: unknown): ValidationIssue[] {
-  return getValidationIssues(validateTaskRequestSchema, value, {
+  const issues = getValidationIssues(validateTaskRequestSchema, value, {
     forbidInlineSecrets: true
   });
+
+  issues.push(...findRoutingConstraintIssues(value));
+  return issues;
 }
 
 export function getTaskResultValidationIssues(value: unknown): ValidationIssue[] {
@@ -164,6 +167,44 @@ function findInlineSecretKeys(value: unknown, path = ""): ValidationIssue[] {
       });
     }
     issues.push(...findInlineSecretKeys(child, childPath));
+  }
+
+  return issues;
+}
+
+function findRoutingConstraintIssues(value: unknown): ValidationIssue[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  const request = value as {
+    constraints?: {
+      cloud?: string;
+      privacy?: string;
+    };
+  };
+
+  const constraints = request.constraints;
+  if (!constraints) {
+    return [];
+  }
+
+  const issues: ValidationIssue[] = [];
+
+  if (constraints.privacy === "local_required" && constraints.cloud === "required") {
+    issues.push({
+      path: "/constraints",
+      message: "privacy=local_required conflicts with cloud=required.",
+      keyword: "routingConstraintConflict"
+    });
+  }
+
+  if (constraints.privacy === "cloud_required" && constraints.cloud === "forbidden") {
+    issues.push({
+      path: "/constraints",
+      message: "privacy=cloud_required conflicts with cloud=forbidden.",
+      keyword: "routingConstraintConflict"
+    });
   }
 
   return issues;

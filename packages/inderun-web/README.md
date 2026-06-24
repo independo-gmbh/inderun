@@ -4,7 +4,7 @@ This is the JS/TS Engine Core and Web SDK package for the IndeRun framework.
 
 It implements:
 - `ProviderRegistry` for registering execution adapters.
-- `Router` for deterministic routing based on policy and host capability snapshots.
+- `Router` for deterministic routing based on request constraints and host capability snapshots.
 - Standard error taxonomy (`IndeRunException`) and error mapping.
 - Core orchestrator flow with timing and telemetry measurements.
 - `OpenAIProvider` for Mode-1 text-to-text cloud execution through the OpenAI Responses API.
@@ -28,7 +28,7 @@ const result = await inderun.run({
   schemaVersion: "1.0",
   task: { kind: "text_to_text" },
   prompt: "Write a one-sentence summary of IndeRun.",
-  policy: { execution: "cloud" }
+  constraints: { privacy: "cloud_required" }
 });
 
 console.log(result.output.text);

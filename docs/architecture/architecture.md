@@ -15,7 +15,7 @@ where the model runs (on-device / embedded runtime / edge / cloud).
 This architecture is based on **Approach 2** (shared “Engine Core” + platform “Host Services” + provider “Adapters”). It
 is chosen because it:
 
-- supports **policy-based routing** using capability metadata (privacy, latency, cost, connectivity, device
+- supports **constraint-based routing** using capability metadata (privacy, latency, cost, connectivity, device
   constraints),
 - supports **normalized streaming** (not just text) across wildly different provider streaming styles,
 - provides **standard cancellation semantics** even when providers can only “soft cancel”,
@@ -43,7 +43,7 @@ Layer B — IndeRun SDK surfaces (Public APIs)
   - @independo/capacitor-inderun  ← thin facade/bridge
 
 Layer C — Engine Core + Host Services + Provider Adapters
-  - Engine Core (routing/policy/orchestrator/events)
+  - Engine Core (routing/constraints/orchestrator/events)
   - Host Services (platform-specific OS access)
   - Provider Adapters (local / edge / cloud)
 ```
@@ -158,7 +158,7 @@ Why:
 The first implementation artifact is `@independo/inderun-contracts`, which defines the Mode-1 text-to-text subset:
 
 - `TaskRequest` with `schemaVersion = "1.0"`, `task.kind = "text_to_text"`, text input via `prompt` or text
-  `messages`, `policy.execution = "on_device" | "cloud"`, optional generation hints, telemetry preferences, and
+  `messages`, `constraints.execution = "on_device" | "cloud"`, optional generation hints, telemetry preferences, and
   `authContextRef`.
 - `TaskResult` with text output, finish reason, optional token usage, and required telemetry fields `providerUsed` and
   `totalMs`.
@@ -314,7 +314,7 @@ This makes “soft cancel” reliable from the app’s perspective.
 
 ## 8) Provider capability metadata (required for routing)
 
-Policy-based routing is only robust if provider adapters publish sufficient metadata.
+Constraint-based routing is only robust if provider adapters publish sufficient metadata.
 
 ### 8.1 ProviderDescriptor (static-ish)
 
@@ -378,7 +378,7 @@ Computed per request (or per session tick) using Host Services:
     - storage budgets if needed for caching
 - for sessions: refreshed periodically or on meaningful changes
 
-3) **PolicyEngine**
+3) **RoutingConstraintsEngine**
 
 - hard constraints: privacy/offline/cost/latency limits
 - soft preferences: weights and heuristics
@@ -386,7 +386,7 @@ Computed per request (or per session tick) using Host Services:
 
 4) **Router**
 
-- filters candidate providers by capabilities + policy
+- filters candidate providers by capabilities + constraints
 - scores candidates deterministically (inspectable scoring)
 - produces a primary + fallback chain
 - outputs a **route explanation** for debugging
@@ -399,7 +399,7 @@ Computed per request (or per session tick) using Host Services:
 - Mode 2: stream orchestration:
     - normalize provider deltas → IndeRun events
     - enforce cancellation gate
-    - handle fallback policy when partial output exists (see below)
+    - handle fallback constraint when partial output exists (see below)
 - Mode 3: session orchestration:
     - open/send/events/interrupt/close state machine
     - tool loop integration strategy (app-managed or engine-managed)
@@ -413,23 +413,23 @@ Computed per request (or per session tick) using Host Services:
 
 - Standardized spans/events, configurable levels (off/minimal/debug)
 - Emits structured telemetry events via the `TelemetryService` hook interface:
-  - `route_decided`: Emitted once the Router selects a deterministic provider. Contains selected provider ID, task kind, execution policy, and routing explanation.
+  - `route_decided`: Emitted once the Router selects a deterministic provider. Contains selected provider ID, task kind, execution constraints, and routing explanation.
   - `attempt_succeeded`: Emitted on successful provider run, detailing provider ID and elapsed duration.
   - `attempt_failed`: Emitted on validation, routing, or provider execution errors, detailing duration, error class, and message.
 
 ### 9.2 Routing algorithm (deterministic, inspectable)
 
 ```
-inputs: request, policy, capabilitiesSnapshot, providerDescriptors, healthState
+inputs: request, constraints, capabilitiesSnapshot, providerDescriptors, healthState
 
 1) candidates = providers supporting task + required features
 2) candidates = candidates ∩ allowlist - denylist
-3) candidates = filterHardConstraints(candidates, policy, snapshot)
+3) candidates = filterHardConstraints(candidates, constraints, snapshot)
 4) for each candidate:
      score = wL*latencyScore + wC*costScore + wQ*qualityScore
              - penalties (warmup, metered, thermal, privacy risk)
 5) primary = argmax(score)
-6) fallbacks = buildFallbackChain(primary, candidates, policy)
+6) fallbacks = buildFallbackChain(primary, candidates, constraints)
 7) execute(primary -> fallbacks) with time budgets + cancellation gating
 ```
 
@@ -458,7 +458,7 @@ platform-owned until shared-core requirements are clearer.
 
 Fallback is easy for Mode 1; harder for Mode 2/3 when partial output exists.
 
-Define a policy option:
+Define a constraint option:
 
 - `fallbackBehavior: "continue" | "fail_on_partial"`
 
@@ -564,7 +564,7 @@ the adapter from `authContextRef`.
 - `minimal`: timings + provider id + error classes (no payload)
 - `debug`: route explanations + richer spans; payloads only if explicit consent + safe handling
 
-**Rule:** adapters must never log raw prompts unless explicitly allowed by policy + consent.
+**Rule:** adapters must never log raw prompts unless explicitly allowed by constraints + consent.
 
 ---
 
@@ -579,7 +579,7 @@ inderun/
     inderun-web/                     # web sdk (public API + web host services + web providers)
     capacitor-inderun/               # capacitor facade + native bridge code
   core/                              # shared engine core (tech choice: Rust/TS/etc.)
-    engine/                          # routing/policy/orchestrator/event gate
+    engine/                          # routing/constraints/orchestrator/event gate
     providers/                       # built-in provider adapters (optional)
     tests/
   ios/
@@ -661,6 +661,6 @@ We explicitly do **not** implement now:
 - **Provider:** an execution backend (local runtime, edge service, cloud API).
 - **Adapter:** provider-specific implementation that maps provider IO to IndeRun schema/events.
 - **Host Services:** platform API wrapper layer (connectivity, secure storage, device constraints).
-- **Router:** selects provider(s) based on policy + capabilities + health.
+- **Router:** selects provider(s) based on constraints + capabilities + health.
 - **Orchestrator:** executes attempts + fallback + cancellation, emits events.
 - **Event Gate:** core mechanism that enforces cancellation guarantees and suppresses late events.

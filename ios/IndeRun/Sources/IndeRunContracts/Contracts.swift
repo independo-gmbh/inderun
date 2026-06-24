@@ -19,13 +19,14 @@ public struct TaskRequest: Codable, Sendable {
     /// A unique identifier used to retrieve credentials from a secure local storage. Raw
     /// sensitive keys (API keys, etc.) should NEVER be placed directly in the request payload.
     public var authContextRef: String?
+    /// Request-level routing constraints used by the planner.
+    public var constraints: TaskRequestConstraints?
     /// Optional configuration for fine-tuning how the AI model generates its response.
     public var generation: Generation?
     /// A list of interaction messages for multi-turn conversation or chat-style execution.
     public var messages: [Message]?
-    /// Execution constraints that determine where the request is routed (e.g., local/on-device
-    /// vs remote cloud).
-    public var policy: Policy
+    /// Soft routing preferences used for deterministic provider ordering.
+    public var preferences: TaskRequestPreferences?
     /// A simple, single-turn text prompt used to trigger a response from the AI model.
     public var prompt: String?
     /// Optional identifier for tracking or correlating this specific execution attempt.
@@ -38,11 +39,12 @@ public struct TaskRequest: Codable, Sendable {
     /// Execution preferences for tracking usage and performance metrics.
     public var telemetry: TaskRequestTelemetry?
 
-    public init(authContextRef: String?, generation: Generation?, messages: [Message]?, policy: Policy, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
+    public init(authContextRef: String?, constraints: TaskRequestConstraints?, generation: Generation?, messages: [Message]?, preferences: TaskRequestPreferences?, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
         self.authContextRef = authContextRef
+        self.constraints = constraints
         self.generation = generation
         self.messages = messages
-        self.policy = policy
+        self.preferences = preferences
         self.prompt = prompt
         self.requestId = requestId
         self.schemaVersion = schemaVersion
@@ -71,9 +73,10 @@ public extension TaskRequest {
 
     func with(
         authContextRef: String?? = nil,
+        constraints: TaskRequestConstraints?? = nil,
         generation: Generation?? = nil,
         messages: [Message]?? = nil,
-        policy: Policy? = nil,
+        preferences: TaskRequestPreferences?? = nil,
         prompt: String?? = nil,
         requestId: String?? = nil,
         schemaVersion: SchemaVersion? = nil,
@@ -82,9 +85,10 @@ public extension TaskRequest {
     ) -> TaskRequest {
         return TaskRequest(
             authContextRef: authContextRef ?? self.authContextRef,
+            constraints: constraints ?? self.constraints,
             generation: generation ?? self.generation,
             messages: messages ?? self.messages,
-            policy: policy ?? self.policy,
+            preferences: preferences ?? self.preferences,
             prompt: prompt ?? self.prompt,
             requestId: requestId ?? self.requestId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
@@ -100,6 +104,77 @@ public extension TaskRequest {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
+}
+
+/// Request-level routing constraints used by the planner.
+// MARK: - TaskRequestConstraints
+public struct TaskRequestConstraints: Codable, Sendable {
+    /// Cloud execution constraint.
+    public var cloud: Cloud?
+    /// Privacy requirement or preference for execution placement.
+    public var privacy: PrivacyEnum?
+    /// Optional routing timeout budget in milliseconds.
+    public var timeoutMs: Int?
+
+    public init(cloud: Cloud?, privacy: PrivacyEnum?, timeoutMs: Int?) {
+        self.cloud = cloud
+        self.privacy = privacy
+        self.timeoutMs = timeoutMs
+    }
+}
+
+// MARK: TaskRequestConstraints convenience initializers and mutators
+
+public extension TaskRequestConstraints {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(TaskRequestConstraints.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        cloud: Cloud?? = nil,
+        privacy: PrivacyEnum?? = nil,
+        timeoutMs: Int?? = nil
+    ) -> TaskRequestConstraints {
+        return TaskRequestConstraints(
+            cloud: cloud ?? self.cloud,
+            privacy: privacy ?? self.privacy,
+            timeoutMs: timeoutMs ?? self.timeoutMs
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Cloud execution constraint.
+public enum Cloud: String, Codable, Sendable {
+    case allowed = "allowed"
+    case cloudRequired = "required"
+    case forbidden = "forbidden"
+}
+
+/// Privacy requirement or preference for execution placement.
+public enum PrivacyEnum: String, Codable, Sendable {
+    case cloudAllowed = "cloud_allowed"
+    case cloudRequired = "cloud_required"
+    case localPreferred = "local_preferred"
+    case localRequired = "local_required"
 }
 
 /// Optional configuration for fine-tuning how the AI model generates its response.
@@ -227,24 +302,22 @@ public enum Role: String, Codable, Sendable {
     case user = "user"
 }
 
-/// Execution constraints that determine where the request is routed (e.g., local/on-device
-/// vs remote cloud).
-// MARK: - Policy
-public struct Policy: Codable, Sendable {
-    /// The target execution environment: 'on_device' for local ML models, or 'cloud' for
-    /// remote-hosted providers.
-    public var execution: Execution
+/// Soft routing preferences used for deterministic provider ordering.
+// MARK: - TaskRequestPreferences
+public struct TaskRequestPreferences: Codable, Sendable {
+    /// Primary optimization goal when multiple providers remain eligible.
+    public var optimizeFor: OptimizeFor?
 
-    public init(execution: Execution) {
-        self.execution = execution
+    public init(optimizeFor: OptimizeFor?) {
+        self.optimizeFor = optimizeFor
     }
 }
 
-// MARK: Policy convenience initializers and mutators
+// MARK: TaskRequestPreferences convenience initializers and mutators
 
-public extension Policy {
+public extension TaskRequestPreferences {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Policy.self, from: data)
+        self = try newJSONDecoder().decode(TaskRequestPreferences.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -259,10 +332,10 @@ public extension Policy {
     }
 
     func with(
-        execution: Execution? = nil
-    ) -> Policy {
-        return Policy(
-            execution: execution ?? self.execution
+        optimizeFor: OptimizeFor?? = nil
+    ) -> TaskRequestPreferences {
+        return TaskRequestPreferences(
+            optimizeFor: optimizeFor ?? self.optimizeFor
         )
     }
 
@@ -275,13 +348,12 @@ public extension Policy {
     }
 }
 
-/// The target execution environment: 'on_device' for local ML models, or 'cloud' for
-/// remote-hosted providers.
-///
-/// Required execution target for the route plan.
-public enum Execution: String, Codable, Sendable {
-    case cloud = "cloud"
-    case onDevice = "on_device"
+/// Primary optimization goal when multiple providers remain eligible.
+public enum OptimizeFor: String, Codable, Sendable {
+    case balanced = "balanced"
+    case cost = "cost"
+    case latency = "latency"
+    case privacy = "privacy"
 }
 
 public enum SchemaVersion: String, Codable, Sendable {
@@ -959,15 +1031,15 @@ public enum TelemetryEventType: String, Codable, Sendable {
 // MARK: - RoutePlannerInput
 public struct RoutePlannerInput: Codable, Sendable {
     /// Hard routing constraints evaluated before provider selection.
-    public var constraints: Constraints
+    public var constraints: RoutePlannerInputConstraints
     /// Soft route ordering preferences applied after hard filtering.
-    public var preferences: Preferences
+    public var preferences: RoutePlannerInputPreferences
     /// Static descriptors plus dynamic capability snapshots for planning.
     public var providers: [Provider]
     /// Minimal task descriptor for provider task matching.
     public var task: RoutePlannerInputTask
 
-    public init(constraints: Constraints, preferences: Preferences, providers: [Provider], task: RoutePlannerInputTask) {
+    public init(constraints: RoutePlannerInputConstraints, preferences: RoutePlannerInputPreferences, providers: [Provider], task: RoutePlannerInputTask) {
         self.constraints = constraints
         self.preferences = preferences
         self.providers = providers
@@ -994,8 +1066,8 @@ public extension RoutePlannerInput {
     }
 
     func with(
-        constraints: Constraints? = nil,
-        preferences: Preferences? = nil,
+        constraints: RoutePlannerInputConstraints? = nil,
+        preferences: RoutePlannerInputPreferences? = nil,
         providers: [Provider]? = nil,
         task: RoutePlannerInputTask? = nil
     ) -> RoutePlannerInput {
@@ -1017,24 +1089,27 @@ public extension RoutePlannerInput {
 }
 
 /// Hard routing constraints evaluated before provider selection.
-// MARK: - Constraints
-public struct Constraints: Codable, Sendable {
-    /// Required execution target for the route plan.
-    public var executionTarget: Execution
+// MARK: - RoutePlannerInputConstraints
+public struct RoutePlannerInputConstraints: Codable, Sendable {
+    /// Cloud execution constraint.
+    public var cloud: Cloud?
     /// Current connectivity snapshot used for cloud route planning.
-    public var networkOnline: Bool
+    public var networkOnline: Bool?
+    /// Privacy requirement or preference for execution placement.
+    public var privacy: PrivacyEnum?
 
-    public init(executionTarget: Execution, networkOnline: Bool) {
-        self.executionTarget = executionTarget
+    public init(cloud: Cloud?, networkOnline: Bool?, privacy: PrivacyEnum?) {
+        self.cloud = cloud
         self.networkOnline = networkOnline
+        self.privacy = privacy
     }
 }
 
-// MARK: Constraints convenience initializers and mutators
+// MARK: RoutePlannerInputConstraints convenience initializers and mutators
 
-public extension Constraints {
+public extension RoutePlannerInputConstraints {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Constraints.self, from: data)
+        self = try newJSONDecoder().decode(RoutePlannerInputConstraints.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -1049,12 +1124,14 @@ public extension Constraints {
     }
 
     func with(
-        executionTarget: Execution? = nil,
-        networkOnline: Bool? = nil
-    ) -> Constraints {
-        return Constraints(
-            executionTarget: executionTarget ?? self.executionTarget,
-            networkOnline: networkOnline ?? self.networkOnline
+        cloud: Cloud?? = nil,
+        networkOnline: Bool?? = nil,
+        privacy: PrivacyEnum?? = nil
+    ) -> RoutePlannerInputConstraints {
+        return RoutePlannerInputConstraints(
+            cloud: cloud ?? self.cloud,
+            networkOnline: networkOnline ?? self.networkOnline,
+            privacy: privacy ?? self.privacy
         )
     }
 
@@ -1068,21 +1145,21 @@ public extension Constraints {
 }
 
 /// Soft route ordering preferences applied after hard filtering.
-// MARK: - Preferences
-public struct Preferences: Codable, Sendable {
-    /// Provider IDs ordered from highest to lowest preference.
-    public var preferredProviderIds: [String]
+// MARK: - RoutePlannerInputPreferences
+public struct RoutePlannerInputPreferences: Codable, Sendable {
+    /// Primary optimization goal when multiple providers remain eligible.
+    public var optimizeFor: OptimizeFor?
 
-    public init(preferredProviderIds: [String]) {
-        self.preferredProviderIds = preferredProviderIds
+    public init(optimizeFor: OptimizeFor?) {
+        self.optimizeFor = optimizeFor
     }
 }
 
-// MARK: Preferences convenience initializers and mutators
+// MARK: RoutePlannerInputPreferences convenience initializers and mutators
 
-public extension Preferences {
+public extension RoutePlannerInputPreferences {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Preferences.self, from: data)
+        self = try newJSONDecoder().decode(RoutePlannerInputPreferences.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -1097,10 +1174,10 @@ public extension Preferences {
     }
 
     func with(
-        preferredProviderIds: [String]? = nil
-    ) -> Preferences {
-        return Preferences(
-            preferredProviderIds: preferredProviderIds ?? self.preferredProviderIds
+        optimizeFor: OptimizeFor?? = nil
+    ) -> RoutePlannerInputPreferences {
+        return RoutePlannerInputPreferences(
+            optimizeFor: optimizeFor ?? self.optimizeFor
         )
     }
 
@@ -1212,12 +1289,15 @@ public extension Capabilities {
 // MARK: - Descriptor
 public struct Descriptor: Codable, Sendable {
     public var id: String
+    /// Descriptor privacy metadata used to enforce local/cloud routing rules.
+    public var privacy: PrivacyClass?
     public var supports: Supports
     public var tasks: [String]
     public var type: DescriptorType
 
-    public init(id: String, supports: Supports, tasks: [String], type: DescriptorType) {
+    public init(id: String, privacy: PrivacyClass?, supports: Supports, tasks: [String], type: DescriptorType) {
         self.id = id
+        self.privacy = privacy
         self.supports = supports
         self.tasks = tasks
         self.type = type
@@ -1244,15 +1324,66 @@ public extension Descriptor {
 
     func with(
         id: String? = nil,
+        privacy: PrivacyClass?? = nil,
         supports: Supports? = nil,
         tasks: [String]? = nil,
         type: DescriptorType? = nil
     ) -> Descriptor {
         return Descriptor(
             id: id ?? self.id,
+            privacy: privacy ?? self.privacy,
             supports: supports ?? self.supports,
             tasks: tasks ?? self.tasks,
             type: type ?? self.type
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Descriptor privacy metadata used to enforce local/cloud routing rules.
+// MARK: - PrivacyClass
+public struct PrivacyClass: Codable, Sendable {
+    public var dataLeavesDevice: Bool
+    public var regions: [String]?
+
+    public init(dataLeavesDevice: Bool, regions: [String]?) {
+        self.dataLeavesDevice = dataLeavesDevice
+        self.regions = regions
+    }
+}
+
+// MARK: PrivacyClass convenience initializers and mutators
+
+public extension PrivacyClass {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PrivacyClass.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        dataLeavesDevice: Bool? = nil,
+        regions: [String]?? = nil
+    ) -> PrivacyClass {
+        return PrivacyClass(
+            dataLeavesDevice: dataLeavesDevice ?? self.dataLeavesDevice,
+            regions: regions ?? self.regions
         )
     }
 
@@ -1633,8 +1764,9 @@ public extension Reason {
 
 public enum Code: String, Codable, Sendable {
     case capabilityUnavailable = "capability_unavailable"
-    case executionTargetMismatch = "execution_target_mismatch"
+    case cloudConstraint = "cloud_constraint"
     case offline = "offline"
+    case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"
     case taskNotSupported = "task_not_supported"
 }

@@ -5,7 +5,7 @@ This is the Swift implementation of the **IndeRun** AI execution framework, prov
 ## Key Features
 
 - **Execution Abstraction**: Single `run()` API for applications, regardless of backend implementation.
-- **Dynamic Routing**: Deterministically selects the optimal provider based on execution policy (e.g. `on_device` vs `cloud`) and real-time connectivity or device capabilities.
+- **Dynamic Routing**: Deterministically selects the optimal provider based on request constraints (for example, local-required vs cloud-required) and real-time connectivity or device capabilities.
 - **Standardized Errors**: Maps varying provider exceptions into a unified `IndeRunException` taxonomy.
 - **Built-in Telemetry Hooks**: Standard hooks for tracing route decisions, execution latency, and success/failure rates.
 
@@ -81,7 +81,7 @@ let inderun = IndeRun(registry: registry, hostServices: hostServices)
 // 4. Execute a task
 let request = TaskRequest(
     prompt: "Translate 'Hello' to Spanish",
-    policy: Policy(execution: .onDevice)
+    constraints: TaskRequestConstraints(privacy: .localRequired)
 )
 
 do {
@@ -95,7 +95,7 @@ do {
 ### Apple Foundation Models provider
 
 `AppleFoundationModelsProvider` is available through the `IndeRunAppleProviders` product. It supports Mode-1
-`text_to_text` requests with `Policy(execution: .onDevice)`, reports local/system-service provider metadata, and maps
+`text_to_text` requests with `constraints.privacy = .localRequired`, reports local/system-service provider metadata, and maps
 Apple system model unavailability to the normalized `CapabilityMismatch` flow.
 
 Runtime availability depends on the host OS and Apple system model state. The provider uses Apple Foundation Models only
@@ -105,7 +105,7 @@ router rejects `onDevice` requests with `CapabilityMismatch`.
 ### OpenAI cloud provider
 
 `OpenAIProvider` is available through the `IndeRunOpenAIProviders` product. It supports Mode-1
-`text_to_text` requests with `Policy(execution: .cloud)`, resolves credentials through
+`text_to_text` requests with `constraints.privacy = .cloudRequired`, resolves credentials through
 `authContextRef`, and sends Responses-compatible HTTP requests through the host-provided
 `HttpClientService`.
 

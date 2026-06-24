@@ -1,6 +1,7 @@
 package app.independo.inderun.demo
 
-import app.independo.inderun.contracts.ExecutionPolicy
+import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.TaskRequestConstraints
 import java.util.Locale
 
 internal object DemoDefaults {
@@ -11,17 +12,17 @@ internal object DemoDefaults {
 
 internal enum class DemoExecutionMode(
     val title: String,
-    val policy: ExecutionPolicy,
+    val requestConstraints: TaskRequestConstraints,
     val providerFallback: String
 ) {
     OnDevice(
         title = "On Device",
-        policy = ExecutionPolicy.ON_DEVICE,
+        requestConstraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
         providerFallback = "on_device"
     ),
     Cloud(
         title = "Cloud",
-        policy = ExecutionPolicy.CLOUD,
+        requestConstraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
         providerFallback = "cloud"
     )
 }

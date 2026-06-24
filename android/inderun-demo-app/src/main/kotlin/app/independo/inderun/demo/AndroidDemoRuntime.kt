@@ -4,8 +4,9 @@ import android.content.Context
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.Method
-import app.independo.inderun.contracts.Policy
+import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
+import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.IndeRunException
@@ -44,8 +45,10 @@ internal class AndroidDemoRuntime(
         settings: DemoSettings
     ): DemoExecutionOutcome {
         val request = TaskRequest(
+            schemaVersion = SchemaVersion.V1_0,
             prompt = prompt.trim(),
-            policy = Policy(execution = executionMode.policy)
+            task = TaskRequestTask(),
+            constraints = executionMode.requestConstraints
         )
 
         return try {
