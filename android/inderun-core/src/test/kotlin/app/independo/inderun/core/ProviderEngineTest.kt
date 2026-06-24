@@ -1,11 +1,14 @@
 package app.independo.inderun.core
 
-import app.independo.inderun.contracts.ExecutionPolicy
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Output
-import app.independo.inderun.contracts.Policy
+import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
+import app.independo.inderun.contracts.TaskRequestConstraints
+import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import kotlinx.coroutines.test.runTest
@@ -38,8 +41,10 @@ class ProviderEngineTest {
 
         val selection = Router(registry).selectRoute(
             request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
-                policy = Policy(ExecutionPolicy.ON_DEVICE)
+                task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
             ),
             hostServices = fakeHostServices()
         )
@@ -71,8 +76,10 @@ class ProviderEngineTest {
 
         val selection = Router.withPlanner(registry, planner).selectRoute(
             request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
-                policy = Policy(ExecutionPolicy.ON_DEVICE)
+                task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
             ),
             hostServices = fakeHostServices()
         )
@@ -89,8 +96,10 @@ class ProviderEngineTest {
         try {
             Router(registry).selectRoute(
                 request = TaskRequest(
+                    schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
-                    policy = Policy(ExecutionPolicy.ON_DEVICE)
+                    task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
                 ),
                 hostServices = fakeHostServices()
             )
@@ -163,6 +172,7 @@ class ProviderEngineTest {
                 finishReason = FinishReason.STOP,
                 output = Output(text = "Hello"),
                 runId = context.runId,
+                schemaVersion = SchemaVersion.V1_0,
                 telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0)
             )
         }

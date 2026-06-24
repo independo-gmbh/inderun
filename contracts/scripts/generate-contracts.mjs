@@ -191,8 +191,6 @@ function normalizeKotlinContractsSource(source) {
     ["data class HTTPRequest (", "data class HttpRequest ("],
     ["data class HTTPResponse (", "data class HttpResponse ("],
     ["val role: Role", "val role: MessageRole"],
-    ["val execution: Execution", "val execution: ExecutionPolicy"],
-    ["val executionTarget: Execution", "val executionTarget: ExecutionPolicy"],
     ["val kind: Kind", "val kind: TaskKind = TaskKind.TEXT_TO_TEXT"],
     ["val level: Level? = null", "val level: TelemetryLevel? = null"],
     ["val errorClass: ErrorClass? = null", "val errorClass: IndeRunErrorClass? = null"],
@@ -233,13 +231,6 @@ function normalizeKotlinContractsSource(source) {
     ASSISTANT("assistant"),
     SYSTEM("system"),
     USER("user")
-}`
-  );
-  output = output.replace(
-    /enum class Execution \{\s+Cloud,\s+OnDevice\s+\}/m,
-    `enum class ExecutionPolicy(val rawValue: String) {
-    CLOUD("cloud"),
-    ON_DEVICE("on_device")
 }`
   );
   output = output.replace(

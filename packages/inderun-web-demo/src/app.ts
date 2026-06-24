@@ -54,7 +54,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
           </p>
           <div class="pill-row">
             <span class="pill">Mode 1</span>
-            <span class="pill">Policy Driven</span>
+            <span class="pill">Constraint Driven</span>
             <span class="pill">Proxy-Backed</span>
           </div>
         </section>
@@ -93,7 +93,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
         <section class="panel limitations">
           <h2 class="subtitle">Known Limitations</h2>
           <ul>
-            <li>On-device routing requires a local provider setup that matches the policy.</li>
+            <li>On-device routing requires a local provider setup that matches the request constraints.</li>
             <li>The browser never carries production secrets. The standalone demo proxy resolves upstream endpoint and bearer-token configuration server-side.</li>
             <li>The canonical result field is <code class="code">telemetry.totalMs</code>, not <code class="timing">timing.totalMs</code>.</li>
           </ul>

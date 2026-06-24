@@ -62,7 +62,8 @@
                   "enum": [
                     "task_not_supported",
                     "run_not_supported",
-                    "execution_target_mismatch",
+                    "privacy_constraint",
+                    "cloud_constraint",
                     "offline",
                     "capability_unavailable"
                   ]

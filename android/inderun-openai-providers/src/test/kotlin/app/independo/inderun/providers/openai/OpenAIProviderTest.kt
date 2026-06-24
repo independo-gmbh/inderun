@@ -1,14 +1,16 @@
 package app.independo.inderun.providers.openai
 
-import app.independo.inderun.contracts.ExecutionPolicy
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.HttpResponse
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.Method
-import app.independo.inderun.contracts.Policy
+import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
+import app.independo.inderun.contracts.TaskRequestConstraints
+import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
@@ -66,8 +68,10 @@ class OpenAIProviderTest {
         )
         val result = provider.run(
             request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
                 prompt = "Say hello.",
-                policy = Policy(ExecutionPolicy.CLOUD),
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
                 authContextRef = "openai-dev"
             ),
             context = RunContext("run_123", fakeHostServices(httpClient = httpClient))
@@ -105,11 +109,13 @@ class OpenAIProviderTest {
 
         provider.run(
             request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
                 messages = listOf(
                     Message(MessageRole.SYSTEM, "Be concise."),
                     Message(MessageRole.USER, "Say hello.")
                 ),
-                policy = Policy(ExecutionPolicy.CLOUD)
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)
             ),
             context = RunContext("run_messages", fakeHostServices(httpClient = httpClient, includeSecret = false))
         )
@@ -135,7 +141,12 @@ class OpenAIProviderTest {
 
         try {
             provider.run(
-                request = TaskRequest(prompt = "Hello", policy = Policy(ExecutionPolicy.CLOUD)),
+                request = TaskRequest(
+                    schemaVersion = SchemaVersion.V1_0,
+                    prompt = "Hello",
+                    task = TaskRequestTask(),
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)
+                ),
                 context = RunContext("run_rate", fakeHostServices(httpClient = httpClient, includeSecret = false))
             )
         } catch (error: IndeRunException) {
@@ -154,7 +165,12 @@ class OpenAIProviderTest {
 
         try {
             provider.run(
-                request = TaskRequest(prompt = "Hello", policy = Policy(ExecutionPolicy.CLOUD)),
+                request = TaskRequest(
+                    schemaVersion = SchemaVersion.V1_0,
+                    prompt = "Hello",
+                    task = TaskRequestTask(),
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)
+                ),
                 context = RunContext("run_cancel", fakeHostServices(httpClient = httpClient, includeSecret = false))
             )
         } catch (error: CancellationException) {

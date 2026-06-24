@@ -7,6 +7,7 @@ import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -131,6 +132,7 @@ class AndroidMlKitGenAiProvider internal constructor(
                 finishReason = FinishReason.STOP,
                 output = Output(text = outputText),
                 runId = context.runId,
+                schemaVersion = SchemaVersion.V1_0,
                 telemetry = TaskResultTelemetry(providerUsed = id, totalMs = duration.toDouble())
             )
         } catch (error: Throwable) {

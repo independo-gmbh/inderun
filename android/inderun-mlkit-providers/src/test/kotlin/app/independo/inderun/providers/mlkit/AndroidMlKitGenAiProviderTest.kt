@@ -1,11 +1,13 @@
 package app.independo.inderun.providers.mlkit
 
-import app.independo.inderun.contracts.ExecutionPolicy
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
-import app.independo.inderun.contracts.Policy
+import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
+import app.independo.inderun.contracts.TaskRequestConstraints
+import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.RunContext
@@ -58,8 +60,10 @@ class AndroidMlKitGenAiProviderTest {
 
         val result = provider.run(
             request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
-                policy = Policy(ExecutionPolicy.ON_DEVICE)
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
             ),
             context = RunContext("run_123", fakeHostServices())
         )
@@ -78,11 +82,13 @@ class AndroidMlKitGenAiProviderTest {
 
         provider.run(
             request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
                 messages = listOf(
                     Message(MessageRole.SYSTEM, "Be concise"),
                     Message(MessageRole.USER, "Hello")
                 ),
-                policy = Policy(ExecutionPolicy.ON_DEVICE)
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
             ),
             context = RunContext("run_123", fakeHostServices())
         )
@@ -102,8 +108,10 @@ class AndroidMlKitGenAiProviderTest {
         try {
             provider.run(
                 request = TaskRequest(
+                    schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
-                    policy = Policy(ExecutionPolicy.ON_DEVICE)
+                    task = TaskRequestTask(),
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
                 ),
                 context = RunContext("run_123", fakeHostServices())
             )
@@ -128,8 +136,10 @@ class AndroidMlKitGenAiProviderTest {
         try {
             provider.run(
                 request = TaskRequest(
+                    schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
-                    policy = Policy(ExecutionPolicy.ON_DEVICE)
+                    task = TaskRequestTask(),
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
                 ),
                 context = RunContext("run_123", fakeHostServices())
             )

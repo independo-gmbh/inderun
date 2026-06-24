@@ -19,15 +19,17 @@ public extension TaskRequest {
         prompt: String? = nil,
         messages: [Message]? = nil,
         generation: GenerationHints? = nil,
-        policy: Policy,
+        constraints: TaskRequestConstraints? = nil,
+        preferences: TaskRequestPreferences? = nil,
         telemetry: TelemetryPreferences? = nil,
         authContextRef: String? = nil
     ) {
         self.init(
             authContextRef: authContextRef,
+            constraints: constraints,
             generation: generation,
             messages: messages,
-            policy: policy,
+            preferences: preferences,
             prompt: prompt,
             requestId: requestId,
             schemaVersion: SchemaVersion(rawValue: schemaVersion) ?? .the10,

@@ -46,29 +46,50 @@ class IndeRun private constructor(
             validateRequest(request, runId)
 
             val routeSelection = router.selectRoute(request, hostServices)
-            val provider = routeSelection.provider
+            val providers = listOf(routeSelection.provider) + routeSelection.fallbackProviders
+            val attemptedProviderIds = mutableListOf<String>()
 
-            val result = try {
-                provider.run(
-                    request = request,
-                    context = RunContext(runId = runId, hostServices = hostServices)
-                )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                throw toIndeRunException(
-                    error,
-                    fallbackRunId = runId,
-                    fallbackProviderId = provider.describe().id
-                )
+            for ((index, provider) in providers.withIndex()) {
+                val providerId = provider.describe().id
+                attemptedProviderIds += providerId
+
+                try {
+                    val result = provider.run(
+                        request = request,
+                        context = RunContext(runId = runId, hostServices = hostServices)
+                    )
+
+                    val totalMs = clock.elapsedRealtimeMillis().toDouble() - startTime
+                    return result.copy(
+                        runId = runId,
+                        telemetry = result.telemetry.copy(
+                            providerUsed = providerId,
+                            totalMs = totalMs
+                        )
+                    )
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    if (index == providers.lastIndex) {
+                        throw toIndeRunException(
+                            error,
+                            fallbackRunId = runId,
+                            fallbackProviderId = providerId,
+                            fallbackDetails = mapOf(
+                                "attemptedProviderIds" to attemptedProviderIds,
+                                "fallbackOccurred" to (providers.size > 1),
+                                "routePlan" to routeSelection.routePlan
+                            )
+                        )
+                    }
+                }
             }
 
-            val totalMs = clock.elapsedRealtimeMillis().toDouble() - startTime
-            return result.copy(
+            throw createInternal(
+                message = "No providers were attempted.",
                 runId = runId,
-                telemetry = result.telemetry.copy(
-                    providerUsed = provider.describe().id,
-                    totalMs = totalMs
+                details = mapOf(
+                    "attemptedProviderIds" to attemptedProviderIds
                 )
             )
         } catch (error: CancellationException) {

@@ -14,6 +14,11 @@ data class TaskRequest (
     val authContextRef: String? = null,
 
     /**
+     * Request-level routing constraints used by the planner.
+     */
+    val constraints: TaskRequestConstraints? = null,
+
+    /**
      * Optional configuration for fine-tuning how the AI model generates its response.
      */
     val generation: Generation? = null,
@@ -24,10 +29,9 @@ data class TaskRequest (
     val messages: List<Message>? = null,
 
     /**
-     * Execution constraints that determine where the request is routed (e.g., local/on-device
-     * vs remote cloud).
+     * Soft routing preferences used for deterministic provider ordering.
      */
-    val policy: Policy,
+    val preferences: TaskRequestPreferences? = null,
 
     /**
      * A simple, single-turn text prompt used to trigger a response from the AI model.
@@ -55,6 +59,45 @@ data class TaskRequest (
      */
     val telemetry: TaskRequestTelemetry? = null
 )
+
+/**
+ * Request-level routing constraints used by the planner.
+ */
+data class TaskRequestConstraints (
+    /**
+     * Cloud execution constraint.
+     */
+    val cloud: Cloud? = null,
+
+    /**
+     * Privacy requirement or preference for execution placement.
+     */
+    val privacy: PrivacyEnum? = null,
+
+    /**
+     * Optional routing timeout budget in milliseconds.
+     */
+    val timeoutMs: Long? = null
+)
+
+/**
+ * Cloud execution constraint.
+ */
+enum class Cloud {
+    Allowed,
+    Forbidden,
+    Required
+}
+
+/**
+ * Privacy requirement or preference for execution placement.
+ */
+enum class PrivacyEnum {
+    CloudAllowed,
+    CloudRequired,
+    LocalPreferred,
+    LocalRequired
+}
 
 /**
  * Optional configuration for fine-tuning how the AI model generates its response.
@@ -112,26 +155,23 @@ enum class MessageRole(val rawValue: String) {
 }
 
 /**
- * Execution constraints that determine where the request is routed (e.g., local/on-device
- * vs remote cloud).
+ * Soft routing preferences used for deterministic provider ordering.
  */
-data class Policy (
+data class TaskRequestPreferences (
     /**
-     * The target execution environment: 'on_device' for local ML models, or 'cloud' for
-     * remote-hosted providers.
+     * Primary optimization goal when multiple providers remain eligible.
      */
-    val execution: ExecutionPolicy
+    val optimizeFor: OptimizeFor? = null
 )
 
 /**
- * The target execution environment: 'on_device' for local ML models, or 'cloud' for
- * remote-hosted providers.
- *
- * Required execution target for the route plan.
+ * Primary optimization goal when multiple providers remain eligible.
  */
-enum class ExecutionPolicy(val rawValue: String) {
-    CLOUD("cloud"),
-    ON_DEVICE("on_device")
+enum class OptimizeFor {
+    Balanced,
+    Cost,
+    Latency,
+    Privacy
 }
 
 enum class SchemaVersion(val rawValue: String) {
@@ -462,12 +502,12 @@ data class RoutePlannerInput (
     /**
      * Hard routing constraints evaluated before provider selection.
      */
-    val constraints: Constraints,
+    val constraints: RoutePlannerInputConstraints,
 
     /**
      * Soft route ordering preferences applied after hard filtering.
      */
-    val preferences: Preferences,
+    val preferences: RoutePlannerInputPreferences,
 
     /**
      * Static descriptors plus dynamic capability snapshots for planning.
@@ -483,26 +523,31 @@ data class RoutePlannerInput (
 /**
  * Hard routing constraints evaluated before provider selection.
  */
-data class Constraints (
+data class RoutePlannerInputConstraints (
     /**
-     * Required execution target for the route plan.
+     * Cloud execution constraint.
      */
-    val executionTarget: ExecutionPolicy,
+    val cloud: Cloud? = null,
 
     /**
      * Current connectivity snapshot used for cloud route planning.
      */
-    val networkOnline: Boolean
+    val networkOnline: Boolean? = null,
+
+    /**
+     * Privacy requirement or preference for execution placement.
+     */
+    val privacy: PrivacyEnum? = null
 )
 
 /**
  * Soft route ordering preferences applied after hard filtering.
  */
-data class Preferences (
+data class RoutePlannerInputPreferences (
     /**
-     * Provider IDs ordered from highest to lowest preference.
+     * Primary optimization goal when multiple providers remain eligible.
      */
-    val preferredProviderIds: List<String>
+    val optimizeFor: OptimizeFor? = null
 )
 
 data class Provider (
@@ -517,9 +562,23 @@ data class Capabilities (
 
 data class Descriptor (
     val id: String,
+
+    /**
+     * Descriptor privacy metadata used to enforce local/cloud routing rules.
+     */
+    val privacy: PrivacyClass? = null,
+
     val supports: Supports,
     val tasks: List<String>,
     val type: DescriptorType
+)
+
+/**
+ * Descriptor privacy metadata used to enforce local/cloud routing rules.
+ */
+data class PrivacyClass (
+    val dataLeavesDevice: Boolean,
+    val regions: List<String>? = null
 )
 
 data class Supports (
@@ -608,8 +667,9 @@ data class Reason (
 
 enum class Code {
     CapabilityUnavailable,
-    ExecutionTargetMismatch,
+    CloudConstraint,
     Offline,
+    PrivacyConstraint,
     RunNotSupported,
     TaskNotSupported
 }

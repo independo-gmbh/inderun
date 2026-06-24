@@ -15,7 +15,7 @@ import {
 
 /**
  * Main orchestrator SDK entrypoint class.
- * Validates tasks, executes routing rules based on execution policies and connectivity,
+ * Validates tasks, executes routing rules based on request constraints and connectivity,
  * triggers provider adapters, and logs timing telemetry.
  */
 export class IndeRun {
@@ -81,7 +81,7 @@ export class IndeRun {
    * Orchestrates the execution of a TaskRequest.
    * Performs JSON Schema validation, selects a provider via routing rules,
    * measures total execution time, and attaches telemetry metadata to the outcome.
-   * @param request - The canonical task request containing prompts, tasks, and policies.
+   * @param request - The canonical task request containing prompts, tasks, and constraints.
    * @returns Canonical task output containing output details and telemetry metadata.
    * @throws {IndeRunException} Standardized error indicating validation, connection, or provider failures.
    */
@@ -107,12 +107,12 @@ export class IndeRun {
         });
       }
 
-      // 2. Select the route based on policy and host capabilities
+      // 2. Select the route based on constraints and host capabilities
       const routeSelection = await this.router.selectRoute(
         request,
         this.hostServices
       );
-      const provider = routeSelection.provider;
+      const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
       // Emit route_decided event
       this.safeEmit({
@@ -120,68 +120,101 @@ export class IndeRun {
         runId,
         timestamp: this.hostServices.clock ? this.hostServices.clock.now() : Date.now(),
         payload: {
-          selectedProviderId: provider.describe().id,
-          executionPolicy: request.policy.execution,
+          selectedProviderId: routeSelection.routePlan.selectedProviderId,
+          fallbackProviderIds: routeSelection.routePlan.fallbackProviderIds,
+          rejectedProviders: routeSelection.routePlan.rejectedProviders,
+          fallbackAvailable: providers.length > 1,
           taskKind: request.task.kind,
-          explanation: routeSelection.explanation
+          explanation: routeSelection.explanation,
+          constraints: request.constraints ?? null,
+          preferences: request.preferences ?? null
         }
       });
 
-      // 3. Execute the run task on the selected provider
-      let result: TaskResult;
-      try {
-        result = await provider.run(request, {
-          runId,
-          hostServices: this.hostServices
-        });
-      } catch (err) {
-        const exc = toIndeRunException(err, {
-          providerId: provider.describe().id,
-          runId
-        });
-        throw exc;
+      // 3. Execute the run task using the planned provider chain
+      const attemptedProviderIds: string[] = [];
+      let lastError: unknown;
+      for (const [index, provider] of providers.entries()) {
+        const providerId = provider.describe().id;
+        attemptedProviderIds.push(providerId);
+
+        try {
+          const result = await provider.run(request, {
+            runId,
+            hostServices: this.hostServices
+          });
+
+          const endTime = this.hostServices.clock
+            ? this.hostServices.clock.now()
+            : Date.now();
+          const totalMs = endTime - startTime;
+
+          result.runId = runId;
+          result.telemetry = {
+            ...result.telemetry,
+            providerUsed: providerId,
+            totalMs
+          };
+
+          this.safeEmit({
+            type: "attempt_succeeded",
+            runId,
+            timestamp: endTime,
+            payload: {
+              providerId,
+              durationMs: totalMs,
+              fallbackOccurred: index > 0,
+              attemptedProviderIds
+            }
+          });
+
+          return result;
+        } catch (err) {
+          lastError = toIndeRunException(err, {
+            providerId,
+            runId,
+            details: {
+              attemptedProviderIds,
+              fallbackOccurred: index > 0,
+              routePlan: routeSelection.routePlan
+            }
+          });
+        }
       }
 
-      // 4. Record timings and finalize telemetry
       const endTime = this.hostServices.clock
         ? this.hostServices.clock.now()
         : Date.now();
       const totalMs = endTime - startTime;
-
-      // Ensure the returned runId matches the engine's orchestrated runId
-      result.runId = runId;
-
-      // Ensure standard telemetry fields are present
-      result.telemetry = {
-        ...result.telemetry,
-        providerUsed: provider.describe().id,
-        totalMs
-      };
-
-      // Emit attempt_succeeded event
-      this.safeEmit({
-        type: "attempt_succeeded",
+      const exception = toIndeRunException(lastError ?? new Error("No providers were attempted."), {
         runId,
-        timestamp: endTime,
-        payload: {
-          providerId: provider.describe().id,
-          durationMs: totalMs
+        details: {
+          totalMs,
+          attemptedProviderIds,
+          fallbackOccurred: providers.length > 1,
+          routePlan: routeSelection.routePlan
         }
       });
 
-      return result;
-    } catch (err) {
+      throw exception;
+    } catch (error) {
+      const exception = toIndeRunException(error, {
+        runId,
+        details: {
+          totalMs:
+            typeof (error as { details?: { totalMs?: number } }).details?.totalMs === "number"
+              ? (error as { details?: { totalMs?: number } }).details?.totalMs
+              : (this.hostServices.clock ? this.hostServices.clock.now() : Date.now()) - startTime
+        }
+      });
       const endTime = this.hostServices.clock
         ? this.hostServices.clock.now()
         : Date.now();
-      const totalMs = endTime - startTime;
+      const totalMs =
+        typeof (exception as { details?: { totalMs?: number } }).details?.totalMs === "number"
+          ? (exception as { details?: { totalMs?: number } }).details?.totalMs
+          : endTime - startTime;
 
-      const exception = toIndeRunException(err, {
-        runId,
-        details: { totalMs }
-      });
-
-      // Emit attempt_failed event
       this.safeEmit({
         type: "attempt_failed",
         runId,

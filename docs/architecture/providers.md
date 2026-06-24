@@ -49,7 +49,7 @@ IndeRun may later add `modelRef` to requests; **routing chooses providers**, not
 ## 2) IndeRun Provider contract (reference)
 
 ### 2.1 ProviderDescriptor (static-ish metadata)
-This is used by routing and policy evaluation.
+This is used by routing and constraint evaluation.
 
 ```ts
 type ProviderDescriptor = {
@@ -168,7 +168,7 @@ then executing the request locally.
 - **Type:** `cloud`
 - **Transport:** `http` (Mode 1), later `sse` (Mode 2), later `realtime` (Mode 3)
 - **Runtime:** OpenAI Responses API for Mode 1
-- **Models:** configured by model name per environment/policy
+- **Models:** configured by model name per environment/constraints
 - **Primary tasks:** `text_to_text` (initially), later many modalities
 - **Notes:**
   - **Production browser apps** should use a proxy/your backend (do not ship API keys to clients)
@@ -259,8 +259,8 @@ These providers enable **developer-supplied** models for tasks like TTS, embeddi
 
 ## 4) How routing “sees” these providers (examples)
 
-### 4.1 Milestone 1 (text→text, policy toggle)
-Request contract field: `policy.execution = on_device | cloud`
+### 4.1 Milestone 1 (text→text, constraint toggle)
+Request contract field: `constraints.execution = on_device | cloud`
 
 - iOS candidates:
   - on-device: `AppleFoundationModelsProvider`
@@ -289,7 +289,7 @@ If you add Core ML or ExecuTorch:
   - `AppleFoundationModelsProvider` (system LLM)
   - `CoreMLProvider` (custom model)
   - `ExecuTorchProvider` (custom model)
-Router then uses capabilities + policy preferences to select the best backend.
+Router then uses capabilities + routing preferences to select the best backend.
 
 ---
 
@@ -326,6 +326,6 @@ Emit comparable metrics across providers:
 - Mode 2 streaming: `stream()` + unified IndeRunEvent union
 - Mode 3 sessions: `openSession()` + bidirectional InputEvent/IndeRunEvent loop
 - tool calling + reasoning events (mechanics vs content separation)
-- richer policy engine (fallback, weights, constraints)
+- richer routing engine (fallback, weights, constraints)
 - model selection (`modelRef`) and model catalog (per provider)
 - Mode 4 submit/jobs (future; additive)

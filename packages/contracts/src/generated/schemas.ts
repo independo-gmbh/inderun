@@ -9,8 +9,7 @@ export const taskRequestSchema = {
   "additionalProperties": true,
   "required": [
     "schemaVersion",
-    "task",
-    "policy"
+    "task"
   ],
   "anyOf": [
     {
@@ -117,19 +116,47 @@ export const taskRequestSchema = {
         }
       }
     },
-    "policy": {
-      "description": "Execution constraints that determine where the request is routed (e.g., local/on-device vs remote cloud).",
+    "constraints": {
+      "description": "Request-level routing constraints used by the planner.",
       "type": "object",
       "additionalProperties": true,
-      "required": [
-        "execution"
-      ],
       "properties": {
-        "execution": {
-          "description": "The target execution environment: 'on_device' for local ML models, or 'cloud' for remote-hosted providers.",
+        "privacy": {
+          "description": "Privacy requirement or preference for execution placement.",
           "enum": [
-            "on_device",
-            "cloud"
+            "local_required",
+            "local_preferred",
+            "cloud_allowed",
+            "cloud_required"
+          ]
+        },
+        "cloud": {
+          "description": "Cloud execution constraint.",
+          "enum": [
+            "forbidden",
+            "allowed",
+            "required"
+          ]
+        },
+        "timeoutMs": {
+          "description": "Optional routing timeout budget in milliseconds.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "preferences": {
+      "description": "Soft routing preferences used for deterministic provider ordering.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "optimizeFor": {
+          "description": "Primary optimization goal when multiple providers remain eligible.",
+          "enum": [
+            "privacy",
+            "latency",
+            "cost",
+            "balanced"
           ]
         }
       }
@@ -495,16 +522,22 @@ export const routePlannerInputSchema = {
       "description": "Hard routing constraints evaluated before provider selection.",
       "type": "object",
       "additionalProperties": true,
-      "required": [
-        "executionTarget",
-        "networkOnline"
-      ],
       "properties": {
-        "executionTarget": {
-          "description": "Required execution target for the route plan.",
+        "privacy": {
+          "description": "Privacy requirement or preference for execution placement.",
           "enum": [
-            "on_device",
-            "cloud"
+            "local_required",
+            "local_preferred",
+            "cloud_allowed",
+            "cloud_required"
+          ]
+        },
+        "cloud": {
+          "description": "Cloud execution constraint.",
+          "enum": [
+            "forbidden",
+            "allowed",
+            "required"
           ]
         },
         "networkOnline": {
@@ -517,17 +550,15 @@ export const routePlannerInputSchema = {
       "description": "Soft route ordering preferences applied after hard filtering.",
       "type": "object",
       "additionalProperties": true,
-      "required": [
-        "preferredProviderIds"
-      ],
       "properties": {
-        "preferredProviderIds": {
-          "description": "Provider IDs ordered from highest to lowest preference.",
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "optimizeFor": {
+          "description": "Primary optimization goal when multiple providers remain eligible.",
+          "enum": [
+            "privacy",
+            "latency",
+            "cost",
+            "balanced"
+          ]
         }
       }
     },
@@ -580,6 +611,26 @@ export const routePlannerInputSchema = {
                 "items": {
                   "type": "string",
                   "minLength": 1
+                }
+              },
+              "privacy": {
+                "description": "Descriptor privacy metadata used to enforce local/cloud routing rules.",
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "dataLeavesDevice"
+                ],
+                "properties": {
+                  "dataLeavesDevice": {
+                    "type": "boolean"
+                  },
+                  "regions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
                 }
               }
             }
@@ -684,7 +735,8 @@ export const routePlanSchema = {
                   "enum": [
                     "task_not_supported",
                     "run_not_supported",
-                    "execution_target_mismatch",
+                    "privacy_constraint",
+                    "cloud_constraint",
                     "offline",
                     "capability_unavailable"
                   ]

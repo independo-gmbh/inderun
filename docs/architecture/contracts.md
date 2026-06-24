@@ -8,7 +8,7 @@ The `TaskRequest` object represents a single unit of work to be executed by the 
 
 ### Key Fields
 
-* **`policy`**: Defines the constraints used by the router to select a provider. This determines whether the request targets local resources (`on_device`) or remote services (`cloud`).
+* **`constraints`**: Defines the constraints used by the router to select a provider. This determines whether the request targets local resources (`on_device`) or remote services (`cloud`).
 * **`task`**: A descriptor that defines the nature of the work (e.t. `text_to_text`). This is used by providers to match their capabilities against the incoming request.
 * **`prompt` / `messages`**: The actual content of the task. Use `prompt` for simple single-turn requests, or `messages` for conversation-style interactions.
 * **s `requestId`**: An optional, caller-provided string used for idempotency and correlating logs across systems.
@@ -32,7 +32,7 @@ When an operation fails, the engine throws a standardized `IndeRunException`. Th
 
 | Error Class | Meaning & Recommended UI Behavior |
 | :--- | :--- |
-| `CapabilityMismatch` | The selected provider cannot fulfill the request (e.g., missing a required capability). Consider retrying with a different mode/policy. |
+| `CapabilityMismatch` | The selected provider cannot fulfill the request (e.g., missing a required capability). Consider retrying with a different mode/constraints. |
 | `Offline` | The device has no network connectivity. Switch to `on_device` execution or prompt the user to reconnect. |
 | `Unavailable` | The requested provider or endpoint is currently unavailable. Check configuration or try again later. |
 | `AuthError` | Authentication failed or credentials could not be retrieved. Verify your secure storage/auth context. |

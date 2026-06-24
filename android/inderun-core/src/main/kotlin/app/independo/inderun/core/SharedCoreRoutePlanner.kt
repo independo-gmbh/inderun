@@ -3,13 +3,12 @@ package app.independo.inderun.core
 import app.independo.inderun.contracts.Capabilities
 import app.independo.inderun.contracts.Candidate
 import app.independo.inderun.contracts.Code
-import app.independo.inderun.contracts.Constraints
+import app.independo.inderun.contracts.RoutePlannerInputConstraints
 import app.independo.inderun.contracts.Descriptor
 import app.independo.inderun.contracts.DescriptorType
-import app.independo.inderun.contracts.ExecutionPolicy
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FailureCode
-import app.independo.inderun.contracts.Preferences
+import app.independo.inderun.contracts.RoutePlannerInputPreferences
 import app.independo.inderun.contracts.Provider
 import app.independo.inderun.contracts.Reason
 import app.independo.inderun.contracts.RejectedProvider
@@ -24,8 +23,8 @@ import org.json.JSONObject
 internal typealias SharedPlannerInput = RoutePlannerInput
 internal typealias SharedPlannerRoutePlan = RoutePlan
 internal typealias SharedPlannerTask = RoutePlannerInputTask
-internal typealias SharedPlannerConstraints = Constraints
-internal typealias SharedPlannerPreferences = Preferences
+internal typealias SharedPlannerConstraints = RoutePlannerInputConstraints
+internal typealias SharedPlannerPreferences = RoutePlannerInputPreferences
 internal typealias SharedPlannerProviderInput = Provider
 internal typealias SharedPlannerProviderDescriptor = Descriptor
 internal typealias SharedPlannerProviderSupports = Supports
@@ -84,12 +83,17 @@ internal fun buildSharedPlannerInput(
     online: Boolean,
     snapshots: List<ProviderSnapshot>
 ): SharedPlannerInput {
+    val constraints = request.constraints
+    val preferences = request.preferences
     return SharedPlannerInput(
         constraints = SharedPlannerConstraints(
-            executionTarget = request.policy.execution,
+            privacy = constraints?.privacy,
+            cloud = constraints?.cloud,
             networkOnline = online
         ),
-        preferences = SharedPlannerPreferences(preferredProviderIds = emptyList()),
+        preferences = SharedPlannerPreferences(
+            optimizeFor = preferences?.optimizeFor
+        ),
         providers = snapshots.map { snapshot ->
             SharedPlannerProviderInput(
                 descriptor = SharedPlannerProviderDescriptor(
@@ -100,6 +104,12 @@ internal fun buildSharedPlannerInput(
                         ProviderDescriptor.ProviderType.local -> DescriptorType.Local
                         ProviderDescriptor.ProviderType.edge -> DescriptorType.Edge
                         ProviderDescriptor.ProviderType.cloud -> DescriptorType.Cloud
+                    },
+                    privacy = snapshot.descriptor.privacy?.let { privacy ->
+                        app.independo.inderun.contracts.PrivacyClass(
+                            dataLeavesDevice = privacy.dataLeavesDevice,
+                            regions = privacy.regions
+                        )
                     }
                 ),
                 capabilities = SharedPlannerCapabilities(
@@ -112,27 +122,19 @@ internal fun buildSharedPlannerInput(
     )
 }
 
-internal data class ProviderSnapshot(
-    val provider: ProviderAdapter,
-    val descriptor: ProviderDescriptor,
-    val capabilities: ProviderDynamicCapabilities
-)
-
 private fun SharedPlannerInput.toJson(): String {
     return JSONObject()
         .put("task", JSONObject().put("kind", task.kind))
         .put(
             "constraints",
             JSONObject()
-                .put("executionTarget", executionTargetValue(constraints.executionTarget))
+                .put("privacy", constraints.privacy?.let(::privacyValue))
+                .put("cloud", constraints.cloud?.let(::cloudValue))
                 .put("networkOnline", constraints.networkOnline)
         )
         .put(
             "preferences",
-            JSONObject().put(
-                "preferredProviderIds",
-                JSONArray(preferences.preferredProviderIds)
-            )
+            JSONObject().put("optimizeFor", preferences.optimizeFor?.let(::optimizeForValue))
         )
         .put(
             "providers",
@@ -144,6 +146,17 @@ private fun SharedPlannerInput.toJson(): String {
                             JSONObject()
                                 .put("id", provider.descriptor.id)
                                 .put("type", descriptorTypeValue(provider.descriptor.type))
+                                .put(
+                                    "privacy",
+                                    provider.descriptor.privacy?.let { privacy ->
+                                        JSONObject()
+                                            .put("dataLeavesDevice", privacy.dataLeavesDevice)
+                                            .put(
+                                                "regions",
+                                                privacy.regions?.let { JSONArray(it) }
+                                            )
+                                    }
+                                )
                                 .put(
                                     "supports",
                                     JSONObject().put("run", provider.descriptor.supports.run)
@@ -195,8 +208,30 @@ private fun descriptorTypeValue(value: DescriptorType): String {
     }
 }
 
-private fun executionTargetValue(value: ExecutionPolicy): String {
-    return value.rawValue
+private fun cloudValue(value: app.independo.inderun.contracts.Cloud): String {
+    return when (value) {
+        app.independo.inderun.contracts.Cloud.Allowed -> "allowed"
+        app.independo.inderun.contracts.Cloud.Forbidden -> "forbidden"
+        app.independo.inderun.contracts.Cloud.Required -> "required"
+    }
+}
+
+private fun privacyValue(value: app.independo.inderun.contracts.PrivacyEnum): String {
+    return when (value) {
+        app.independo.inderun.contracts.PrivacyEnum.CloudAllowed -> "cloud_allowed"
+        app.independo.inderun.contracts.PrivacyEnum.CloudRequired -> "cloud_required"
+        app.independo.inderun.contracts.PrivacyEnum.LocalPreferred -> "local_preferred"
+        app.independo.inderun.contracts.PrivacyEnum.LocalRequired -> "local_required"
+    }
+}
+
+private fun optimizeForValue(value: app.independo.inderun.contracts.OptimizeFor): String {
+    return when (value) {
+        app.independo.inderun.contracts.OptimizeFor.Balanced -> "balanced"
+        app.independo.inderun.contracts.OptimizeFor.Cost -> "cost"
+        app.independo.inderun.contracts.OptimizeFor.Latency -> "latency"
+        app.independo.inderun.contracts.OptimizeFor.Privacy -> "privacy"
+    }
 }
 
 private fun JSONArray?.toStringList(): List<String> {
@@ -239,8 +274,9 @@ private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> {
 private fun parseReasonCode(value: String): SharedPlannerReasonCode {
     return when (value) {
         "capability_unavailable" -> SharedPlannerReasonCode.CapabilityUnavailable
-        "execution_target_mismatch" -> SharedPlannerReasonCode.ExecutionTargetMismatch
+        "cloud_constraint" -> SharedPlannerReasonCode.CloudConstraint
         "offline" -> SharedPlannerReasonCode.Offline
+        "privacy_constraint" -> SharedPlannerReasonCode.PrivacyConstraint
         "run_not_supported" -> SharedPlannerReasonCode.RunNotSupported
         "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
         else -> throw IllegalArgumentException("Unknown ReasonCode: $value")

@@ -78,7 +78,7 @@ function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
     schemaVersion: "1.0",
     task: { kind: "text_to_text" },
     prompt: "Say hello.",
-    policy: { execution: "cloud" },
+    constraints: { privacy: "cloud_required" },
     authContextRef: "openai-dev"
   };
 

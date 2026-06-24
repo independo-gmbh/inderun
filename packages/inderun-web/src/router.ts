@@ -2,7 +2,12 @@ import type { TaskRequest } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
 import type { ProviderAdapter } from "./provider.js";
 import type { ProviderRegistry } from "./registry.js";
-import { createCapabilityMismatch, createOffline, createUnavailable } from "./errors.js";
+import {
+  createCapabilityMismatch,
+  createInternal,
+  createOffline,
+  createUnavailable
+} from "./errors.js";
 import {
   buildSharedPlannerInput,
   collectProviderRuntimeSnapshots,
@@ -21,13 +26,21 @@ export interface RouteSelection {
    */
   provider: ProviderAdapter;
   /**
+   * Ordered fallback providers to try if the primary provider fails before producing a final result.
+   */
+  fallbackProviders: ProviderAdapter[];
+  /**
+   * The shared route plan used to select this provider chain.
+   */
+  routePlan: SharedPlannerRoutePlan;
+  /**
    * Explanation detailing the selection decision. Useful for debugging and telemetry.
    */
   explanation: string;
 }
 
 /**
- * Routing engine module. Filters registered providers against task types, execution policies,
+ * Routing engine module. Filters registered providers against task types, request constraints,
  * and dynamic host capabilities (such as connectivity and battery/thermal constraints)
  * to output deterministic execution pathways.
  */
@@ -65,30 +78,182 @@ export class Router {
     const routePlan = await this.planner.planRoute(planInput);
 
     if (routePlan) {
-      return this.selectFromSharedPlan(request, snapshots, routePlan);
+      return this.selectFromSharedPlan(snapshots, routePlan);
     }
 
-    return this.selectLegacyRoute(request, snapshots, online);
+    return this.selectFallbackRoute(request, snapshots, online);
   }
 
   private selectFromSharedPlan(
-    request: TaskRequest,
     snapshots: ProviderRuntimeSnapshot[],
     routePlan: SharedPlannerRoutePlan
   ): RouteSelection {
-    const selectedProviderId = routePlan.selectedProviderId ?? undefined;
-    if (selectedProviderId) {
-      const selected = snapshots.find(
-        (snapshot) => snapshot.descriptor.id === selectedProviderId
-      );
-      if (selected) {
-        return {
-          provider: selected.provider,
-          explanation: routePlan.explanation.summary
-        };
-      }
+    if (!routePlan.selectedProviderId) {
+      throw this.routePlanFailure(routePlan);
     }
 
+    return this.buildSelectionFromRoutePlan(snapshots, routePlan);
+  }
+
+  private selectFallbackRoute(
+    request: TaskRequest,
+    snapshots: ProviderRuntimeSnapshot[],
+    online: boolean
+  ): RouteSelection {
+    const plan = this.createFallbackPlan(request, snapshots, online);
+    if (!plan.selectedProviderId) {
+      throw this.routePlanFailure(plan);
+    }
+
+    return this.buildSelectionFromRoutePlan(snapshots, plan);
+  }
+
+  private buildSelectionFromRoutePlan(
+    snapshots: ProviderRuntimeSnapshot[],
+    routePlan: SharedPlannerRoutePlan
+  ): RouteSelection {
+    const orderedProviders = routePlan.candidates
+      .map((candidate) =>
+        snapshots.find((snapshot) => snapshot.descriptor.id === candidate.providerId)
+      )
+      .filter((snapshot): snapshot is ProviderRuntimeSnapshot => snapshot !== undefined);
+
+    const selected = orderedProviders[0];
+    if (!selected) {
+      throw createInternal("Route plan selected a provider that is no longer registered.");
+    }
+
+    return {
+      provider: selected.provider,
+      fallbackProviders: orderedProviders.slice(1).map((snapshot) => snapshot.provider),
+      routePlan,
+      explanation: routePlan.explanation.summary
+    };
+  }
+
+  private createFallbackPlan(
+    request: TaskRequest,
+    snapshots: ProviderRuntimeSnapshot[],
+    online: boolean
+  ): SharedPlannerRoutePlan {
+    const planInput = buildSharedPlannerInput(request, snapshots, online);
+    const eligible = snapshots
+      .filter((candidate) => candidate.descriptor.tasks.includes(planInput.task.kind))
+      .filter((candidate) => candidate.descriptor.supports.run);
+
+    const localCandidates = eligible.filter((candidate) => candidate.descriptor.type !== "cloud");
+    const cloudCandidates = eligible.filter((candidate) => candidate.descriptor.type === "cloud");
+
+    const selected = eligible.find((candidate) => {
+      const descriptor = candidate.descriptor;
+      const constraints = planInput.constraints;
+      const privacy = descriptor.privacy?.dataLeavesDevice ?? descriptor.type !== "cloud";
+
+      if (constraints.cloud === "forbidden" && descriptor.type === "cloud") {
+        return false;
+      }
+
+      if (constraints.cloud === "required" && descriptor.type !== "cloud") {
+        return false;
+      }
+
+      if (constraints.privacy === "local_required" && !privacy) {
+        return false;
+      }
+
+      if (constraints.privacy === "cloud_required" && descriptor.type !== "cloud") {
+        return false;
+      }
+
+      if (!online && descriptor.type === "cloud") {
+        return false;
+      }
+
+      return candidate.capabilities.available;
+    });
+
+    const ordered = selected
+      ? [selected, ...eligible.filter((candidate) => candidate !== selected)]
+      : [];
+
+    if (ordered.length === 0) {
+      const failureSummary = this.buildFallbackFailureSummary({
+        online,
+        constraints: planInput.constraints,
+        localCandidates,
+        cloudCandidates
+      });
+      const failureCode = !online
+        ? "offline"
+        : planInput.constraints.cloud === "required" ||
+            planInput.constraints.privacy === "cloud_required"
+          ? "unavailable"
+          : "capability_mismatch";
+
+      return {
+        selectedProviderId: undefined,
+        fallbackProviderIds: [],
+        candidates: [],
+        rejectedProviders: [],
+        failureCode,
+        explanation: {
+          summary: failureSummary,
+          selectedProviderId: undefined
+        }
+      };
+    }
+
+    return {
+      selectedProviderId: ordered[0]?.descriptor.id,
+      fallbackProviderIds: ordered.slice(1).map((candidate) => candidate.descriptor.id),
+      candidates: ordered.map((candidate, index) => ({
+        providerId: candidate.descriptor.id,
+        order: index
+      })),
+      rejectedProviders: [],
+      failureCode: undefined,
+      explanation: {
+        summary: `Selected provider '${ordered[0]?.descriptor.id}' deterministically from ${ordered.length} eligible candidate(s).`,
+        selectedProviderId: ordered[0]?.descriptor.id
+      }
+    };
+  }
+
+  private buildFallbackFailureSummary(input: {
+    online: boolean;
+    constraints: SharedPlannerInput["constraints"];
+    localCandidates: ProviderRuntimeSnapshot[];
+    cloudCandidates: ProviderRuntimeSnapshot[];
+  }): string {
+    const wantsCloud =
+      input.constraints.cloud === "required" ||
+      input.constraints.privacy === "cloud_required";
+    const wantsLocal = input.constraints.privacy === "local_required";
+
+    if (!input.online && (wantsCloud || input.cloudCandidates.length > 0)) {
+      return "No network connection is available.";
+    }
+
+    if (wantsCloud) {
+      if (input.cloudCandidates.length === 0) {
+        return "No cloud provider found.";
+      }
+
+      return "No cloud provider is currently available.";
+    }
+
+    if (wantsLocal) {
+      if (input.localCandidates.length === 0) {
+        return "No on-device provider found.";
+      }
+
+      return "No on-device provider is currently available.";
+    }
+
+    return "No eligible provider found for the current routing constraints.";
+  }
+
+  private routePlanFailure(routePlan: SharedPlannerRoutePlan): never {
     const message = routePlan.explanation.summary;
     switch (routePlan.failureCode) {
       case "offline":
@@ -97,81 +262,7 @@ export class Router {
         throw createUnavailable(message);
       case "capability_mismatch":
       default:
-        if (request.policy.execution === "cloud") {
-          throw createUnavailable(message);
-        }
         throw createCapabilityMismatch(message);
     }
-  }
-
-  private selectLegacyRoute(
-    request: TaskRequest,
-    snapshots: ProviderRuntimeSnapshot[],
-    online: boolean
-  ): RouteSelection {
-    const taskKind = request.task.kind;
-    const executionPolicy = request.policy.execution;
-
-    const taskCandidates = snapshots.filter(
-      (candidate) =>
-        candidate.descriptor.tasks.includes(taskKind) &&
-        candidate.descriptor.supports.run
-    );
-
-    if (executionPolicy === "on_device") {
-      const localCandidates = taskCandidates.filter(
-        (candidate) => candidate.descriptor.type === "local"
-      );
-
-      if (localCandidates.length === 0) {
-        throw createCapabilityMismatch(
-          `Capability mismatch: no on-device provider found supporting task '${taskKind}'.`
-        );
-      }
-
-      const selected = localCandidates.find(
-        (candidate) => candidate.capabilities.available
-      );
-      if (selected) {
-        return {
-          provider: selected.provider,
-          explanation: `Selected on-device provider '${selected.descriptor.id}' deterministically.`
-        };
-      }
-
-      throw createCapabilityMismatch(
-        "Capability mismatch: on-device execution selected, but on-device provider is currently unavailable."
-      );
-    }
-
-    if (!online) {
-      throw createOffline(
-        "Offline: cloud execution selected, but no network connection is available."
-      );
-    }
-
-    const cloudCandidates = taskCandidates.filter(
-      (candidate) => candidate.descriptor.type === "cloud"
-    );
-
-    if (cloudCandidates.length === 0) {
-      throw createUnavailable(
-        `Unavailable: no cloud provider found supporting task '${taskKind}'.`
-      );
-    }
-
-    const selected = cloudCandidates.find(
-      (candidate) => candidate.capabilities.available
-    );
-    if (selected) {
-      return {
-        provider: selected.provider,
-        explanation: `Selected cloud provider '${selected.descriptor.id}' deterministically.`
-      };
-    }
-
-    throw createUnavailable(
-      "Unavailable: cloud execution selected, but no cloud provider is currently available."
-    );
   }
 }

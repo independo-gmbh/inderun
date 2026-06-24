@@ -14,9 +14,28 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ExecutionTarget {
-    OnDevice,
-    Cloud,
+pub enum PrivacyConstraint {
+    LocalRequired,
+    LocalPreferred,
+    CloudAllowed,
+    CloudRequired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudConstraint {
+    Forbidden,
+    Allowed,
+    Required,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizeFor {
+    Privacy,
+    Latency,
+    Cost,
+    Balanced,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -40,7 +59,8 @@ pub enum RouteFailureCode {
 pub enum RejectionReasonCode {
     TaskNotSupported,
     RunNotSupported,
-    ExecutionTargetMismatch,
+    PrivacyConstraint,
+    CloudConstraint,
     Offline,
     CapabilityUnavailable,
 }
@@ -51,10 +71,13 @@ pub struct RoutingTask {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RoutingConstraints {
-    pub execution_target: ExecutionTarget,
+    #[serde(default)]
+    pub privacy: Option<PrivacyConstraint>,
+    #[serde(default)]
+    pub cloud: Option<CloudConstraint>,
     #[serde(default)]
     pub network_online: Option<bool>,
 }
@@ -63,7 +86,7 @@ pub struct RoutingConstraints {
 #[serde(rename_all = "camelCase")]
 pub struct RoutingPreferences {
     #[serde(default)]
-    pub preferred_provider_ids: Vec<String>,
+    pub optimize_for: Option<OptimizeFor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,12 +97,22 @@ pub struct ProviderRunSupport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderPrivacy {
+    pub data_leaves_device: bool,
+    #[serde(default)]
+    pub regions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderDescriptor {
     pub id: String,
     #[serde(rename = "type")]
     pub provider_type: ProviderType,
     pub supports: ProviderRunSupport,
     pub tasks: Vec<String>,
+    #[serde(default)]
+    pub privacy: Option<ProviderPrivacy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -154,7 +187,7 @@ pub struct RoutePlan {
 
 pub fn plan_route(input: PlanRouteInput) -> RoutePlan {
     let mut providers = input.providers.clone();
-    providers.sort_by(|left, right| compare_inputs(left, right, &input.preferences));
+    providers.sort_by(|left, right| compare_inputs(left, right, &input.preferences, &input.constraints));
 
     let mut candidates = Vec::new();
     let mut rejected_providers = Vec::new();
@@ -200,15 +233,13 @@ pub fn plan_route(input: PlanRouteInput) -> RoutePlan {
         };
     }
 
-    let failure_code = infer_failure_code(&input.constraints);
+    let failure_code = infer_failure_code(&input.constraints, &rejected_providers);
     let summary = match failure_code {
         RouteFailureCode::CapabilityMismatch => format!(
-            "No eligible on-device provider found for task '{}'.",
+            "No eligible local provider found for task '{}'.",
             input.task.kind
         ),
-        RouteFailureCode::Offline => {
-            "Cloud execution requested, but the host is offline.".to_string()
-        }
+        RouteFailureCode::Offline => "Cloud execution was blocked because the host is offline.".to_string(),
         RouteFailureCode::Unavailable => {
             format!("No eligible cloud provider found for task '{}'.", input.task.kind)
         }
@@ -231,20 +262,89 @@ fn compare_inputs(
     left: &ProviderInput,
     right: &ProviderInput,
     preferences: &RoutingPreferences,
+    constraints: &RoutingConstraints,
 ) -> Ordering {
-    let left_rank = preferred_rank(preferences, &left.descriptor.id);
-    let right_rank = preferred_rank(preferences, &right.descriptor.id);
-    left_rank
-        .cmp(&right_rank)
+    priority_tuple(left, preferences, constraints)
+        .cmp(&priority_tuple(right, preferences, constraints))
         .then_with(|| left.descriptor.id.cmp(&right.descriptor.id))
 }
 
-fn preferred_rank(preferences: &RoutingPreferences, provider_id: &str) -> usize {
-    preferences
-        .preferred_provider_ids
-        .iter()
-        .position(|id| id == provider_id)
-        .unwrap_or(usize::MAX)
+fn priority_tuple(
+    provider: &ProviderInput,
+    preferences: &RoutingPreferences,
+    constraints: &RoutingConstraints,
+) -> (u8, u8, String) {
+    let placement_rank = placement_rank(provider, constraints);
+    let preference_rank = preference_rank(provider, preferences);
+    (placement_rank, preference_rank, provider.descriptor.id.clone())
+}
+
+fn placement_rank(provider: &ProviderInput, constraints: &RoutingConstraints) -> u8 {
+    let descriptor = &provider.descriptor;
+
+    match constraints.cloud {
+        Some(CloudConstraint::Required) => {
+            if descriptor.provider_type == ProviderType::Cloud {
+                0
+            } else {
+                1
+            }
+        }
+        Some(CloudConstraint::Forbidden) => {
+            if descriptor.provider_type == ProviderType::Cloud {
+                1
+            } else {
+                0
+            }
+        }
+        Some(CloudConstraint::Allowed) | None => match constraints.privacy {
+            Some(PrivacyConstraint::LocalRequired) | Some(PrivacyConstraint::LocalPreferred) => {
+                if is_data_private(descriptor) {
+                    0
+                } else {
+                    1
+                }
+            }
+            Some(PrivacyConstraint::CloudRequired) => {
+                if descriptor.provider_type == ProviderType::Cloud {
+                    0
+                } else {
+                    1
+                }
+            }
+            Some(PrivacyConstraint::CloudAllowed) | None => 0,
+        },
+    }
+}
+
+fn preference_rank(provider: &ProviderInput, preferences: &RoutingPreferences) -> u8 {
+    match preferences.optimize_for {
+        Some(OptimizeFor::Privacy) => {
+            if is_data_private(&provider.descriptor) {
+                0
+            } else {
+                1
+            }
+        }
+        Some(OptimizeFor::Latency) => match provider.descriptor.provider_type {
+            ProviderType::Cloud => 0,
+            ProviderType::Edge => 1,
+            ProviderType::Local => 2,
+        },
+        Some(OptimizeFor::Cost) | Some(OptimizeFor::Balanced) | None => match provider.descriptor.provider_type {
+            ProviderType::Local => 0,
+            ProviderType::Edge => 1,
+            ProviderType::Cloud => 2,
+        },
+    }
+}
+
+fn is_data_private(descriptor: &ProviderDescriptor) -> bool {
+    descriptor
+        .privacy
+        .as_ref()
+        .map(|privacy| !privacy.data_leaves_device)
+        .unwrap_or(descriptor.provider_type != ProviderType::Cloud)
 }
 
 fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<RejectionReason> {
@@ -266,25 +366,44 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
         });
     }
 
-    let expected_type = match input.constraints.execution_target {
-        ExecutionTarget::OnDevice => ProviderType::Local,
-        ExecutionTarget::Cloud => ProviderType::Cloud,
-    };
-
-    if descriptor.provider_type != expected_type {
+    if matches!(input.constraints.privacy, Some(PrivacyConstraint::LocalRequired))
+        && !is_data_private(descriptor)
+    {
         reasons.push(RejectionReason {
-            code: RejectionReasonCode::ExecutionTargetMismatch,
-            message: format!(
-                "Provider '{}' is '{}' but execution target requires '{}'.",
-                descriptor.id,
-                provider_type_name(&descriptor.provider_type),
-                provider_type_name(&expected_type)
-            ),
+            code: RejectionReasonCode::PrivacyConstraint,
+            message: format!("Provider '{}' does not satisfy local-required privacy.", descriptor.id),
         });
     }
 
-    if matches!(input.constraints.execution_target, ExecutionTarget::Cloud)
-        && input.constraints.network_online == Some(false)
+    if matches!(input.constraints.privacy, Some(PrivacyConstraint::CloudRequired))
+        && descriptor.provider_type != ProviderType::Cloud
+    {
+        reasons.push(RejectionReason {
+            code: RejectionReasonCode::PrivacyConstraint,
+            message: format!("Provider '{}' does not satisfy cloud-required privacy.", descriptor.id),
+        });
+    }
+
+    if matches!(input.constraints.cloud, Some(CloudConstraint::Forbidden))
+        && descriptor.provider_type == ProviderType::Cloud
+    {
+        reasons.push(RejectionReason {
+            code: RejectionReasonCode::CloudConstraint,
+            message: format!("Provider '{}' is cloud-based but cloud execution is forbidden.", descriptor.id),
+        });
+    }
+
+    if matches!(input.constraints.cloud, Some(CloudConstraint::Required))
+        && descriptor.provider_type != ProviderType::Cloud
+    {
+        reasons.push(RejectionReason {
+            code: RejectionReasonCode::CloudConstraint,
+            message: format!("Provider '{}' is not cloud-based but cloud execution is required.", descriptor.id),
+        });
+    }
+
+    if matches!(input.constraints.network_online, Some(false))
+        && descriptor.provider_type == ProviderType::Cloud
     {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::Offline,
@@ -293,7 +412,9 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
                 descriptor.id
             ),
         });
-    } else if !capabilities.available {
+    }
+
+    if !capabilities.available {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::CapabilityUnavailable,
             message: capabilities
@@ -306,20 +427,24 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
     reasons
 }
 
-fn provider_type_name(provider_type: &ProviderType) -> &'static str {
-    match provider_type {
-        ProviderType::Local => "local",
-        ProviderType::Edge => "edge",
-        ProviderType::Cloud => "cloud",
+fn infer_failure_code(
+    constraints: &RoutingConstraints,
+    rejected_providers: &[RejectedProvider],
+) -> RouteFailureCode {
+    if rejected_providers
+        .iter()
+        .any(|provider| provider.reasons.iter().any(|reason| reason.code == RejectionReasonCode::Offline))
+    {
+        return RouteFailureCode::Offline;
     }
-}
 
-fn infer_failure_code(constraints: &RoutingConstraints) -> RouteFailureCode {
-    match constraints.execution_target {
-        ExecutionTarget::OnDevice => RouteFailureCode::CapabilityMismatch,
-        ExecutionTarget::Cloud if constraints.network_online == Some(false) => RouteFailureCode::Offline,
-        ExecutionTarget::Cloud => RouteFailureCode::Unavailable,
+    if matches!(constraints.cloud, Some(CloudConstraint::Required))
+        || matches!(constraints.privacy, Some(PrivacyConstraint::CloudRequired))
+    {
+        return RouteFailureCode::Unavailable;
     }
+
+    RouteFailureCode::CapabilityMismatch
 }
 
 fn plan_route_json_string(input_json: &str) -> Result<String, String> {
@@ -416,13 +541,17 @@ fn error_json(message: String) -> String {
 mod tests {
     use super::*;
 
-    fn local_provider(id: &str, available: bool) -> ProviderInput {
+    fn local_provider(id: &str, available: bool, private: bool) -> ProviderInput {
         ProviderInput {
             descriptor: ProviderDescriptor {
                 id: id.to_string(),
                 provider_type: ProviderType::Local,
                 supports: ProviderRunSupport { run: true },
                 tasks: vec!["text_to_text".to_string()],
+                privacy: Some(ProviderPrivacy {
+                    data_leaves_device: !private,
+                    regions: None,
+                }),
             },
             capabilities: ProviderCapabilitySnapshot {
                 available,
@@ -438,6 +567,10 @@ mod tests {
                 provider_type: ProviderType::Cloud,
                 supports: ProviderRunSupport { run: true },
                 tasks: vec!["text_to_text".to_string()],
+                privacy: Some(ProviderPrivacy {
+                    data_leaves_device: true,
+                    regions: None,
+                }),
             },
             capabilities: ProviderCapabilitySnapshot {
                 available,
@@ -446,92 +579,137 @@ mod tests {
         }
     }
 
-    #[test]
-    fn selects_available_on_device_provider_deterministically() {
-        let plan = plan_route(PlanRouteInput {
+    fn plan(
+        constraints: RoutingConstraints,
+        preferences: RoutingPreferences,
+        providers: Vec<ProviderInput>,
+    ) -> RoutePlan {
+        plan_route(PlanRouteInput {
             task: RoutingTask {
                 kind: "text_to_text".to_string(),
             },
-            constraints: RoutingConstraints {
-                execution_target: ExecutionTarget::OnDevice,
+            constraints,
+            preferences,
+            providers,
+        })
+    }
+
+    #[test]
+    fn selects_local_provider_before_cloud_when_local_is_preferred() {
+        let plan = plan(
+            RoutingConstraints {
+                privacy: Some(PrivacyConstraint::LocalPreferred),
+                cloud: Some(CloudConstraint::Allowed),
                 network_online: Some(true),
             },
-            preferences: RoutingPreferences::default(),
-            providers: vec![local_provider("provider_b", true), local_provider("provider_a", true)],
-        });
+            RoutingPreferences {
+                optimize_for: Some(OptimizeFor::Balanced),
+            },
+            vec![cloud_provider("cloud_b", true), local_provider("local_a", true, true)],
+        );
 
-        assert_eq!(plan.selected_provider_id.as_deref(), Some("provider_a"));
-        assert_eq!(plan.fallback_provider_ids, vec!["provider_b".to_string()]);
+        assert_eq!(plan.selected_provider_id.as_deref(), Some("local_a"));
+        assert_eq!(plan.fallback_provider_ids, vec!["cloud_b".to_string()]);
         assert!(plan.failure_code.is_none());
     }
 
     #[test]
-    fn rejects_unavailable_providers_with_reasons() {
-        let plan = plan_route(PlanRouteInput {
-            task: RoutingTask {
-                kind: "text_to_text".to_string(),
-            },
-            constraints: RoutingConstraints {
-                execution_target: ExecutionTarget::OnDevice,
+    fn rejects_cloud_providers_when_cloud_is_forbidden() {
+        let plan = plan(
+            RoutingConstraints {
+                privacy: None,
+                cloud: Some(CloudConstraint::Forbidden),
                 network_online: Some(true),
             },
-            preferences: RoutingPreferences::default(),
-            providers: vec![local_provider("provider_a", false)],
-        });
+            RoutingPreferences::default(),
+            vec![cloud_provider("cloud_a", true)],
+        );
 
         assert_eq!(plan.selected_provider_id, None);
         assert_eq!(plan.failure_code, Some(RouteFailureCode::CapabilityMismatch));
-        assert_eq!(plan.rejected_providers.len(), 1);
-        assert_eq!(
-            plan.rejected_providers[0].reasons[0].code,
-            RejectionReasonCode::CapabilityUnavailable
+        assert_eq!(plan.rejected_providers[0].reasons[0].code, RejectionReasonCode::CloudConstraint);
+    }
+
+    #[test]
+    fn rejects_local_providers_when_cloud_is_required() {
+        let plan = plan(
+            RoutingConstraints {
+                privacy: Some(PrivacyConstraint::CloudRequired),
+                cloud: Some(CloudConstraint::Required),
+                network_online: Some(true),
+            },
+            RoutingPreferences::default(),
+            vec![local_provider("local_a", true, true)],
         );
+
+        assert_eq!(plan.selected_provider_id, None);
+        assert_eq!(plan.failure_code, Some(RouteFailureCode::Unavailable));
+        assert_eq!(plan.rejected_providers[0].reasons[0].code, RejectionReasonCode::PrivacyConstraint);
     }
 
     #[test]
     fn returns_offline_failure_for_cloud_when_host_is_offline() {
-        let plan = plan_route(PlanRouteInput {
-            task: RoutingTask {
-                kind: "text_to_text".to_string(),
-            },
-            constraints: RoutingConstraints {
-                execution_target: ExecutionTarget::Cloud,
+        let plan = plan(
+            RoutingConstraints {
+                privacy: None,
+                cloud: Some(CloudConstraint::Allowed),
                 network_online: Some(false),
             },
-            preferences: RoutingPreferences::default(),
-            providers: vec![cloud_provider("cloud_a", true)],
-        });
+            RoutingPreferences::default(),
+            vec![cloud_provider("cloud_a", true)],
+        );
 
         assert_eq!(plan.selected_provider_id, None);
         assert_eq!(plan.failure_code, Some(RouteFailureCode::Offline));
+        assert_eq!(plan.rejected_providers[0].reasons[0].code, RejectionReasonCode::Offline);
+    }
+
+    #[test]
+    fn preserves_deterministic_fallback_order() {
+        let plan = plan(
+            RoutingConstraints {
+                privacy: Some(PrivacyConstraint::CloudAllowed),
+                cloud: Some(CloudConstraint::Allowed),
+                network_online: Some(true),
+            },
+            RoutingPreferences {
+                optimize_for: Some(OptimizeFor::Latency),
+            },
+            vec![
+                cloud_provider("cloud_b", true),
+                cloud_provider("cloud_a", true),
+                local_provider("local_a", true, true),
+            ],
+        );
+
+        assert_eq!(plan.selected_provider_id.as_deref(), Some("cloud_a"));
+        assert_eq!(plan.fallback_provider_ids, vec!["cloud_b".to_string(), "local_a".to_string()]);
         assert_eq!(
-            plan.rejected_providers[0].reasons[0].code,
-            RejectionReasonCode::Offline
+            plan.candidates
+                .iter()
+                .map(|candidate| candidate.provider_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cloud_a", "cloud_b", "local_a"]
         );
     }
 
     #[test]
-    fn preserves_fallback_order_after_selection() {
-        let plan = plan_route(PlanRouteInput {
-            task: RoutingTask {
-                kind: "text_to_text".to_string(),
-            },
-            constraints: RoutingConstraints {
-                execution_target: ExecutionTarget::Cloud,
+    fn rejects_unavailable_providers_with_reasons() {
+        let plan = plan(
+            RoutingConstraints {
+                privacy: Some(PrivacyConstraint::LocalRequired),
+                cloud: Some(CloudConstraint::Allowed),
                 network_online: Some(true),
             },
-            preferences: RoutingPreferences::default(),
-            providers: vec![
-                cloud_provider("cloud_b", true),
-                cloud_provider("cloud_c", true),
-                cloud_provider("cloud_a", true),
-            ],
-        });
+            RoutingPreferences::default(),
+            vec![local_provider("local_a", false, true)],
+        );
 
-        assert_eq!(plan.selected_provider_id.as_deref(), Some("cloud_a"));
+        assert_eq!(plan.selected_provider_id, None);
+        assert_eq!(plan.failure_code, Some(RouteFailureCode::CapabilityMismatch));
         assert_eq!(
-            plan.fallback_provider_ids,
-            vec!["cloud_b".to_string(), "cloud_c".to_string()]
+            plan.rejected_providers[0].reasons[0].code,
+            RejectionReasonCode::CapabilityUnavailable
         );
     }
 }

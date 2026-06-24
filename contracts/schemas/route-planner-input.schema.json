@@ -23,11 +23,14 @@
       "description": "Hard routing constraints evaluated before provider selection.",
       "type": "object",
       "additionalProperties": true,
-      "required": ["executionTarget", "networkOnline"],
       "properties": {
-        "executionTarget": {
-          "description": "Required execution target for the route plan.",
-          "enum": ["on_device", "cloud"]
+        "privacy": {
+          "description": "Privacy requirement or preference for execution placement.",
+          "enum": ["local_required", "local_preferred", "cloud_allowed", "cloud_required"]
+        },
+        "cloud": {
+          "description": "Cloud execution constraint.",
+          "enum": ["forbidden", "allowed", "required"]
         },
         "networkOnline": {
           "description": "Current connectivity snapshot used for cloud route planning.",
@@ -39,15 +42,10 @@
       "description": "Soft route ordering preferences applied after hard filtering.",
       "type": "object",
       "additionalProperties": true,
-      "required": ["preferredProviderIds"],
       "properties": {
-        "preferredProviderIds": {
-          "description": "Provider IDs ordered from highest to lowest preference.",
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "optimizeFor": {
+          "description": "Primary optimization goal when multiple providers remain eligible.",
+          "enum": ["privacy", "latency", "cost", "balanced"]
         }
       }
     },
@@ -86,6 +84,24 @@
                 "items": {
                   "type": "string",
                   "minLength": 1
+                }
+              },
+              "privacy": {
+                "description": "Descriptor privacy metadata used to enforce local/cloud routing rules.",
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["dataLeavesDevice"],
+                "properties": {
+                  "dataLeavesDevice": {
+                    "type": "boolean"
+                  },
+                  "regions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
                 }
               }
             }

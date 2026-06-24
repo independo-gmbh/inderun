@@ -63,4 +63,4 @@ export type Reason = {
     [property: string]: unknown;
 }
 
-export type Code = "task_not_supported" | "run_not_supported" | "execution_target_mismatch" | "offline" | "capability_unavailable";
+export type Code = "task_not_supported" | "run_not_supported" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable";
