@@ -4,7 +4,7 @@ export const taskRequestSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-request.schema.json",
   "title": "TaskRequest",
-  "description": "Milestone-1 text-to-text request contract for Mode 1 run().",
+  "description": "The standard request payload for initiating a text-to-text execution task within the IndeRun framework.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -30,12 +30,12 @@ export const taskRequestSchema = {
       "const": "1.0"
     },
     "requestId": {
-      "description": "Optional caller-provided idempotency/debug identifier for this request.",
+      "description": "Optional identifier for tracking or correlating this specific execution attempt.",
       "type": "string",
       "minLength": 1
     },
     "task": {
-      "description": "Task descriptor used by routing and provider capability matching.",
+      "description": "A descriptor specifying the type of work to be performed. For text-to-text, the kind must be 'text_to_text'.",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -43,22 +43,22 @@ export const taskRequestSchema = {
       ],
       "properties": {
         "kind": {
-          "description": "Milestone-1 task kind for text input to text output.",
+          "description": "The standard task category. Currently supports 'text_to_text' for prompt-based interactions.",
           "const": "text_to_text"
         }
       }
     },
     "prompt": {
-      "description": "Single text prompt input for simple text-to-text execution.",
+      "description": "A simple, single-turn text prompt used to trigger a response from the AI model.",
       "type": "string",
       "minLength": 1
     },
     "messages": {
-      "description": "Conversation-style text input for chat-like text-to-text execution.",
+      "description": "A list of interaction messages for multi-turn conversation or chat-style execution.",
       "type": "array",
       "minItems": 1,
       "items": {
-        "description": "One message in the conversation input.",
+        "description": "An individual message in a conversation.",
         "type": "object",
         "additionalProperties": true,
         "required": [
@@ -67,7 +67,7 @@ export const taskRequestSchema = {
         ],
         "properties": {
           "role": {
-            "description": "Role of the message author.",
+            "description": "The role of the author (e.g., 'user', 'assistant').",
             "enum": [
               "system",
               "user",
@@ -75,7 +75,7 @@ export const taskRequestSchema = {
             ]
           },
           "content": {
-            "description": "Text content for this message.",
+            "description": "The actual text content of the message.",
             "type": "string",
             "minLength": 1
           }
@@ -83,33 +83,33 @@ export const taskRequestSchema = {
       }
     },
     "generation": {
-      "description": "Optional provider-neutral generation hints.",
+      "description": "Optional configuration for fine-tuning how the AI model generates its response.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "maxOutputTokens": {
-          "description": "Optional upper bound for generated output tokens.",
+          "description": "The maximum number of tokens to generate in a single response.",
           "type": "integer",
           "minimum": 1
         },
         "temperature": {
-          "description": "Optional randomness hint where 0 is most deterministic and 2 is highest supported variance.",
+          "description": "Controls the randomness of the output. Range: 0 (most deterministic) to 2 (highest variance).",
           "type": "number",
           "minimum": 0,
           "maximum": 2
         },
         "topP": {
-          "description": "Optional nucleus sampling probability hint.",
+          "description": "Nucleus sampling parameter for controlling diversity vs focus in the output.",
           "type": "number",
           "minimum": 0,
           "maximum": 1
         },
         "seed": {
-          "description": "Optional deterministic generation seed when supported by the provider.",
+          "description": "A fixed seed for deterministic generation (where supported by the underlying provider).",
           "type": "integer"
         },
         "stop": {
-          "description": "Optional stop sequences that should end generation when matched.",
+          "description": "Sequence tokens that should terminate the generation process.",
           "type": "array",
           "items": {
             "type": "string"
@@ -118,7 +118,7 @@ export const taskRequestSchema = {
       }
     },
     "policy": {
-      "description": "Execution policy constraints used by the router.",
+      "description": "Execution constraints that determine where the request is routed (e.g., local/on-device vs remote cloud).",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -126,7 +126,7 @@ export const taskRequestSchema = {
       ],
       "properties": {
         "execution": {
-          "description": "Required execution target for milestone routing.",
+          "description": "The target execution environment: 'on_device' for local ML models, or 'cloud' for remote-hosted providers.",
           "enum": [
             "on_device",
             "cloud"
@@ -135,16 +135,16 @@ export const taskRequestSchema = {
       }
     },
     "telemetry": {
-      "description": "Caller telemetry preferences for this request.",
+      "description": "Execution preferences for tracking usage and performance metrics.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "consent": {
-          "description": "Whether the caller consents to telemetry collection for this request.",
+          "description": "Whether the user consents to telemetry collection for this specific request.",
           "type": "boolean"
         },
         "level": {
-          "description": "Requested telemetry detail level.",
+          "description": "The granularity of the collected metrics (off, minimal, or debug).",
           "enum": [
             "off",
             "minimal",
@@ -152,7 +152,7 @@ export const taskRequestSchema = {
           ]
         },
         "tags": {
-          "description": "Optional caller-provided non-secret labels for telemetry correlation.",
+          "description": "Optional key-value pairs for correlating telemetry data with specific features or users.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -161,7 +161,7 @@ export const taskRequestSchema = {
       }
     },
     "authContextRef": {
-      "description": "Reference to a secure credential slot. Raw credentials must not be placed in the request.",
+      "description": "A unique identifier used to retrieve credentials from a secure local storage. Raw sensitive keys (API keys, etc.) should NEVER be placed directly in the request payload.",
       "type": "string",
       "minLength": 1
     }
@@ -172,7 +172,7 @@ export const taskResultSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-result.schema.json",
   "title": "TaskResult",
-  "description": "Milestone-1 text-to-text result contract for Mode 1 run().",
+  "description": "The standard response payload for completed text-to-text execution within the IndeRun framework.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -188,12 +188,12 @@ export const taskResultSchema = {
       "const": "1.0"
     },
     "runId": {
-      "description": "Opaque run identifier assigned or normalized by the engine.",
+      "description": "A unique, opaque identifier assigned by the engine for this specific execution attempt.",
       "type": "string",
       "minLength": 1
     },
     "output": {
-      "description": "Normalized text output returned by the selected provider.",
+      "description": "The normalized content returned from the selected provider.",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -202,17 +202,17 @@ export const taskResultSchema = {
       ],
       "properties": {
         "type": {
-          "description": "Output payload kind for milestone text-to-text execution.",
+          "description": "Output payload category (e.g., 'text' for Mode 1 text-to-text).",
           "const": "text"
         },
         "text": {
-          "description": "Generated text returned to the caller.",
+          "description": "The actual text generated by the execution.",
           "type": "string"
         }
       }
     },
     "finishReason": {
-      "description": "Normalized reason why generation ended.",
+      "description": "Standardized reason describing how generation concluded (e.g., 'stop', 'length', 'cancelled', or 'error').",
       "enum": [
         "stop",
         "length",
@@ -221,29 +221,29 @@ export const taskResultSchema = {
       ]
     },
     "usage": {
-      "description": "Optional normalized token usage information reported by the provider.",
+      "description": "Optional metadata regarding the quantity of tokens processed by the provider.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "inputTokens": {
-          "description": "Number of input tokens consumed, when reported by the provider.",
+          "description": "Number of input tokens consumed, as reported by the provider.",
           "type": "integer",
           "minimum": 0
         },
         "outputTokens": {
-          "description": "Number of output tokens generated, when reported by the provider.",
+          "description": "Number of output tokens generated, as reported by the provider.",
           "type": "integer",
           "minimum": 0
         },
         "totalTokens": {
-          "description": "Total token count, when reported by the provider.",
+          "description": "Aggregated token count for this request, as reported by the provider.",
           "type": "integer",
           "minimum": 0
         }
       }
     },
     "telemetry": {
-      "description": "Required minimal telemetry summary attached to every result.",
+      "description": "Required metadata providing an overview of the execution result and performance metrics.",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -252,17 +252,17 @@ export const taskResultSchema = {
       ],
       "properties": {
         "providerUsed": {
-          "description": "Identifier of the provider selected for the completed attempt.",
+          "description": "The identifier for the specific provider that handled the request (e.g., 'openai_compatible_cloud').",
           "type": "string",
           "minLength": 1
         },
         "totalMs": {
-          "description": "Total measured execution duration in milliseconds.",
+          "description": "Measured execution duration in milliseconds, including route selection and result processing.",
           "type": "number",
           "minimum": 0
         },
         "errorClass": {
-          "description": "Optional normalized error class if the result represents a provider-level error outcome.",
+          "description": "Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or 'Unavailable').",
           "enum": [
             "CapabilityMismatch",
             "Offline",

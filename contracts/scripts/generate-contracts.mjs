@@ -167,6 +167,23 @@ function replaceExactly(source, replacements) {
   return output;
 }
 
+function normalizeKotlinMessageClass(source) {
+  return source.replace(
+    /data class Message \(\n(?:\s*\/\*\*[\s\S]*?\*\/\n\s*val (?:role|content):[^\n]+,?\n){2}\)/m,
+    `data class Message (
+    /**
+     * Role of the message author.
+     */
+    val role: MessageRole,
+
+    /**
+     * Text content for this message.
+     */
+    val content: String
+)`
+  );
+}
+
 function normalizeKotlinContractsSource(source) {
   let output = `/* This file was generated from JSON Schema using quicktype. Do not edit by hand. */\n\n${source}`;
 
@@ -180,29 +197,10 @@ function normalizeKotlinContractsSource(source) {
     ["val level: Level? = null", "val level: TelemetryLevel? = null"],
     ["val errorClass: ErrorClass? = null", "val errorClass: IndeRunErrorClass? = null"],
     ["val errorClass: ErrorClass,", "val errorClass: IndeRunErrorClass,"],
-    ["val type: OutputType", "val type: OutputType = OutputType.TEXT"],
-    [`data class Message (
-    /**
-     * Text content for this message.
-     */
-    val content: String,
-
-    /**
-     * Role of the message author.
-     */
-    val role: MessageRole
-)`, `data class Message (
-    /**
-     * Role of the message author.
-     */
-    val role: MessageRole,
-
-    /**
-     * Text content for this message.
-     */
-    val content: String
-)`]
+    ["val type: OutputType", "val type: OutputType = OutputType.TEXT"]
   ]);
+
+  output = normalizeKotlinMessageClass(output);
 
   output = output.replace(
     /val schemaVersion: SchemaVersion,\n(\s*\/\*\*\n\s*\* Task descriptor used by routing and provider capability matching\.\n\s*\*\/\n\s*val task: TaskRequestTask),/m,

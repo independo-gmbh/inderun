@@ -76,7 +76,7 @@ class IndeRun private constructor(
         } catch (error: Throwable) {
             throw toIndeRunException(
                 error,
-                fallbackRunId = runId,
+               fallbackRunId = runId,
                 fallbackDetails = mapOf(
                     "totalMs" to (clock.elapsedRealtimeMillis().toDouble() - startTime)
                 )

@@ -12,26 +12,30 @@
 
 import Foundation
 
-/// Milestone-1 text-to-text request contract for Mode 1 run().
+/// The standard request payload for initiating a text-to-text execution task within the
+/// IndeRun framework.
 // MARK: - TaskRequest
 public struct TaskRequest: Codable, Sendable {
-    /// Reference to a secure credential slot. Raw credentials must not be placed in the request.
+    /// A unique identifier used to retrieve credentials from a secure local storage. Raw
+    /// sensitive keys (API keys, etc.) should NEVER be placed directly in the request payload.
     public var authContextRef: String?
-    /// Optional provider-neutral generation hints.
+    /// Optional configuration for fine-tuning how the AI model generates its response.
     public var generation: Generation?
-    /// Conversation-style text input for chat-like text-to-text execution.
+    /// A list of interaction messages for multi-turn conversation or chat-style execution.
     public var messages: [Message]?
-    /// Execution policy constraints used by the router.
+    /// Execution constraints that determine where the request is routed (e.g., local/on-device
+    /// vs remote cloud).
     public var policy: Policy
-    /// Single text prompt input for simple text-to-text execution.
+    /// A simple, single-turn text prompt used to trigger a response from the AI model.
     public var prompt: String?
-    /// Optional caller-provided idempotency/debug identifier for this request.
+    /// Optional identifier for tracking or correlating this specific execution attempt.
     public var requestId: String?
     /// Contract schema version used to interpret the request payload.
     public var schemaVersion: SchemaVersion
-    /// Task descriptor used by routing and provider capability matching.
+    /// A descriptor specifying the type of work to be performed. For text-to-text, the kind must
+    /// be 'text_to_text'.
     public var task: TaskRequestTask
-    /// Caller telemetry preferences for this request.
+    /// Execution preferences for tracking usage and performance metrics.
     public var telemetry: TaskRequestTelemetry?
 
     public init(authContextRef: String?, generation: Generation?, messages: [Message]?, policy: Policy, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
@@ -98,19 +102,19 @@ public extension TaskRequest {
     }
 }
 
-/// Optional provider-neutral generation hints.
+/// Optional configuration for fine-tuning how the AI model generates its response.
 // MARK: - Generation
 public struct Generation: Codable, Sendable {
-    /// Optional upper bound for generated output tokens.
+    /// The maximum number of tokens to generate in a single response.
     public var maxOutputTokens: Int?
-    /// Optional deterministic generation seed when supported by the provider.
+    /// A fixed seed for deterministic generation (where supported by the underlying provider).
     public var seed: Int?
-    /// Optional stop sequences that should end generation when matched.
+    /// Sequence tokens that should terminate the generation process.
     public var stop: [String]?
-    /// Optional randomness hint where 0 is most deterministic and 2 is highest supported
-    /// variance.
+    /// Controls the randomness of the output. Range: 0 (most deterministic) to 2 (highest
+    /// variance).
     public var temperature: Double?
-    /// Optional nucleus sampling probability hint.
+    /// Nucleus sampling parameter for controlling diversity vs focus in the output.
     public var topP: Double?
 
     public init(maxOutputTokens: Int?, seed: Int?, stop: [String]?, temperature: Double?, topP: Double?) {
@@ -165,12 +169,12 @@ public extension Generation {
     }
 }
 
-/// One message in the conversation input.
+/// An individual message in a conversation.
 // MARK: - Message
 public struct Message: Codable, Sendable {
-    /// Text content for this message.
+    /// The actual text content of the message.
     public var content: String
-    /// Role of the message author.
+    /// The role of the author (e.g., 'user', 'assistant').
     public var role: Role
 
     public init(content: String, role: Role) {
@@ -216,17 +220,19 @@ public extension Message {
     }
 }
 
-/// Role of the message author.
+/// The role of the author (e.g., 'user', 'assistant').
 public enum Role: String, Codable, Sendable {
     case assistant = "assistant"
     case system = "system"
     case user = "user"
 }
 
-/// Execution policy constraints used by the router.
+/// Execution constraints that determine where the request is routed (e.g., local/on-device
+/// vs remote cloud).
 // MARK: - Policy
 public struct Policy: Codable, Sendable {
-    /// Required execution target for milestone routing.
+    /// The target execution environment: 'on_device' for local ML models, or 'cloud' for
+    /// remote-hosted providers.
     public var execution: Execution
 
     public init(execution: Execution) {
@@ -269,7 +275,8 @@ public extension Policy {
     }
 }
 
-/// Required execution target for milestone routing.
+/// The target execution environment: 'on_device' for local ML models, or 'cloud' for
+/// remote-hosted providers.
 ///
 /// Required execution target for the route plan.
 public enum Execution: String, Codable, Sendable {
@@ -281,10 +288,12 @@ public enum SchemaVersion: String, Codable, Sendable {
     case the10 = "1.0"
 }
 
-/// Task descriptor used by routing and provider capability matching.
+/// A descriptor specifying the type of work to be performed. For text-to-text, the kind must
+/// be 'text_to_text'.
 // MARK: - TaskRequestTask
 public struct TaskRequestTask: Codable, Sendable {
-    /// Milestone-1 task kind for text input to text output.
+    /// The standard task category. Currently supports 'text_to_text' for prompt-based
+    /// interactions.
     public var kind: Kind
 
     public init(kind: Kind) {
@@ -331,14 +340,14 @@ public enum Kind: String, Codable, Sendable {
     case textToText = "text_to_text"
 }
 
-/// Caller telemetry preferences for this request.
+/// Execution preferences for tracking usage and performance metrics.
 // MARK: - TaskRequestTelemetry
 public struct TaskRequestTelemetry: Codable, Sendable {
-    /// Whether the caller consents to telemetry collection for this request.
+    /// Whether the user consents to telemetry collection for this specific request.
     public var consent: Bool?
-    /// Requested telemetry detail level.
+    /// The granularity of the collected metrics (off, minimal, or debug).
     public var level: Level?
-    /// Optional caller-provided non-secret labels for telemetry correlation.
+    /// Optional key-value pairs for correlating telemetry data with specific features or users.
     public var tags: [String: String]?
 
     public init(consent: Bool?, level: Level?, tags: [String: String]?) {
@@ -387,27 +396,29 @@ public extension TaskRequestTelemetry {
     }
 }
 
-/// Requested telemetry detail level.
+/// The granularity of the collected metrics (off, minimal, or debug).
 public enum Level: String, Codable, Sendable {
     case debug = "debug"
     case minimal = "minimal"
     case off = "off"
 }
 
-/// Milestone-1 text-to-text result contract for Mode 1 run().
+/// The standard response payload for completed text-to-text execution within the IndeRun
+/// framework.
 // MARK: - TaskResult
 public struct TaskResult: Codable, Sendable {
-    /// Normalized reason why generation ended.
+    /// Standardized reason describing how generation concluded (e.g., 'stop', 'length',
+    /// 'cancelled', or 'error').
     public var finishReason: FinishReason
-    /// Normalized text output returned by the selected provider.
+    /// The normalized content returned from the selected provider.
     public var output: Output
-    /// Opaque run identifier assigned or normalized by the engine.
+    /// A unique, opaque identifier assigned by the engine for this specific execution attempt.
     public var runId: String
     /// Contract schema version used to interpret the result payload.
     public var schemaVersion: SchemaVersion
-    /// Required minimal telemetry summary attached to every result.
+    /// Required metadata providing an overview of the execution result and performance metrics.
     public var telemetry: TaskResultTelemetry
-    /// Optional normalized token usage information reported by the provider.
+    /// Optional metadata regarding the quantity of tokens processed by the provider.
     public var usage: Usage?
 
     public init(finishReason: FinishReason, output: Output, runId: String, schemaVersion: SchemaVersion, telemetry: TaskResultTelemetry, usage: Usage?) {
@@ -465,7 +476,8 @@ public extension TaskResult {
     }
 }
 
-/// Normalized reason why generation ended.
+/// Standardized reason describing how generation concluded (e.g., 'stop', 'length',
+/// 'cancelled', or 'error').
 public enum FinishReason: String, Codable, Sendable {
     case cancelled = "cancelled"
     case error = "error"
@@ -473,12 +485,12 @@ public enum FinishReason: String, Codable, Sendable {
     case stop = "stop"
 }
 
-/// Normalized text output returned by the selected provider.
+/// The normalized content returned from the selected provider.
 // MARK: - Output
 public struct Output: Codable, Sendable {
-    /// Generated text returned to the caller.
+    /// The actual text generated by the execution.
     public var text: String
-    /// Output payload kind for milestone text-to-text execution.
+    /// Output payload category (e.g., 'text' for Mode 1 text-to-text).
     public var type: OutputType
 
     public init(text: String, type: OutputType) {
@@ -528,14 +540,17 @@ public enum OutputType: String, Codable, Sendable {
     case text = "text"
 }
 
-/// Required minimal telemetry summary attached to every result.
+/// Required metadata providing an overview of the execution result and performance metrics.
 // MARK: - TaskResultTelemetry
 public struct TaskResultTelemetry: Codable, Sendable {
-    /// Optional normalized error class if the result represents a provider-level error outcome.
+    /// Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
+    /// 'Unavailable').
     public var errorClass: ErrorClass?
-    /// Identifier of the provider selected for the completed attempt.
+    /// The identifier for the specific provider that handled the request (e.g.,
+    /// 'openai_compatible_cloud').
     public var providerUsed: String
-    /// Total measured execution duration in milliseconds.
+    /// Measured execution duration in milliseconds, including route selection and result
+    /// processing.
     public var totalMs: Double
 
     public init(errorClass: ErrorClass?, providerUsed: String, totalMs: Double) {
@@ -584,7 +599,8 @@ public extension TaskResultTelemetry {
     }
 }
 
-/// Optional normalized error class if the result represents a provider-level error outcome.
+/// Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
+/// 'Unavailable').
 ///
 /// Normalized error taxonomy class.
 public enum ErrorClass: String, Codable, Sendable {
@@ -597,14 +613,14 @@ public enum ErrorClass: String, Codable, Sendable {
     case Unavailable = "Unavailable"
 }
 
-/// Optional normalized token usage information reported by the provider.
+/// Optional metadata regarding the quantity of tokens processed by the provider.
 // MARK: - Usage
 public struct Usage: Codable, Sendable {
-    /// Number of input tokens consumed, when reported by the provider.
+    /// Number of input tokens consumed, as reported by the provider.
     public var inputTokens: Int?
-    /// Number of output tokens generated, when reported by the provider.
+    /// Number of output tokens generated, as reported by the provider.
     public var outputTokens: Int?
-    /// Total token count, when reported by the provider.
+    /// Aggregated token count for this request, as reported by the provider.
     public var totalTokens: Int?
 
     public init(inputTokens: Int?, outputTokens: Int?, totalTokens: Int?) {

@@ -3,88 +3,92 @@
 package app.independo.inderun.contracts
 
 /**
- * Milestone-1 text-to-text request contract for Mode 1 run().
+ * The standard request payload for initiating a text-to-text execution task within the
+ * IndeRun framework.
  */
 data class TaskRequest (
     /**
-     * Reference to a secure credential slot. Raw credentials must not be placed in the request.
+     * A unique identifier used to retrieve credentials from a secure local storage. Raw
+     * sensitive keys (API keys, etc.) should NEVER be placed directly in the request payload.
      */
     val authContextRef: String? = null,
 
     /**
-     * Optional provider-neutral generation hints.
+     * Optional configuration for fine-tuning how the AI model generates its response.
      */
     val generation: Generation? = null,
 
     /**
-     * Conversation-style text input for chat-like text-to-text execution.
+     * A list of interaction messages for multi-turn conversation or chat-style execution.
      */
     val messages: List<Message>? = null,
 
     /**
-     * Execution policy constraints used by the router.
+     * Execution constraints that determine where the request is routed (e.g., local/on-device
+     * vs remote cloud).
      */
     val policy: Policy,
 
     /**
-     * Single text prompt input for simple text-to-text execution.
+     * A simple, single-turn text prompt used to trigger a response from the AI model.
      */
     val prompt: String? = null,
 
     /**
-     * Optional caller-provided idempotency/debug identifier for this request.
+     * Optional identifier for tracking or correlating this specific execution attempt.
      */
     val requestId: String? = null,
 
     /**
      * Contract schema version used to interpret the request payload.
      */
-    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+    val schemaVersion: SchemaVersion,
 
     /**
-     * Task descriptor used by routing and provider capability matching.
+     * A descriptor specifying the type of work to be performed. For text-to-text, the kind must
+     * be 'text_to_text'.
      */
-    val task: TaskRequestTask = TaskRequestTask(),
+    val task: TaskRequestTask,
 
     /**
-     * Caller telemetry preferences for this request.
+     * Execution preferences for tracking usage and performance metrics.
      */
     val telemetry: TaskRequestTelemetry? = null
 )
 
 /**
- * Optional provider-neutral generation hints.
+ * Optional configuration for fine-tuning how the AI model generates its response.
  */
 data class Generation (
     /**
-     * Optional upper bound for generated output tokens.
+     * The maximum number of tokens to generate in a single response.
      */
     val maxOutputTokens: Long? = null,
 
     /**
-     * Optional deterministic generation seed when supported by the provider.
+     * A fixed seed for deterministic generation (where supported by the underlying provider).
      */
     val seed: Long? = null,
 
     /**
-     * Optional stop sequences that should end generation when matched.
+     * Sequence tokens that should terminate the generation process.
      */
     val stop: List<String>? = null,
 
     /**
-     * Optional randomness hint where 0 is most deterministic and 2 is highest supported
-     * variance.
+     * Controls the randomness of the output. Range: 0 (most deterministic) to 2 (highest
+     * variance).
      */
     val temperature: Double? = null,
 
     /**
-     * Optional nucleus sampling probability hint.
+     * Nucleus sampling parameter for controlling diversity vs focus in the output.
      */
     val topP: Double? = null
 )
 
 /**
- * One message in the conversation input.
+ * An individual message in a conversation.
  */
 data class Message (
     /**
@@ -99,7 +103,7 @@ data class Message (
 )
 
 /**
- * Role of the message author.
+ * The role of the author (e.g., 'user', 'assistant').
  */
 enum class MessageRole(val rawValue: String) {
     ASSISTANT("assistant"),
@@ -108,17 +112,20 @@ enum class MessageRole(val rawValue: String) {
 }
 
 /**
- * Execution policy constraints used by the router.
+ * Execution constraints that determine where the request is routed (e.g., local/on-device
+ * vs remote cloud).
  */
 data class Policy (
     /**
-     * Required execution target for milestone routing.
+     * The target execution environment: 'on_device' for local ML models, or 'cloud' for
+     * remote-hosted providers.
      */
     val execution: ExecutionPolicy
 )
 
 /**
- * Required execution target for milestone routing.
+ * The target execution environment: 'on_device' for local ML models, or 'cloud' for
+ * remote-hosted providers.
  *
  * Required execution target for the route plan.
  */
@@ -132,11 +139,13 @@ enum class SchemaVersion(val rawValue: String) {
 }
 
 /**
- * Task descriptor used by routing and provider capability matching.
+ * A descriptor specifying the type of work to be performed. For text-to-text, the kind must
+ * be 'text_to_text'.
  */
 data class TaskRequestTask (
     /**
-     * Milestone-1 task kind for text input to text output.
+     * The standard task category. Currently supports 'text_to_text' for prompt-based
+     * interactions.
      */
     val kind: TaskKind = TaskKind.TEXT_TO_TEXT
 )
@@ -146,27 +155,27 @@ enum class TaskKind(val rawValue: String) {
 }
 
 /**
- * Caller telemetry preferences for this request.
+ * Execution preferences for tracking usage and performance metrics.
  */
 data class TaskRequestTelemetry (
     /**
-     * Whether the caller consents to telemetry collection for this request.
+     * Whether the user consents to telemetry collection for this specific request.
      */
     val consent: Boolean? = null,
 
     /**
-     * Requested telemetry detail level.
+     * The granularity of the collected metrics (off, minimal, or debug).
      */
     val level: TelemetryLevel? = null,
 
     /**
-     * Optional caller-provided non-secret labels for telemetry correlation.
+     * Optional key-value pairs for correlating telemetry data with specific features or users.
      */
     val tags: Map<String, String>? = null
 )
 
 /**
- * Requested telemetry detail level.
+ * The granularity of the collected metrics (off, minimal, or debug).
  */
 enum class TelemetryLevel(val rawValue: String) {
     DEBUG("debug"),
@@ -175,42 +184,45 @@ enum class TelemetryLevel(val rawValue: String) {
 }
 
 /**
- * Milestone-1 text-to-text result contract for Mode 1 run().
+ * The standard response payload for completed text-to-text execution within the IndeRun
+ * framework.
  */
 data class TaskResult (
     /**
-     * Normalized reason why generation ended.
+     * Standardized reason describing how generation concluded (e.g., 'stop', 'length',
+     * 'cancelled', or 'error').
      */
     val finishReason: FinishReason,
 
     /**
-     * Normalized text output returned by the selected provider.
+     * The normalized content returned from the selected provider.
      */
     val output: Output,
 
     /**
-     * Opaque run identifier assigned or normalized by the engine.
+     * A unique, opaque identifier assigned by the engine for this specific execution attempt.
      */
     val runId: String,
 
     /**
      * Contract schema version used to interpret the result payload.
      */
-    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+    val schemaVersion: SchemaVersion,
 
     /**
-     * Required minimal telemetry summary attached to every result.
+     * Required metadata providing an overview of the execution result and performance metrics.
      */
     val telemetry: TaskResultTelemetry,
 
     /**
-     * Optional normalized token usage information reported by the provider.
+     * Optional metadata regarding the quantity of tokens processed by the provider.
      */
     val usage: Usage? = null
 )
 
 /**
- * Normalized reason why generation ended.
+ * Standardized reason describing how generation concluded (e.g., 'stop', 'length',
+ * 'cancelled', or 'error').
  */
 enum class FinishReason(val rawValue: String) {
     CANCELLED("cancelled"),
@@ -220,16 +232,16 @@ enum class FinishReason(val rawValue: String) {
 }
 
 /**
- * Normalized text output returned by the selected provider.
+ * The normalized content returned from the selected provider.
  */
 data class Output (
     /**
-     * Generated text returned to the caller.
+     * The actual text generated by the execution.
      */
     val text: String,
 
     /**
-     * Output payload kind for milestone text-to-text execution.
+     * Output payload category (e.g., 'text' for Mode 1 text-to-text).
      */
     val type: OutputType = OutputType.TEXT
 )
@@ -239,27 +251,31 @@ enum class OutputType(val rawValue: String) {
 }
 
 /**
- * Required minimal telemetry summary attached to every result.
+ * Required metadata providing an overview of the execution result and performance metrics.
  */
 data class TaskResultTelemetry (
     /**
-     * Optional normalized error class if the result represents a provider-level error outcome.
+     * Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
+     * 'Unavailable').
      */
     val errorClass: IndeRunErrorClass? = null,
 
     /**
-     * Identifier of the provider selected for the completed attempt.
+     * The identifier for the specific provider that handled the request (e.g.,
+     * 'openai_compatible_cloud').
      */
     val providerUsed: String,
 
     /**
-     * Total measured execution duration in milliseconds.
+     * Measured execution duration in milliseconds, including route selection and result
+     * processing.
      */
     val totalMs: Double
 )
 
 /**
- * Optional normalized error class if the result represents a provider-level error outcome.
+ * Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
+ * 'Unavailable').
  *
  * Normalized error taxonomy class.
  */
@@ -274,21 +290,21 @@ enum class IndeRunErrorClass(val rawValue: String) {
 }
 
 /**
- * Optional normalized token usage information reported by the provider.
+ * Optional metadata regarding the quantity of tokens processed by the provider.
  */
 data class Usage (
     /**
-     * Number of input tokens consumed, when reported by the provider.
+     * Number of input tokens consumed, as reported by the provider.
      */
     val inputTokens: Long? = null,
 
     /**
-     * Number of output tokens generated, when reported by the provider.
+     * Number of output tokens generated, as reported by the provider.
      */
     val outputTokens: Long? = null,
 
     /**
-     * Total token count, when reported by the provider.
+     * Aggregated token count for this request, as reported by the provider.
      */
     val totalTokens: Long? = null
 )
