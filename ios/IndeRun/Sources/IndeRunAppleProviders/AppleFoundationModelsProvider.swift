@@ -19,7 +19,7 @@ public enum AppleFoundationModelsAvailability: Equatable, Sendable {
 /// Provider-neutral generation options supported by the Apple Mode-1 adapter.
 ///
 /// Unsupported canonical hints, such as `topP`, `seed`, and `stop`, are ignored
-/// by the provider for this milestone rather than leaked into the public API.
+/// by this provider rather than leaked into the public API.
 struct AppleFoundationModelsGenerationOptions: Equatable, Sendable {
     let maxOutputTokens: Int?
     let temperature: Double?

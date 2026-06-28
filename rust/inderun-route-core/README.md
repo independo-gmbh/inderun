@@ -2,15 +2,14 @@
 
 Shared Rust route-planning core for IndeRun.
 
-This crate owns deterministic Mode-1 route planning only. It does not execute providers, resolve credentials, or make
-network calls.
+This crate owns deterministic Mode 1 route planning only. It does not execute providers, resolve credentials, or make network calls.
 
 ## Exports
 
-- Rust API: `plan_route`
-- C ABI: `inderun_plan_route_json`
-- Android JNI: `SharedCoreRoutePlanner.planRouteJsonNative`
-- Web/WASM: `plan_route_json`
+- `plan_route`
+- `inderun_plan_route_json`
+- `SharedCoreRoutePlanner.planRouteJsonNative`
+- `plan_route_json`
 
 ## Commands
 

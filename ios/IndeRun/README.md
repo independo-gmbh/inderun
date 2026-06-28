@@ -1,55 +1,16 @@
 # IndeRun iOS SDK
 
-This is the Swift implementation of the **IndeRun** AI execution framework, providing a unified developer API for running tasks across on-device, edge, and cloud providers.
+Swift implementation of IndeRun for iOS and macOS.
 
-## Key Features
+The package is split into public API, core engine, contracts, and provider targets:
 
-- **Execution Abstraction**: Single `run()` API for applications, regardless of backend implementation.
-- **Dynamic Routing**: Deterministically selects the optimal provider based on request constraints (for example, local-required vs cloud-required) and real-time connectivity or device capabilities.
-- **Standardized Errors**: Maps varying provider exceptions into a unified `IndeRunException` taxonomy.
-- **Built-in Telemetry Hooks**: Standard hooks for tracing route decisions, execution latency, and success/failure rates.
+- `IndeRunContracts` - generated schema-backed models
+- `IndeRunCore` - host services, router, registry, and error mapping
+- `IndeRunSwift` - public SDK entrypoint
+- `IndeRunAppleProviders` - Apple Foundation Models provider
+- `IndeRunOpenAIProviders` - OpenAI-compatible cloud provider
 
----
-
-## Package Structure
-
-The package is split into two targets to separate the core orchestrator infrastructure from public client API surfaces:
-
-- **`IndeRunContracts`**:
-  - `Contracts.swift`: generated `Codable` models for schema-backed request, result, usage, HTTP, telemetry, and error payloads.
-- **`IndeRunCore`**:
-  - `HostServices.swift`: Protocols representing OS-level capabilities (Connectivity, Storage, Telemetry, Clock, HTTP Client) that the app provides.
-  - `AppleHostServices.swift`: Default Apple-platform implementations for network reachability, Keychain credential slots, system timing, and URLSession HTTP transport.
-  - `Provider.swift`: Adapter and capability descriptor interfaces for provider developers.
-  - `Router.swift` & `Registry.swift`: Orchestration and route selection engines.
-  - `Errors.swift`: Unified exceptions mapping.
-- **`IndeRunSwift`**:
-  - `IndeRun.swift`: The public API surface for initiating runs.
-- **`IndeRunAppleProviders`**:
-  - `AppleFoundationModelsProvider.swift`: iOS/macOS on-device Mode-1 text-to-text provider backed by Apple Foundation Models.
-- **`IndeRunOpenAIProviders`**:
-  - `OpenAIProvider.swift`: OpenAI Responses-compatible cloud provider for Mode-1 text-to-text execution.
-
----
-
-## Integration and Usage
-
-### Requirements
-- **Swift**: 5.9+ / Swift 6
-- **Platforms**: iOS 15.0+ / macOS 12.0+
-
-### Adding to your project
-Add the package dependency to your `Package.swift`:
-
-```swift
-dependencies: [
-    .package(path: "../ios/IndeRun")
-]
-```
-
-Or add it directly in Xcode using the local folder reference.
-
-### Code Example
+## Usage
 
 ```swift
 import IndeRunSwift
@@ -57,13 +18,7 @@ import IndeRunCore
 import IndeRunAppleProviders
 import IndeRunOpenAIProviders
 
-// 1. Initialize host services
-let hostServices = DefaultHostServices.make(
-    telemetry: MyTelemetryService()
-)
-
-// 2. Setup registry and register providers. This helper registers the Apple
-// Foundation Models on-device provider; add cloud providers separately.
+let hostServices = DefaultHostServices.make()
 let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
 try registry.register(
     OpenAIProvider(
@@ -75,76 +30,22 @@ try registry.register(
     )
 )
 
-// 3. Initialize the SDK
 let inderun = IndeRun(registry: registry, hostServices: hostServices)
-
-// 4. Execute a task
-let request = TaskRequest(
+let result = try await inderun.run(request: TaskRequest(
     prompt: "Translate 'Hello' to Spanish",
     constraints: TaskRequestConstraints(privacy: .localRequired)
-)
-
-do {
-    let result = try await inderun.run(request: request)
-    print("Output: \(result.output.text)")
-} catch let error as IndeRunException {
-    print("Task failed: \(error.errorClass) - \(error.message)")
-}
+))
 ```
 
-### Apple Foundation Models provider
+## Notes
 
-`AppleFoundationModelsProvider` is available through the `IndeRunAppleProviders` product. It supports Mode-1
-`text_to_text` requests with `constraints.privacy = .localRequired`, reports local/system-service provider metadata, and maps
-Apple system model unavailability to the normalized `CapabilityMismatch` flow.
+- Keep credentials behind `authContextRef`.
+- Use the Apple provider for on-device Mode 1 execution when the system runtime is available.
+- Use the OpenAI provider for OpenAI-compatible cloud execution through a host-provided HTTP client.
 
-Runtime availability depends on the host OS and Apple system model state. The provider uses Apple Foundation Models only
-when the framework is present and the runtime is available; otherwise `capabilities()` returns unavailable and the
-router rejects `onDevice` requests with `CapabilityMismatch`.
+## Commands
 
-### OpenAI cloud provider
-
-`OpenAIProvider` is available through the `IndeRunOpenAIProviders` product. It supports Mode-1
-`text_to_text` requests with `constraints.privacy = .cloudRequired`, resolves credentials through
-`authContextRef`, and sends Responses-compatible HTTP requests through the host-provided
-`HttpClientService`.
-
-Configuration is provider-local rather than request-local:
-
-```swift
-let provider = OpenAIProvider(
-    options: OpenAIProviderOptions(
-        model: "gpt-5.2",
-        endpointURL: "https://api.openai.com/v1/responses",
-        auth: .authContextRef,
-        authContextRef: "openai_primary",
-        timeoutMs: 30_000
-    )
-)
-```
-
-For proxy deployments, set a custom `endpointURL` and use `auth: .none` so your app does not
-resolve or transmit OpenAI credentials on-device. Do not place API keys or bearer tokens directly
-in `TaskRequest`.
-
-## Sample App
-
-A checked-in iOS demo app lives at `ios/SampleApps/IndeRunDemo`.
-It exercises both Apple Foundation Models on-device and the OpenAI-compatible cloud path through a configurable demo
-proxy endpoint. Use its local README for device requirements, Xcode setup, and manual run steps.
-
----
-
-## Development
-
-### Building
-Compile the package and targets:
-```bash
-swift build
-```
-
-### Running Tests
-Execute the verification test suite:
-```bash
-swift test
+```sh
+cd ios/IndeRun && swift build
+cd ios/IndeRun && swift test
 ```
