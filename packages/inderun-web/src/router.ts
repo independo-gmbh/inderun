@@ -13,6 +13,7 @@ import {
   collectProviderRuntimeSnapshots,
   type ProviderRuntimeSnapshot,
   type RoutePlanner,
+  type SharedPlannerInput,
   type SharedPlannerRoutePlan,
   WasmRoutePlanner
 } from "./route-planner.js";
@@ -191,30 +192,29 @@ export class Router {
           : "capability_mismatch";
 
       return {
-        selectedProviderId: undefined,
         fallbackProviderIds: [],
         candidates: [],
         rejectedProviders: [],
         failureCode,
         explanation: {
-          summary: failureSummary,
-          selectedProviderId: undefined
+          summary: failureSummary
         }
       };
     }
 
+    const selectedProviderId = ordered[0]?.descriptor.id;
+
     return {
-      selectedProviderId: ordered[0]?.descriptor.id,
+      selectedProviderId,
       fallbackProviderIds: ordered.slice(1).map((candidate) => candidate.descriptor.id),
       candidates: ordered.map((candidate, index) => ({
         providerId: candidate.descriptor.id,
         order: index
       })),
       rejectedProviders: [],
-      failureCode: undefined,
       explanation: {
-        summary: `Selected provider '${ordered[0]?.descriptor.id}' deterministically from ${ordered.length} eligible candidate(s).`,
-        selectedProviderId: ordered[0]?.descriptor.id
+        summary: `Selected provider '${selectedProviderId}' deterministically from ${ordered.length} eligible candidate(s).`,
+        selectedProviderId
       }
     };
   }

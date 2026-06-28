@@ -83,6 +83,7 @@ Checked-in JavaScript commands:
 - `pnpm build`
 - `pnpm test`
 - `pnpm generate`
+- `npm run deps:update`
 - `pnpm --filter @independo/inderun-contracts build`
 - `pnpm --filter @independo/inderun-contracts test`
 - `pnpm --filter @independo/inderun-demo-proxy dev`
@@ -112,6 +113,11 @@ Checked-in Rust commands:
 - `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
 - `pnpm --filter @independo/inderun-route-core-wasm test`
 
+JavaScript baseline:
+
+- Node `24.x`
+- pnpm `11.9.0`
+
 Useful discovery commands:
 
 - `rg --files`
@@ -132,6 +138,7 @@ When behavior or contracts change, update docs in the same task:
 - architecture semantics: `docs/architecture/architecture.md`
 - provider semantics/capabilities: `docs/architecture/providers.md`
 - project framing/scope: `docs/architecture/technical-brief.md`
+- CI/process behavior: `docs/ci.md`
 
 If the change is material and docs are not updated, the task is incomplete.
 
