@@ -8,6 +8,16 @@ Workflows run for pull requests targeting `main` or `dev`, and for direct pushes
 - `Swift`: `ios/IndeRun` Swift Package tests
 - `Android`: Gradle unit tests across the checked-in Android modules
 
+## Caching
+
+- `JavaScript` uses the GitHub-managed pnpm store cache keyed from `pnpm-lock.yaml`.
+- `JavaScript` and `Rust` both restore Cargo registry/build state through a Rust-specific cache action.
+- `JavaScript` separately caches the installed `wasm-bindgen-cli` binary and Cargo install metadata so repeated runs do
+  not reinstall it from scratch.
+- `Android` uses Gradle dependency caching through `actions/setup-java`.
+- `Swift` has no dedicated dependency cache yet because `ios/IndeRun/Package.swift` currently has no external package
+  dependencies.
+
 ## Workflow Commands
 
 ### JavaScript

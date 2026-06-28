@@ -32,13 +32,34 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache Cargo state
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            rust/inderun-route-core -> target
+          cache-on-failure: true
+
+      - name: Cache wasm-bindgen CLI
+        id: cache-wasm-bindgen
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/wasm-bindgen-test-runner
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: ${{ runner.os }}-wasm-bindgen-cli-0.2.125
+
       - name: Install wasm-bindgen CLI
+        if: steps.cache-wasm-bindgen.outputs.cache-hit != 'true'
         run: cargo install wasm-bindgen-cli --version 0.2.125 --locked
 
       - name: Install dependencies

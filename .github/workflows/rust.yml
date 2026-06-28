@@ -24,5 +24,13 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo state
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            rust/inderun-route-core -> target
+          cache-on-failure: true
+
       - name: Run route-core tests
         run: cargo test -p inderun_route_core
