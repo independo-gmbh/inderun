@@ -24,6 +24,8 @@ The same conceptual model is shared across platforms:
 - provider adapters advertise static and dynamic capability information
 - routing stays deterministic for a fixed request, policy, and capability snapshot
 
+Capacitor is treated as an app-facing bridge layer over the existing platform SDKs, not as a separate execution engine. The Capacitor package should forward canonical requests into the existing Web, Swift, and Kotlin SDKs and return the same normalized result and error shapes.
+
 ## Cancellation And Fallback
 
 Cancellation should produce a terminal cancellation outcome and no further user-visible events after the cancel point.
@@ -33,6 +35,8 @@ Fallback should be predictable and inspectable. If a preferred provider cannot e
 ## Security And Parity
 
 Credentials must be referenced through secure storage, not embedded in request payloads. Cross-platform behavior should stay aligned even when the underlying runtime differs by OS or provider.
+
+Bridge packages may accept minimal provider bootstrap options when the underlying platform SDK cannot infer required cloud-provider configuration from the canonical request alone. That bootstrap must stay limited to provider registration inputs and must not duplicate routing or orchestration semantics.
 
 ## Out Of Scope
 
