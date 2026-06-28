@@ -1,12 +1,18 @@
 # Contributing
 
-IndeRun is a code-first repository. External markdown should explain concepts and usage, but implementation detail should live in code comments, schemas, and generated public types whenever possible.
+IndeRun is a code-first repository. External markdown should explain concepts and usage, but implementation detail
+should live in code comments, schemas, and generated public types whenever possible.
 
 ## Before You Start
 
 - Read `AGENTS.md`.
 - Read the architecture brief, architecture overview, provider overview, and CI notes.
 - Check the existing package or platform README before changing a public surface.
+
+## Setup
+
+- Use the checked-in commands below rather than inventing new workflow steps.
+- Keep any new tooling documented in this file and `AGENTS.md`.
 
 ## Commands
 
@@ -17,17 +23,29 @@ pnpm install
 pnpm build
 pnpm test
 pnpm generate
-```
-
-Platform-specific commands:
-
-```sh
 cd ios/IndeRun && swift build
 cd ios/IndeRun && swift test
 cd android && ./gradlew build
 cd android && ./gradlew test
 cargo build -p inderun_route_core
 cargo test -p inderun_route_core
+```
+
+Package commands:
+
+```sh
+pnpm --filter @independo/inderun-contracts build
+pnpm --filter @independo/inderun-contracts test
+pnpm --filter @independo/inderun-demo-proxy dev
+pnpm --filter @independo/inderun-demo-proxy start
+pnpm --filter @independo/inderun-demo-proxy build
+pnpm --filter @independo/inderun-demo-proxy test
+pnpm --filter @independo/inderun-web-demo dev
+pnpm --filter @independo/inderun-web-demo build
+pnpm --filter @independo/inderun-web-demo preview
+pnpm --filter @independo/inderun-web-demo test
+pnpm --filter @independo/inderun-web build
+pnpm --filter @independo/inderun-web test
 ```
 
 ## Docs Policy
