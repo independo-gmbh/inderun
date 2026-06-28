@@ -1,0 +1,48 @@
+{
+  "name": "@independo/capacitor-inderun",
+  "version": "0.1.0",
+  "description": "Thin Capacitor bridge for IndeRun across web, iOS, and Android.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "android",
+    "ios",
+    "Package.swift",
+    "IndeRunCapacitor.podspec",
+    "README.md"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.0.0",
+    "@independo/inderun-contracts": "workspace:^",
+    "@independo/inderun-web": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.6"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  }
+}

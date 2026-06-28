@@ -33,6 +33,7 @@ The code and public types should define the exact field shapes and behavior. Thi
 - Cloud credentials should be resolved through `authContextRef`.
 - Capability checks should determine whether a provider is usable before execution.
 - If a provider only supports Mode 1 today, this document should not imply shipping support for streaming or realtime sessions.
+- Bridge layers such as Capacitor may pass provider bootstrap inputs like model or endpoint into existing provider adapters, but they should not add provider-specific execution branches beyond that registration step.
 
 ## What Belongs Elsewhere
 
