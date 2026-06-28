@@ -1,16 +1,10 @@
 # Android OpenAI Providers
 
-This module contains the Android `OpenAIProvider` implementation for Issue #10.
+Android `OpenAIProvider` implementation for IndeRun.
 
-It provides:
+It provides Mode 1 support for canonical IndeRun `text_to_text` requests, OpenAI Responses-compatible request and response mapping, `authContextRef` credential resolution, configurable endpoint URL and timeout, and normalized error mapping.
 
-- Mode-1 `run()` support for canonical IndeRun `text_to_text` requests
-- OpenAI Responses-compatible request and response mapping
-- `authContextRef` credential resolution through `SecureStorageService`
-- configurable endpoint URL and timeout
-- normalized error mapping to the IndeRun taxonomy
-
-Registration example:
+## Registration Example
 
 ```kotlin
 import app.independo.inderun.core.ProviderRegistry

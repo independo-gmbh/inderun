@@ -46,7 +46,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
     root.innerHTML = `
       <main class="shell">
         <section class="hero">
-          <p class="eyebrow">Issue #11 / Web Workpackage</p>
+          <p class="eyebrow">Web Demo</p>
           <h1 class="title">IndeRun Execution Demo</h1>
           <p class="lede">
             Minimal review app for the canonical <code class="code">run()</code> flow on the web:

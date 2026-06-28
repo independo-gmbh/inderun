@@ -6,7 +6,7 @@ import androidx.core.content.edit
 /**
  * Slot-based credential storage for values referenced through authContextRef.
  *
- * This milestone keeps the storage surface normalized for the engine while using
+ * The engine keeps the storage surface normalized while this implementation uses
  * app-private preferences as the concrete Android backing store.
  */
 class SecureStorageServiceImpl(context: Context) : SecureStorageService {

@@ -1,129 +1,24 @@
 # Technical Brief
 
-## Purpose
-IndeRun is an open-source, MIT-licensed framework for running AI tasks across on-device, edge, and cloud providers through one consistent developer API.  
-Its purpose is to let teams ship AI features without being locked into a single execution path, while balancing privacy, latency, cost, and reliability at runtime.
+IndeRun is an MIT-licensed AI execution framework for applications that need one consistent API across local, edge, and cloud execution.
 
-## The Problem We Are Solving
-Teams building AI-enabled apps currently face fragmented infrastructure:
+It is intended for developers who want:
 
-- Different SDKs and APIs across iOS, Android, and web stacks.
-- Expensive and privacy-sensitive cloud-only inference paths.
-- On-device runtimes that are hard to integrate and maintain.
-- No standard way to apply routing rules like "prefer local", "prefer low cost", or "prefer low latency".
-- Custom fallback logic in each app, causing duplication and inconsistent behavior.
+- one app-facing execution surface
+- deterministic provider routing
+- normalized fallback and cancellation behavior
+- platform parity across Web, iOS, Android, and shared cores
 
-IndeRun addresses this by separating task execution from provider specifics and making runtime routing constraint-driven.
+## What IndeRun Is
 
-## Vision
-IndeRun should become a trusted execution layer for AI features in cross-platform applications:
+IndeRun is an execution abstraction layer. It is not a model-training project and it is not a hosted MLOps platform.
 
-- One task call from app code.
-- Multiple interchangeable providers underneath.
-- Automatic provider selection based on capability and constraints.
-- Deterministic fallback behavior when execution paths fail.
+The core problem it solves is provider fragmentation: apps should not need separate execution code paths for every runtime, SDK, or cloud API.
 
-## Who IndeRun Is For
-- Product teams and startups integrating AI features without full MLOps infrastructure.
-- Open-source maintainers who need portable AI execution across platforms.
-- Developers building privacy-aware or offline-capable user experiences.
+## Current Focus
 
-## What We Are Building
-IndeRun is a framework that provides:
+The current product scope is Mode 1 `run()` execution. Streaming and realtime sessions are part of the architecture, but they are not the main shipped surface for the current phase.
 
-- Cross-platform SDK surface for Swift, Kotlin, and TypeScript.
-- Pluggable provider model for local, edge, and cloud execution.
-- Runtime capability checks to detect what is actually usable on a device/session.
-- Constraint-based routing engine to choose the best provider for each task.
-- Fallback orchestration when the preferred provider is unavailable or fails.
-- Documentation and runnable examples for fast onboarding.
+## Source Of Truth
 
-## Initial Provider Scope
-Primary providers in baseline scope:
-
-1. OpenAI/OpenAI-compatible Responses HTTP
-2. Apple Foundation Models
-3. Android ML Kit GenAI
-
-Extended scope target (ideas not final):
-
-1. Hugging Face Inference API
-2. Hugging Face Local ONNX
-3. CoreML
-4. ExecuTorch
-5. ...
-
-## Expected Outcomes
-At project completion, a new developer should be able to:
-
-- Integrate IndeRun into an app and execute AI tasks via one API.
-- Configure routing preferences for privacy, cost, and latency.
-- Rely on automatic fallback across provider options.
-- Run documented examples on real devices.
-
-## First Implementation Milestone
-Milestone 1 starts with repository-level JSON Schema source files under `contracts/schemas`, generated TypeScript types,
-generated Swift contract models, runtime validators for Mode-1 text-to-text requests/results/errors, and shared
-HostServices interfaces/protocols for platform services. These artifacts establish the shared contract used by the later
-Web, iOS, Android, provider, and engine tickets.
-
-HostServices in this milestone cover connectivity, secure credential slots, clock access, telemetry hooks, device
-constraints, and normalized HTTP transport for cloud providers. Cloud credentials must be referenced by `authContextRef`
-and resolved through secure storage; raw secrets must not be carried in `TaskRequest` payloads.
-
-The baseline cloud path is the OpenAI-compatible Responses transport implemented across Web, iOS, and Android with the
-same normalized request subset, error mapping, endpoint configuration, and `authContextRef` credential flow.
-
-Serializable HostServices-adjacent payloads (`HttpRequest`, `HttpResponse`, and `TelemetryEvent`) are schema-backed so
-native SDKs and bridge layers can generate matching data shapes. Callable host service interfaces remain language-native
-interfaces/protocols.
-
-Route planning now also has a shared-core foundation in Rust. The Rust core owns deterministic Mode-1 route planning as
-pure data-in/data-out logic, while platform SDKs continue to own provider adapters, host services, secure credential
-resolution, HTTP transport, and actual execution.
-
-## Success Criteria
-### Minimum success
-- Fully functional IndeRun framework with constraint-based runtime selection.
-- Baseline providers integrated and operational on target platforms.
-- Public documentation and demo flows validated on real devices.
-- At least one external integration and initial OSS adoption.
-
-### Strong success
-- Additional providers integrated.
-- Measurable benchmark improvement in latency or cost through switching/routing.
-- Multiple external integrations and clear community traction.
-
-## Constraints and Non-Goals
-### Constraints
-- Must remain open source under MIT.
-- Must be designed as an independent framework, not tied to one product codebase.
-- Must support real-world cross-platform developer usage, not just proof-of-concept demos.
-
-### Non-goals (for this phase)
-- Training new foundation models.
-- Building a full MLOps platform.
-- Solving every advanced provider-specific feature in v1.
-- Introducing heavy hosted services as a project dependency.
-
-## Key Risks
-- Provider/API instability from platform vendors.
-- Device fragmentation and resource limitations.
-- Complexity growth from supporting many providers too early.
-- Lower-than-expected external adoption.
-
-## Risk Mitigation Direction
-- Keep provider integrations isolated behind stable framework contracts.
-- Use capability checks and clear fallback behavior as first-class features.
-- Prioritize reliable baseline providers before expanding breadth.
-- Invest early in onboarding quality: docs, examples, and predictable behavior.
-
-## Developer Entry Point (What to Understand First)
-When joining the project, first internalize this mental model:
-
-1. IndeRun is an execution abstraction layer, not an AI model project.
-2. Constraint-driven provider routing is the core differentiator.
-3. Cross-platform consistency and fallback reliability are product-critical.
-4. Developer experience (clarity, predictability, onboarding speed) is as important as raw model performance.
-
-This brief is intended to provide project orientation; implementation details are defined in the architecture documents.
+This brief is only a project orientation document. Detailed behavior should come from code, schemas, and public API comments.

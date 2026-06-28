@@ -1,10 +1,10 @@
 # @independo/inderun-route-core-wasm
 
-Thin TypeScript wrapper around the Rust shared route planner compiled to WebAssembly.
+WebAssembly wrapper around the shared Rust route-planning core.
 
-## Generate WASM bindings
+The generated WASM and JS bindings are not checked in. Build them from the repository root when needed.
 
-From the repo root:
+## Generate
 
 ```sh
 RUSTC="$(rustup which rustc --toolchain stable)" \
@@ -17,5 +17,3 @@ wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
 
 pnpm --filter @independo/inderun-route-core-wasm build
 ```
-
-The generated JS/WASM files are intentionally not checked in.
