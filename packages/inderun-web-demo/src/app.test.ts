@@ -40,7 +40,7 @@ describe("mountApp", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(runPrompt).toHaveBeenCalledWith("Test prompt");
+    expect(runPrompt).toHaveBeenCalledWith("Test prompt", "cloud");
     expect(root.textContent).toContain("Routed through the cloud provider.");
     expect(root.textContent).toContain("openai");
     expect(root.textContent).toContain("42 ms");

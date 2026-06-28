@@ -8,6 +8,11 @@ interface**, independent of where execution happens (**on-device**, **embedded r
 This repository is currently in an **architecture-first phase**. Core design, contracts, and provider strategy are
 defined in `docs/architecture/*`; implementation is incremental.
 
+[![JavaScript](https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml/badge.svg)](https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml)
+[![Rust](https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg)](https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml)
+[![Swift](https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg)](https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml)
+[![Android](https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg)](https://github.com/independo-gmbh/inderun/actions/workflows/android.yml)
+
 It will support:
 
 - **Mode 1: Run** — request/response (`run()`)
@@ -61,6 +66,7 @@ task execution from provider specifics so applications can:
 - Technical brief: `docs/architecture/technical-brief.md`
 - Architecture: `docs/architecture/architecture.md`
 - Providers: `docs/architecture/providers.md`
+- CI and branch protection: `docs/ci.md`
 - Agent entrypoint: `AGENTS.md`
 
 ---
@@ -84,6 +90,10 @@ inderun/
 
 ## Development (placeholder)
 
+JavaScript CI and local workflows are pinned to **Node 24.x** and **pnpm 11.9.0**. If your local environment does not
+ship `pnpm`, use the checked-in `npm run deps:update` script for dependency update maintenance and install pnpm through
+Corepack or your preferred toolchain manager for regular workspace commands.
+
 This repository is designed to support multiple platforms and packaging formats. Typical workflows include:
 
 - schema/type generation (JSON Schema → TS/Swift/Kotlin)
@@ -100,6 +110,12 @@ Install JavaScript dependencies:
 
 ```sh
 pnpm install
+```
+
+Update JavaScript dependencies with the pinned pnpm line:
+
+```sh
+npm run deps:update
 ```
 
 Run all currently checked-in package builds and tests:
@@ -217,6 +233,11 @@ If `wasm-pack` reports that `wasm32-unknown-unknown` is missing while `rustup ta
 shell is probably picking Homebrew `rustc` instead of the rustup-managed toolchain. In that case, use the explicit
 `RUSTC=... rustup run stable cargo build --target wasm32-unknown-unknown` command above or move the rustup shims ahead of Homebrew in
 your PATH.
+
+## CI
+
+GitHub Actions validates the repository with split JavaScript, Rust, Swift, and Android workflows. See `docs/ci.md`
+for workflow details, required branch-protection checks, and the JS-side WASM generation steps performed in CI.
 
 ---
 
