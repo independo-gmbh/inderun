@@ -6,27 +6,62 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      github-actions-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      npm-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      cargo-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: gradle
     directory: /android
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      gradle-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: swift
     directory: /ios/IndeRun
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      swift-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
