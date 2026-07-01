@@ -53,8 +53,34 @@ updates:
           - minor
           - patch
 
+  - package-ecosystem: gradle
+    directory: /packages/capacitor-inderun/android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      gradle-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: swift
     directory: /ios/IndeRun
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      swift-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: swift
+    directory: /packages/capacitor-inderun
     schedule:
       interval: weekly
     open-pull-requests-limit: 10

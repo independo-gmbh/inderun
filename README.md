@@ -25,6 +25,7 @@ but the shipped surface is centered on request/response execution.
 If you are using IndeRun in an app, start with the package README that matches your platform:
 
 - `@independo/inderun-web`
+- `@independo/capacitor-inderun`
 - `ios/IndeRun`
 - `android/inderun-kotlin`
 
