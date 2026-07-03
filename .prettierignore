@@ -1,0 +1,9 @@
+node_modules
+**/dist
+**/build
+**/.build
+**/generated
+packages/contracts/src/generated
+target
+**/.gradle-home
+pnpm-lock.yaml
