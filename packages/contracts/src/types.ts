@@ -1,4 +1,10 @@
-import type { IndeRunError, RoutePlan, RoutePlannerInput, TaskRequest, TaskResult } from "./generated/index.js";
+import type {
+  IndeRunError,
+  RoutePlan,
+  RoutePlannerInput,
+  TaskRequest,
+  TaskResult
+} from "./generated/index.js";
 
 // Convenience aliases derived from the generated schema types, so consumers can
 // name individual fields without reaching into the generated index signatures.

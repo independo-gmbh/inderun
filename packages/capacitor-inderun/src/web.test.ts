@@ -7,7 +7,8 @@ const { createIndeRunWebMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@independo/inderun-web", async () => {
-  const actual = await vi.importActual<typeof import("@independo/inderun-web")>("@independo/inderun-web");
+  const actual =
+    await vi.importActual<typeof import("@independo/inderun-web")>("@independo/inderun-web");
   return {
     ...actual,
     createIndeRunWeb: createIndeRunWebMock
@@ -64,17 +65,15 @@ describe("IndeRunWeb", () => {
       }
     });
     expect(webCallArg).not.toHaveProperty("allowDirectOpenAIEndpoint");
-    expect((webCallArg["openAI"] as Record<string, unknown>)).not.toHaveProperty("authContextRef");
-    expect((webCallArg["openAI"] as Record<string, unknown>)).not.toHaveProperty("timeoutMs");
+    expect(webCallArg["openAI"] as Record<string, unknown>).not.toHaveProperty("authContextRef");
+    expect(webCallArg["openAI"] as Record<string, unknown>).not.toHaveProperty("timeoutMs");
     expect(runMock).toHaveBeenCalledWith(request);
   });
 
   it("returns a normalized contract error when web provider registration is missing", async () => {
     const plugin = new IndeRunWeb();
 
-    await expect(
-      plugin.configure()
-    ).rejects.toMatchObject({
+    await expect(plugin.configure()).rejects.toMatchObject({
       schemaVersion: "1.0",
       errorClass: "Unavailable"
     });

@@ -77,8 +77,7 @@ function logRequest(req: IncomingMessage, pathname: string): void {
 async function toWebRequest(req: IncomingMessage): Promise<Request> {
   const origin = `http://${req.headers.host ?? "localhost"}`;
   const url = new URL(req.url ?? DEMO_PROXY_PATH, origin);
-  const body =
-    req.method === "GET" || req.method === "HEAD" ? undefined : await readNodeBody(req);
+  const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readNodeBody(req);
 
   return new Request(url, {
     method: req.method,
@@ -144,7 +143,9 @@ function normalizeHeaders(headers: IncomingMessage["headers"]): HeadersInit {
 }
 
 function isDirectRun(): boolean {
-  return process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+  return (
+    process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])
+  );
 }
 
 if (isDirectRun()) {

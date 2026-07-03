@@ -1,4 +1,7 @@
-import { createBrowserHostServices, type CreateBrowserHostServicesOptions } from "./browser-host.js";
+import {
+  createBrowserHostServices,
+  type CreateBrowserHostServicesOptions
+} from "./browser-host.js";
 import { IndeRun } from "./engine.js";
 import {
   DEFAULT_OPENAI_RESPONSES_ENDPOINT,
@@ -44,10 +47,7 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
   const registry = new ProviderRegistry();
   registry.register(new OpenAIResponsesProvider(options.openAI));
 
-  return new IndeRun(
-    registry,
-    createBrowserHostServices(options.hostServices)
-  );
+  return new IndeRun(registry, createBrowserHostServices(options.hostServices));
 }
 
 function assertSafeOpenAIEndpoint(options: CreateIndeRunWebOptions): void {
@@ -57,7 +57,7 @@ function assertSafeOpenAIEndpoint(options: CreateIndeRunWebOptions): void {
 
   if (isDirectOpenAIEndpoint && auth !== "none" && !options.allowDirectOpenAIEndpoint) {
     throw new Error(
-      "createIndeRunWeb is proxy-first for browser safety. Configure openAI.endpointUrl to a server-side proxy with auth: \"none\", or set allowDirectOpenAIEndpoint: true for controlled direct OpenAI calls."
+      'createIndeRunWeb is proxy-first for browser safety. Configure openAI.endpointUrl to a server-side proxy with auth: "none", or set allowDirectOpenAIEndpoint: true for controlled direct OpenAI calls.'
     );
   }
 }

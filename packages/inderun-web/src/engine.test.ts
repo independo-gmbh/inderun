@@ -400,9 +400,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         constraints: { privacy: "local_required" }
       };
 
-      await expect(engine.run(req)).rejects.toThrowError(
-        /No on-device provider found\./
-      );
+      await expect(engine.run(req)).rejects.toThrowError(/No on-device provider found\./);
 
       try {
         await engine.run(req);
@@ -477,9 +475,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         constraints: { privacy: "cloud_required" }
       };
 
-      await expect(engine.run(req)).rejects.toThrowError(
-        /No network connection is available\./
-      );
+      await expect(engine.run(req)).rejects.toThrowError(/No network connection is available\./);
 
       try {
         await engine.run(req);
@@ -502,9 +498,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         constraints: { privacy: "cloud_required" }
       };
 
-      await expect(engine.run(req)).rejects.toThrowError(
-        /No cloud provider found\./
-      );
+      await expect(engine.run(req)).rejects.toThrowError(/No cloud provider found\./);
 
       try {
         await engine.run(req);

@@ -131,8 +131,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     if (this.auth !== "none" && !host.secureStorage) {
       return {
         available: false,
-        reason:
-          "OpenAI Responses provider requires a SecureStorageService when auth is enabled."
+        reason: "OpenAI Responses provider requires a SecureStorageService when auth is enabled."
       };
     }
 
@@ -220,7 +219,13 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     }
 
     if (response.status < 200 || response.status >= 300) {
-      throw this.mapHttpError(response.status, response.statusText, response.headers, response.body, context);
+      throw this.mapHttpError(
+        response.status,
+        response.statusText,
+        response.headers,
+        response.body,
+        context
+      );
     }
 
     const responseBody = parseJson<OpenAIResponseBody>(response.body);
