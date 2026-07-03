@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Thin Capacitor bridge for IndeRun across web, iOS, and Android.",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
