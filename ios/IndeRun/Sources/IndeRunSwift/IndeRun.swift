@@ -7,7 +7,7 @@ public final class IndeRun: Sendable {
     private let hostServices: HostServices
     private let telemetryService: (any TelemetryService)?
     private let router: Router
-    
+
     public init(
         registry: ProviderRegistry,
         hostServices: HostServices,
@@ -18,13 +18,13 @@ public final class IndeRun: Sendable {
         self.telemetryService = telemetryService ?? hostServices.telemetry
         self.router = Router(registry: registry)
     }
-    
+
     private func safeEmit(_ event: TelemetryEvent) {
         guard let telemetry = telemetryService else { return }
         // Telemetry failures must never disrupt primary execution flows.
         telemetry.emit(event: event)
     }
-    
+
     private func getStableMessage(for errorClass: IndeRunErrorClass) -> String {
         switch errorClass {
         case .CapabilityMismatch:
@@ -43,7 +43,7 @@ public final class IndeRun: Sendable {
             return "An internal engine error occurred."
         }
     }
-    
+
     /// Orchestrates the full execution lifecycle of a `TaskRequest`.
     /// 
     /// This method ensures that:
@@ -56,9 +56,9 @@ public final class IndeRun: Sendable {
     /// - Returns: A normalized `TaskResult` containing generated text and execution telemetry.
     public func run(request: TaskRequest) async throws -> TaskResult {
         let startTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
-        
+
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
-        
+
         do {
             // 1. Structural request validation
             var validationIssues: [String] = []
@@ -68,7 +68,7 @@ public final class IndeRun: Sendable {
             if request.task.kind.rawValue != "text_to_text" {
                 validationIssues.append("task.kind must be 'text_to_text'")
             }
-            
+
             let hasPrompt = request.prompt != nil && !request.prompt!.isEmpty
             let hasMessages = request.messages != nil && !request.messages!.isEmpty
 
@@ -87,7 +87,7 @@ public final class IndeRun: Sendable {
             if !hasPrompt && !hasMessages {
                 validationIssues.append("Either prompt or messages must be provided and non-empty.")
             }
-            
+
             if !validationIssues.isEmpty {
                 let message = "Validation failed for TaskRequest: " + validationIssues.joined(separator: "; ")
                 throw createInternal(
@@ -96,11 +96,11 @@ public final class IndeRun: Sendable {
                     details: ["validationIssues": JSONAny(validationIssues.joined(separator: ", "))]
                 )
             }
-            
+
             // 2. Select route
             let routeSelection = try await router.selectRoute(request: request, hostServices: hostServices)
             let providers = [routeSelection.provider] + routeSelection.fallbackProviders
-            
+
             let routeTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
             safeEmit(TelemetryEvent(
                 type: "route_decided",
@@ -115,7 +115,7 @@ public final class IndeRun: Sendable {
                     "explanation": JSONAny(routeSelection.explanation)
                 ]
             ))
-            
+
             // 3. Execute
             var attemptedIds: [String] = []
             for (index, provider) in providers.enumerated() {
@@ -165,19 +165,19 @@ public final class IndeRun: Sendable {
                     }
                 }
             }
-            
+
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
             let totalMs = Double(endTime - startTime)
-            
+
             let exception = toIndeRunException(
                 error,
                 fallbackRunId: runId,
                 fallbackDetails: ["totalMs": JSONAny(totalMs) ]
             )
-            
+
             safeEmit(TelemetryEvent(
                 type: "attempt_failed",
                 runId: runId,
@@ -189,7 +189,7 @@ public final class IndeRun: Sendable {
                     "message": JSONAny(getStableMessage(for: exception.errorClass))
                 ]
             ))
-            
+
             throw exception
         }
 

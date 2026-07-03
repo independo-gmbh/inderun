@@ -14,7 +14,7 @@ public struct IndeRunException: Error, CustomStringConvertible, Sendable {
     public var description: String {
         return "[\(errorClass.rawValue)] \(message)"
     }
-    
+
     public init(
         errorClass: IndeRunErrorClass,
         message: String,
@@ -32,7 +32,7 @@ public struct IndeRunException: Error, CustomStringConvertible, Sendable {
         self.retryAfterMs = retryAfterMs
         self.details = details
     }
-    
+
     public func toContractError() -> IndeRunError {
         return IndeRunError(
             schemaVersion: schemaVersion,
