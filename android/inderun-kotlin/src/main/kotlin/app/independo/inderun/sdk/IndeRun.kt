@@ -40,6 +40,13 @@ class IndeRun(
     private val router = Router(registry)
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
 
+    /**
+     * Orchestrates a [TaskRequest]: validates it, selects a provider chain via
+     * routing, executes with deterministic fallback, emits telemetry, and
+     * returns the normalized [TaskResult].
+     *
+     * @throws app.independo.inderun.core.IndeRunException on validation, routing, or provider failure.
+     */
     suspend fun run(request: TaskRequest): TaskResult {
         val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"

@@ -143,8 +143,14 @@ public struct RunContext: Sendable {
 }
 
 // MARK: - ProviderAdapter Protocol
+
+/// Pluggable execution adapter wrapping a specific model runtime (system
+/// frameworks, local runtimes, or cloud APIs) behind normalized IndeRun APIs.
 public protocol ProviderAdapter: Sendable {
+    /// Returns the static descriptor used by routing to select candidates.
     func describe() -> ProviderDescriptor
+    /// Reports whether the provider can execute on the current host right now.
     func capabilities(host: HostServices) async -> ProviderDynamicCapabilities
+    /// Executes a Mode 1 (request/response) task, throwing `IndeRunException` on failure.
     func run(request: TaskRequest, context: RunContext) async throws -> TaskResult
 }

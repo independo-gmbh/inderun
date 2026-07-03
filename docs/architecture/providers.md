@@ -20,6 +20,19 @@ Every provider should define:
 
 The code and public types should define the exact field shapes and behavior. This document only records the concept and the repository-level mapping.
 
+## Error Model
+
+There is one normalized error taxonomy (the `errorClass` values) shared across
+every platform, defined by the `IndeRunError` schema in
+`@independo/inderun-contracts`. Two names refer to it by layer, and both are
+intentional:
+
+- Native SDKs (TS/Web, Swift, Kotlin) throw an `IndeRunException` that carries an `errorClass`.
+- The serialized, transport-facing form is the `IndeRunError` contract shape — this is what the Capacitor bridge re-throws across the JS boundary.
+
+The class-to-cause mapping lives in code (provider adapters and the error
+factories), not in prose.
+
 ## Current Provider Families
 
 - iOS on-device: Apple Foundation Models provider

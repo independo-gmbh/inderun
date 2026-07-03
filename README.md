@@ -5,6 +5,7 @@
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml"><img alt="Rust" src="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml"><img alt="Android" src="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml"><img alt="Capacitor Plugin" src="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml/badge.svg"></a>
 </p>
 
 IndeRun is an open-source AI execution framework that gives applications one unified API for running tasks across
@@ -19,8 +20,25 @@ The project is organized around a few stable ideas:
 
 ## Start Here
 
-IndeRun is currently focused on Mode 1 `run()` execution. Streaming and realtime sessions are part of the architecture,
-but the shipped surface is centered on request/response execution.
+IndeRun is currently focused on Mode 1 `run()` execution for `text_to_text`. Streaming and realtime sessions are
+planned (Milestone 2) but not yet implemented; the shipped surface is request/response execution.
+
+## Quick Start (Web)
+
+```ts
+import { createIndeRunWeb } from "@independo/inderun-web";
+
+const inderun = createIndeRunWeb({
+  // Point at a same-origin proxy that holds the OpenAI key server-side.
+  openAI: { model: "gpt-5.2", endpointUrl: "/api/inderun/openai-responses", auth: "none" }
+});
+
+const result = await inderun.run({
+  schemaVersion: "1.0",
+  task: { kind: "text_to_text" },
+  prompt: "Write a one-sentence summary of IndeRun."
+});
+```
 
 If you are using IndeRun in an app, start with the package README that matches your platform:
 

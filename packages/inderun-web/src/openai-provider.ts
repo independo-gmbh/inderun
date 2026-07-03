@@ -277,6 +277,14 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     return body;
   }
 
+  /**
+   * Maps an OpenAI HTTP error response onto the IndeRun error taxonomy:
+   * - `401` / `403` → `AuthError`
+   * - `429` → `RateLimited` (honors `Retry-After` when present)
+   * - `408` / `504` → `Timeout`
+   * - `409` / `5xx` → `Unavailable`
+   * - any other non-2xx status → `Internal`
+   */
   private mapHttpError(
     status: number,
     statusText: string,

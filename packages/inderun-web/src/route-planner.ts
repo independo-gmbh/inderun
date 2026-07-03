@@ -11,15 +11,28 @@ export type {
   SharedPlannerRoutePlan
 };
 
+/**
+ * Minimal shape of the shared route-core module (the WASM wrapper), used to
+ * plan routes via JSON in/JSON out. `initSharedCore` initializes the WASM
+ * bindings when present.
+ */
 export interface SharedPlannerModule {
   initSharedCore?: () => Promise<void>;
   planRouteJson: (inputJson: string) => string | Promise<string>;
 }
 
+/**
+ * Strategy that turns planner input into a deterministic route plan, or `null`
+ * when the planner is unavailable (callers then fall back to local selection).
+ */
 export interface RoutePlanner {
   planRoute(input: SharedPlannerInput): Promise<SharedPlannerRoutePlan | null>;
 }
 
+/**
+ * A provider paired with the descriptor/capability projection the shared route
+ * planner consumes.
+ */
 export interface ProviderRuntimeSnapshot {
   provider: ProviderAdapter;
   descriptor: SharedPlannerInput["providers"][number]["descriptor"];
@@ -29,6 +42,11 @@ export interface ProviderRuntimeSnapshot {
 const DEFAULT_WASM_SPECIFIER =
   "@independo/inderun-route-core-wasm";
 
+/**
+ * {@link RoutePlanner} backed by the Rust route core compiled to WASM. The
+ * module is imported lazily and memoized; if it cannot be loaded, `planRoute`
+ * resolves to `null` so the engine can fall back to local selection.
+ */
 export class WasmRoutePlanner implements RoutePlanner {
   private modulePromise?: Promise<SharedPlannerModule | null>;
 
@@ -77,6 +95,10 @@ export class WasmRoutePlanner implements RoutePlanner {
   }
 }
 
+/**
+ * Describes each provider and evaluates its dynamic capabilities against the
+ * host, returning snapshots sorted by provider id for deterministic planning.
+ */
 export async function collectProviderRuntimeSnapshots(
   registryProviders: ProviderAdapter[],
   hostServices: HostServices
@@ -97,6 +119,11 @@ export async function collectProviderRuntimeSnapshots(
   return snapshots.sort((left, right) => left.descriptor.id.localeCompare(right.descriptor.id));
 }
 
+/**
+ * Assembles the normalized {@link SharedPlannerInput} the shared route core
+ * consumes, applying default constraints/preferences and the current network
+ * state.
+ */
 export function buildSharedPlannerInput(
   request: TaskRequest,
   snapshots: ProviderRuntimeSnapshot[],

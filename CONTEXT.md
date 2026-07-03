@@ -26,9 +26,12 @@ Treat them as the architecture baseline.
 
 ## 3) Scope Boundaries (Current Phase)
 
-In scope now:
+In scope now (Milestone 1 — Text→Text MVP):
 
-- Mode 1: `run()`
+- Mode 1: `run()` for `text_to_text`
+
+Future (Milestone 2), not yet implemented:
+
 - Mode 2: `stream()` + cancellation semantics
 - Mode 3: `openSession()` / realtime session model
 
@@ -38,7 +41,9 @@ Out of scope now:
 - Durable queues/job stores/schedulers
 - Full MLOps concerns
 
-Design seams for Mode 4 can exist, but do not optimize implementation around it yet.
+Design seams for streaming, sessions, and Mode 4 can exist in the contracts
+(e.g. descriptor capability flags), but do not build or optimize implementation
+around them yet.
 
 ## 4) Architecture Rules You Must Preserve
 
@@ -61,7 +66,7 @@ Any provider integration should explicitly define:
 
 - static descriptor (`describe`)
 - dynamic capability check (`capabilities(host)`)
-- supported interaction modes (`run`, optional `stream`, optional `openSession`)
+- supported interaction modes (`run` is the only implemented mode; `stream` and `openSession` are forward-looking descriptor seams, not yet implemented — see §3)
 - cancellation behavior (`hard` / `soft` / `none`)
 - mapped error taxonomy and normalized telemetry
 
@@ -83,7 +88,7 @@ Checked-in JavaScript commands:
 - `pnpm build`
 - `pnpm test`
 - `pnpm generate`
-- `npm run deps:update`
+- `pnpm run upgrade`
 - `pnpm --filter @independo/inderun-contracts build`
 - `pnpm --filter @independo/inderun-contracts test`
 - `pnpm --filter @independo/inderun-demo-proxy dev`
