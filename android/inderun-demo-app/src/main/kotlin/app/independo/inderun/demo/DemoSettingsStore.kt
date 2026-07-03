@@ -8,25 +8,25 @@ internal interface DemoSettingsStore {
 }
 
 internal class SharedPreferencesDemoSettingsStore(
-    context: Context
+    context: Context,
 ) : DemoSettingsStore {
     private val preferences = context.applicationContext.getSharedPreferences(
         "inderun_demo_settings",
-        Context.MODE_PRIVATE
+        Context.MODE_PRIVATE,
     )
 
     override fun load(): DemoSettings {
         val endpointUrl = preferences.getString(KEY_ENDPOINT_URL, null)
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-            ?: DemoDefaults.defaultCloudEndpointUrl
+            ?: DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL
         val model = preferences.getString(KEY_MODEL, null)
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-            ?: DemoDefaults.defaultCloudModel
+            ?: DemoDefaults.DEFAULT_CLOUD_MODEL
         return DemoSettings(
             endpointUrl = endpointUrl,
-            model = model
+            model = model,
         )
     }
 

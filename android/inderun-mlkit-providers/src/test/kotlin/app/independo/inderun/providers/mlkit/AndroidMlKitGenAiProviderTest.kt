@@ -8,12 +8,12 @@ import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
+import app.independo.inderun.core.ClockService
+import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
-import app.independo.inderun.core.ClockService
-import app.independo.inderun.core.ConnectivityService
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,7 +25,7 @@ class AndroidMlKitGenAiProviderTest {
     fun capabilitiesReflectAvailableRuntime() = runTest {
         val provider = AndroidMlKitGenAiProvider(
             id = AndroidMlKitGenAiProvider.DEFAULT_ID,
-            runtime = FakeRuntime(availability = AndroidMlKitGenAiAvailability.Available)
+            runtime = FakeRuntime(availability = AndroidMlKitGenAiAvailability.Available),
         )
 
         val capabilities = provider.capabilities(fakeHostServices())
@@ -38,8 +38,8 @@ class AndroidMlKitGenAiProviderTest {
         val provider = AndroidMlKitGenAiProvider(
             id = AndroidMlKitGenAiProvider.DEFAULT_ID,
             runtime = FakeRuntime(
-                availability = AndroidMlKitGenAiAvailability.Unavailable("not supported")
-            )
+                availability = AndroidMlKitGenAiAvailability.Unavailable("not supported"),
+            ),
         )
 
         val capabilities = provider.capabilities(fakeHostServices())
@@ -54,8 +54,8 @@ class AndroidMlKitGenAiProviderTest {
             id = AndroidMlKitGenAiProvider.DEFAULT_ID,
             runtime = FakeRuntime(
                 availability = AndroidMlKitGenAiAvailability.Available,
-                outputText = "Generated response"
-            )
+                outputText = "Generated response",
+            ),
         )
 
         val result = provider.run(
@@ -63,9 +63,9 @@ class AndroidMlKitGenAiProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
             ),
-            context = RunContext("run_123", fakeHostServices())
+            context = RunContext("run_123", fakeHostServices()),
         )
 
         assertEquals("Generated response", result.output.text)
@@ -77,7 +77,7 @@ class AndroidMlKitGenAiProviderTest {
         val runtime = FakeRuntime(availability = AndroidMlKitGenAiAvailability.Available)
         val provider = AndroidMlKitGenAiProvider(
             id = AndroidMlKitGenAiProvider.DEFAULT_ID,
-            runtime = runtime
+            runtime = runtime,
         )
 
         provider.run(
@@ -85,12 +85,12 @@ class AndroidMlKitGenAiProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 messages = listOf(
                     Message(MessageRole.SYSTEM, "Be concise"),
-                    Message(MessageRole.USER, "Hello")
+                    Message(MessageRole.USER, "Hello"),
                 ),
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
             ),
-            context = RunContext("run_123", fakeHostServices())
+            context = RunContext("run_123", fakeHostServices()),
         )
 
         assertEquals("system: Be concise\nuser: Hello", runtime.lastPrompt)
@@ -101,8 +101,8 @@ class AndroidMlKitGenAiProviderTest {
         val provider = AndroidMlKitGenAiProvider(
             id = AndroidMlKitGenAiProvider.DEFAULT_ID,
             runtime = FakeRuntime(
-                availability = AndroidMlKitGenAiAvailability.Downloadable("download pending")
-            )
+                availability = AndroidMlKitGenAiAvailability.Downloadable("download pending"),
+            ),
         )
 
         try {
@@ -111,9 +111,9 @@ class AndroidMlKitGenAiProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
                 ),
-                context = RunContext("run_123", fakeHostServices())
+                context = RunContext("run_123", fakeHostServices()),
             )
         } catch (error: IndeRunException) {
             assertEquals(IndeRunErrorClass.CapabilityMismatch, error.errorClass)
@@ -129,8 +129,8 @@ class AndroidMlKitGenAiProviderTest {
             id = AndroidMlKitGenAiProvider.DEFAULT_ID,
             runtime = FakeRuntime(
                 availability = AndroidMlKitGenAiAvailability.Available,
-                failure = IllegalStateException("boom")
-            )
+                failure = IllegalStateException("boom"),
+            ),
         )
 
         try {
@@ -139,9 +139,9 @@ class AndroidMlKitGenAiProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
                 ),
-                context = RunContext("run_123", fakeHostServices())
+                context = RunContext("run_123", fakeHostServices()),
             )
         } catch (error: IndeRunException) {
             assertEquals(IndeRunErrorClass.Internal, error.errorClass)
@@ -151,26 +151,24 @@ class AndroidMlKitGenAiProviderTest {
         throw AssertionError("Expected Internal when runtime throws.")
     }
 
-    private fun fakeHostServices(): HostServices {
-        return HostServices(
-            connectivity = object : ConnectivityService {
-                override fun isOnline(): Boolean = true
-            },
-            secureStorage = object : SecureStorageService {
-                override fun get(authContextRef: String): String? = null
-                override fun put(authContextRef: String, value: String) = Unit
-                override fun remove(authContextRef: String) = Unit
-            },
-            clock = object : ClockService {
-                override fun elapsedRealtimeMillis(): Long = 1_000L
-            }
-        )
-    }
+    private fun fakeHostServices(): HostServices = HostServices(
+        connectivity = object : ConnectivityService {
+            override fun isOnline(): Boolean = true
+        },
+        secureStorage = object : SecureStorageService {
+            override fun get(authContextRef: String): String? = null
+            override fun put(authContextRef: String, value: String) = Unit
+            override fun remove(authContextRef: String) = Unit
+        },
+        clock = object : ClockService {
+            override fun elapsedRealtimeMillis(): Long = 1_000L
+        },
+    )
 
     private class FakeRuntime(
         private val availability: AndroidMlKitGenAiAvailability,
         private val outputText: String = "OK",
-        private val failure: Throwable? = null
+        private val failure: Throwable? = null,
     ) : AndroidMlKitGenAiRuntime {
         var lastPrompt: String? = null
 
@@ -178,7 +176,7 @@ class AndroidMlKitGenAiProviderTest {
 
         override suspend fun generateText(
             prompt: String,
-            options: AndroidMlKitGenAiGenerationOptions
+            options: AndroidMlKitGenAiGenerationOptions,
         ): String {
             lastPrompt = prompt
             failure?.let { throw it }

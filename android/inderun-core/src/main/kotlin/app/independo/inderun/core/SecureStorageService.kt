@@ -15,9 +15,7 @@ class SecureStorageServiceImpl(context: Context) : SecureStorageService {
     /**
      * {@inheritDoc}
      */
-    override fun get(authContextRef: String): String? {
-        return preferences.getString(slotKey(authContextRef), null)
-    }
+    override fun get(authContextRef: String): String? = preferences.getString(slotKey(authContextRef), null)
 
     override fun put(authContextRef: String, value: String) {
         preferences.edit {

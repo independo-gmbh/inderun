@@ -8,7 +8,7 @@ import androidx.compose.runtime.Composable
 
 @Composable
 internal fun IndeRunDemoTheme(
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val colorScheme = if (isSystemInDarkTheme()) {
         darkColorScheme()
@@ -18,6 +18,6 @@ internal fun IndeRunDemoTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        content = content
+        content = content,
     )
 }

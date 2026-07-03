@@ -1,8 +1,8 @@
 package app.independo.inderun.demo
 
 import android.content.Context
-import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.HttpRequest
+import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Method
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
@@ -24,37 +24,35 @@ internal interface DemoRuntime {
     suspend fun run(
         prompt: String,
         executionMode: DemoExecutionMode,
-        settings: DemoSettings
+        settings: DemoSettings,
     ): DemoExecutionOutcome
 }
 
 internal class AndroidDemoRuntime(
     private val context: Context,
-    private val hostServices: HostServices = HostServicesFactory.create(context.applicationContext)
+    private val hostServices: HostServices = HostServicesFactory.create(context.applicationContext),
 ) : DemoRuntime {
-    override suspend fun refreshAvailability(settings: DemoSettings): DemoAvailabilitySnapshot {
-        return DemoAvailabilitySnapshot(
-            onDevice = probeOnDeviceAvailability(),
-            cloud = probeCloudAvailability(settings)
-        )
-    }
+    override suspend fun refreshAvailability(settings: DemoSettings): DemoAvailabilitySnapshot = DemoAvailabilitySnapshot(
+        onDevice = probeOnDeviceAvailability(),
+        cloud = probeCloudAvailability(settings),
+    )
 
     override suspend fun run(
         prompt: String,
         executionMode: DemoExecutionMode,
-        settings: DemoSettings
+        settings: DemoSettings,
     ): DemoExecutionOutcome {
         val request = TaskRequest(
             schemaVersion = SchemaVersion.V1_0,
             prompt = prompt.trim(),
             task = TaskRequestTask(),
-            constraints = executionMode.requestConstraints
+            constraints = executionMode.requestConstraints,
         )
 
         return try {
             val result = IndeRun.initialize(
                 context = context.applicationContext,
-                registry = createRegistry(settings)
+                registry = createRegistry(settings),
             ).run(request)
 
             DemoExecutionOutcome.Success(
@@ -64,8 +62,8 @@ internal class AndroidDemoRuntime(
                     providerUsed = result.telemetry.providerUsed,
                     totalMs = result.telemetry.totalMs,
                     providerId = result.telemetry.providerUsed,
-                    retryAfterMs = null
-                )
+                    retryAfterMs = null,
+                ),
             )
         } catch (error: IndeRunException) {
             DemoExecutionOutcome.Failure(
@@ -77,8 +75,8 @@ internal class AndroidDemoRuntime(
                         providerUsed = error.providerId ?: executionMode.providerFallback,
                         totalMs = error.details?.get("totalMs").toDoubleOrNull(),
                         providerId = error.providerId,
-                        retryAfterMs = error.retryAfterMs
-                    )
+                        retryAfterMs = error.retryAfterMs,
+                    ),
                 ),
                 onDeviceStatusOverride = when {
                     executionMode == DemoExecutionMode.OnDevice -> DemoAvailabilityState.unavailable(error.message)
@@ -93,15 +91,15 @@ internal class AndroidDemoRuntime(
                         DemoAvailabilityState.unavailable(unavailableCloudMessage(settings.endpointUrl.trim()))
 
                     else -> null
-                }
+                },
             )
         } catch (error: Throwable) {
             DemoExecutionOutcome.Failure(
                 error = DemoErrorState(
                     title = "Unexpected Error",
                     body = error.localizedMessage ?: error.toString(),
-                    metadata = null
-                )
+                    metadata = null,
+                ),
             )
         }
     }
@@ -110,7 +108,7 @@ internal class AndroidDemoRuntime(
         val capabilities = onDeviceProvider().capabilities(hostServices)
         if (capabilities.available) {
             return DemoAvailabilityState.available(
-                "Android ML Kit GenAI reported availability for this device and current system state."
+                "Android ML Kit GenAI reported availability for this device and current system state.",
             )
         }
 
@@ -132,7 +130,7 @@ internal class AndroidDemoRuntime(
 
         if (endpointUrl.isEmpty()) {
             return DemoAvailabilityState.unavailable(
-                "Enter a cloud endpoint URL. The default emulator proxy URL is ${DemoDefaults.defaultCloudEndpointUrl}."
+                "Enter a cloud endpoint URL. The default emulator proxy URL is ${DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL}.",
             )
         }
 
@@ -146,13 +144,13 @@ internal class AndroidDemoRuntime(
 
         if (!hostServices.connectivity.isOnline()) {
             return DemoAvailabilityState.unavailable(
-                "Device is offline. The cloud route will fail before the endpoint is contacted."
+                "Device is offline. The cloud route will fail before the endpoint is contacted.",
             )
         }
 
         val httpClient = hostServices.httpClient
             ?: return DemoAvailabilityState.unavailable(
-                "The host is missing the HTTP support required for cloud execution."
+                "The host is missing the HTTP support required for cloud execution.",
             )
 
         return try {
@@ -160,11 +158,11 @@ internal class AndroidDemoRuntime(
                 HttpRequest(
                     method = Method.Get,
                     url = createProbeUrl(endpointUrl),
-                    timeoutMs = 2_000L
-                )
+                    timeoutMs = 2_000L,
+                ),
             )
             DemoAvailabilityState.available(
-                "Cloud execution is configured and the endpoint is reachable. Probe status: ${response.status}. Requests use app-side auth disabled."
+                "Cloud execution is configured and the endpoint is reachable. Probe status: ${response.status}. Requests use app-side auth disabled.",
             )
         } catch (_: Throwable) {
             DemoAvailabilityState.unavailable(unavailableCloudMessage(endpointUrl))
@@ -179,28 +177,24 @@ internal class AndroidDemoRuntime(
                     id = "openai_compatible_cloud",
                     model = settings.model.trim(),
                     endpointUrl = settings.endpointUrl.trim(),
-                    auth = OpenAIAuthMode.none
-                )
-            )
+                    auth = OpenAIAuthMode.none,
+                ),
+            ),
         )
         return registry
     }
 
-    private fun onDeviceProvider(): ProviderAdapter {
-        return AndroidProviderRegistryFactory
-            .makeDefaultRegistry(context.applicationContext)
-            .get(AndroidMlKitGenAiProvider.DEFAULT_ID)
-            ?: AndroidMlKitGenAiProvider()
-    }
+    private fun onDeviceProvider(): ProviderAdapter = AndroidProviderRegistryFactory
+        .makeDefaultRegistry(context.applicationContext)
+        .get(AndroidMlKitGenAiProvider.DEFAULT_ID)
+        ?: AndroidMlKitGenAiProvider()
 }
 
-private fun Any?.toDoubleOrNull(): Double? {
-    return when (this) {
-        is Double -> this
-        is Float -> toDouble()
-        is Int -> toDouble()
-        is Long -> toDouble()
-        is String -> toDoubleOrNull()
-        else -> null
-    }
+private fun Any?.toDoubleOrNull(): Double? = when (this) {
+    is Double -> this
+    is Float -> toDouble()
+    is Int -> toDouble()
+    is Long -> toDouble()
+    is String -> toDoubleOrNull()
+    else -> null
 }

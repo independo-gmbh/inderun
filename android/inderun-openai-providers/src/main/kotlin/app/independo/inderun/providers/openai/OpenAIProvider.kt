@@ -31,7 +31,7 @@ const val DEFAULT_OPENAI_RESPONSES_ENDPOINT: String = "https://api.openai.com/v1
 
 enum class OpenAIAuthMode {
     authContextRef,
-    none
+    none,
 }
 
 data class OpenAIProviderOptions(
@@ -40,37 +40,35 @@ data class OpenAIProviderOptions(
     val endpointUrl: String = DEFAULT_OPENAI_RESPONSES_ENDPOINT,
     val auth: OpenAIAuthMode = OpenAIAuthMode.authContextRef,
     val authContextRef: String? = null,
-    val timeoutMs: Long? = null
+    val timeoutMs: Long? = null,
 )
 
 class OpenAIProvider(
-    private val options: OpenAIProviderOptions
+    private val options: OpenAIProviderOptions,
 ) : ProviderAdapter {
-    override fun describe(): ProviderDescriptor {
-        return ProviderDescriptor(
-            id = options.id,
-            type = ProviderDescriptor.ProviderType.cloud,
-            transport = ProviderDescriptor.TransportType.http,
-            supports = ProviderDescriptor.SupportsCapabilities(
-                run = true,
-                streaming = false,
-                realtime = false,
-                tools = false,
-                reasoningEvents = false,
-                structuredOutput = false,
-                multimodal = false
-            ),
-            cancel = ProviderDescriptor.CancelSemantics.hard,
-            tasks = listOf("text_to_text"),
-            privacy = ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice = true)
-        )
-    }
+    override fun describe(): ProviderDescriptor = ProviderDescriptor(
+        id = options.id,
+        type = ProviderDescriptor.ProviderType.cloud,
+        transport = ProviderDescriptor.TransportType.http,
+        supports = ProviderDescriptor.SupportsCapabilities(
+            run = true,
+            streaming = false,
+            realtime = false,
+            tools = false,
+            reasoningEvents = false,
+            structuredOutput = false,
+            multimodal = false,
+        ),
+        cancel = ProviderDescriptor.CancelSemantics.hard,
+        tasks = listOf("text_to_text"),
+        privacy = ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice = true),
+    )
 
     override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities {
         if (host.httpClient == null) {
             return ProviderDynamicCapabilities(
                 available = false,
-                reason = "OpenAI Responses provider requires an HttpClientService."
+                reason = "OpenAI Responses provider requires an HttpClientService.",
             )
         }
 
@@ -83,7 +81,7 @@ class OpenAIProvider(
             ?: throw createUnavailable(
                 message = "OpenAI Responses provider requires an HTTP client.",
                 runId = context.runId,
-                providerId = options.id
+                providerId = options.id,
             )
 
         val headers = linkedMapOf("Content-Type" to "application/json")
@@ -93,7 +91,7 @@ class OpenAIProvider(
                 throw createAuthError(
                     message = "OpenAI Responses provider requires authContextRef.",
                     runId = context.runId,
-                    providerId = options.id
+                    providerId = options.id,
                 )
             }
 
@@ -102,7 +100,7 @@ class OpenAIProvider(
                 throw createAuthError(
                     message = "No OpenAI credential found for authContextRef '$slotId'.",
                     runId = context.runId,
-                    providerId = options.id
+                    providerId = options.id,
                 )
             }
 
@@ -114,7 +112,7 @@ class OpenAIProvider(
             url = options.endpointUrl,
             headers = headers,
             body = createRequestBody(request).toString(),
-            timeoutMs = options.timeoutMs
+            timeoutMs = options.timeoutMs,
         )
 
         val response = try {
@@ -129,9 +127,9 @@ class OpenAIProvider(
                 details = mapOf(
                     "originalError" to mapOf(
                         "name" to error::class.simpleName,
-                        "message" to (error.message ?: error.toString())
-                    )
-                )
+                        "message" to (error.message ?: error.toString()),
+                    ),
+                ),
             )
         }
 
@@ -141,7 +139,7 @@ class OpenAIProvider(
                 statusText = response.statusText,
                 headers = response.headers,
                 body = response.body,
-                runId = context.runId
+                runId = context.runId,
             )
         }
 
@@ -150,7 +148,7 @@ class OpenAIProvider(
             ?: throw createInternal(
                 message = "OpenAI Responses payload did not contain text output.",
                 runId = context.runId,
-                providerId = options.id
+                providerId = options.id,
             )
 
         val usage = json.optJSONObject("usage")?.let { usageJson ->
@@ -161,7 +159,7 @@ class OpenAIProvider(
                 Usage(
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
-                    totalTokens = totalTokens
+                    totalTokens = totalTokens,
                 )
             } else {
                 null
@@ -175,7 +173,7 @@ class OpenAIProvider(
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = options.id, totalMs = totalMs),
-            usage = usage
+            usage = usage,
         )
     }
 
@@ -199,7 +197,7 @@ class OpenAIProvider(
                     put(
                         JSONObject()
                             .put("role", if (message.role.rawValue == "system") "developer" else message.role.rawValue)
-                            .put("content", message.content)
+                            .put("content", message.content),
                     )
                 }
             }
@@ -213,7 +211,7 @@ class OpenAIProvider(
         statusText: String,
         headers: Map<String, String>,
         body: String,
-        runId: String
+        runId: String,
     ): IndeRunException {
         val json = parseJsonObject(body)
         val error = json.optJSONObject("error")
@@ -223,7 +221,7 @@ class OpenAIProvider(
             "status" to status,
             "statusText" to statusText,
             "errorType" to error?.optStringOrNull("type"),
-            "errorCode" to error?.optStringOrNull("code")
+            "errorCode" to error?.optStringOrNull("code"),
         )
 
         return when {
@@ -231,7 +229,7 @@ class OpenAIProvider(
                 message = message,
                 runId = runId,
                 providerId = options.id,
-                details = details
+                details = details,
             )
 
             status == 429 -> createRateLimited(
@@ -240,7 +238,7 @@ class OpenAIProvider(
                 providerId = options.id,
                 retryable = true,
                 retryAfterMs = parseRetryAfterMs(headers),
-                details = details
+                details = details,
             )
 
             status == 408 || status == 504 -> createTimeout(
@@ -248,7 +246,7 @@ class OpenAIProvider(
                 runId = runId,
                 providerId = options.id,
                 retryable = true,
-                details = details
+                details = details,
             )
 
             status == 409 || status >= 500 -> createUnavailable(
@@ -256,14 +254,14 @@ class OpenAIProvider(
                 runId = runId,
                 providerId = options.id,
                 retryable = true,
-                details = details
+                details = details,
             )
 
             else -> createInternal(
                 message = message,
                 runId = runId,
                 providerId = options.id,
-                details = details
+                details = details,
             )
         }
     }
@@ -302,19 +300,15 @@ class OpenAIProvider(
 }
 
 object AndroidCloudProviderRegistryFactory {
-    fun makeOpenAIRegistry(options: OpenAIProviderOptions): ProviderRegistry {
-        return ProviderRegistry().apply {
-            register(OpenAIProvider(options))
-        }
+    fun makeOpenAIRegistry(options: OpenAIProviderOptions): ProviderRegistry = ProviderRegistry().apply {
+        register(OpenAIProvider(options))
     }
 }
 
-private fun parseJsonObject(body: String): JSONObject {
-    return try {
-        JSONObject(body)
-    } catch (_: Throwable) {
-        JSONObject()
-    }
+private fun parseJsonObject(body: String): JSONObject = try {
+    JSONObject(body)
+} catch (_: Throwable) {
+    JSONObject()
 }
 
 private fun JSONObject.optStringOrNull(key: String): String? {

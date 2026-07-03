@@ -16,8 +16,8 @@ class MainActivity : ComponentActivity() {
                 val demoViewModel = viewModel<DemoViewModel>(
                     factory = DemoViewModel.factory(
                         settingsStore = SharedPreferencesDemoSettingsStore(applicationContext),
-                        runtime = AndroidDemoRuntime(applicationContext)
-                    )
+                        runtime = AndroidDemoRuntime(applicationContext),
+                    ),
                 )
                 val uiState by demoViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
                     onCloudEndpointUrlChange = demoViewModel::updateCloudEndpointUrl,
                     onCloudModelChange = demoViewModel::updateCloudModel,
                     onRefreshClick = demoViewModel::refreshAvailability,
-                    onRunClick = demoViewModel::runPrompt
+                    onRunClick = demoViewModel::runPrompt,
                 )
             }
         }

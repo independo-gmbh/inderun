@@ -51,7 +51,7 @@ class IndeRunTest {
             },
             clock = object : ClockService {
                 override fun elapsedRealtimeMillis(): Long = 0L
-            }
+            },
         )
         val registry = ProviderRegistry().apply {
             register(FakeProvider())
@@ -63,8 +63,8 @@ class IndeRunTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
-            )
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+            ),
         )
 
         assertTrue(events.any { it.type == TelemetryEventType.RouteDecided })
@@ -84,8 +84,8 @@ class IndeRunTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
-            )
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+            ),
         )
 
         assertEquals("sdk-provider", result.telemetry.providerUsed)
@@ -94,37 +94,31 @@ class IndeRunTest {
     }
 
     private class FakeProvider : ProviderAdapter {
-        override fun describe(): ProviderDescriptor {
-            return ProviderDescriptor(
-                id = "sdk-provider",
-                type = ProviderDescriptor.ProviderType.local,
-                transport = ProviderDescriptor.TransportType.in_process,
-                supports = ProviderDescriptor.SupportsCapabilities(
-                    run = true,
-                    streaming = false,
-                    realtime = false,
-                    tools = false,
-                    reasoningEvents = false,
-                    structuredOutput = false,
-                    multimodal = false
-                ),
-                cancel = ProviderDescriptor.CancelSemantics.soft,
-                tasks = listOf("text_to_text")
-            )
-        }
+        override fun describe(): ProviderDescriptor = ProviderDescriptor(
+            id = "sdk-provider",
+            type = ProviderDescriptor.ProviderType.local,
+            transport = ProviderDescriptor.TransportType.in_process,
+            supports = ProviderDescriptor.SupportsCapabilities(
+                run = true,
+                streaming = false,
+                realtime = false,
+                tools = false,
+                reasoningEvents = false,
+                structuredOutput = false,
+                multimodal = false,
+            ),
+            cancel = ProviderDescriptor.CancelSemantics.soft,
+            tasks = listOf("text_to_text"),
+        )
 
-        override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities {
-            return ProviderDynamicCapabilities(available = true)
-        }
+        override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities = ProviderDynamicCapabilities(available = true)
 
-        override suspend fun run(request: TaskRequest, context: RunContext): TaskResult {
-            return TaskResult(
-                finishReason = FinishReason.STOP,
-                output = Output(text = "Hello from sdk provider"),
-                runId = context.runId,
-                schemaVersion = SchemaVersion.V1_0,
-                telemetry = TaskResultTelemetry(providerUsed = "sdk-provider", totalMs = 0.0)
-            )
-        }
+        override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
+            finishReason = FinishReason.STOP,
+            output = Output(text = "Hello from sdk provider"),
+            runId = context.runId,
+            schemaVersion = SchemaVersion.V1_0,
+            telemetry = TaskResultTelemetry(providerUsed = "sdk-provider", totalMs = 0.0),
+        )
     }
 }

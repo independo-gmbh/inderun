@@ -9,7 +9,5 @@ class ClockServiceImpl : ClockService {
     /**
      * {@inheritDoc}
      */
-    override fun elapsedRealtimeMillis(): Long {
-        return SystemClock.elapsedRealtime()
-    }
+    override fun elapsedRealtimeMillis(): Long = SystemClock.elapsedRealtime()
 }

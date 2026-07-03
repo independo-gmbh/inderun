@@ -58,7 +58,7 @@ class URLConnectionHttpClientService : HttpClientService {
                 body = body,
                 headers = headers,
                 status = status,
-                statusText = statusText
+                statusText = statusText,
             )
         } finally {
             connection.disconnect()

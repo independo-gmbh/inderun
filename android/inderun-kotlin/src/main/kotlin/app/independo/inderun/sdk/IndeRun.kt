@@ -17,8 +17,8 @@ import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.toIndeRunException
 import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import java.util.UUID
 
 /**
  * The primary entry point for the IndeRun Android SDK.
@@ -35,7 +35,7 @@ import kotlinx.coroutines.CancellationException
 class IndeRun(
     private val registry: ProviderRegistry,
     private val hostServices: HostServices,
-    telemetry: TelemetryService? = null
+    telemetry: TelemetryService? = null,
 ) {
     private val router = Router(registry)
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
@@ -69,9 +69,9 @@ class IndeRun(
                         "rejectedProviderIds" to routeSelection.routePlan.rejectedProviders.map { it.providerId },
                         "fallbackAvailable" to (providers.size > 1),
                         "taskKind" to request.task.kind.rawValue,
-                        "explanation" to routeSelection.explanation
-                    )
-                )
+                        "explanation" to routeSelection.explanation,
+                    ),
+                ),
             )
 
             for ((index, provider) in providers.withIndex()) {
@@ -81,7 +81,7 @@ class IndeRun(
                 try {
                     val result = provider.run(
                         request = request,
-                        context = RunContext(runId = runId, hostServices = hostServices)
+                        context = RunContext(runId = runId, hostServices = hostServices),
                     )
 
                     val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
@@ -95,17 +95,17 @@ class IndeRun(
                                 "providerId" to providerId,
                                 "durationMs" to totalMs,
                                 "fallbackOccurred" to (index > 0),
-                                "attemptedProviderIds" to attemptedProviderIds.toList()
-                            )
-                        )
+                                "attemptedProviderIds" to attemptedProviderIds.toList(),
+                            ),
+                        ),
                     )
 
                     return result.copy(
                         runId = runId,
                         telemetry = result.telemetry.copy(
                             providerUsed = providerId,
-                            totalMs = totalMs
-                        )
+                            totalMs = totalMs,
+                        ),
                     )
                 } catch (error: CancellationException) {
                     throw error
@@ -118,8 +118,8 @@ class IndeRun(
                             fallbackDetails = mapOf(
                                 "attemptedProviderIds" to attemptedProviderIds,
                                 "fallbackOccurred" to (providers.size > 1),
-                                "routePlan" to routeSelection.routePlan
-                            )
+                                "routePlan" to routeSelection.routePlan,
+                            ),
                         )
                     }
                 }
@@ -129,8 +129,8 @@ class IndeRun(
                 message = "No providers were attempted.",
                 runId = runId,
                 details = mapOf(
-                    "attemptedProviderIds" to attemptedProviderIds
-                )
+                    "attemptedProviderIds" to attemptedProviderIds,
+                ),
             )
         } catch (error: CancellationException) {
             throw error
@@ -140,8 +140,8 @@ class IndeRun(
                 error,
                 fallbackRunId = runId,
                 fallbackDetails = mapOf(
-                    "totalMs" to totalMs
-                )
+                    "totalMs" to totalMs,
+                ),
             )
 
             safeEmit(
@@ -153,9 +153,9 @@ class IndeRun(
                         "providerId" to exception.providerId,
                         "durationMs" to totalMs,
                         "errorClass" to exception.errorClass.rawValue,
-                        "message" to getStableMessage(exception.errorClass)
-                    )
-                )
+                        "message" to getStableMessage(exception.errorClass),
+                    ),
+                ),
             )
 
             throw exception
@@ -221,7 +221,7 @@ class IndeRun(
             throw createInternal(
                 message = "Validation failed for TaskRequest: ${validationIssues.joinToString("; ")}",
                 runId = runId,
-                details = mapOf("validationIssues" to validationIssues)
+                details = mapOf("validationIssues" to validationIssues),
             )
         }
     }
@@ -238,7 +238,7 @@ class IndeRun(
         @JvmStatic
         fun initialize(
             context: Context,
-            registry: ProviderRegistry? = null
+            registry: ProviderRegistry? = null,
         ): IndeRun {
             val appContext = context.applicationContext
             val services = HostServicesFactory.create(appContext)

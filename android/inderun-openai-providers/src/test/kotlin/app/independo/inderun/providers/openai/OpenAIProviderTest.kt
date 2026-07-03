@@ -35,8 +35,8 @@ class OpenAIProviderTest {
             HostServices(
                 connectivity = onlineConnectivity(),
                 secureStorage = fakeSecureStorage(),
-                clock = fakeClock()
-            )
+                clock = fakeClock(),
+            ),
         )
         assertFalse(missingHttp.available)
 
@@ -45,8 +45,8 @@ class OpenAIProviderTest {
                 connectivity = onlineConnectivity(),
                 secureStorage = fakeSecureStorage(),
                 clock = fakeClock(),
-                httpClient = FakeHttpClient(emptyList())
-            )
+                httpClient = FakeHttpClient(emptyList()),
+            ),
         )
         assertTrue(available.available)
     }
@@ -59,12 +59,12 @@ class OpenAIProviderTest {
                     body = """{"output_text":"Hello from Responses.","status":"completed","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}""",
                     headers = emptyMap(),
                     status = 200,
-                    statusText = "OK"
-                )
-            )
+                    statusText = "OK",
+                ),
+            ),
         )
         val provider = OpenAIProvider(
-            OpenAIProviderOptions(model = "gpt-5.2", authContextRef = "openai-dev", timeoutMs = 30_000L)
+            OpenAIProviderOptions(model = "gpt-5.2", authContextRef = "openai-dev", timeoutMs = 30_000L),
         )
         val result = provider.run(
             request = TaskRequest(
@@ -72,9 +72,9 @@ class OpenAIProviderTest {
                 prompt = "Say hello.",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
-                authContextRef = "openai-dev"
+                authContextRef = "openai-dev",
             ),
-            context = RunContext("run_123", fakeHostServices(httpClient = httpClient))
+            context = RunContext("run_123", fakeHostServices(httpClient = httpClient)),
         )
 
         assertEquals("Hello from Responses.", result.output.text)
@@ -101,9 +101,9 @@ class OpenAIProviderTest {
                     body = """{"output_text":"Done."}""",
                     headers = emptyMap(),
                     status = 200,
-                    statusText = "OK"
-                )
-            )
+                    statusText = "OK",
+                ),
+            ),
         )
         val provider = OpenAIProvider(OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none))
 
@@ -112,12 +112,12 @@ class OpenAIProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 messages = listOf(
                     Message(MessageRole.SYSTEM, "Be concise."),
-                    Message(MessageRole.USER, "Say hello.")
+                    Message(MessageRole.USER, "Say hello."),
                 ),
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
             ),
-            context = RunContext("run_messages", fakeHostServices(httpClient = httpClient, includeSecret = false))
+            context = RunContext("run_messages", fakeHostServices(httpClient = httpClient, includeSecret = false)),
         )
 
         val input = JSONObject(httpClient.requests.single().body!!).getJSONArray("input")
@@ -134,9 +134,9 @@ class OpenAIProviderTest {
                     body = """{"error":{"message":"Too many requests","type":"rate_limit"}}""",
                     headers = mapOf("Retry-After" to "2"),
                     status = 429,
-                    statusText = "Too Many Requests"
-                )
-            )
+                    statusText = "Too Many Requests",
+                ),
+            ),
         )
 
         try {
@@ -145,9 +145,9 @@ class OpenAIProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
                 ),
-                context = RunContext("run_rate", fakeHostServices(httpClient = httpClient, includeSecret = false))
+                context = RunContext("run_rate", fakeHostServices(httpClient = httpClient, includeSecret = false)),
             )
         } catch (error: IndeRunException) {
             assertEquals(IndeRunErrorClass.RateLimited, error.errorClass)
@@ -169,9 +169,9 @@ class OpenAIProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
                 ),
-                context = RunContext("run_cancel", fakeHostServices(httpClient = httpClient, includeSecret = false))
+                context = RunContext("run_cancel", fakeHostServices(httpClient = httpClient, includeSecret = false)),
             )
         } catch (error: CancellationException) {
             return@runTest
@@ -183,7 +183,7 @@ class OpenAIProviderTest {
     @Test
     fun registryFactoryRegistersProvider() {
         val registry = AndroidCloudProviderRegistryFactory.makeOpenAIRegistry(
-            OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none)
+            OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none),
         )
 
         assertEquals(1, registry.list().size)
@@ -192,28 +192,22 @@ class OpenAIProviderTest {
 
     private fun fakeHostServices(
         httpClient: HttpClientService,
-        includeSecret: Boolean = true
-    ): HostServices {
-        return HostServices(
-            connectivity = onlineConnectivity(),
-            secureStorage = fakeSecureStorage(includeSecret),
-            clock = fakeClock(),
-            httpClient = httpClient
-        )
+        includeSecret: Boolean = true,
+    ): HostServices = HostServices(
+        connectivity = onlineConnectivity(),
+        secureStorage = fakeSecureStorage(includeSecret),
+        clock = fakeClock(),
+        httpClient = httpClient,
+    )
+
+    private fun fakeSecureStorage(includeSecret: Boolean = true): SecureStorageService = object : SecureStorageService {
+        override fun get(authContextRef: String): String? = if (includeSecret) "sk-from-slot" else null
+        override fun put(authContextRef: String, value: String) = Unit
+        override fun remove(authContextRef: String) = Unit
     }
 
-    private fun fakeSecureStorage(includeSecret: Boolean = true): SecureStorageService {
-        return object : SecureStorageService {
-            override fun get(authContextRef: String): String? = if (includeSecret) "sk-from-slot" else null
-            override fun put(authContextRef: String, value: String) = Unit
-            override fun remove(authContextRef: String) = Unit
-        }
-    }
-
-    private fun onlineConnectivity(): ConnectivityService {
-        return object : ConnectivityService {
-            override fun isOnline(): Boolean = true
-        }
+    private fun onlineConnectivity(): ConnectivityService = object : ConnectivityService {
+        override fun isOnline(): Boolean = true
     }
 
     private fun fakeClock(): ClockService {
@@ -227,7 +221,7 @@ class OpenAIProviderTest {
     }
 
     private class FakeHttpClient(
-        responses: List<Any>
+        responses: List<Any>,
     ) : HttpClientService {
         val requests = mutableListOf<HttpRequest>()
         private val queue = responses.toMutableList()
