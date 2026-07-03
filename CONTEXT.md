@@ -88,6 +88,8 @@ Checked-in JavaScript commands:
 - `pnpm build`
 - `pnpm test`
 - `pnpm generate`
+- `pnpm lint`
+- `pnpm format` / `pnpm format:check`
 - `pnpm run upgrade`
 - `pnpm --filter @independo/inderun-contracts build`
 - `pnpm --filter @independo/inderun-contracts test`
@@ -104,16 +106,20 @@ Checked-in Swift commands:
 
 - `cd ios/IndeRun && swift build`
 - `cd ios/IndeRun && swift test`
+- `cd ios/IndeRun && swiftlint lint --strict`
 
 Checked-in Android commands:
 
 - `cd android && ./gradlew build`
 - `cd android && ./gradlew test`
+- `cd android && ./gradlew spotlessCheck` (`spotlessApply` to auto-format)
 
 Checked-in Rust commands:
 
 - `cargo build -p inderun_route_core`
 - `cargo test -p inderun_route_core`
+- `cargo fmt -p inderun_route_core -- --check`
+- `cargo clippy -p inderun_route_core --all-targets -- -D warnings`
 - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown`
 - `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
 - `pnpm --filter @independo/inderun-route-core-wasm test`
