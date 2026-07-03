@@ -187,7 +187,8 @@ pub struct RoutePlan {
 
 pub fn plan_route(input: PlanRouteInput) -> RoutePlan {
     let mut providers = input.providers.clone();
-    providers.sort_by(|left, right| compare_inputs(left, right, &input.preferences, &input.constraints));
+    providers
+        .sort_by(|left, right| compare_inputs(left, right, &input.preferences, &input.constraints));
 
     let mut candidates = Vec::new();
     let mut rejected_providers = Vec::new();
@@ -225,8 +226,7 @@ pub fn plan_route(input: PlanRouteInput) -> RoutePlan {
             explanation: RouteExplanation {
                 summary: format!(
                     "Selected provider '{}' deterministically from {} eligible candidate(s).",
-                    selected_provider_id,
-                    candidate_count
+                    selected_provider_id, candidate_count
                 ),
                 selected_provider_id: Some(selected_provider_id),
             },
@@ -239,9 +239,14 @@ pub fn plan_route(input: PlanRouteInput) -> RoutePlan {
             "No eligible local provider found for task '{}'.",
             input.task.kind
         ),
-        RouteFailureCode::Offline => "Cloud execution was blocked because the host is offline.".to_string(),
+        RouteFailureCode::Offline => {
+            "Cloud execution was blocked because the host is offline.".to_string()
+        }
         RouteFailureCode::Unavailable => {
-            format!("No eligible cloud provider found for task '{}'.", input.task.kind)
+            format!(
+                "No eligible cloud provider found for task '{}'.",
+                input.task.kind
+            )
         }
     };
 
@@ -276,7 +281,11 @@ fn priority_tuple(
 ) -> (u8, u8, String) {
     let placement_rank = placement_rank(provider, constraints);
     let preference_rank = preference_rank(provider, preferences);
-    (placement_rank, preference_rank, provider.descriptor.id.clone())
+    (
+        placement_rank,
+        preference_rank,
+        provider.descriptor.id.clone(),
+    )
 }
 
 fn placement_rank(provider: &ProviderInput, constraints: &RoutingConstraints) -> u8 {
@@ -331,11 +340,13 @@ fn preference_rank(provider: &ProviderInput, preferences: &RoutingPreferences) -
             ProviderType::Edge => 1,
             ProviderType::Local => 2,
         },
-        Some(OptimizeFor::Cost) | Some(OptimizeFor::Balanced) | None => match provider.descriptor.provider_type {
-            ProviderType::Local => 0,
-            ProviderType::Edge => 1,
-            ProviderType::Cloud => 2,
-        },
+        Some(OptimizeFor::Cost) | Some(OptimizeFor::Balanced) | None => {
+            match provider.descriptor.provider_type {
+                ProviderType::Local => 0,
+                ProviderType::Edge => 1,
+                ProviderType::Cloud => 2,
+            }
+        }
     }
 }
 
@@ -355,7 +366,10 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
     if !descriptor.tasks.iter().any(|task| task == &input.task.kind) {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::TaskNotSupported,
-            message: format!("Provider '{}' does not support task '{}'.", descriptor.id, input.task.kind),
+            message: format!(
+                "Provider '{}' does not support task '{}'.",
+                descriptor.id, input.task.kind
+            ),
         });
     }
 
@@ -366,21 +380,31 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
         });
     }
 
-    if matches!(input.constraints.privacy, Some(PrivacyConstraint::LocalRequired))
-        && !is_data_private(descriptor)
+    if matches!(
+        input.constraints.privacy,
+        Some(PrivacyConstraint::LocalRequired)
+    ) && !is_data_private(descriptor)
     {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::PrivacyConstraint,
-            message: format!("Provider '{}' does not satisfy local-required privacy.", descriptor.id),
+            message: format!(
+                "Provider '{}' does not satisfy local-required privacy.",
+                descriptor.id
+            ),
         });
     }
 
-    if matches!(input.constraints.privacy, Some(PrivacyConstraint::CloudRequired))
-        && descriptor.provider_type != ProviderType::Cloud
+    if matches!(
+        input.constraints.privacy,
+        Some(PrivacyConstraint::CloudRequired)
+    ) && descriptor.provider_type != ProviderType::Cloud
     {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::PrivacyConstraint,
-            message: format!("Provider '{}' does not satisfy cloud-required privacy.", descriptor.id),
+            message: format!(
+                "Provider '{}' does not satisfy cloud-required privacy.",
+                descriptor.id
+            ),
         });
     }
 
@@ -389,7 +413,10 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
     {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::CloudConstraint,
-            message: format!("Provider '{}' is cloud-based but cloud execution is forbidden.", descriptor.id),
+            message: format!(
+                "Provider '{}' is cloud-based but cloud execution is forbidden.",
+                descriptor.id
+            ),
         });
     }
 
@@ -398,7 +425,10 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
     {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::CloudConstraint,
-            message: format!("Provider '{}' is not cloud-based but cloud execution is required.", descriptor.id),
+            message: format!(
+                "Provider '{}' is not cloud-based but cloud execution is required.",
+                descriptor.id
+            ),
         });
     }
 
@@ -417,10 +447,9 @@ fn evaluate_provider(provider: &ProviderInput, input: &PlanRouteInput) -> Vec<Re
     if !capabilities.available {
         reasons.push(RejectionReason {
             code: RejectionReasonCode::CapabilityUnavailable,
-            message: capabilities
-                .reason
-                .clone()
-                .unwrap_or_else(|| format!("Provider '{}' is currently unavailable.", descriptor.id)),
+            message: capabilities.reason.clone().unwrap_or_else(|| {
+                format!("Provider '{}' is currently unavailable.", descriptor.id)
+            }),
         });
     }
 
@@ -431,10 +460,12 @@ fn infer_failure_code(
     constraints: &RoutingConstraints,
     rejected_providers: &[RejectedProvider],
 ) -> RouteFailureCode {
-    if rejected_providers
-        .iter()
-        .any(|provider| provider.reasons.iter().any(|reason| reason.code == RejectionReasonCode::Offline))
-    {
+    if rejected_providers.iter().any(|provider| {
+        provider
+            .reasons
+            .iter()
+            .any(|reason| reason.code == RejectionReasonCode::Offline)
+    }) {
         return RouteFailureCode::Offline;
     }
 
@@ -448,11 +479,14 @@ fn infer_failure_code(
 }
 
 fn plan_route_json_string(input_json: &str) -> Result<String, String> {
-    let input = serde_json::from_str::<PlanRouteInput>(input_json).map_err(|error| error.to_string())?;
+    let input =
+        serde_json::from_str::<PlanRouteInput>(input_json).map_err(|error| error.to_string())?;
     let output = plan_route(input);
     serde_json::to_string(&output).map_err(|error| error.to_string())
 }
 
+// C FFI boundary: the caller owns and must pass a valid pointer.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn inderun_plan_route_json(input_json: *const c_char) -> *mut c_char {
     if input_json.is_null() {
@@ -482,6 +516,8 @@ pub extern "C" fn inderun_plan_route_json(input_json: *const c_char) -> *mut c_c
         .into_raw()
 }
 
+// C FFI boundary: the caller must pass a pointer previously returned by this crate.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn inderun_free_string(value: *mut c_char) {
     if value.is_null() {
@@ -605,7 +641,10 @@ mod tests {
             RoutingPreferences {
                 optimize_for: Some(OptimizeFor::Balanced),
             },
-            vec![cloud_provider("cloud_b", true), local_provider("local_a", true, true)],
+            vec![
+                cloud_provider("cloud_b", true),
+                local_provider("local_a", true, true),
+            ],
         );
 
         assert_eq!(plan.selected_provider_id.as_deref(), Some("local_a"));
@@ -626,8 +665,14 @@ mod tests {
         );
 
         assert_eq!(plan.selected_provider_id, None);
-        assert_eq!(plan.failure_code, Some(RouteFailureCode::CapabilityMismatch));
-        assert_eq!(plan.rejected_providers[0].reasons[0].code, RejectionReasonCode::CloudConstraint);
+        assert_eq!(
+            plan.failure_code,
+            Some(RouteFailureCode::CapabilityMismatch)
+        );
+        assert_eq!(
+            plan.rejected_providers[0].reasons[0].code,
+            RejectionReasonCode::CloudConstraint
+        );
     }
 
     #[test]
@@ -644,7 +689,10 @@ mod tests {
 
         assert_eq!(plan.selected_provider_id, None);
         assert_eq!(plan.failure_code, Some(RouteFailureCode::Unavailable));
-        assert_eq!(plan.rejected_providers[0].reasons[0].code, RejectionReasonCode::PrivacyConstraint);
+        assert_eq!(
+            plan.rejected_providers[0].reasons[0].code,
+            RejectionReasonCode::PrivacyConstraint
+        );
     }
 
     #[test]
@@ -661,7 +709,10 @@ mod tests {
 
         assert_eq!(plan.selected_provider_id, None);
         assert_eq!(plan.failure_code, Some(RouteFailureCode::Offline));
-        assert_eq!(plan.rejected_providers[0].reasons[0].code, RejectionReasonCode::Offline);
+        assert_eq!(
+            plan.rejected_providers[0].reasons[0].code,
+            RejectionReasonCode::Offline
+        );
     }
 
     #[test]
@@ -683,7 +734,10 @@ mod tests {
         );
 
         assert_eq!(plan.selected_provider_id.as_deref(), Some("cloud_a"));
-        assert_eq!(plan.fallback_provider_ids, vec!["cloud_b".to_string(), "local_a".to_string()]);
+        assert_eq!(
+            plan.fallback_provider_ids,
+            vec!["cloud_b".to_string(), "local_a".to_string()]
+        );
         assert_eq!(
             plan.candidates
                 .iter()
@@ -706,7 +760,10 @@ mod tests {
         );
 
         assert_eq!(plan.selected_provider_id, None);
-        assert_eq!(plan.failure_code, Some(RouteFailureCode::CapabilityMismatch));
+        assert_eq!(
+            plan.failure_code,
+            Some(RouteFailureCode::CapabilityMismatch)
+        );
         assert_eq!(
             plan.rejected_providers[0].reasons[0].code,
             RejectionReasonCode::CapabilityUnavailable
