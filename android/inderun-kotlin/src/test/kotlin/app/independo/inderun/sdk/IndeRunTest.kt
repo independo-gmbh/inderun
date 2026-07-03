@@ -11,12 +11,18 @@ import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
+import app.independo.inderun.contracts.TelemetryEvent
+import app.independo.inderun.contracts.TelemetryEventType
+import app.independo.inderun.core.ClockService
+import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.ProviderAdapter
 import app.independo.inderun.core.ProviderDescriptor
 import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.RunContext
+import app.independo.inderun.core.SecureStorageService
+import app.independo.inderun.core.TelemetryService
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,15 +33,42 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class IndeRunTest {
     @Test
-    fun initialize_exposesHostServices() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+    fun emitsTelemetryEventsThroughInjectedSink() = runTest {
+        val events = mutableListOf<TelemetryEvent>()
+        val telemetry = object : TelemetryService {
+            override fun emit(event: TelemetryEvent) {
+                events += event
+            }
+        }
+        val hostServices = HostServices(
+            connectivity = object : ConnectivityService {
+                override fun isOnline(): Boolean = false
+            },
+            secureStorage = object : SecureStorageService {
+                override fun get(authContextRef: String): String? = null
+                override fun put(authContextRef: String, value: String) = Unit
+                override fun remove(authContextRef: String) = Unit
+            },
+            clock = object : ClockService {
+                override fun elapsedRealtimeMillis(): Long = 0L
+            }
+        )
         val registry = ProviderRegistry().apply {
             register(FakeProvider())
         }
-        val indeRun = IndeRun.initialize(context, registry)
+        val indeRun = IndeRun(registry, hostServices, telemetry)
 
-        assertTrue(indeRun.clock.elapsedRealtimeMillis() >= 0)
-        assertTrue(indeRun.connectivity.isOnline() || !indeRun.connectivity.isOnline())
+        indeRun.run(
+            TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
+                prompt = "Hello",
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+            )
+        )
+
+        assertTrue(events.any { it.type == TelemetryEventType.RouteDecided })
+        assertTrue(events.any { it.type == TelemetryEventType.AttemptSucceeded })
     }
 
     @Test

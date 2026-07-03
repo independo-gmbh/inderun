@@ -122,9 +122,12 @@ public struct ProviderDescriptor: Codable, Sendable {
 // MARK: - ProviderDynamicCapabilities
 public struct ProviderDynamicCapabilities: Codable, Sendable {
     public let available: Bool
-    
-    public init(available: Bool) {
+    /// Detail message explaining why the provider is unavailable, when `available` is false.
+    public let reason: String?
+
+    public init(available: Bool, reason: String? = nil) {
         self.available = available
+        self.reason = reason
     }
 }
 

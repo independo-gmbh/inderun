@@ -8,7 +8,7 @@ import { registerPlugin } from "@capacitor/core";
 import type {
   ConfigureOptions,
   IndeRunCapacitorPlugin as IndeRunCapacitorPluginContract,
-  OpenAIProviderOptions
+  OpenAIProviderBootstrapOptions
 } from "./definitions.js";
 
 const IndeRunCapacitorNative = registerPlugin<IndeRunCapacitorPluginContract>("IndeRunCapacitor", {
@@ -76,7 +76,7 @@ export function createIndeRunCapacitor(options?: ConfigureOptions): IndeRunCapac
 export type {
   ConfigureOptions,
   IndeRunCapacitorPluginContract as IndeRunCapacitorPlugin,
-  OpenAIProviderOptions,
+  OpenAIProviderBootstrapOptions,
   TaskRequest,
   TaskResult
 };

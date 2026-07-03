@@ -98,11 +98,17 @@ public final class OpenAIProvider: ProviderAdapter, Sendable {
 
     public func capabilities(host: HostServices) async -> ProviderDynamicCapabilities {
         guard host.httpClient != nil else {
-            return ProviderDynamicCapabilities(available: false)
+            return ProviderDynamicCapabilities(
+                available: false,
+                reason: "OpenAI Responses provider requires an HttpClientService."
+            )
         }
 
         if options.auth != .none && host.secureStorage == nil {
-            return ProviderDynamicCapabilities(available: false)
+            return ProviderDynamicCapabilities(
+                available: false,
+                reason: "OpenAI Responses provider requires a SecureStorageService when auth is enabled."
+            )
         }
 
         return ProviderDynamicCapabilities(available: true)

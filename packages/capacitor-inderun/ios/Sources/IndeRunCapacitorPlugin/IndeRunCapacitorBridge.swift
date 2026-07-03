@@ -10,7 +10,7 @@ import IndeRunContracts
 import IndeRunOpenAIProviders
 import IndeRunSwift
 
-struct OpenAIBootstrapOptions: Codable {
+struct OpenAIProviderBootstrapOptions: Codable {
     let model: String
     let endpointURL: String?
     let auth: String?
@@ -19,7 +19,7 @@ struct OpenAIBootstrapOptions: Codable {
 }
 
 struct CapacitorRunOptions: Codable {
-    let openAI: OpenAIBootstrapOptions?
+    let openAI: OpenAIProviderBootstrapOptions?
     let allowDirectOpenAIEndpoint: Bool? // web-only, no-op on native
 }
 
@@ -49,7 +49,7 @@ final class IndeRunCapacitorBridge {
         try encodeObject(error)
     }
 
-    private func makeRegistry(openAI: OpenAIBootstrapOptions?) throws -> ProviderRegistry {
+    private func makeRegistry(openAI: OpenAIProviderBootstrapOptions?) throws -> ProviderRegistry {
         let registry = ProviderRegistry()
         try registry.register(AppleFoundationModelsProvider())
 

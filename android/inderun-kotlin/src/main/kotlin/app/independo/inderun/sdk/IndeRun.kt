@@ -1,15 +1,19 @@
 package app.independo.inderun.sdk
 
 import android.content.Context
+import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
+import app.independo.inderun.contracts.TelemetryEvent
+import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.Router
 import app.independo.inderun.core.RunContext
+import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.toIndeRunException
 import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
@@ -19,27 +23,25 @@ import kotlinx.coroutines.CancellationException
 /**
  * The primary entry point for the IndeRun Android SDK.
  *
- * This class provides access to all platform-specific [HostServices] required
- * by the IndeRun engine, such as connectivity, secure storage, time, and
- * provider-backed execution.
+ * Mirrors the TypeScript/Web and Swift engine surface: it is constructed with a
+ * [ProviderRegistry], the platform [HostServices], and an optional
+ * [TelemetryService]. Use [initialize] for the batteries-included Android setup
+ * that builds the default host services and ML Kit provider registry.
+ *
+ * @param registry Registry filled with active providers.
+ * @param hostServices Platform services wrapping OS interfaces (connectivity, secure storage, clock, HTTP).
+ * @param telemetry Optional telemetry sink. Falls back to [HostServices.telemetry] when not provided.
  */
-class IndeRun private constructor(
+class IndeRun(
+    private val registry: ProviderRegistry,
     private val hostServices: HostServices,
-    private val registry: ProviderRegistry
+    telemetry: TelemetryService? = null
 ) {
     private val router = Router(registry)
-
-    /** Accessor for connectivity information. */
-    val connectivity = hostServices.connectivity
-
-    /** Accessor for secure credential/secret storage. */
-    val secureStorage = hostServices.secureStorage
-
-    /** Accessor for the system clock. */
-    val clock = hostServices.clock
+    private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
 
     suspend fun run(request: TaskRequest): TaskResult {
-        val startTime = clock.elapsedRealtimeMillis().toDouble()
+        val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
 
         try {
@@ -48,6 +50,22 @@ class IndeRun private constructor(
             val routeSelection = router.selectRoute(request, hostServices)
             val providers = listOf(routeSelection.provider) + routeSelection.fallbackProviders
             val attemptedProviderIds = mutableListOf<String>()
+
+            safeEmit(
+                TelemetryEvent(
+                    type = TelemetryEventType.RouteDecided,
+                    runId = runId,
+                    timestamp = System.currentTimeMillis().toDouble(),
+                    payload = mapOf(
+                        "selectedProviderId" to routeSelection.routePlan.selectedProviderId,
+                        "fallbackProviderIds" to routeSelection.routePlan.fallbackProviderIds,
+                        "rejectedProviderIds" to routeSelection.routePlan.rejectedProviders.map { it.providerId },
+                        "fallbackAvailable" to (providers.size > 1),
+                        "taskKind" to request.task.kind.rawValue,
+                        "explanation" to routeSelection.explanation
+                    )
+                )
+            )
 
             for ((index, provider) in providers.withIndex()) {
                 val providerId = provider.describe().id
@@ -59,7 +77,22 @@ class IndeRun private constructor(
                         context = RunContext(runId = runId, hostServices = hostServices)
                     )
 
-                    val totalMs = clock.elapsedRealtimeMillis().toDouble() - startTime
+                    val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
+
+                    safeEmit(
+                        TelemetryEvent(
+                            type = TelemetryEventType.AttemptSucceeded,
+                            runId = runId,
+                            timestamp = System.currentTimeMillis().toDouble(),
+                            payload = mapOf(
+                                "providerId" to providerId,
+                                "durationMs" to totalMs,
+                                "fallbackOccurred" to (index > 0),
+                                "attemptedProviderIds" to attemptedProviderIds.toList()
+                            )
+                        )
+                    )
+
                     return result.copy(
                         runId = runId,
                         telemetry = result.telemetry.copy(
@@ -95,14 +128,57 @@ class IndeRun private constructor(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            throw toIndeRunException(
+            val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
+            val exception = toIndeRunException(
                 error,
-               fallbackRunId = runId,
+                fallbackRunId = runId,
                 fallbackDetails = mapOf(
-                    "totalMs" to (clock.elapsedRealtimeMillis().toDouble() - startTime)
+                    "totalMs" to totalMs
                 )
             )
+
+            safeEmit(
+                TelemetryEvent(
+                    type = TelemetryEventType.AttemptFailed,
+                    runId = runId,
+                    timestamp = System.currentTimeMillis().toDouble(),
+                    payload = mapOf(
+                        "providerId" to exception.providerId,
+                        "durationMs" to totalMs,
+                        "errorClass" to exception.errorClass.rawValue,
+                        "message" to getStableMessage(exception.errorClass)
+                    )
+                )
+            )
+
+            throw exception
         }
+    }
+
+    /**
+     * Emits a telemetry event, swallowing any sink failures so telemetry can
+     * never disrupt primary execution flows.
+     */
+    private fun safeEmit(event: TelemetryEvent) {
+        val telemetry = telemetryService ?: return
+        try {
+            telemetry.emit(event)
+        } catch (_: Throwable) {
+            // Telemetry failures must never disrupt primary execution flows.
+        }
+    }
+
+    /**
+     * Returns a stable, generic message for an error class for privacy-preserving telemetry.
+     */
+    private fun getStableMessage(errorClass: IndeRunErrorClass): String = when (errorClass) {
+        IndeRunErrorClass.CapabilityMismatch -> "Provider capability mismatch."
+        IndeRunErrorClass.Offline -> "Device is offline."
+        IndeRunErrorClass.AuthError -> "Authentication failed."
+        IndeRunErrorClass.RateLimited -> "Rate limit exceeded."
+        IndeRunErrorClass.Timeout -> "Execution timed out."
+        IndeRunErrorClass.Unavailable -> "Provider is unavailable."
+        IndeRunErrorClass.Internal -> "An internal engine error occurred."
     }
 
     private fun validateRequest(request: TaskRequest, runId: String) {
@@ -145,10 +221,12 @@ class IndeRun private constructor(
 
     companion object {
         /**
-         * Initializes the IndeRun SDK with a given Android [Context].
+         * Initializes the IndeRun SDK with the default Android host services and,
+         * unless overridden, the default ML Kit provider registry.
          *
          * @param context The application or activity context.
-         * @return A new instance of the [IndeRun] SDK.
+         * @param registry Optional provider registry override.
+         * @return A new [IndeRun] instance.
          */
         @JvmStatic
         fun initialize(
@@ -156,9 +234,9 @@ class IndeRun private constructor(
             registry: ProviderRegistry? = null
         ): IndeRun {
             val appContext = context.applicationContext
-            val services = HostServicesFactory.create(context.applicationContext)
+            val services = HostServicesFactory.create(appContext)
             val providerRegistry = registry ?: AndroidProviderRegistryFactory.makeDefaultRegistry(appContext)
-            return IndeRun(services, providerRegistry)
+            return IndeRun(providerRegistry, services)
         }
     }
 }
