@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   IndeRun,
   IndeRunException,
-  OpenAIResponsesProvider,
   ProviderRegistry,
   createIndeRunWeb,
   type HostServices,
@@ -12,6 +11,7 @@ import {
   type HttpResponse,
   type SecureStorageService
 } from "./index.js";
+import { OpenAIResponsesProvider } from "./openai.js";
 
 class MockSecureStorage implements SecureStorageService {
   constructor(private readonly slots: Record<string, string> = {}) {}

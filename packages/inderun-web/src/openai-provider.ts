@@ -19,7 +19,7 @@ export const DEFAULT_OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/resp
 /**
  * Configuration for the OpenAI Responses provider.
  */
-export interface OpenAIResponsesProviderOptions {
+export interface OpenAIProviderOptions {
   /**
    * Provider id exposed in telemetry and routing explanations.
    */
@@ -85,7 +85,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
    * Creates an OpenAI Responses provider.
    * @param options - Provider configuration, including required OpenAI model id.
    */
-  constructor(private readonly options: OpenAIResponsesProviderOptions) {
+  constructor(private readonly options: OpenAIProviderOptions) {
     this.id = options.id ?? "openai";
     this.endpointUrl = options.endpointUrl ?? DEFAULT_OPENAI_RESPONSES_ENDPOINT;
     this.auth = options.auth ?? "authContextRef";

@@ -1,6 +1,6 @@
 import type { TaskRequest, TaskResult } from "@independo/inderun-contracts";
 
-export interface OpenAIProviderBootstrapOptions {
+export interface OpenAIProviderOptions {
   model: string;
   endpointUrl?: string;
   auth?: "authContextRef" | "none";
@@ -9,7 +9,7 @@ export interface OpenAIProviderBootstrapOptions {
 }
 
 export interface ConfigureOptions {
-  openAI?: OpenAIProviderBootstrapOptions;
+  openAI?: OpenAIProviderOptions;
   allowDirectOpenAIEndpoint?: boolean;
 }
 

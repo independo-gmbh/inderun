@@ -3,7 +3,7 @@ import { IndeRun } from "./engine.js";
 import {
   DEFAULT_OPENAI_RESPONSES_ENDPOINT,
   OpenAIResponsesProvider,
-  type OpenAIResponsesProviderOptions
+  type OpenAIProviderOptions
 } from "./openai-provider.js";
 import { ProviderRegistry } from "./registry.js";
 
@@ -14,7 +14,7 @@ export interface CreateIndeRunWebOptions {
   /**
    * OpenAI Responses provider configuration registered by the factory.
    */
-  openAI: OpenAIResponsesProviderOptions;
+  openAI: OpenAIProviderOptions;
   /**
    * Optional browser host service overrides.
    */
