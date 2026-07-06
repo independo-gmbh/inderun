@@ -485,10 +485,12 @@ fn plan_route_json_string(input_json: &str) -> Result<String, String> {
     serde_json::to_string(&output).map_err(|error| error.to_string())
 }
 
-// C FFI boundary: the caller owns and must pass a valid pointer.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// C FFI boundary: the caller owns and must pass a valid, NUL-terminated pointer.
+///
+/// # Safety
+/// `input_json` must be null or a valid pointer to a NUL-terminated C string.
 #[no_mangle]
-pub extern "C" fn inderun_plan_route_json(input_json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn inderun_plan_route_json(input_json: *const c_char) -> *mut c_char {
     if input_json.is_null() {
         return CString::new(
             serde_json::json!({
@@ -516,10 +518,13 @@ pub extern "C" fn inderun_plan_route_json(input_json: *const c_char) -> *mut c_c
         .into_raw()
 }
 
-// C FFI boundary: the caller must pass a pointer previously returned by this crate.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// C FFI boundary: takes ownership of and frees a string previously returned by this crate.
+///
+/// # Safety
+/// `value` must be null or a pointer previously returned by `inderun_plan_route_json`
+/// (and not already freed).
 #[no_mangle]
-pub extern "C" fn inderun_free_string(value: *mut c_char) {
+pub unsafe extern "C" fn inderun_free_string(value: *mut c_char) {
     if value.is_null() {
         return;
     }
