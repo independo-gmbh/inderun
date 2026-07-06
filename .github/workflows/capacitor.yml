@@ -51,7 +51,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm generate
+      - run: pnpm generate:code
       - name: Build Rust WASM bindings
         run: |
           RUSTC="$(rustup which rustc --toolchain stable)" \
@@ -62,7 +62,7 @@ jobs:
             --out-name inderun_route_core
       - run: pnpm build
       - run: pnpm lint
-      - run: pnpm format:check
+      - run: pnpm format:check:js
       - run: pnpm --filter @independo/capacitor-inderun run lint
 
   test_web:
@@ -105,7 +105,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm generate
+      - run: pnpm generate:code
       - name: Build Rust WASM bindings
         run: |
           RUSTC="$(rustup which rustc --toolchain stable)" \
@@ -192,7 +192,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm generate
+      - run: pnpm generate:code
       - name: Build Rust WASM bindings
         run: |
           RUSTC="$(rustup which rustc --toolchain stable)" \
@@ -282,7 +282,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm generate
+      - run: pnpm generate:code
       - name: Build Rust WASM bindings
         run: |
           RUSTC="$(rustup which rustc --toolchain stable)" \
