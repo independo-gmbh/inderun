@@ -12,7 +12,7 @@
     "test:js": "pnpm -r test",
     "test:rust": "cargo test --workspace",
     "test:kotlin": "cd android && ./gradlew test",
-    "test:swift": "cd ios/IndeRun && swift test",
+    "test:swift": "swift test",
     "generate": "pnpm generate:code && pnpm generate:kotlin",
     "generate:code": "node contracts/scripts/generate-contracts.mjs",
     "generate:kotlin": "cd android && ./gradlew :inderun-contracts:spotlessApply",
@@ -32,11 +32,17 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@saithodev/semantic-release-backmerge": "^4.0.1",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.7.0",
     "prettier": "^3.9.4",
     "quicktype": "^23.2.6",
+    "semantic-release": "^25.0.5",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.1"
   }

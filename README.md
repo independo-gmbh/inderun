@@ -8,6 +8,16 @@
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml"><img alt="Capacitor Plugin" src="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml/badge.svg"></a>
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@independo/inderun-web"><img alt="npm: @independo/inderun-web" src="https://img.shields.io/npm/v/@independo/inderun-web?logo=npm&label=inderun-web"></a>
+  <a href="https://central.sonatype.com/artifact/app.independo.inderun/inderun-kotlin"><img alt="Maven Central: app.independo.inderun:inderun-kotlin" src="https://img.shields.io/maven-central/v/app.independo.inderun/inderun-kotlin?logo=apachemaven&label=inderun-kotlin"></a>
+  <a href="https://github.com/independo-gmbh/inderun/releases"><img alt="Swift Package Manager (git tag)" src="https://img.shields.io/github/v/tag/independo-gmbh/inderun?logo=swift&label=SwiftPM"></a>
+</p>
+
+<p align="center">
+  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+
 IndeRun is an open-source AI execution framework that gives applications one unified API for running tasks across
 on-device, edge, and cloud providers.
 
@@ -54,12 +64,37 @@ Supporting packages and demos:
 - `@independo/inderun-web-demo`
 - `@independo/inderun-route-core-wasm`
 
+## Installing
+
+**npm** (web / Node):
+
+```sh
+pnpm add @independo/inderun-web   # pulls in contracts + route-core-wasm
+```
+
+**Swift Package Manager** (iOS/macOS) — the SDK is consumed by URL + git tag:
+
+```swift
+.package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
+// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders, IndeRunOpenAIProviders
+```
+
+**Gradle** (Android, via Maven Central):
+
+```kotlin
+implementation("app.independo.inderun:inderun-kotlin:0.1.0")
+```
+
+Releases are automated with semantic-release (Conventional Commits). See `docs/release.md`
+for the versioning strategy, branch strategy, and registry setup.
+
 ## Core Docs
 
 - Project brief: `docs/architecture/technical-brief.md`
 - Architecture overview: `docs/architecture/architecture.md`
 - Provider model: `docs/architecture/providers.md`
 - CI behavior: `docs/ci.md`
+- Releases & publishing: `docs/release.md`
 - Contributor workflow and build commands: `CONTRIBUTING.md`
 - Agent instructions: `AGENTS.md`
 
