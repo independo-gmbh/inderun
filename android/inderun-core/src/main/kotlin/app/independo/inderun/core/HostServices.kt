@@ -80,7 +80,7 @@ object HostServicesFactory {
             connectivity = ConnectivityServiceImpl(appContext),
             secureStorage = SecureStorageServiceImpl(appContext),
             clock = ClockServiceImpl(),
-            httpClient = URLConnectionHttpClientService()
+            httpClient = URLConnectionHttpClientService(),
         )
     }
 }
@@ -93,5 +93,5 @@ data class HostServices(
     val secureStorage: SecureStorageService,
     val clock: ClockService,
     val httpClient: HttpClientService? = null,
-    val telemetry: TelemetryService? = null
+    val telemetry: TelemetryService? = null,
 )

@@ -31,6 +31,17 @@ cargo build -p inderun_route_core
 cargo test -p inderun_route_core
 ```
 
+Lint and format (run before pushing; CI gates on these):
+
+```sh
+pnpm lint                                                    # ESLint (TypeScript)
+pnpm format                                                  # Prettier write (format:check to verify)
+cd ios/IndeRun && swiftlint lint --strict                    # Swift
+cd android && ./gradlew spotlessApply                        # Kotlin (spotlessCheck to verify)
+cargo fmt -p inderun_route_core                              # Rust (add -- --check to verify)
+cargo clippy -p inderun_route_core --all-targets -- -D warnings
+```
+
 Package commands:
 
 ```sh

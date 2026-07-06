@@ -33,11 +33,9 @@ val registry = ProviderRegistry().apply {
 val indeRun = IndeRun.initialize(this, registry)
 ```
 
-## Services
-
-- `connectivity`
-- `secureStorage`
-- `clock`
+For full control (e.g. custom host services or a telemetry sink), construct the
+engine directly with `IndeRun(registry, hostServices, telemetry)` — the same
+shape as the TypeScript and Swift SDKs.
 
 ## Notes
 

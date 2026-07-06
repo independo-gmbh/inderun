@@ -21,6 +21,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        working-directory: ios/IndeRun
+        run: swiftlint lint --strict
+
       - name: Run Swift package tests
         working-directory: ios/IndeRun
         run: swift test

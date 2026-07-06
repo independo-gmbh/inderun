@@ -1,7 +1,8 @@
 import type { TaskResult } from "@independo/inderun-contracts";
 import { type IndeRunException, toIndeRunException } from "@independo/inderun-web";
 
-const DEFAULT_PROMPT = "Write a terse status update explaining what IndeRun routed and why it matters.";
+const DEFAULT_PROMPT =
+  "Write a terse status update explaining what IndeRun routed and why it matters.";
 
 export interface AppDependencies {
   config: {
@@ -62,8 +63,8 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
         <section class="panel composer">
           <h2 class="subtitle">Execution Mode</h2>
           <div class="mode-selector">
-            <button id="mode-on-device" class="mode-btn ${state.executionMode === 'on_device' ? 'active' : ''}">On Device</button>
-            <button id="mode-cloud" class="mode-btn ${state.executionMode === 'cloud' ? 'active' : ''}">Cloud</button>
+            <button id="mode-on-device" class="mode-btn ${state.executionMode === "on_device" ? "active" : ""}">On Device</button>
+            <button id="mode-cloud" class="mode-btn ${state.executionMode === "cloud" ? "active" : ""}">Cloud</button>
           </div>
 
           <label class="label" for="prompt">Prompt</label>
@@ -72,7 +73,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
           )}</textarea>
           <div class="actions">
             <button id="run-button" type="button" ${state.status === "running" ? "disabled" : ""}>
-              ${state.status === "running" ? "Running..." : state.executionMode === 'on_device' ? "Run On Device" : "Run Through Cloud"}
+              ${state.status === "running" ? "Running..." : state.executionMode === "on_device" ? "Run On Device" : "Run Through Cloud"}
             </button>
             <p class="hint">Endpoint: <code class="code">${escapeHtml(deps.config.proxyEndpointUrl)}</code></p>
           </div>

@@ -6,7 +6,7 @@ public struct RouteSelection: Sendable {
     public let fallbackProviders: [any ProviderAdapter]
     public let routePlan: RoutePlan
     public let explanation: String
-    
+
     public init(
         provider: any ProviderAdapter,
         fallbackProviders: [any ProviderAdapter],
@@ -23,7 +23,7 @@ public struct RouteSelection: Sendable {
 public final class Router: Sendable {
     private let registry: ProviderRegistry
     private let planner: any RoutePlanning
-    
+
     public init(registry: ProviderRegistry) {
         self.registry = registry
         self.planner = SharedCoreRoutePlanner.shared
@@ -33,7 +33,7 @@ public final class Router: Sendable {
         self.registry = registry
         self.planner = planner
     }
-    
+
     public func selectRoute(
         request: TaskRequest,
         hostServices: HostServices
@@ -166,7 +166,8 @@ public final class Router: Sendable {
             },
             explanation: Explanation(
                 selectedProviderId: ordered.first?.descriptor.id,
-                summary: "Selected provider '\(ordered.first?.descriptor.id ?? "")' deterministically from \(ordered.count) eligible candidate(s)."
+                summary: "Selected provider '\(ordered.first?.descriptor.id ?? "")' deterministically "
+                    + "from \(ordered.count) eligible candidate(s)."
             ),
             failureCode: nil,
             fallbackProviderIds: ordered.dropFirst().map { $0.descriptor.id },

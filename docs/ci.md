@@ -4,10 +4,14 @@ IndeRun uses split GitHub Actions workflows so each ecosystem reports its own st
 
 ## Workflows
 
-- `JavaScript`: `pnpm install --frozen-lockfile`, `pnpm generate`, Rust WASM generation, `pnpm build`, `pnpm test`
-- `Rust`: `cargo test -p inderun_route_core`
-- `Swift`: `cd ios/IndeRun && swift test`
-- `Android`: `cd android && ./gradlew test`
+Each workflow lives in `.github/workflows/` — treat those files as the source of
+truth for exact steps. This table describes only what each one covers.
+
+- `JavaScript` (`javascript.yml`): builds and tests the pnpm packages, regenerating the shared contract and Rust→WASM artifacts first.
+- `Rust` (`rust.yml`): builds and tests the `inderun_route_core` crate.
+- `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
+- `Android` (`android.yml`): builds and tests the Gradle modules.
+- `Capacitor Plugin` (`capacitor.yml`): lints, unit-tests, and verifies the `@independo/capacitor-inderun` plugin across web, iOS, and Android.
 
 ## Branch Protection
 
@@ -17,6 +21,7 @@ Protect `main` with these required checks:
 - `Rust`
 - `Swift`
 - `Android`
+- `Capacitor Plugin`
 
 ## Notes
 

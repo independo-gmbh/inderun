@@ -58,14 +58,7 @@ export {
   type FetchHttpClientOptions
 } from "./browser-host.js";
 
-export {
-  OpenAIResponsesProvider,
-  type OpenAIResponsesProviderOptions,
-  OpenAIResponsesProvider as OpenAIProvider,
-  type OpenAIResponsesProviderOptions as OpenAIProviderOptions
-} from "./openai-provider.js";
+export { createIndeRunWeb, type CreateIndeRunWebOptions } from "./web-sdk.js";
 
-export {
-  createIndeRunWeb,
-  type CreateIndeRunWebOptions
-} from "./web-sdk.js";
+// The OpenAI Responses adapter is provider-specific and intentionally excluded
+// from this unified index. Import it from "@independo/inderun-web/openai".

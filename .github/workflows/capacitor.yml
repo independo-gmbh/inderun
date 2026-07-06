@@ -61,6 +61,8 @@ jobs:
             --out-dir packages/inderun-route-core-wasm/generated \
             --out-name inderun_route_core
       - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm format:check
       - run: pnpm --filter @independo/capacitor-inderun run lint
 
   test_web:

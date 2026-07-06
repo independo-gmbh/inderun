@@ -12,12 +12,12 @@ data class ProviderDescriptor(
     val cancel: CancelSemantics,
     val tasks: List<String>,
     val limits: ResourceLimits? = null,
-    val privacy: PrivacyDescriptor? = null
+    val privacy: PrivacyDescriptor? = null,
 ) {
     enum class ProviderType {
         local,
         edge,
-        cloud
+        cloud,
     }
 
     enum class TransportType {
@@ -25,13 +25,13 @@ data class ProviderDescriptor(
         system_service,
         http,
         sse,
-        realtime
+        realtime,
     }
 
     enum class StreamingStyle {
         tokens,
         chunks,
-        snapshots
+        snapshots,
     }
 
     data class SupportsCapabilities(
@@ -41,36 +41,36 @@ data class ProviderDescriptor(
         val tools: Boolean,
         val reasoningEvents: Boolean,
         val structuredOutput: Boolean,
-        val multimodal: Boolean
+        val multimodal: Boolean,
     )
 
     enum class CancelSemantics {
         hard,
         soft,
-        none
+        none,
     }
 
     data class ResourceLimits(
         val maxInputTokens: Int? = null,
         val maxOutputTokens: Int? = null,
         val maxImageBytes: Int? = null,
-        val maxAudioSeconds: Int? = null
+        val maxAudioSeconds: Int? = null,
     )
 
     data class PrivacyDescriptor(
         val dataLeavesDevice: Boolean,
-        val regions: List<String>? = null
+        val regions: List<String>? = null,
     )
 }
 
 data class ProviderDynamicCapabilities(
     val available: Boolean,
-    val reason: String? = null
+    val reason: String? = null,
 )
 
 data class RunContext(
     val runId: String,
-    val hostServices: HostServices
+    val hostServices: HostServices,
 )
 
 interface ProviderAdapter {

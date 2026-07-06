@@ -291,9 +291,7 @@ async function generateKotlinContracts(tempDir) {
     quicktypeOutputPath
   ]);
 
-  const kotlinSource = normalizeKotlinContractsSource(
-    await readFile(quicktypeOutputPath, "utf8")
-  );
+  const kotlinSource = normalizeKotlinContractsSource(await readFile(quicktypeOutputPath, "utf8"));
 
   await mkdir(dirname(kotlinContractsPath), { recursive: true });
   await writeFile(kotlinContractsPath, kotlinSource);
@@ -369,7 +367,10 @@ try {
     ["HTTPRequest", "HttpRequest"],
     ["HTTPResponse", "HttpResponse"],
     ['case authError = "AuthError"', 'case AuthError = "AuthError"'],
-    ['case capabilityMismatch = "CapabilityMismatch"', 'case CapabilityMismatch = "CapabilityMismatch"'],
+    [
+      'case capabilityMismatch = "CapabilityMismatch"',
+      'case CapabilityMismatch = "CapabilityMismatch"'
+    ],
     ['case errorClassInternal = "Internal"', 'case Internal = "Internal"'],
     ['case offline = "Offline"', 'case Offline = "Offline"'],
     ['case rateLimited = "RateLimited"', 'case RateLimited = "RateLimited"'],

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   IndeRun,
   IndeRunException,
-  OpenAIResponsesProvider,
   ProviderRegistry,
   createIndeRunWeb,
   type HostServices,
@@ -12,6 +11,7 @@ import {
   type HttpResponse,
   type SecureStorageService
 } from "./index.js";
+import { OpenAIResponsesProvider } from "./openai.js";
 
 class MockSecureStorage implements SecureStorageService {
   constructor(private readonly slots: Record<string, string> = {}) {}
@@ -51,7 +51,10 @@ class ThrowingHttpClient implements HttpClientService {
   }
 }
 
-function createHost(httpClient: HttpClientService, secureStorage?: SecureStorageService): HostServices {
+function createHost(
+  httpClient: HttpClientService,
+  secureStorage?: SecureStorageService
+): HostServices {
   const host: HostServices = {
     connectivity: {
       async isOnline() {
@@ -93,7 +96,11 @@ function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   return request;
 }
 
-function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): HttpResponse {
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {}
+): HttpResponse {
   return {
     status,
     statusText: status === 200 ? "OK" : "Error",
@@ -118,9 +125,7 @@ describe("OpenAIResponsesProvider", () => {
   it("reports unavailable capabilities when auth is enabled without secure storage", async () => {
     const provider = new OpenAIResponsesProvider({ model: "gpt-5.2" });
 
-    await expect(
-      provider.capabilities(createHost(new MockHttpClient([])))
-    ).resolves.toEqual({
+    await expect(provider.capabilities(createHost(new MockHttpClient([])))).resolves.toEqual({
       available: false,
       reason: "OpenAI Responses provider requires a SecureStorageService when auth is enabled."
     });
@@ -132,9 +137,9 @@ describe("OpenAIResponsesProvider", () => {
       auth: "none"
     });
 
-    await expect(
-      provider.capabilities(createHost(new MockHttpClient([])))
-    ).resolves.toEqual({ available: true });
+    await expect(provider.capabilities(createHost(new MockHttpClient([])))).resolves.toEqual({
+      available: true
+    });
   });
 
   it("posts a Responses API request and maps output_text to TaskResult output text", async () => {
@@ -205,9 +210,7 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   it("maps system messages to developer messages for Responses input arrays", async () => {
-    const httpClient = new MockHttpClient([
-      jsonResponse({ output_text: "Done." })
-    ]);
+    const httpClient = new MockHttpClient([jsonResponse({ output_text: "Done." })]);
 
     await runWithProvider(
       createRequest({
@@ -230,9 +233,7 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   it("supports proxy mode without sending an Authorization header", async () => {
-    const httpClient = new MockHttpClient([
-      jsonResponse({ output_text: "Proxy response." })
-    ]);
+    const httpClient = new MockHttpClient([jsonResponse({ output_text: "Proxy response." })]);
     const engine = createIndeRunWeb({
       openAI: {
         model: "gpt-5.2",
@@ -313,9 +314,7 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   it("maps DOM-style abort errors to Timeout", async () => {
-    await expect(
-      runWithProvider(createRequest(), new ThrowingHttpClient())
-    ).rejects.toMatchObject({
+    await expect(runWithProvider(createRequest(), new ThrowingHttpClient())).rejects.toMatchObject({
       errorClass: "Timeout"
     });
   });

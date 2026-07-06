@@ -1,25 +1,25 @@
 package app.independo.inderun.core
 
-import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.Candidate
+import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.TaskRequest
 
 data class RouteSelection(
     val provider: ProviderAdapter,
     val fallbackProviders: List<ProviderAdapter>,
     val routePlan: SharedPlannerRoutePlan,
-    val explanation: String
+    val explanation: String,
 )
 
 class Router private constructor(
     private val registry: ProviderRegistry,
-    private val planner: RoutePlanner
+    private val planner: RoutePlanner,
 ) {
     constructor(registry: ProviderRegistry) : this(registry, SharedCoreRoutePlanner)
 
     suspend fun selectRoute(
         request: TaskRequest,
-        hostServices: HostServices
+        hostServices: HostServices,
     ): RouteSelection {
         val online = hostServices.connectivity.isOnline()
         val snapshots = collectProviderSnapshots(hostServices)
@@ -28,8 +28,8 @@ class Router private constructor(
             buildSharedPlannerInput(
                 request = request,
                 online = online,
-                snapshots = snapshots
-            )
+                snapshots = snapshots,
+            ),
         )?.let { routePlan ->
             return selectFromRoutePlan(snapshots, routePlan)
         }
@@ -37,21 +37,19 @@ class Router private constructor(
         return selectFallbackRoute(request, snapshots, online)
     }
 
-    private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> {
-        return registry.list()
-            .map { provider ->
-                ProviderSnapshot(
-                    provider = provider,
-                    descriptor = provider.describe(),
-                    capabilities = provider.capabilities(hostServices)
-                )
-            }
-            .sortedBy { snapshot -> snapshot.descriptor.id }
-    }
+    private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> = registry.list()
+        .map { provider ->
+            ProviderSnapshot(
+                provider = provider,
+                descriptor = provider.describe(),
+                capabilities = provider.capabilities(hostServices),
+            )
+        }
+        .sortedBy { snapshot -> snapshot.descriptor.id }
 
     private fun selectFromRoutePlan(
         snapshots: List<ProviderSnapshot>,
-        routePlan: SharedPlannerRoutePlan
+        routePlan: SharedPlannerRoutePlan,
     ): RouteSelection {
         routePlan.selectedProviderId?.let { selectedProviderId ->
             val orderedSnapshots = routePlan.candidates.mapNotNull { candidate ->
@@ -71,7 +69,7 @@ class Router private constructor(
                     provider = selected.provider,
                     fallbackProviders = orderedSnapshots.drop(1).map { it.provider },
                     routePlan = routePlan,
-                    explanation = routePlan.explanation.summary
+                    explanation = routePlan.explanation.summary,
                 )
             }
         }
@@ -82,7 +80,7 @@ class Router private constructor(
     private fun selectFallbackRoute(
         request: TaskRequest,
         snapshots: List<ProviderSnapshot>,
-        online: Boolean
+        online: Boolean,
     ): RouteSelection {
         val plan = createFallbackPlan(request, snapshots, online)
         return selectFromRoutePlan(snapshots, plan)
@@ -91,12 +89,12 @@ class Router private constructor(
     private fun createFallbackPlan(
         request: TaskRequest,
         snapshots: List<ProviderSnapshot>,
-        online: Boolean
+        online: Boolean,
     ): SharedPlannerRoutePlan {
         val planInput = buildSharedPlannerInput(
             request = request,
             online = online,
-            snapshots = snapshots
+            snapshots = snapshots,
         )
 
         val eligible = snapshots.filter { snapshot ->
@@ -132,12 +130,12 @@ class Router private constructor(
                 candidates = emptyList(),
                 explanation = SharedPlannerExplanation(
                     summary = "No eligible provider found for the current routing constraints.",
-                    selectedProviderId = null
+                    selectedProviderId = null,
                 ),
                 failureCode = failureCode,
                 fallbackProviderIds = emptyList(),
                 rejectedProviders = emptyList(),
-                selectedProviderId = null
+                selectedProviderId = null,
             )
         }
 
@@ -147,12 +145,12 @@ class Router private constructor(
             },
             explanation = SharedPlannerExplanation(
                 summary = "Selected provider '${ordered.first().descriptor.id}' deterministically from ${ordered.size} eligible candidate(s).",
-                selectedProviderId = ordered.first().descriptor.id
+                selectedProviderId = ordered.first().descriptor.id,
             ),
             failureCode = null,
             fallbackProviderIds = ordered.drop(1).map { it.descriptor.id },
             rejectedProviders = emptyList(),
-            selectedProviderId = ordered.first().descriptor.id
+            selectedProviderId = ordered.first().descriptor.id,
         )
     }
 
@@ -166,14 +164,12 @@ class Router private constructor(
     }
 
     internal companion object {
-        fun withPlanner(registry: ProviderRegistry, planner: RoutePlanner): Router {
-            return Router(registry, planner)
-        }
+        fun withPlanner(registry: ProviderRegistry, planner: RoutePlanner): Router = Router(registry, planner)
     }
 }
 
 internal data class ProviderSnapshot(
     val provider: ProviderAdapter,
     val descriptor: ProviderDescriptor,
-    val capabilities: ProviderDynamicCapabilities
+    val capabilities: ProviderDynamicCapabilities,
 )

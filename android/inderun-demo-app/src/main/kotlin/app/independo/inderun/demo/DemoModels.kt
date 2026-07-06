@@ -5,26 +5,26 @@ import app.independo.inderun.contracts.TaskRequestConstraints
 import java.util.Locale
 
 internal object DemoDefaults {
-    const val defaultCloudEndpointUrl = "http://10.0.2.2:8787/api/inderun/openai-responses"
-    const val defaultCloudModel = "gpt-5.2"
-    const val defaultPrompt = "Summarize when on-device AI is preferable to cloud AI in two short sentences."
+    const val DEFAULT_CLOUD_ENDPOINT_URL = "http://10.0.2.2:8787/api/inderun/openai-responses"
+    const val DEFAULT_CLOUD_MODEL = "gpt-5.2"
+    const val DEFAULT_PROMPT = "Summarize when on-device AI is preferable to cloud AI in two short sentences."
 }
 
 internal enum class DemoExecutionMode(
     val title: String,
     val requestConstraints: TaskRequestConstraints,
-    val providerFallback: String
+    val providerFallback: String,
 ) {
     OnDevice(
         title = "On Device",
         requestConstraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
-        providerFallback = "on_device"
+        providerFallback = "on_device",
     ),
     Cloud(
         title = "Cloud",
         requestConstraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
-        providerFallback = "cloud"
-    )
+        providerFallback = "cloud",
+    ),
 }
 
 internal enum class DemoAvailabilityKind {
@@ -32,13 +32,13 @@ internal enum class DemoAvailabilityKind {
     Available,
     Downloadable,
     Downloading,
-    Unavailable
+    Unavailable,
 }
 
 internal data class DemoAvailabilityState(
     val badgeTitle: String,
     val kind: DemoAvailabilityKind,
-    val message: String
+    val message: String,
 ) {
     companion object {
         fun checking(message: String) = DemoAvailabilityState("Checking", DemoAvailabilityKind.Checking, message)
@@ -51,7 +51,7 @@ internal data class DemoAvailabilityState(
 
 internal data class DemoSettings(
     val endpointUrl: String,
-    val model: String
+    val model: String,
 )
 
 internal data class AttemptMetadata(
@@ -59,7 +59,7 @@ internal data class AttemptMetadata(
     val providerUsed: String,
     val totalMs: Double?,
     val providerId: String?,
-    val retryAfterMs: Long?
+    val retryAfterMs: Long?,
 ) {
     val totalMsDescription: String
         get() = totalMs?.let { String.format(Locale.US, "%.0f", it) } ?: "n/a"
@@ -67,47 +67,47 @@ internal data class AttemptMetadata(
 
 internal data class DemoResultState(
     val outputText: String,
-    val metadata: AttemptMetadata
+    val metadata: AttemptMetadata,
 )
 
 internal data class DemoErrorState(
     val title: String,
     val body: String,
-    val metadata: AttemptMetadata?
+    val metadata: AttemptMetadata?,
 )
 
 internal data class DemoAvailabilitySnapshot(
     val onDevice: DemoAvailabilityState,
-    val cloud: DemoAvailabilityState
+    val cloud: DemoAvailabilityState,
 )
 
 internal sealed interface DemoExecutionOutcome {
     data class Success(
         val outputText: String,
-        val metadata: AttemptMetadata
+        val metadata: AttemptMetadata,
     ) : DemoExecutionOutcome
 
     data class Failure(
         val error: DemoErrorState,
         val onDeviceStatusOverride: DemoAvailabilityState? = null,
-        val cloudStatusOverride: DemoAvailabilityState? = null
+        val cloudStatusOverride: DemoAvailabilityState? = null,
     ) : DemoExecutionOutcome
 }
 
 internal data class DemoUiState(
-    val prompt: String = DemoDefaults.defaultPrompt,
+    val prompt: String = DemoDefaults.DEFAULT_PROMPT,
     val executionMode: DemoExecutionMode = DemoExecutionMode.OnDevice,
-    val cloudEndpointUrl: String = DemoDefaults.defaultCloudEndpointUrl,
-    val cloudModel: String = DemoDefaults.defaultCloudModel,
+    val cloudEndpointUrl: String = DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL,
+    val cloudModel: String = DemoDefaults.DEFAULT_CLOUD_MODEL,
     val onDeviceStatus: DemoAvailabilityState = DemoAvailabilityState.checking(
-        "Checking whether Android ML Kit GenAI is usable right now."
+        "Checking whether Android ML Kit GenAI is usable right now.",
     ),
     val cloudStatus: DemoAvailabilityState = DemoAvailabilityState.checking(
-        "Checking cloud configuration and endpoint reachability."
+        "Checking cloud configuration and endpoint reachability.",
     ),
     val result: DemoResultState? = null,
     val error: DemoErrorState? = null,
-    val isRunning: Boolean = false
+    val isRunning: Boolean = false,
 ) {
     val executionModeDescription: String
         get() = when (executionMode) {

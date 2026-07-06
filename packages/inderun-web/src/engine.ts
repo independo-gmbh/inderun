@@ -7,11 +7,7 @@ import type { HostServices } from "./host.js";
 import { ProviderRegistry } from "./registry.js";
 import { Router } from "./router.js";
 import { createInternal, toIndeRunException } from "./errors.js";
-import {
-  type TelemetryEvent,
-  type TelemetryService,
-  NoOpTelemetryService
-} from "./telemetry.js";
+import { type TelemetryEvent, type TelemetryService, NoOpTelemetryService } from "./telemetry.js";
 
 /**
  * Main orchestrator SDK entrypoint class.
@@ -35,9 +31,7 @@ export class IndeRun {
   ) {
     this.router = new Router(this.registry);
     this.telemetryService =
-      telemetryService ||
-      this.hostServices.telemetry ||
-      new NoOpTelemetryService();
+      telemetryService || this.hostServices.telemetry || new NoOpTelemetryService();
   }
 
   /**
@@ -86,13 +80,9 @@ export class IndeRun {
    * @throws {IndeRunException} Standardized error indicating validation, connection, or provider failures.
    */
   async run(request: TaskRequest): Promise<TaskResult> {
-    const startTime = this.hostServices.clock
-      ? this.hostServices.clock.now()
-      : Date.now();
+    const startTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
 
-    const runId =
-      request.requestId ||
-      `run_${Math.random().toString(36).substring(2, 11)}`;
+    const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
 
     try {
       // 1. Validate request payload using schema contracts
@@ -108,10 +98,7 @@ export class IndeRun {
       }
 
       // 2. Select the route based on constraints and host capabilities
-      const routeSelection = await this.router.selectRoute(
-        request,
-        this.hostServices
-      );
+      const routeSelection = await this.router.selectRoute(request, this.hostServices);
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
       // Emit route_decided event
@@ -144,9 +131,7 @@ export class IndeRun {
             hostServices: this.hostServices
           });
 
-          const endTime = this.hostServices.clock
-            ? this.hostServices.clock.now()
-            : Date.now();
+          const endTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
           const totalMs = endTime - startTime;
 
           result.runId = runId;
@@ -182,9 +167,7 @@ export class IndeRun {
         }
       }
 
-      const endTime = this.hostServices.clock
-        ? this.hostServices.clock.now()
-        : Date.now();
+      const endTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
       const totalMs = endTime - startTime;
       const exception = toIndeRunException(lastError ?? new Error("No providers were attempted."), {
         runId,
@@ -207,9 +190,7 @@ export class IndeRun {
               : (this.hostServices.clock ? this.hostServices.clock.now() : Date.now()) - startTime
         }
       });
-      const endTime = this.hostServices.clock
-        ? this.hostServices.clock.now()
-        : Date.now();
+      const endTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
       const totalMs =
         typeof (exception as { details?: { totalMs?: number } }).details?.totalMs === "number"
           ? (exception as { details?: { totalMs?: number } }).details?.totalMs

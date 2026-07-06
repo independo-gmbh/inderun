@@ -47,22 +47,13 @@ const result = await inderun.run({
 
 ## API
 
-Preferred usage:
+- `createIndeRunCapacitor(options)` — returns a handle that lazily `configure()`s on the first `run()` and memoizes it. Safe to call once at app startup.
+- The low-level plugin methods `configure(options)` and `run(request)` are also exported.
 
-- `const inderun = createIndeRunCapacitor(configureOptions)`
-- `createIndeRunCapacitor(options)` lazily calls `configure()` on the first `run()` and memoizes the result. Safe to call once at app startup.
-- Calling `configure()` directly more than once silently replaces the provider registry with no error or log.
-- `await inderun.run(request)`
-
-Low-level plugin methods:
-
-- `configure(configureOptions)`
-- `run(request)`
-
-- `configureOptions.openAI`: bootstrap config for registering the existing OpenAI-compatible provider when cloud execution is needed
-- `configureOptions.allowDirectOpenAIEndpoint`: web-only opt-in for direct browser calls to `https://api.openai.com/v1/responses`
-
-The return value is the canonical IndeRun `TaskResult`.
+The `IndeRunCapacitorPlugin`, `ConfigureOptions`, and `OpenAIProviderBootstrapOptions`
+contracts — including the `openAI` bootstrap config and the web-only
+`allowDirectOpenAIEndpoint` flag — are defined and documented in
+`src/definitions.ts`. `run()` returns the canonical IndeRun `TaskResult`.
 
 ## Platform Notes
 
@@ -79,27 +70,17 @@ The return value is the canonical IndeRun `TaskResult`.
 
 ## Error Handling
 
-All errors thrown by `run()` and `configure()` conform to `IndeRunError` from
-`@independo/inderun-contracts`. Check `error.errorClass` to branch on the failure:
+Errors thrown by `configure()` and `run()` conform to `IndeRunError` from
+`@independo/inderun-contracts`; branch on `error.errorClass` (the shared error
+taxonomy). The bridge unwraps the native error envelope before re-throwing, so
+callers receive the same `IndeRunError` shape on every platform.
 
 ```ts
 try {
-  const result = await inderun.run(request);
+  await inderun.run(request);
 } catch (error) {
   if (error && typeof error === "object" && "errorClass" in error) {
-    const e = error as { errorClass: string; message: string; retryable?: boolean; retryAfterMs?: number };
-    switch (e.errorClass) {
-      case "Unavailable":         // configure() was not called first
-      case "AuthError":           // missing or invalid credentials
-      case "CapabilityMismatch":  // no provider can satisfy the request
-      case "Offline":             // network required but unavailable
-      case "RateLimited":         // back off; check e.retryAfterMs
-      case "Timeout":             // execution timed out
-      default:                    // Internal or unexpected
-    }
+    // error.errorClass is one of the IndeRun error taxonomy values
   }
 }
 ```
-
-The Capacitor bridge unwraps the native error envelope before re-throwing, so callers always
-receive the plain `IndeRunError` shape regardless of platform.

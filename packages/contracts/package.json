@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Canonical JSON Schemas, generated TypeScript types, and validators for IndeRun contracts.",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

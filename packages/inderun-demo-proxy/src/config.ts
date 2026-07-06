@@ -14,9 +14,7 @@ export interface DemoProxyConfig {
   corsOrigin: string;
 }
 
-export function resolveDemoProxyConfig(
-  env: NodeJS.ProcessEnv = process.env
-): DemoProxyConfig {
+export function resolveDemoProxyConfig(env: NodeJS.ProcessEnv = process.env): DemoProxyConfig {
   return {
     apiKey: getNonEmpty(env.OPENAI_API_KEY),
     endpointUrl: getNonEmpty(env.INDERUN_OPENAI_ENDPOINT_URL) ?? DEFAULT_OPENAI_RESPONSES_URL,

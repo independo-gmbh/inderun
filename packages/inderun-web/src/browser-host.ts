@@ -83,9 +83,7 @@ export class FetchHttpClient implements HttpClientService {
    * @returns Normalized HTTP response payload with lower-cased response header names.
    */
   async send(request: HttpRequest): Promise<HttpResponse> {
-    const controller = typeof AbortController === "undefined"
-      ? undefined
-      : new AbortController();
+    const controller = typeof AbortController === "undefined" ? undefined : new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     if (controller && request.timeoutMs !== undefined) {
@@ -94,7 +92,7 @@ export class FetchHttpClient implements HttpClientService {
 
     try {
       const init: RequestInit = {
-        method: request.method,
+        method: request.method
       };
 
       if (request.headers) {

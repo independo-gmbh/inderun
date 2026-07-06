@@ -11,22 +11,20 @@ class IndeRunException(
     val providerId: String? = null,
     val retryable: Boolean? = null,
     val retryAfterMs: Long? = null,
-    val details: Map<String, Any?>? = null
+    val details: Map<String, Any?>? = null,
 ) : Exception(message) {
     val schemaVersion: SchemaVersion = SchemaVersion.V1_0
 
-    fun toContractError(): IndeRunError {
-        return IndeRunError(
-            errorClass = errorClass,
-            message = message,
-            runId = runId,
-            providerId = providerId,
-            retryable = retryable,
-            retryAfterMs = retryAfterMs,
-            details = details,
-            schemaVersion = schemaVersion
-        )
-    }
+    fun toContractError(): IndeRunError = IndeRunError(
+        errorClass = errorClass,
+        message = message,
+        runId = runId,
+        providerId = providerId,
+        retryable = retryable,
+        retryAfterMs = retryAfterMs,
+        details = details,
+        schemaVersion = schemaVersion,
+    )
 }
 
 fun createCapabilityMismatch(
@@ -35,7 +33,7 @@ fun createCapabilityMismatch(
     providerId: String? = null,
     retryable: Boolean? = null,
     retryAfterMs: Long? = null,
-    details: Map<String, Any?>? = null
+    details: Map<String, Any?>? = null,
 ): IndeRunException = IndeRunException(
     errorClass = IndeRunErrorClass.CapabilityMismatch,
     message = message,
@@ -43,7 +41,7 @@ fun createCapabilityMismatch(
     providerId = providerId,
     retryable = retryable,
     retryAfterMs = retryAfterMs,
-    details = details
+    details = details,
 )
 
 fun createOffline(
@@ -52,7 +50,7 @@ fun createOffline(
     providerId: String? = null,
     retryable: Boolean? = null,
     retryAfterMs: Long? = null,
-    details: Map<String, Any?>? = null
+    details: Map<String, Any?>? = null,
 ): IndeRunException = IndeRunException(
     errorClass = IndeRunErrorClass.Offline,
     message = message,
@@ -60,7 +58,7 @@ fun createOffline(
     providerId = providerId,
     retryable = retryable,
     retryAfterMs = retryAfterMs,
-    details = details
+    details = details,
 )
 
 fun createAuthError(
@@ -69,7 +67,7 @@ fun createAuthError(
     providerId: String? = null,
     retryable: Boolean? = null,
     retryAfterMs: Long? = null,
-    details: Map<String, Any?>? = null
+    details: Map<String, Any?>? = null,
 ): IndeRunException = IndeRunException(
     errorClass = IndeRunErrorClass.AuthError,
     message = message,
@@ -77,7 +75,7 @@ fun createAuthError(
     providerId = providerId,
     retryable = retryable,
     retryAfterMs = retryAfterMs,
-    details = details
+    details = details,
 )
 
 fun createRateLimited(
@@ -86,7 +84,7 @@ fun createRateLimited(
     providerId: String? = null,
     retryable: Boolean? = null,
     retryAfterMs: Long? = null,
-    details: Map<String, Any?>? = null
+    details: Map<String, Any?>? = null,
 ): IndeRunException = IndeRunException(
     errorClass = IndeRunErrorClass.RateLimited,
     message = message,
@@ -94,7 +92,7 @@ fun createRateLimited(
     providerId = providerId,
     retryable = retryable,
     retryAfterMs = retryAfterMs,
-    details = details
+    details = details,
 )
 
 fun createTimeout(
@@ -103,7 +101,7 @@ fun createTimeout(
     providerId: String? = null,
     retryable: Boolean? = null,
     retryAfterMs: Long? = null,
-    details: Map<String, Any?>? = null
+    details: Map<String, Any?>? = null,
 ): IndeRunException = IndeRunException(
     errorClass = IndeRunErrorClass.Timeout,
     message = message,
@@ -111,7 +109,7 @@ fun createTimeout(
     providerId = providerId,
     retryable = retryable,
     retryAfterMs = retryAfterMs,
-    details = details
+    details = details,
 )
 
 fun createUnavailable(
@@ -120,7 +118,7 @@ fun createUnavailable(
     providerId: String? = null,
     retryable: Boolean? = null,
     retryAfterMs: Long? = null,
-    details: Map<String, Any?>? = null
+    details: Map<String, Any?>? = null,
 ): IndeRunException = IndeRunException(
     errorClass = IndeRunErrorClass.Unavailable,
     message = message,
@@ -128,7 +126,7 @@ fun createUnavailable(
     providerId = providerId,
     retryable = retryable,
     retryAfterMs = retryAfterMs,
-    details = details
+    details = details,
 )
 
 fun createInternal(
@@ -137,7 +135,7 @@ fun createInternal(
     providerId: String? = null,
     retryable: Boolean? = null,
     retryAfterMs: Long? = null,
-    details: Map<String, Any?>? = null
+    details: Map<String, Any?>? = null,
 ): IndeRunException = IndeRunException(
     errorClass = IndeRunErrorClass.Internal,
     message = message,
@@ -145,7 +143,7 @@ fun createInternal(
     providerId = providerId,
     retryable = retryable,
     retryAfterMs = retryAfterMs,
-    details = details
+    details = details,
 )
 
 fun toIndeRunException(
@@ -154,7 +152,7 @@ fun toIndeRunException(
     fallbackProviderId: String? = null,
     fallbackRetryable: Boolean? = null,
     fallbackRetryAfterMs: Long? = null,
-    fallbackDetails: Map<String, Any?>? = null
+    fallbackDetails: Map<String, Any?>? = null,
 ): IndeRunException {
     if (error is IndeRunException) {
         val mergedDetails = buildMap<String, Any?> {
@@ -169,7 +167,7 @@ fun toIndeRunException(
             providerId = error.providerId ?: fallbackProviderId,
             retryable = error.retryable ?: fallbackRetryable,
             retryAfterMs = error.retryAfterMs ?: fallbackRetryAfterMs,
-            details = mergedDetails
+            details = mergedDetails,
         )
     }
 
@@ -185,6 +183,6 @@ fun toIndeRunException(
         providerId = fallbackProviderId,
         retryable = fallbackRetryable,
         retryAfterMs = fallbackRetryAfterMs,
-        details = details
+        details = details,
     )
 }

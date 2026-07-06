@@ -20,14 +20,14 @@ class DemoViewModelTest {
         val settingsStore = FakeSettingsStore(
             DemoSettings(
                 endpointUrl = "http://example.com/v1/responses",
-                model = "gemma4:latest"
-            )
+                model = "gemma4:latest",
+            ),
         )
         val runtime = FakeRuntime(
             availabilitySnapshot = DemoAvailabilitySnapshot(
                 onDevice = DemoAvailabilityState.available("On-device ready."),
-                cloud = DemoAvailabilityState.available("Cloud ready.")
-            )
+                cloud = DemoAvailabilityState.available("Cloud ready."),
+            ),
         )
 
         val viewModel = DemoViewModel(settingsStore, runtime, mainDispatcherRule.dispatcher)
@@ -45,7 +45,7 @@ class DemoViewModelTest {
         val viewModel = DemoViewModel(
             FakeSettingsStore(),
             FakeRuntime(),
-            mainDispatcherRule.dispatcher
+            mainDispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 
@@ -54,7 +54,7 @@ class DemoViewModelTest {
         advanceUntilIdle()
         assertFalse(viewModel.uiState.value.canRun)
 
-        viewModel.updateCloudEndpointUrl(DemoDefaults.defaultCloudEndpointUrl)
+        viewModel.updateCloudEndpointUrl(DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL)
         viewModel.updateCloudModel("")
         advanceUntilIdle()
         assertFalse(viewModel.uiState.value.canRun)
@@ -74,9 +74,9 @@ class DemoViewModelTest {
                     providerUsed = "openai_compatible_cloud",
                     totalMs = 42.0,
                     providerId = "openai_compatible_cloud",
-                    retryAfterMs = null
-                )
-            )
+                    retryAfterMs = null,
+                ),
+            ),
         )
         val viewModel = DemoViewModel(FakeSettingsStore(), runtime, mainDispatcherRule.dispatcher)
         advanceUntilIdle()
@@ -104,11 +104,11 @@ class DemoViewModelTest {
                         providerUsed = "cloud",
                         totalMs = 7.0,
                         providerId = null,
-                        retryAfterMs = null
-                    )
+                        retryAfterMs = null,
+                    ),
                 ),
-                cloudStatusOverride = DemoAvailabilityState.unavailable("Could not reach the local demo proxy.")
-            )
+                cloudStatusOverride = DemoAvailabilityState.unavailable("Could not reach the local demo proxy."),
+            ),
         )
         val viewModel = DemoViewModel(FakeSettingsStore(), runtime, mainDispatcherRule.dispatcher)
         advanceUntilIdle()
@@ -123,9 +123,9 @@ class DemoViewModelTest {
 
     private class FakeSettingsStore(
         private var settings: DemoSettings = DemoSettings(
-            endpointUrl = DemoDefaults.defaultCloudEndpointUrl,
-            model = DemoDefaults.defaultCloudModel
-        )
+            endpointUrl = DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL,
+            model = DemoDefaults.DEFAULT_CLOUD_MODEL,
+        ),
     ) : DemoSettingsStore {
         override fun load(): DemoSettings = settings
 
@@ -137,7 +137,7 @@ class DemoViewModelTest {
     private class FakeRuntime(
         private val availabilitySnapshot: DemoAvailabilitySnapshot = DemoAvailabilitySnapshot(
             onDevice = DemoAvailabilityState.available("On-device available."),
-            cloud = DemoAvailabilityState.available("Cloud available.")
+            cloud = DemoAvailabilityState.available("Cloud available."),
         ),
         private val runOutcome: DemoExecutionOutcome = DemoExecutionOutcome.Success(
             outputText = "Default response",
@@ -146,20 +146,16 @@ class DemoViewModelTest {
                 providerUsed = "android_mlkit_genai",
                 totalMs = 1.0,
                 providerId = "android_mlkit_genai",
-                retryAfterMs = null
-            )
-        )
+                retryAfterMs = null,
+            ),
+        ),
     ) : DemoRuntime {
-        override suspend fun refreshAvailability(settings: DemoSettings): DemoAvailabilitySnapshot {
-            return availabilitySnapshot
-        }
+        override suspend fun refreshAvailability(settings: DemoSettings): DemoAvailabilitySnapshot = availabilitySnapshot
 
         override suspend fun run(
             prompt: String,
             executionMode: DemoExecutionMode,
-            settings: DemoSettings
-        ): DemoExecutionOutcome {
-            return runOutcome
-        }
+            settings: DemoSettings,
+        ): DemoExecutionOutcome = runOutcome
     }
 }

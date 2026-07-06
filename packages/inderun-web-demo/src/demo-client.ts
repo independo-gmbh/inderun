@@ -10,15 +10,16 @@ const inderun = createIndeRunWeb({
   }
 });
 
-export async function runPrompt(prompt: string, executionMode: "on_device" | "cloud"): Promise<TaskResult> {
+export async function runPrompt(
+  prompt: string,
+  executionMode: "on_device" | "cloud"
+): Promise<TaskResult> {
   return inderun.run({
     schemaVersion: "1.0",
     task: { kind: "text_to_text" },
     prompt,
     constraints:
-      executionMode === "on_device"
-        ? { privacy: "local_required" }
-        : { privacy: "cloud_required" }
+      executionMode === "on_device" ? { privacy: "local_required" } : { privacy: "cloud_required" }
   });
 }
 

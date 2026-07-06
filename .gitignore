@@ -256,4 +256,8 @@ iOSInjectionProject/
 
 # End of https://www.toptal.com/developers/gitignore/api/jetbrains,rust,kotlin,swift
 
+# Local scratch / tooling
 tmp
+test_repo/
+test_dir/
+.pnpm-store/

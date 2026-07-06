@@ -23,6 +23,8 @@ jobs:
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache Cargo state
         uses: Swatinem/rust-cache@v2
@@ -31,6 +33,12 @@ jobs:
             . -> target
             rust/inderun-route-core -> target
           cache-on-failure: true
+
+      - name: Check formatting
+        run: cargo fmt -p inderun_route_core -- --check
+
+      - name: Run Clippy
+        run: cargo clippy -p inderun_route_core --all-targets -- -D warnings
 
       - name: Run route-core tests
         run: cargo test -p inderun_route_core

@@ -109,7 +109,9 @@ describe("handleProxyRequest", () => {
         "Content-Type": "application/json"
       }
     });
-    expect((fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>).Authorization).toBeUndefined();
+    expect(
+      (fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>).Authorization
+    ).toBeUndefined();
 
     const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
     expect(body.model).toBe("ollama-model");

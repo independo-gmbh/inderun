@@ -9,7 +9,7 @@ class DemoCloudEndpointTest {
     fun createProbeUrl_rewritesDemoProxyRouteToHealth() {
         assertEquals(
             "http://10.0.2.2:8787/health",
-            createProbeUrl("http://10.0.2.2:8787/api/inderun/openai-responses")
+            createProbeUrl("http://10.0.2.2:8787/api/inderun/openai-responses"),
         )
     }
 

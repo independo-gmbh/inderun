@@ -13,9 +13,7 @@ export async function initSharedCore(moduleOrPath?: unknown): Promise<void> {
 
   const mod = await importGeneratedModule();
   if (typeof mod.default === "function") {
-    await mod.default(
-      moduleOrPath === undefined ? undefined : { module_or_path: moduleOrPath }
-    );
+    await mod.default(moduleOrPath === undefined ? undefined : { module_or_path: moduleOrPath });
   }
 
   generatedModule = mod;

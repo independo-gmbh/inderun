@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "TypeScript/Web SDK for IndeRun.",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,6 +13,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./openai": {
+      "types": "./dist/openai.d.ts",
+      "default": "./dist/openai.js"
     }
   },
   "files": [

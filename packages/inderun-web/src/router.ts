@@ -61,21 +61,11 @@ export class Router {
    *  - `Offline` when `execution === 'cloud'` but the device lacks internet connectivity.
    *  - `Unavailable` when `execution === 'cloud'` but no cloud provider is registered or functional.
    */
-  async selectRoute(
-    request: TaskRequest,
-    hostServices: HostServices
-  ): Promise<RouteSelection> {
+  async selectRoute(request: TaskRequest, hostServices: HostServices): Promise<RouteSelection> {
     const online = await hostServices.connectivity.isOnline();
-    const snapshots = await collectProviderRuntimeSnapshots(
-      this.registry.list(),
-      hostServices
-    );
+    const snapshots = await collectProviderRuntimeSnapshots(this.registry.list(), hostServices);
 
-    const planInput = buildSharedPlannerInput(
-      request,
-      snapshots,
-      online
-    );
+    const planInput = buildSharedPlannerInput(request, snapshots, online);
     const routePlan = await this.planner.planRoute(planInput);
 
     if (routePlan) {
@@ -226,8 +216,7 @@ export class Router {
     cloudCandidates: ProviderRuntimeSnapshot[];
   }): string {
     const wantsCloud =
-      input.constraints.cloud === "required" ||
-      input.constraints.privacy === "cloud_required";
+      input.constraints.cloud === "required" || input.constraints.privacy === "cloud_required";
     const wantsLocal = input.constraints.privacy === "local_required";
 
     if (!input.online && (wantsCloud || input.cloudCandidates.length > 0)) {

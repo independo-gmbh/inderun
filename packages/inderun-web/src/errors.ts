@@ -74,7 +74,7 @@ export class IndeRunException extends Error {
     const err: IndeRunError = {
       schemaVersion: this.schemaVersion,
       errorClass: this.errorClass,
-      message: this.message,
+      message: this.message
     };
     if (this.runId !== undefined) err.runId = this.runId;
     if (this.providerId !== undefined) err.providerId = this.providerId;
@@ -167,21 +167,21 @@ export function toIndeRunException(
     if (fallbackParams) {
       const mergedParams: IndeRunExceptionParams = {
         errorClass: error.errorClass,
-        message: error.message,
+        message: error.message
       };
-      
+
       const runId = error.runId ?? fallbackParams.runId;
       if (runId !== undefined) mergedParams.runId = runId;
-      
+
       const providerId = error.providerId ?? fallbackParams.providerId;
       if (providerId !== undefined) mergedParams.providerId = providerId;
-      
+
       const retryable = error.retryable ?? fallbackParams.retryable;
       if (retryable !== undefined) mergedParams.retryable = retryable;
-      
+
       const retryAfterMs = error.retryAfterMs ?? fallbackParams.retryAfterMs;
       if (retryAfterMs !== undefined) mergedParams.retryAfterMs = retryAfterMs;
-      
+
       if (error.details !== undefined || fallbackParams.details !== undefined) {
         mergedParams.details = {
           ...(error.details || {}),
@@ -198,7 +198,7 @@ export function toIndeRunException(
   const details: Record<string, unknown> = {
     ...(fallbackParams?.details || {})
   };
-  
+
   if (error instanceof Error) {
     details.originalError = {
       name: error.name,

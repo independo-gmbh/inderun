@@ -44,9 +44,9 @@ class ProviderEngineTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
             ),
-            hostServices = fakeHostServices()
+            hostServices = fakeHostServices(),
         )
 
         assertEquals("provider_a", selection.provider.describe().id)
@@ -59,19 +59,17 @@ class ProviderEngineTest {
         registry.register(FakeProvider("provider_b", available = true))
 
         val planner = object : RoutePlanner {
-            override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan {
-                return SharedPlannerRoutePlan(
-                    candidates = emptyList(),
+            override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan = SharedPlannerRoutePlan(
+                candidates = emptyList(),
+                selectedProviderId = "provider_b",
+                fallbackProviderIds = listOf("provider_a"),
+                failureCode = null,
+                explanation = Explanation(
+                    summary = "Selected provider 'provider_b' from shared Rust planner.",
                     selectedProviderId = "provider_b",
-                    fallbackProviderIds = listOf("provider_a"),
-                    failureCode = null,
-                    explanation = Explanation(
-                        summary = "Selected provider 'provider_b' from shared Rust planner.",
-                        selectedProviderId = "provider_b"
-                    ),
-                    rejectedProviders = emptyList()
-                )
-            }
+                ),
+                rejectedProviders = emptyList(),
+            )
         }
 
         val selection = Router.withPlanner(registry, planner).selectRoute(
@@ -79,9 +77,9 @@ class ProviderEngineTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
             ),
-            hostServices = fakeHostServices()
+            hostServices = fakeHostServices(),
         )
 
         assertEquals("provider_b", selection.provider.describe().id)
@@ -99,9 +97,9 @@ class ProviderEngineTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
                 ),
-                hostServices = fakeHostServices()
+                hostServices = fakeHostServices(),
             )
         } catch (error: IndeRunException) {
             assertEquals(app.independo.inderun.contracts.IndeRunErrorClass.CapabilityMismatch, error.errorClass)
@@ -116,7 +114,7 @@ class ProviderEngineTest {
         val exception = toIndeRunException(
             IllegalStateException("boom"),
             fallbackRunId = "run_123",
-            fallbackProviderId = "provider_a"
+            fallbackProviderId = "provider_a",
         )
 
         assertEquals("run_123", exception.runId)
@@ -124,57 +122,49 @@ class ProviderEngineTest {
         assertNotNull(exception.details?.get("originalError"))
     }
 
-    private fun fakeHostServices(): HostServices {
-        return HostServices(
-            connectivity = object : ConnectivityService {
-                override fun isOnline(): Boolean = true
-            },
-            secureStorage = object : SecureStorageService {
-                override fun get(authContextRef: String): String? = null
-                override fun put(authContextRef: String, value: String) = Unit
-                override fun remove(authContextRef: String) = Unit
-            },
-            clock = object : ClockService {
-                override fun elapsedRealtimeMillis(): Long = 1_000L
-            }
-        )
-    }
+    private fun fakeHostServices(): HostServices = HostServices(
+        connectivity = object : ConnectivityService {
+            override fun isOnline(): Boolean = true
+        },
+        secureStorage = object : SecureStorageService {
+            override fun get(authContextRef: String): String? = null
+            override fun put(authContextRef: String, value: String) = Unit
+            override fun remove(authContextRef: String) = Unit
+        },
+        clock = object : ClockService {
+            override fun elapsedRealtimeMillis(): Long = 1_000L
+        },
+    )
 
     private class FakeProvider(
         private val id: String,
-        private val available: Boolean = true
+        private val available: Boolean = true,
     ) : ProviderAdapter {
-        override fun describe(): ProviderDescriptor {
-            return ProviderDescriptor(
-                id = id,
-                type = ProviderDescriptor.ProviderType.local,
-                transport = ProviderDescriptor.TransportType.in_process,
-                supports = ProviderDescriptor.SupportsCapabilities(
-                    run = true,
-                    streaming = false,
-                    realtime = false,
-                    tools = false,
-                    reasoningEvents = false,
-                    structuredOutput = false,
-                    multimodal = false
-                ),
-                cancel = ProviderDescriptor.CancelSemantics.soft,
-                tasks = listOf("text_to_text")
-            )
-        }
+        override fun describe(): ProviderDescriptor = ProviderDescriptor(
+            id = id,
+            type = ProviderDescriptor.ProviderType.local,
+            transport = ProviderDescriptor.TransportType.in_process,
+            supports = ProviderDescriptor.SupportsCapabilities(
+                run = true,
+                streaming = false,
+                realtime = false,
+                tools = false,
+                reasoningEvents = false,
+                structuredOutput = false,
+                multimodal = false,
+            ),
+            cancel = ProviderDescriptor.CancelSemantics.soft,
+            tasks = listOf("text_to_text"),
+        )
 
-        override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities {
-            return ProviderDynamicCapabilities(available = available)
-        }
+        override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities = ProviderDynamicCapabilities(available = available)
 
-        override suspend fun run(request: TaskRequest, context: RunContext): TaskResult {
-            return TaskResult(
-                finishReason = FinishReason.STOP,
-                output = Output(text = "Hello"),
-                runId = context.runId,
-                schemaVersion = SchemaVersion.V1_0,
-                telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0)
-            )
-        }
+        override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
+            finishReason = FinishReason.STOP,
+            output = Output(text = "Hello"),
+            runId = context.runId,
+            schemaVersion = SchemaVersion.V1_0,
+            telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
+        )
     }
 }

@@ -28,15 +28,19 @@ const result = await inderun.run({
 
 Browser apps should use a proxy endpoint and keep provider credentials server-side. `createIndeRunWeb` rejects direct calls to the public OpenAI Responses endpoint unless `allowDirectOpenAIEndpoint: true` is set for a controlled environment.
 
-## Error Mapping
+## Advanced: registering the OpenAI provider directly
 
-The OpenAI provider maps transport and API failures into IndeRun errors:
+`createIndeRunWeb` wires the OpenAI Responses provider for you. To register it
+manually (e.g. alongside other providers), import it from the provider subpath:
 
-- `401` / `403` -> `AuthError`
-- `429` -> `RateLimited`
-- `408` / `504` -> `Timeout`
-- `409` / `5xx` -> `Unavailable`
-- other non-2xx responses -> `Internal`
+```ts
+import { OpenAIResponsesProvider } from "@independo/inderun-web/openai";
+```
+
+The provider normalizes OpenAI transport and API failures into the IndeRun error
+taxonomy (`AuthError`, `RateLimited`, `Timeout`, `Unavailable`, `Internal`). The
+exact status-to-class mapping is documented on the provider in code — see
+`OpenAIResponsesProvider` — so it stays in sync with behavior.
 
 ## Commands
 
