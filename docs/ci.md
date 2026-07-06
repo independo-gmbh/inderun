@@ -26,5 +26,6 @@ Protect `main` with these required checks:
 ## Notes
 
 - The JavaScript workflow also regenerates the shared contract and WASM artifacts before package builds.
+- `pnpm generate` emits the contract types for every language from `contracts/schemas/`: TypeScript, Kotlin, and Swift for the full surface, plus the Rust route-core model (`rust/inderun-route-core/src/generated/contracts.rs`) from the two route schemas. The generated Rust file is committed and normalized with `rustfmt` so `cargo fmt --check` stays green.
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in.
 - Dependabot is configured for GitHub Actions, npm, Cargo, Gradle, and Swift Package Manager in the repository.

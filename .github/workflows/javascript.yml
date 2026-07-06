@@ -69,10 +69,10 @@ jobs:
         run: pnpm lint
 
       - name: Check formatting
-        run: pnpm format:check
+        run: pnpm format:check:js
 
       - name: Generate contracts
-        run: pnpm generate
+        run: pnpm generate:code
 
       - name: Build Rust WASM bindings
         run: |
@@ -88,4 +88,4 @@ jobs:
         run: pnpm build
 
       - name: Test workspace
-        run: pnpm test
+        run: pnpm test:js

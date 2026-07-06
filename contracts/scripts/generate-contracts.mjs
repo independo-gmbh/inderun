@@ -33,6 +33,14 @@ const kotlinContractsPath = join(
   "contracts",
   "Contracts.kt"
 );
+const rustContractsPath = join(
+  repoRoot,
+  "rust",
+  "inderun-route-core",
+  "src",
+  "generated",
+  "contracts.rs"
+);
 
 const schemas = [
   {
@@ -297,6 +305,52 @@ async function generateKotlinContracts(tempDir) {
   await writeFile(kotlinContractsPath, kotlinSource);
 }
 
+// The Rust shared route-planning core only consumes the route-planner contracts,
+// so it is generated from just those two schemas (unlike the other languages,
+// which bind the full contract surface).
+const rustSchemaInputs = ["route-planner-input.schema.json", "route-plan.schema.json"];
+
+async function generateRustContracts(tempDir) {
+  const quicktypeOutputPath = join(tempDir, "contracts.rs");
+
+  await execFileAsync(quicktypeBinary(), [
+    "--lang",
+    "rust",
+    "--src-lang",
+    "schema",
+    "--density",
+    "normal",
+    "--visibility",
+    "public",
+    "--derive-debug",
+    "--derive-clone",
+    "--derive-partial-eq",
+    "--no-leading-comments",
+    ...rustSchemaInputs.map((input) => join(schemasDir, input)),
+    "--out",
+    quicktypeOutputPath
+  ]);
+
+  const rustSource = await readFile(quicktypeOutputPath, "utf8");
+
+  await mkdir(dirname(rustContractsPath), { recursive: true });
+  await writeFile(
+    rustContractsPath,
+    `/* This file was generated from JSON Schema using quicktype. Do not edit by hand. */\n\n${rustSource}`
+  );
+
+  // Normalize to rustfmt output so `cargo fmt --check` passes on the committed file.
+  try {
+    await execFileAsync("rustfmt", ["--edition", "2024", rustContractsPath]);
+  } catch (error) {
+    throw new Error(
+      `rustfmt is required to generate the committed Rust contracts (${rustContractsPath}). ` +
+        `Install the Rust toolchain (https://rustup.rs) and ensure rustfmt is on PATH.`,
+      { cause: error }
+    );
+  }
+}
+
 function replaceAll(source, replacements) {
   let output = source;
   for (const [from, to] of replacements) {
@@ -342,6 +396,7 @@ const quicktypeOutputPath = join(tempDir, "Contracts.swift");
 try {
   await generateTypeScriptContracts();
   await generateKotlinContracts(tempDir);
+  await generateRustContracts(tempDir);
 
   await execFileAsync(quicktypeBinary(), [
     "--lang",
