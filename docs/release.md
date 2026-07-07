@@ -32,7 +32,8 @@ for now and is excluded from the publish steps.
 ## How a release runs
 
 1. Commits land on `main`/`dev` using Conventional Commits.
-2. `.github/workflows/release.yml` builds the workspace (including the Rust→WASM bindings) and
+2. `.github/workflows/release.yml` runs `pnpm generate` first so the generated Kotlin contract
+   remains Spotless-formatted, then builds the workspace (including the Rust→WASM bindings) and
    runs `npx semantic-release`.
 3. semantic-release computes the next version from the commits and:
    - runs `scripts/set-version.mjs <version>` to write the version into the three npm
