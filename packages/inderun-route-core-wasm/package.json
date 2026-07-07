@@ -1,6 +1,6 @@
 {
   "name": "@independo/inderun-route-core-wasm",
-  "version": "0.1.1-dev.1",
+  "version": "0.1.1",
   "description": "WASM wrapper package for the IndeRun Rust route-planning core.",
   "license": "MIT",
   "author": {
