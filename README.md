@@ -77,7 +77,8 @@ const result = await inderun.run({
   OS (iOS 26+ / macOS 26+). Availability is checked at runtime; IndeRun falls back to the cloud provider when it is
   unavailable. **No special Info.plist entitlement is required** for on-device execution.
 
-Install via Swift Package Manager (consumed by URL + git tag):
+Install via Swift Package Manager (consumed by URL + git tag). `from:` is a **lower bound** —
+SwiftPM resolves to the latest compatible release, so this does not need updating per release:
 
 ```swift
 .package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
@@ -128,11 +129,13 @@ on-device model:
 <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 ```
 
-Install via Gradle (Maven Central):
+Install via Gradle (Maven Central) — `latest.release` resolves to the newest published version:
 
 ```kotlin
-implementation("app.independo.inderun:inderun-kotlin:0.1.0")
+implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
+
+> For reproducible builds, pin an explicit version instead — the Maven Central badge above shows the current release.
 
 Quick start:
 
