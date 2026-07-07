@@ -65,10 +65,10 @@ pnpm add @independo/inderun-web   # pulls in contracts + route-core-wasm
 .package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
 ```
 
-**Gradle (Maven Central)**
+**Gradle (Maven Central)** — `latest.release` resolves to the newest version; pin a version for reproducible builds:
 
 ```kotlin
-implementation("app.independo.inderun:inderun-kotlin:0.1.0")
+implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
 
 ## Registry configuration requirements (one-time setup)

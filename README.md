@@ -77,39 +77,35 @@ const result = await inderun.run({
   OS (iOS 26+ / macOS 26+). Availability is checked at runtime; IndeRun falls back to the cloud provider when it is
   unavailable. **No special Info.plist entitlement is required** for on-device execution.
 
-Install via Swift Package Manager (consumed by URL + git tag):
+Install via Swift Package Manager (consumed by URL + git tag). `from:` is a **lower bound** —
+SwiftPM resolves to the latest compatible release, so this does not need updating per release:
 
 ```swift
 .package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
 // products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders, IndeRunOpenAIProviders
 ```
 
-Quick start:
+Quick start — on-device by default:
 
 ```swift
 import IndeRunSwift
 import IndeRunCore
 import IndeRunAppleProviders
-import IndeRunOpenAIProviders
 
 let hostServices = DefaultHostServices.make()
+// makeDefaultRegistry() registers the on-device Apple Foundation Models provider.
 let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
-try registry.register(
-    OpenAIProvider(
-        options: OpenAIProviderOptions(
-            model: "gpt-5.2",
-            endpointURL: "https://api.openai.com/v1/responses",
-            authContextRef: "openai_primary"
-        )
-    )
-)
-
 let inderun = IndeRun(registry: registry, hostServices: hostServices)
+
 let result = try await inderun.run(request: TaskRequest(
     prompt: "Translate 'Hello' to Spanish",
     constraints: TaskRequestConstraints(privacy: .localRequired)
 ))
 ```
+
+> Need cloud execution too? Register the OpenAI-compatible provider from
+> `IndeRunOpenAIProviders` — see the [iOS SDK README](ios/IndeRun/README.md) and the
+> [provider model](docs/architecture/providers.md).
 
 ### Android (Kotlin)
 
@@ -128,37 +124,34 @@ on-device model:
 <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 ```
 
-Install via Gradle (Maven Central):
+Install via Gradle (Maven Central) — `latest.release` resolves to the newest published version:
 
 ```kotlin
-implementation("app.independo.inderun:inderun-kotlin:0.1.0")
+implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
 
-Quick start:
+> For reproducible builds, pin an explicit version instead — the Maven Central badge above shows the current release.
+
+Quick start — on-device by default:
 
 ```kotlin
-// On-device by default (falls back to a registered cloud provider):
+// initialize() registers the ML Kit GenAI on-device provider.
 val indeRun = IndeRun.initialize(this) // `this` is a Context
 
-// Or register an OpenAI-compatible cloud provider explicitly:
-import app.independo.inderun.core.ProviderRegistry
-import app.independo.inderun.providers.openai.OpenAIProvider
-import app.independo.inderun.providers.openai.OpenAIProviderOptions
-
-val registry = ProviderRegistry().apply {
-    register(
-        OpenAIProvider(
-            OpenAIProviderOptions(
-                model = "gpt-5.2",
-                endpointUrl = "https://api.openai.com/v1/responses",
-                authContextRef = "openai_primary",
-                timeoutMs = 30_000L
-            )
-        )
+// run() is a suspend function — call it from a coroutine.
+val result = indeRun.run(
+    TaskRequest(
+        schemaVersion = SchemaVersion.V1_0,
+        prompt = "Translate 'Hello' to Spanish",
+        task = TaskRequestTask(), // defaults to text_to_text
+        constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
     )
-}
-val indeRunWithCloud = IndeRun.initialize(this, registry)
+)
 ```
+
+> Need cloud execution too? Register the OpenAI-compatible provider from
+> `inderun-openai-providers` — see the [Kotlin SDK README](android/inderun-kotlin/README.md)
+> and the [provider model](docs/architecture/providers.md).
 
 ### Capacitor (hybrid apps)
 
@@ -194,13 +187,13 @@ Never place raw API keys in a `TaskRequest`. Providers resolve credentials from 
 
 ## Core Docs
 
-- Project brief: `docs/architecture/technical-brief.md`
-- Architecture overview: `docs/architecture/architecture.md`
-- Provider model: `docs/architecture/providers.md`
-- CI behavior: `docs/ci.md`
-- Releases & publishing: `docs/release.md`
-- Contributor workflow and build commands: `CONTRIBUTING.md`
-- Agent instructions: `AGENTS.md`
+- [Project brief](docs/architecture/technical-brief.md)
+- [Architecture overview](docs/architecture/architecture.md)
+- [Provider model](docs/architecture/providers.md)
+- [CI behavior](docs/ci.md)
+- [Releases & publishing](docs/release.md)
+- [Contributor workflow and build commands](CONTRIBUTING.md)
+- [Agent instructions](AGENTS.md)
 
 ## License
 
