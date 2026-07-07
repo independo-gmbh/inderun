@@ -1,13 +1,10 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// MARK: - Pre-publish requirement
-// The IndeRun iOS SDK (ios/IndeRun/) must be extracted to a dedicated git
-// repository before this package is distributable via SPM.
-// Replace the local path dependency below with:
-//   .package(url: "https://github.com/independo-gmbh/inderun-ios.git", from: "1.0.0"),
-// and update the .product(name:package:) references to use that package name.
-// Tracking: issue #23
+// The IndeRun Swift SDK now lives at the monorepo root (../..). This manifest
+// is used for local development/testing of the Capacitor bridge. The bridge is
+// distributed to Capacitor apps via npm; iOS integration is handled by
+// Capacitor's SwiftPM support. Capacitor publishing is tracked separately.
 
 let package = Package(
     name: "IndeRunCapacitor",
@@ -23,7 +20,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", from: "8.0.0"),
-        .package(path: "../../ios/IndeRun") // TODO: replace with URL before publishing (see above)
+        .package(path: "../..") // IndeRun Swift SDK (repo-root Package.swift)
     ],
     targets: [
         .target(

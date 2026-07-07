@@ -70,9 +70,9 @@ jobs:
 
       # Fast manual Swift build of the SwiftPM library targets, replacing the
       # autobuilder (which picks the ios/SampleApps demo xcodeproj and fails).
+      # The SwiftPM manifest lives at the repository root (sources under ios/IndeRun).
       - name: Build Swift package
         if: matrix.language == 'swift'
-        working-directory: ios/IndeRun
         run: swift build
 
       - name: Perform CodeQL Analysis

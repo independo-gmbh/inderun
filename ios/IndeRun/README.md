@@ -45,7 +45,10 @@ let result = try await inderun.run(request: TaskRequest(
 
 ## Commands
 
+The SwiftPM manifest lives at the repository root (`Package.swift`); these sources are
+referenced from there. Run the package commands from the repo root:
+
 ```sh
-cd ios/IndeRun && swift build
-cd ios/IndeRun && swift test
+swift build
+swift test
 ```
