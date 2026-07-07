@@ -6,6 +6,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait before proposing a freshly published version. Keep this >= the pnpm
+    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
+    # lockfile age check in CI.
+    cooldown:
+      default-days: 7
     groups:
       github-actions-routine:
         patterns:
@@ -19,6 +24,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait before proposing a freshly published version. Keep this >= the pnpm
+    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
+    # lockfile age check in CI.
+    cooldown:
+      default-days: 7
     groups:
       npm-routine:
         patterns:
@@ -32,6 +42,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait before proposing a freshly published version. Keep this >= the pnpm
+    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
+    # lockfile age check in CI.
+    cooldown:
+      default-days: 7
     groups:
       cargo-routine:
         patterns:
@@ -45,6 +60,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait before proposing a freshly published version. Keep this >= the pnpm
+    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
+    # lockfile age check in CI.
+    cooldown:
+      default-days: 7
     groups:
       gradle-routine:
         patterns:
@@ -58,6 +78,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait before proposing a freshly published version. Keep this >= the pnpm
+    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
+    # lockfile age check in CI.
+    cooldown:
+      default-days: 7
     groups:
       gradle-routine:
         patterns:
@@ -71,6 +96,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait before proposing a freshly published version. Keep this >= the pnpm
+    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
+    # lockfile age check in CI.
+    cooldown:
+      default-days: 7
     groups:
       swift-routine:
         patterns:
@@ -84,6 +114,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Wait before proposing a freshly published version. Keep this >= the pnpm
+    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
+    # lockfile age check in CI.
+    cooldown:
+      default-days: 7
     groups:
       swift-routine:
         patterns:
