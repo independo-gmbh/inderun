@@ -51,28 +51,6 @@ importers:
         specifier: ^8.62.1
         version: 8.62.1(eslint@10.6.0)(typescript@6.0.3)
 
-  packages/capacitor-inderun:
-    dependencies:
-      '@capacitor/core':
-        specifier: ^8.0.0
-        version: 8.4.1
-      '@independo/inderun-contracts':
-        specifier: workspace:^
-        version: link:../contracts
-      '@independo/inderun-web':
-        specifier: workspace:^
-        version: link:../inderun-web
-    devDependencies:
-      '@types/node':
-        specifier: ^24.13.2
-        version: 24.13.2
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^3.2.6
-        version: 3.2.6(@types/node@24.13.2)(happy-dom@20.10.6)(yaml@2.9.0)
-
   packages/contracts:
     dependencies:
       ajv:
@@ -166,9 +144,6 @@ packages:
   '@babel/helper-validator-identifier@7.29.7':
     resolution: {integrity: sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg==}
     engines: {node: '>=6.9.0'}
-
-  '@capacitor/core@8.4.1':
-    resolution: {integrity: sha512-xqhOGLbTAYeOWK+IDUNSjQJAPapQjRHrIcgk9PYp52or9zFTaaMko31uNi16N6W+CRJ8VrRram6fOYILkBG2Hg==}
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -2695,9 +2670,6 @@ packages:
       '@swc/wasm':
         optional: true
 
-  tslib@2.8.1:
-    resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
-
   tunnel@0.0.6:
     resolution: {integrity: sha512-1h/Lnq9yajKY2PEbBadPXj3VxsDDu844OnaAo52UVmIzIvwwtBPIuNvkjuzBlTWpfJyUbG3ez0KSBibQkj4ojg==}
     engines: {node: '>=0.6.11 <=0.7.0 || >=0.7.3'}
@@ -3035,10 +3007,6 @@ snapshots:
       picocolors: 1.1.1
 
   '@babel/helper-validator-identifier@7.29.7': {}
-
-  '@capacitor/core@8.4.1':
-    dependencies:
-      tslib: 2.8.1
 
   '@colors/colors@1.5.0':
     optional: true
@@ -5524,8 +5492,6 @@ snapshots:
       typescript: 4.9.4
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
-
-  tslib@2.8.1: {}
 
   tunnel@0.0.6: {}
 

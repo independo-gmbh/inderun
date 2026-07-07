@@ -73,44 +73,8 @@ updates:
           - minor
           - patch
 
-  - package-ecosystem: gradle
-    directory: /packages/capacitor-inderun/android
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    # Wait before proposing a freshly published version. Keep this >= the pnpm
-    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
-    # lockfile age check in CI.
-    cooldown:
-      default-days: 7
-    groups:
-      gradle-routine:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-
   - package-ecosystem: swift
     directory: /ios/IndeRun
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    # Wait before proposing a freshly published version. Keep this >= the pnpm
-    # `minimumReleaseAge` supply-chain policy so Dependabot PRs don't trip the
-    # lockfile age check in CI.
-    cooldown:
-      default-days: 7
-    groups:
-      swift-routine:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: swift
-    directory: /packages/capacitor-inderun
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
