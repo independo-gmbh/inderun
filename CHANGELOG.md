@@ -1,3 +1,13 @@
+## [0.1.2](https://github.com/independo-gmbh/inderun/compare/v0.1.1...v0.1.2) (2026-07-07)
+
+### Bug Fixes 🛠️
+
+* **ci:** run full contract generation in release workflow ([f351df7](https://github.com/independo-gmbh/inderun/commit/f351df74256e2c181f684d245de57eb494cb5828))
+
+### Miscellaneous Chores 🛠️
+
+* **deps:** upgrade npm dependencies ([a269afa](https://github.com/independo-gmbh/inderun/commit/a269afac61493284e2ed19fe0a6073399d7434cb))
+
 ## [0.1.1](https://github.com/independo-gmbh/inderun/compare/v0.1.0...v0.1.1) (2026-07-07)
 
 ### Bug Fixes 🛠️
