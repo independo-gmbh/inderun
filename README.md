@@ -1,17 +1,17 @@
 # IndeRun
 
 <p align="center">
-  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml"><img alt="JavaScript" src="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml/badge.svg"></a>
-  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml"><img alt="Rust" src="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg"></a>
-  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg"></a>
-  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml"><img alt="Android" src="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg"></a>
-  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml"><img alt="Capacitor Plugin" src="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml/badge.svg"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml"><img alt="JavaScript" src="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml"><img alt="Rust" src="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml"><img alt="Android" src="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml"><img alt="Capacitor Plugin" src="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml/badge.svg?branch=dev"></a>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@independo/inderun-web"><img alt="npm: @independo/inderun-web" src="https://img.shields.io/npm/v/@independo/inderun-web?logo=npm&label=inderun-web"></a>
   <a href="https://central.sonatype.com/artifact/app.independo.inderun/inderun-kotlin"><img alt="Maven Central: app.independo.inderun:inderun-kotlin" src="https://img.shields.io/maven-central/v/app.independo.inderun/inderun-kotlin?logo=apachemaven&label=inderun-kotlin"></a>
-  <a href="https://github.com/independo-gmbh/inderun/releases"><img alt="Swift Package Manager (git tag)" src="https://img.shields.io/github/v/tag/independo-gmbh/inderun?logo=swift&label=SwiftPM"></a>
+  <a href="https://github.com/independo-gmbh/inderun/releases"><img alt="Swift Package Manager" src="https://img.shields.io/github/v/release/independo-gmbh/inderun?logo=swift&label=SwiftPM"></a>
 </p>
 
 <p align="center">
@@ -19,7 +19,8 @@
 </p>
 
 IndeRun is an open-source AI execution framework that gives applications one unified API for running tasks across
-on-device, edge, and cloud providers.
+on-device, edge, and cloud providers. It ships native SDKs for **web, iOS, and Android** with a shared contract and
+consistent, deterministic behavior.
 
 The project is organized around a few stable ideas:
 
@@ -28,12 +29,26 @@ The project is organized around a few stable ideas:
 - Provider behavior is normalized so apps do not need provider-specific branching in their own code.
 - Secrets stay out of request payloads and are referenced through `authContextRef`.
 
-## Start Here
+## Status
 
 IndeRun is currently focused on Mode 1 `run()` execution for `text_to_text`. Streaming and realtime sessions are
-planned (Milestone 2) but not yet implemented; the shipped surface is request/response execution.
+planned (Milestone 2) but not yet implemented; the shipped surface is request/response execution. Every platform can
+always use the OpenAI-compatible **cloud** provider; **on-device** execution is used automatically by routing when the
+device supports it (or forced with a `localRequired` privacy constraint).
 
-## Quick Start (Web)
+## Platforms
+
+### Web (TypeScript)
+
+**Requirements:** Node 24+ (for tooling/SSR) or a modern browser (ES2022 + WebAssembly).
+
+Install — this pulls in `@independo/inderun-contracts` and `@independo/inderun-route-core-wasm` automatically:
+
+```sh
+pnpm add @independo/inderun-web
+```
+
+Quick start:
 
 ```ts
 import { createIndeRunWeb } from "@independo/inderun-web";
@@ -50,43 +65,132 @@ const result = await inderun.run({
 });
 ```
 
-If you are using IndeRun in an app, start with the package README that matches your platform:
+> Browser apps must route OpenAI calls through a same-origin proxy that keeps the key server-side — never ship
+> provider credentials to the browser.
 
-- `@independo/inderun-web`
-- `@independo/capacitor-inderun`
-- `ios/IndeRun`
-- `android/inderun-kotlin`
+### iOS / macOS (Swift)
 
-Supporting packages and demos:
+**Requirements:**
 
-- `@independo/inderun-contracts`
-- `@independo/inderun-demo-proxy`
-- `@independo/inderun-web-demo`
-- `@independo/inderun-route-core-wasm`
+- SDK: iOS 15+ / macOS 12+, Swift 5.9+ (Swift Package Manager).
+- On-device provider (Apple Foundation Models): an Apple Intelligence–capable device running a FoundationModels-supported
+  OS (iOS 26+ / macOS 26+). Availability is checked at runtime; IndeRun falls back to the cloud provider when it is
+  unavailable. **No special Info.plist entitlement is required** for on-device execution.
 
-## Installing
-
-**npm** (web / Node):
-
-```sh
-pnpm add @independo/inderun-web   # pulls in contracts + route-core-wasm
-```
-
-**Swift Package Manager** (iOS/macOS) — the SDK is consumed by URL + git tag:
+Install via Swift Package Manager (consumed by URL + git tag):
 
 ```swift
 .package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
 // products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders, IndeRunOpenAIProviders
 ```
 
-**Gradle** (Android, via Maven Central):
+Quick start:
+
+```swift
+import IndeRunSwift
+import IndeRunCore
+import IndeRunAppleProviders
+import IndeRunOpenAIProviders
+
+let hostServices = DefaultHostServices.make()
+let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
+try registry.register(
+    OpenAIProvider(
+        options: OpenAIProviderOptions(
+            model: "gpt-5.2",
+            endpointURL: "https://api.openai.com/v1/responses",
+            authContextRef: "openai_primary"
+        )
+    )
+)
+
+let inderun = IndeRun(registry: registry, hostServices: hostServices)
+let result = try await inderun.run(request: TaskRequest(
+    prompt: "Translate 'Hello' to Spanish",
+    constraints: TaskRequestConstraints(privacy: .localRequired)
+))
+```
+
+### Android (Kotlin)
+
+**Requirements:**
+
+- SDK: Android 8.0+ (minSdk 26), JDK 17.
+- On-device provider (ML Kit GenAI): a device with on-device generative-AI support (AICore / Gemini Nano). Availability
+  (available / downloadable / unavailable) is checked at runtime; IndeRun falls back to the cloud provider when it is
+  unavailable.
+
+Add the required permissions to your `AndroidManifest.xml` — needed for cloud execution and for downloading/checking the
+on-device model:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+```
+
+Install via Gradle (Maven Central):
 
 ```kotlin
 implementation("app.independo.inderun:inderun-kotlin:0.1.0")
 ```
 
-Releases are automated with semantic-release (Conventional Commits). See `docs/release.md`
-for the versioning strategy, branch strategy, and registry setup.
+Quick start:
+
+```kotlin
+// On-device by default (falls back to a registered cloud provider):
+val indeRun = IndeRun.initialize(this) // `this` is a Context
+
+// Or register an OpenAI-compatible cloud provider explicitly:
+import app.independo.inderun.core.ProviderRegistry
+import app.independo.inderun.providers.openai.OpenAIProvider
+import app.independo.inderun.providers.openai.OpenAIProviderOptions
+
+val registry = ProviderRegistry().apply {
+    register(
+        OpenAIProvider(
+            OpenAIProviderOptions(
+                model = "gpt-5.2",
+                endpointUrl = "https://api.openai.com/v1/responses",
+                authContextRef = "openai_primary",
+                timeoutMs = 30_000L
+            )
+        )
+    )
+}
+val indeRunWithCloud = IndeRun.initialize(this, registry)
+```
+
+### Capacitor (hybrid apps)
+
+A thin Capacitor bridge (`@independo/capacitor-inderun`) delegates to the native iOS and Android SDKs. It is not yet
+published to a registry — it will move to a dedicated, SwiftPM-only repository. Until then it lives in this monorepo
+under `packages/capacitor-inderun`.
+
+## Minimum system requirements
+
+| Platform     | SDK minimum                                    | On-device local model                                  |
+| ------------ | ---------------------------------------------- | ------------------------------------------------------ |
+| Web          | Node 24+ / modern browser (ES2022 + WASM)      | — (cloud provider only)                                |
+| iOS / macOS  | iOS 15+ / macOS 12+, Swift 5.9+                | Apple Intelligence device, iOS 26+ / macOS 26+         |
+| Android      | Android 8.0+ (API 26), JDK 17                  | Device with AICore / Gemini Nano support               |
+
+The OpenAI-compatible cloud provider is available on every platform. On-device execution additionally requires the
+capabilities above and is selected automatically by routing.
+
+## Credentials & security
+
+Never place raw API keys in a `TaskRequest`. Providers resolve credentials from secure platform storage via
+`authContextRef`. For web, keep the key server-side behind a proxy endpoint.
+
+## Packages
+
+| Package                                    | Registry                    |
+| ------------------------------------------ | --------------------------- |
+| `@independo/inderun-web`                   | npm                         |
+| `@independo/inderun-contracts`             | npm (shared contracts)      |
+| `@independo/inderun-route-core-wasm`       | npm (routing core, WASM)    |
+| `app.independo.inderun:inderun-kotlin` (+ modules) | Maven Central       |
+| `IndeRun` (Swift products)                 | Swift Package Manager (tag) |
 
 ## Core Docs
 

@@ -90,11 +90,15 @@ subprojects {
                         distribution.set("repo")
                     }
                 }
+                organization {
+                    name.set("Independo GmbH")
+                    url.set("https://www.independo.app")
+                }
                 developers {
                     developer {
                         id.set("independo")
                         name.set("Independo GmbH")
-                        url.set("https://independo.app")
+                        url.set("https://www.independo.app")
                     }
                 }
                 scm {

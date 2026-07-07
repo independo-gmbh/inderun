@@ -3,7 +3,10 @@
   "version": "0.1.1-dev.1",
   "description": "TypeScript/Web SDK for IndeRun.",
   "license": "MIT",
-  "author": "Independo GmbH",
+  "author": {
+    "name": "Independo GmbH",
+    "url": "https://www.independo.app"
+  },
   "homepage": "https://github.com/independo-gmbh/inderun#readme",
   "bugs": "https://github.com/independo-gmbh/inderun/issues",
   "repository": {

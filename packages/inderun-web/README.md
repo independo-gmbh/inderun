@@ -60,4 +60,5 @@ pnpm --filter @independo/inderun-web test
 This package is developed and published from the
 [independo-gmbh/inderun](https://github.com/independo-gmbh/inderun) monorepo. For the
 architecture overview, provider model, and getting-started guides, see the
-[IndeRun documentation](https://github.com/independo-gmbh/inderun#readme). Licensed MIT.
+[IndeRun documentation](https://github.com/independo-gmbh/inderun#readme). Built by
+[Independo GmbH](https://www.independo.app) · Licensed MIT.
