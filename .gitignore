@@ -40,7 +40,6 @@ packages/inderun-route-core-wasm/generated/
 .gradle/
 android/.gradle-home/
 android/local.properties
-packages/capacitor-inderun/android/local.properties
 .gradle-home
 
 # Gradle and Maven with auto-import
@@ -142,7 +141,6 @@ fabric.properties
 # Package Files #
 *.jar
 !android/gradle/wrapper/gradle-wrapper.jar
-!packages/capacitor-inderun/android/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear

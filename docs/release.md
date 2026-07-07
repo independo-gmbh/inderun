@@ -14,10 +14,11 @@ A single repository-wide version is applied to every artifact on each release.
 | Swift Package Manager | `IndeRun` (products: `IndeRun`, `IndeRunCore`, `IndeRunContracts`, `IndeRunAppleProviders`, `IndeRunOpenAIProviders`) | git tag `vX.Y.Z` on this repo |
 | Maven Central | `app.independo.inderun:inderun-contracts` / `-core` / `-kotlin` / `-mlkit-providers` / `-openai-providers` | Maven Central (Sonatype Central Portal) |
 
-**Not yet published:** `@independo/capacitor-inderun`. CocoaPods is being deprecated and
-Capacitor 8 defaults to SwiftPM, so the Capacitor bridge will move to a dedicated,
-SwiftPM-only repository in a later step (tracked separately). Its code stays in the monorepo
-for now and is excluded from the publish steps.
+**Published separately:** `@independo/capacitor-inderun`. CocoaPods is being deprecated and
+Capacitor 8 defaults to SwiftPM, and a repo can only expose one SwiftPM package at its root
+(already the IndeRun Swift SDK here). The Capacitor bridge therefore lives in its own,
+SwiftPM-only repository — [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor) —
+which runs its own release pipeline and consumes the artifacts published here.
 
 ## Branch strategy
 

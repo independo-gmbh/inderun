@@ -11,7 +11,7 @@ truth for exact steps. This table describes only what each one covers.
 - `Rust` (`rust.yml`): builds and tests the `inderun_route_core` crate.
 - `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
 - `Android` (`android.yml`): builds and tests the Gradle modules.
-- `Capacitor Plugin` (`capacitor.yml`): lints, unit-tests, and verifies the `@independo/capacitor-inderun` plugin across web, iOS, and Android.
+- The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Maven Publish` (`maven-publish.yml`): on a published (non-prerelease) GitHub release, publishes the Android library modules to Maven Central.
 - `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. Also runs weekly on a schedule.

@@ -155,9 +155,9 @@ val result = indeRun.run(
 
 ### Capacitor (hybrid apps)
 
-A thin Capacitor bridge (`@independo/capacitor-inderun`) delegates to the native iOS and Android SDKs. It is not yet
-published to a registry — it will move to a dedicated, SwiftPM-only repository. Until then it lives in this monorepo
-under `packages/capacitor-inderun`.
+A thin Capacitor bridge (`@independo/capacitor-inderun`) delegates to the native iOS and Android SDKs. It lives in its
+own, SwiftPM-publishable repository — **[independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor)** —
+and consumes the SDKs published from this monorepo (npm, SwiftPM git tag, Maven Central). See that repo for install and usage.
 
 ## Minimum system requirements
 
