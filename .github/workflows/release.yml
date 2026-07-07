@@ -1,26 +1,39 @@
-name: JavaScript
+name: Release
 
 on:
-  pull_request:
-    branches:
-      - main
-      - dev
   push:
     branches:
       - main
       - dev
 
+# Prevent overlapping releases on the same branch.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
-  javascript:
-    name: JavaScript
+  release:
+    name: Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create GitHub releases + push the version/changelog commit
+      issues: write # comment on released issues
+      pull-requests: write # comment on released PRs
+      id-token: write # OIDC for npm Trusted Publishing + provenance
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # semantic-release needs full history + tags
+          persist-credentials: true
+          # Use a PAT/App token (GH_TOKEN) so semantic-release can push the
+          # version/changelog commit + tag to protected main and back-merge to
+          # dev. Falls back to the default token if GH_TOKEN is not set.
+          token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Set up pnpm 11.9.0
         uses: pnpm/action-setup@v6
@@ -34,6 +47,10 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      # Keep npm current: OIDC Trusted Publishing + provenance need npm >= 11.5.
+      - name: Update npm
+        run: npm i -g npm@^11
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -66,12 +83,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Check formatting
-        run: pnpm format:check:js
-
       - name: Generate contracts
         run: pnpm generate:code
 
@@ -88,5 +99,11 @@ jobs:
       - name: Build workspace
         run: pnpm build
 
-      - name: Test workspace
+      - name: Test workspace (JS)
         run: pnpm test:js
+
+      - name: Semantic Release
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

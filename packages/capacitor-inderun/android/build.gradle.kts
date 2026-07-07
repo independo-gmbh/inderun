@@ -1,5 +1,9 @@
 plugins {
     id("com.android.library") version "9.2.0"
+    // The main android library modules are cross-included here (see settings.gradle)
+    // and apply the Maven-publish plugin; declare its version so this build can
+    // resolve it. Not applied to the Capacitor bridge itself.
+    id("com.vanniktech.maven.publish") version "0.37.0" apply false
 }
 
 android {

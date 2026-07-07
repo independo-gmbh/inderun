@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - dev
 
 permissions:
   contents: read
@@ -29,5 +30,4 @@ jobs:
         run: swiftlint lint --strict
 
       - name: Run Swift package tests
-        working-directory: ios/IndeRun
         run: swift test

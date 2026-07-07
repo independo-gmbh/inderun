@@ -1,8 +1,30 @@
 {
   "name": "@independo/inderun-route-core-wasm",
-  "version": "0.1.0",
+  "version": "0.1.1-dev.1",
   "description": "WASM wrapper package for the IndeRun Rust route-planning core.",
   "license": "MIT",
+  "author": {
+    "name": "Independo GmbH",
+    "url": "https://www.independo.app"
+  },
+  "homepage": "https://github.com/independo-gmbh/inderun#readme",
+  "bugs": "https://github.com/independo-gmbh/inderun/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/independo-gmbh/inderun.git",
+    "directory": "packages/inderun-route-core-wasm"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "inderun",
+    "ai",
+    "routing",
+    "wasm",
+    "route-planning"
+  ],
   "engines": {
     "node": ">=24"
   },
@@ -23,7 +45,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "pnpm build && node test/smoke.mjs",
-    "prepublishOnly": "node -e \"process.exit(require('fs').existsSync('generated/inderun_route_core_bg.wasm')?0:(console.error('Missing generated WASM bindings — build the Rust core with wasm-bindgen before publishing (see the Generate section in README.md).'),1))\""
+    "prepublishOnly": "pnpm run build && node -e \"process.exit(require('fs').existsSync('generated/inderun_route_core_bg.wasm')?0:(console.error('Missing generated WASM bindings — build the Rust core with wasm-bindgen before publishing (see the Generate section in README.md).'),1))\""
   },
   "devDependencies": {
     "typescript": "^6.0.3"

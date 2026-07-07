@@ -23,8 +23,8 @@ pnpm install
 pnpm build
 pnpm test
 pnpm generate
-cd ios/IndeRun && swift build
-cd ios/IndeRun && swift test
+swift build
+swift test
 cd android && ./gradlew build
 cd android && ./gradlew test
 cargo build -p inderun_route_core

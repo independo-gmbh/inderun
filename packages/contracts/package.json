@@ -1,8 +1,30 @@
 {
   "name": "@independo/inderun-contracts",
-  "version": "0.1.0",
+  "version": "0.1.1-dev.1",
   "description": "Canonical JSON Schemas, generated TypeScript types, and validators for IndeRun contracts.",
   "license": "MIT",
+  "author": {
+    "name": "Independo GmbH",
+    "url": "https://www.independo.app"
+  },
+  "homepage": "https://github.com/independo-gmbh/inderun#readme",
+  "bugs": "https://github.com/independo-gmbh/inderun/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/independo-gmbh/inderun.git",
+    "directory": "packages/contracts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "inderun",
+    "ai",
+    "contracts",
+    "json-schema",
+    "validation"
+  ],
   "engines": {
     "node": ">=24"
   },
@@ -21,7 +43,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "ajv": "^8.20.0"

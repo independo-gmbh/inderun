@@ -116,15 +116,26 @@ Checked-in JavaScript commands:
 
 Checked-in Swift commands:
 
-- `cd ios/IndeRun && swift build`
-- `cd ios/IndeRun && swift test`
-- `cd ios/IndeRun && swiftlint lint --strict`
+- `swift build` — the SwiftPM manifest lives at the repository root (`Package.swift`)
+  so the IndeRun Swift SDK is consumable by URL + git tag; sources remain under
+  `ios/IndeRun/Sources`.
+- `swift test`
+- `cd ios/IndeRun && swiftlint lint --strict` (SwiftLint config lives at `ios/IndeRun/.swiftlint.yml`)
 
 Checked-in Android commands:
 
 - `cd android && ./gradlew build`
 - `cd android && ./gradlew test`
 - `cd android && ./gradlew spotlessCheck` (`spotlessApply` to auto-format)
+- `cd android && ./gradlew publishToMavenLocal` — build the library modules' Maven
+  artifacts locally (no credentials needed); Maven Central publishing is automated in CI.
+
+Checked-in release commands:
+
+- Releases are automated by semantic-release on pushes to `main` (stable) and `dev`
+  (prerelease). Config: `.releaserc`; workflow: `.github/workflows/release.yml`. See
+  `docs/release.md`. Do not bump versions by hand — semantic-release derives them from
+  Conventional Commits and fans the version out via `scripts/set-version.mjs`.
 
 Checked-in Rust commands:
 

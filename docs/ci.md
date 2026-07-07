@@ -12,7 +12,9 @@ truth for exact steps. This table describes only what each one covers.
 - `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
 - `Android` (`android.yml`): builds and tests the Gradle modules.
 - `Capacitor Plugin` (`capacitor.yml`): lints, unit-tests, and verifies the `@independo/capacitor-inderun` plugin across web, iOS, and Android.
-- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` in `ios/IndeRun` and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. Also runs weekly on a schedule.
+- `Release` (`release.yml`): on pushes to `main`/`dev`, builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
+- `Maven Publish` (`maven-publish.yml`): on a published (non-prerelease) GitHub release, publishes the Android library modules to Maven Central.
+- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. Also runs weekly on a schedule.
 
 ## Code Scanning
 
@@ -20,8 +22,8 @@ Code scanning uses **advanced setup** — the committed `codeql.yml` workflow is
 of truth, not GitHub's default (UI-managed) setup. The two conflict, so **default setup
 must be set to "Not configured"** under Settings → Code security → Code scanning; otherwise
 the CodeQL runs fail. The compiled languages use explicit manual builds so the autobuilder
-can't lock onto a demo/sample app: Swift builds the SwiftPM package (`swift build` in
-`ios/IndeRun`) rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
+can't lock onto a demo/sample app: Swift builds the SwiftPM package (`swift build` from the
+repository root) rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
 `./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both
 scan the product code, not the sample apps.
 
