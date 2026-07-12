@@ -36,7 +36,7 @@
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
-    "conventional-changelog-conventionalcommits": "^10.2.0",
+    "conventional-changelog-conventionalcommits": "^10.2.1",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.7.0",
