@@ -7,9 +7,9 @@ import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.kotlin.dsl.support.serviceOf
 
 plugins {
-    id("com.android.application") version "9.2.0" apply false
-    id("com.android.library") version "9.2.0" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.2.20" apply false
+    id("com.android.application") version "9.3.0" apply false
+    id("com.android.library") version "9.3.0" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.0" apply false
     id("com.diffplug.spotless") version "7.0.2" apply false
     id("com.vanniktech.maven.publish") version "0.37.0" apply false
 }
