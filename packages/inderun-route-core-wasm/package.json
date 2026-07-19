@@ -48,6 +48,6 @@
     "prepublishOnly": "pnpm run build && node -e \"process.exit(require('fs').existsSync('generated/inderun_route_core_bg.wasm')?0:(console.error('Missing generated WASM bindings — build the Rust core with wasm-bindgen before publishing (see the Generate section in README.md).'),1))\""
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }
