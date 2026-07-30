@@ -9,6 +9,7 @@
 //   let telemetryEvent = try TelemetryEvent(json)
 //   let routePlannerInput = try RoutePlannerInput(json)
 //   let routePlan = try RoutePlan(json)
+//   let modelPackage = try ModelPackage(json)
 
 import Foundation
 
@@ -1769,6 +1770,471 @@ public enum Code: String, Codable, Sendable {
     case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"
     case taskNotSupported = "task_not_supported"
+}
+
+/// Provider-neutral descriptor for a developer-supplied/custom local model made available to
+/// an IndeRun local-model provider family (for example, the ONNX Runtime family). It
+/// describes model identity, format, task support, source, files, integrity, licensing, and
+/// resource expectations. It is bootstrap/configuration metadata resolved before execution;
+/// it is not part of the public TaskRequest/TaskResult surface, and it must not carry raw
+/// secrets.
+// MARK: - ModelPackage
+public struct ModelPackage: Codable, Sendable {
+    /// Files that make up the model package, expressed as source-relative names/paths. The
+    /// provider adapter and model source resolve these to concrete bytes per platform.
+    public var files: Files?
+    /// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+    /// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+    /// model package.
+    public var format: Format
+    /// Stable application-scoped identifier for the model package.
+    public var id: String
+    /// Optional integrity metadata used to validate resolved files before load.
+    public var integrity: Integrity?
+    /// Optional license/source metadata for the model, for developer transparency. Free-form.
+    public var license: License?
+    /// Optional known resource expectations, used by capability checks to reject on constrained
+    /// devices before load.
+    public var limits: Limits?
+    /// Optional runtime compatibility expectations. Fields are advisory hints for capability
+    /// checks; the provider adapter owns exact enforcement.
+    public var runtime: Runtime?
+    /// Where the model files are obtained from. Availability of each source type is
+    /// platform-dependent; see the ONNX Runtime provider-family specification for the
+    /// per-platform support matrix.
+    public var source: Source?
+    /// IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by
+    /// dynamic capability checks and route matching.
+    public var tasks: [String]?
+    /// Optional application-defined version for the model package, used for cache invalidation
+    /// and compatibility checks.
+    public var version: String?
+
+    public init(files: Files?, format: Format, id: String, integrity: Integrity?, license: License?, limits: Limits?, runtime: Runtime?, source: Source?, tasks: [String]?, version: String?) {
+        self.files = files
+        self.format = format
+        self.id = id
+        self.integrity = integrity
+        self.license = license
+        self.limits = limits
+        self.runtime = runtime
+        self.source = source
+        self.tasks = tasks
+        self.version = version
+    }
+}
+
+// MARK: ModelPackage convenience initializers and mutators
+
+public extension ModelPackage {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ModelPackage.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        files: Files?? = nil,
+        format: Format? = nil,
+        id: String? = nil,
+        integrity: Integrity?? = nil,
+        license: License?? = nil,
+        limits: Limits?? = nil,
+        runtime: Runtime?? = nil,
+        source: Source?? = nil,
+        tasks: [String]?? = nil,
+        version: String?? = nil
+    ) -> ModelPackage {
+        return ModelPackage(
+            files: files ?? self.files,
+            format: format ?? self.format,
+            id: id ?? self.id,
+            integrity: integrity ?? self.integrity,
+            license: license ?? self.license,
+            limits: limits ?? self.limits,
+            runtime: runtime ?? self.runtime,
+            source: source ?? self.source,
+            tasks: tasks ?? self.tasks,
+            version: version ?? self.version
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Files that make up the model package, expressed as source-relative names/paths. The
+/// provider adapter and model source resolve these to concrete bytes per platform.
+// MARK: - Files
+public struct Files: Codable, Sendable {
+    /// Optional model/generation config file, where the model requires one.
+    public var config: String?
+    /// Optional external data files referenced by the model graph (for example ONNX external
+    /// weights).
+    public var external: [String]?
+    /// Files that must be present for the package to load (for example the model graph).
+    public var filesRequired: [String]?
+    /// Optional tokenizer file, where the model requires one.
+    public var tokenizer: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case config, external
+        case filesRequired = "required"
+        case tokenizer
+    }
+
+    public init(config: String?, external: [String]?, filesRequired: [String]?, tokenizer: String?) {
+        self.config = config
+        self.external = external
+        self.filesRequired = filesRequired
+        self.tokenizer = tokenizer
+    }
+}
+
+// MARK: Files convenience initializers and mutators
+
+public extension Files {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Files.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        config: String?? = nil,
+        external: [String]?? = nil,
+        filesRequired: [String]?? = nil,
+        tokenizer: String?? = nil
+    ) -> Files {
+        return Files(
+            config: config ?? self.config,
+            external: external ?? self.external,
+            filesRequired: filesRequired ?? self.filesRequired,
+            tokenizer: tokenizer ?? self.tokenizer
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+/// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+/// model package.
+public enum Format: String, Codable, Sendable {
+    case genai = "genai"
+    case onnx = "onnx"
+    case ort = "ort"
+}
+
+/// Optional integrity metadata used to validate resolved files before load.
+// MARK: - Integrity
+public struct Integrity: Codable, Sendable {
+    /// Map of file name to expected checksum (for example 'sha256:...'). Absence means integrity
+    /// is not verified by IndeRun.
+    public var checksums: [String: String]?
+
+    public init(checksums: [String: String]?) {
+        self.checksums = checksums
+    }
+}
+
+// MARK: Integrity convenience initializers and mutators
+
+public extension Integrity {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Integrity.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        checksums: [String: String]?? = nil
+    ) -> Integrity {
+        return Integrity(
+            checksums: checksums ?? self.checksums
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional license/source metadata for the model, for developer transparency. Free-form.
+// MARK: - License
+public struct License: Codable, Sendable {
+    /// SPDX license identifier where known (for example 'Apache-2.0').
+    public var spdx: String?
+    /// License or model card URL where available.
+    public var url: String?
+
+    public init(spdx: String?, url: String?) {
+        self.spdx = spdx
+        self.url = url
+    }
+}
+
+// MARK: License convenience initializers and mutators
+
+public extension License {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(License.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        spdx: String?? = nil,
+        url: String?? = nil
+    ) -> License {
+        return License(
+            spdx: spdx ?? self.spdx,
+            url: url ?? self.url
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional known resource expectations, used by capability checks to reject on constrained
+/// devices before load.
+// MARK: - Limits
+public struct Limits: Codable, Sendable {
+    /// Approximate on-disk size of the resolved package, where known.
+    public var diskBytes: Int?
+    /// Approximate peak memory required to run the model, where known.
+    public var memBytes: Int?
+
+    public init(diskBytes: Int?, memBytes: Int?) {
+        self.diskBytes = diskBytes
+        self.memBytes = memBytes
+    }
+}
+
+// MARK: Limits convenience initializers and mutators
+
+public extension Limits {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Limits.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        diskBytes: Int?? = nil,
+        memBytes: Int?? = nil
+    ) -> Limits {
+        return Limits(
+            diskBytes: diskBytes ?? self.diskBytes,
+            memBytes: memBytes ?? self.memBytes
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional runtime compatibility expectations. Fields are advisory hints for capability
+/// checks; the provider adapter owns exact enforcement.
+// MARK: - Runtime
+public struct Runtime: Codable, Sendable {
+    /// Minimum ONNX opset version the model requires, where known.
+    public var minOpset: Int?
+    /// Minimum runtime package version required to load the model, where known.
+    public var minRuntimeVersion: String?
+    /// Platforms the package is expected to run on (for example 'web', 'android', 'apple').
+    /// Absence means unconstrained.
+    public var platforms: [String]?
+
+    public init(minOpset: Int?, minRuntimeVersion: String?, platforms: [String]?) {
+        self.minOpset = minOpset
+        self.minRuntimeVersion = minRuntimeVersion
+        self.platforms = platforms
+    }
+}
+
+// MARK: Runtime convenience initializers and mutators
+
+public extension Runtime {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Runtime.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        minOpset: Int?? = nil,
+        minRuntimeVersion: String?? = nil,
+        platforms: [String]?? = nil
+    ) -> Runtime {
+        return Runtime(
+            minOpset: minOpset ?? self.minOpset,
+            minRuntimeVersion: minRuntimeVersion ?? self.minRuntimeVersion,
+            platforms: platforms ?? self.platforms
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Where the model files are obtained from. Availability of each source type is
+/// platform-dependent; see the ONNX Runtime provider-family specification for the
+/// per-platform support matrix.
+// MARK: - Source
+public struct Source: Codable, Sendable {
+    /// Optional source-specific reference (for example a registry repo id or a bundled asset
+    /// base path). Interpretation depends on 'sourceType'. Must not contain credentials: URL
+    /// userinfo (for example 'https://user:pass@host/...') is rejected, and credentials must be
+    /// supplied via authContextRef instead.
+    public var ref: String?
+    /// Discriminator for how the host makes model files available. 'registry' is a web
+    /// repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+    /// app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+    /// is a local path where the platform allows it, 'app_managed' is an app-managed
+    /// cache/storage location, 'remote' is a host-managed download.
+    public var sourceType: SourceType
+
+    public init(ref: String?, sourceType: SourceType) {
+        self.ref = ref
+        self.sourceType = sourceType
+    }
+}
+
+// MARK: Source convenience initializers and mutators
+
+public extension Source {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Source.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        ref: String?? = nil,
+        sourceType: SourceType? = nil
+    ) -> Source {
+        return Source(
+            ref: ref ?? self.ref,
+            sourceType: sourceType ?? self.sourceType
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Discriminator for how the host makes model files available. 'registry' is a web
+/// repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+/// app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+/// is a local path where the platform allows it, 'app_managed' is an app-managed
+/// cache/storage location, 'remote' is a host-managed download.
+public enum SourceType: String, Codable, Sendable {
+    case appManaged = "app_managed"
+    case bundled = "bundled"
+    case filesystem = "filesystem"
+    case programmatic = "programmatic"
+    case registry = "registry"
+    case remote = "remote"
 }
 
 // MARK: - Helper functions for creating encoders and decoders

@@ -8,4 +8,5 @@ export type { HttpResponse } from "./http-response.js";
 export type { TelemetryEvent } from "./telemetry-event.js";
 export type { RoutePlannerInput } from "./route-planner-input.js";
 export type { RoutePlan } from "./route-plan.js";
+export type { ModelPackage } from "./model-package.js";
 export * from "./schemas.js";
