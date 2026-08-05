@@ -779,3 +779,178 @@ export const routePlanSchema = {
     }
   }
 } as const;
+
+export const modelPackageSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/model-package.schema.json",
+  "title": "ModelPackage",
+  "description": "Provider-neutral descriptor for a developer-supplied/custom local model made available to an IndeRun local-model provider family (for example, the ONNX Runtime family). It describes model identity, format, task support, source, files, integrity, licensing, and resource expectations. It is bootstrap/configuration metadata resolved before execution; it is not part of the public TaskRequest/TaskResult surface, and it must not carry raw secrets.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "format"
+  ],
+  "properties": {
+    "id": {
+      "description": "Stable application-scoped identifier for the model package.",
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "description": "Optional application-defined version for the model package, used for cache invalidation and compatibility checks.",
+      "type": "string",
+      "minLength": 1
+    },
+    "format": {
+      "description": "Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI model package.",
+      "enum": [
+        "onnx",
+        "ort",
+        "genai"
+      ]
+    },
+    "tasks": {
+      "description": "IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by dynamic capability checks and route matching.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "runtime": {
+      "description": "Optional runtime compatibility expectations. Fields are advisory hints for capability checks; the provider adapter owns exact enforcement.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "minOpset": {
+          "description": "Minimum ONNX opset version the model requires, where known.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "minRuntimeVersion": {
+          "description": "Minimum runtime package version required to load the model, where known.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platforms": {
+          "description": "Platforms the package is expected to run on (for example 'web', 'android', 'apple'). Absence means unconstrained.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "files": {
+      "description": "Files that make up the model package, expressed as source-relative names/paths. The provider adapter and model source resolve these to concrete bytes per platform.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "required": {
+          "description": "Files that must be present for the package to load (for example the model graph).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "tokenizer": {
+          "description": "Optional tokenizer file, where the model requires one.",
+          "type": "string",
+          "minLength": 1
+        },
+        "config": {
+          "description": "Optional model/generation config file, where the model requires one.",
+          "type": "string",
+          "minLength": 1
+        },
+        "external": {
+          "description": "Optional external data files referenced by the model graph (for example ONNX external weights).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "integrity": {
+      "description": "Optional integrity metadata used to validate resolved files before load.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "checksums": {
+          "description": "Map of file name to expected checksum (for example 'sha256:...'). Absence means integrity is not verified by IndeRun.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "license": {
+      "description": "Optional license/source metadata for the model, for developer transparency. Free-form.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "spdx": {
+          "description": "SPDX license identifier where known (for example 'Apache-2.0').",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "description": "License or model card URL where available.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "source": {
+      "description": "Where the model files are obtained from. Availability of each source type is platform-dependent; see the ONNX Runtime provider-family specification for the per-platform support matrix.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "sourceType"
+      ],
+      "properties": {
+        "sourceType": {
+          "description": "Discriminator for how the host makes model files available. 'registry' is a web repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem' is a local path where the platform allows it, 'app_managed' is an app-managed cache/storage location, 'remote' is a host-managed download.",
+          "enum": [
+            "registry",
+            "bundled",
+            "programmatic",
+            "filesystem",
+            "app_managed",
+            "remote"
+          ]
+        },
+        "ref": {
+          "description": "Optional source-specific reference (for example a registry repo id or a bundled asset base path). Interpretation depends on 'sourceType'. Must not contain credentials: URL userinfo (for example 'https://user:pass@host/...') is rejected, and credentials must be supplied via authContextRef instead.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*://[^/@]*@)[\\s\\S]*$"
+        }
+      }
+    },
+    "limits": {
+      "description": "Optional known resource expectations, used by capability checks to reject on constrained devices before load.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "diskBytes": {
+          "description": "Approximate on-disk size of the resolved package, where known.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "memBytes": {
+          "description": "Approximate peak memory required to run the model, where known.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+} as const;

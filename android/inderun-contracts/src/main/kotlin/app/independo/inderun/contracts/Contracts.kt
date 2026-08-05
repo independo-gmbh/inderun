@@ -673,3 +673,214 @@ enum class Code {
     RunNotSupported,
     TaskNotSupported,
 }
+
+/**
+ * Provider-neutral descriptor for a developer-supplied/custom local model made available to
+ * an IndeRun local-model provider family (for example, the ONNX Runtime family). It
+ * describes model identity, format, task support, source, files, integrity, licensing, and
+ * resource expectations. It is bootstrap/configuration metadata resolved before execution;
+ * it is not part of the public TaskRequest/TaskResult surface, and it must not carry raw
+ * secrets.
+ */
+data class ModelPackage(
+    /**
+     * Files that make up the model package, expressed as source-relative names/paths. The
+     * provider adapter and model source resolve these to concrete bytes per platform.
+     */
+    val files: Files? = null,
+
+    /**
+     * Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+     * graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+     * model package.
+     */
+    val format: Format,
+
+    /**
+     * Stable application-scoped identifier for the model package.
+     */
+    val id: String,
+
+    /**
+     * Optional integrity metadata used to validate resolved files before load.
+     */
+    val integrity: Integrity? = null,
+
+    /**
+     * Optional license/source metadata for the model, for developer transparency. Free-form.
+     */
+    val license: License? = null,
+
+    /**
+     * Optional known resource expectations, used by capability checks to reject on constrained
+     * devices before load.
+     */
+    val limits: Limits? = null,
+
+    /**
+     * Optional runtime compatibility expectations. Fields are advisory hints for capability
+     * checks; the provider adapter owns exact enforcement.
+     */
+    val runtime: Runtime? = null,
+
+    /**
+     * Where the model files are obtained from. Availability of each source type is
+     * platform-dependent; see the ONNX Runtime provider-family specification for the
+     * per-platform support matrix.
+     */
+    val source: Source? = null,
+
+    /**
+     * IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by
+     * dynamic capability checks and route matching.
+     */
+    val tasks: List<String>? = null,
+
+    /**
+     * Optional application-defined version for the model package, used for cache invalidation
+     * and compatibility checks.
+     */
+    val version: String? = null,
+)
+
+/**
+ * Files that make up the model package, expressed as source-relative names/paths. The
+ * provider adapter and model source resolve these to concrete bytes per platform.
+ */
+data class Files(
+    /**
+     * Optional model/generation config file, where the model requires one.
+     */
+    val config: String? = null,
+
+    /**
+     * Optional external data files referenced by the model graph (for example ONNX external
+     * weights).
+     */
+    val external: List<String>? = null,
+
+    /**
+     * Files that must be present for the package to load (for example the model graph).
+     */
+    val required: List<String>? = null,
+
+    /**
+     * Optional tokenizer file, where the model requires one.
+     */
+    val tokenizer: String? = null,
+)
+
+/**
+ * Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+ * graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+ * model package.
+ */
+enum class Format {
+    Genai,
+    Onnx,
+    Ort,
+}
+
+/**
+ * Optional integrity metadata used to validate resolved files before load.
+ */
+data class Integrity(
+    /**
+     * Map of file name to expected checksum (for example 'sha256:...'). Absence means integrity
+     * is not verified by IndeRun.
+     */
+    val checksums: Map<String, String>? = null,
+)
+
+/**
+ * Optional license/source metadata for the model, for developer transparency. Free-form.
+ */
+data class License(
+    /**
+     * SPDX license identifier where known (for example 'Apache-2.0').
+     */
+    val spdx: String? = null,
+
+    /**
+     * License or model card URL where available.
+     */
+    val url: String? = null,
+)
+
+/**
+ * Optional known resource expectations, used by capability checks to reject on constrained
+ * devices before load.
+ */
+data class Limits(
+    /**
+     * Approximate on-disk size of the resolved package, where known.
+     */
+    val diskBytes: Long? = null,
+
+    /**
+     * Approximate peak memory required to run the model, where known.
+     */
+    val memBytes: Long? = null,
+)
+
+/**
+ * Optional runtime compatibility expectations. Fields are advisory hints for capability
+ * checks; the provider adapter owns exact enforcement.
+ */
+data class Runtime(
+    /**
+     * Minimum ONNX opset version the model requires, where known.
+     */
+    val minOpset: Long? = null,
+
+    /**
+     * Minimum runtime package version required to load the model, where known.
+     */
+    val minRuntimeVersion: String? = null,
+
+    /**
+     * Platforms the package is expected to run on (for example 'web', 'android', 'apple').
+     * Absence means unconstrained.
+     */
+    val platforms: List<String>? = null,
+)
+
+/**
+ * Where the model files are obtained from. Availability of each source type is
+ * platform-dependent; see the ONNX Runtime provider-family specification for the
+ * per-platform support matrix.
+ */
+data class Source(
+    /**
+     * Optional source-specific reference (for example a registry repo id or a bundled asset
+     * base path). Interpretation depends on 'sourceType'. Must not contain credentials: URL
+     * userinfo (for example 'https://user:pass@host/...') is rejected, and credentials must be
+     * supplied via authContextRef instead.
+     */
+    val ref: String? = null,
+
+    /**
+     * Discriminator for how the host makes model files available. 'registry' is a web
+     * repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+     * app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+     * is a local path where the platform allows it, 'app_managed' is an app-managed
+     * cache/storage location, 'remote' is a host-managed download.
+     */
+    val sourceType: SourceType,
+)
+
+/**
+ * Discriminator for how the host makes model files available. 'registry' is a web
+ * repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+ * app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+ * is a local path where the platform allows it, 'app_managed' is an app-managed
+ * cache/storage location, 'remote' is a host-managed download.
+ */
+enum class SourceType {
+    AppManaged,
+    Bundled,
+    Filesystem,
+    Programmatic,
+    Registry,
+    Remote,
+}

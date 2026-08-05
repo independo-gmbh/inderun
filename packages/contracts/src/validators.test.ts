@@ -4,11 +4,13 @@ import {
   getHttpRequestValidationIssues,
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
+  getModelPackageValidationIssues,
   getTaskRequestValidationIssues,
   getTelemetryEventValidationIssues,
   validateHttpRequest,
   validateHttpResponse,
   validateIndeRunError,
+  validateModelPackage,
   validateTaskRequest,
   validateTaskResult,
   validateTelemetryEvent
@@ -154,6 +156,96 @@ describe("IndeRunError validation", () => {
         errorClass: "ProviderExploded",
         message: "Nope"
       }).some((issue) => issue.path === "/errorClass")
+    ).toBe(true);
+  });
+});
+
+describe("ModelPackage validation", () => {
+  it("accepts a minimal model package", () => {
+    expect(
+      validateModelPackage({
+        id: "phi-3-mini",
+        format: "genai"
+      })
+    ).toBe(true);
+  });
+
+  it("accepts a fuller package with source, files, integrity, and forward-compatible fields", () => {
+    expect(
+      validateModelPackage({
+        id: "phi-3-mini",
+        version: "1.2.0",
+        format: "onnx",
+        tasks: ["text_to_text"],
+        runtime: { minOpset: 17, platforms: ["web", "android"] },
+        files: {
+          required: ["model.onnx"],
+          tokenizer: "tokenizer.json",
+          external: ["model.onnx_data"]
+        },
+        integrity: { checksums: { "model.onnx": "sha256:abc" } },
+        license: { spdx: "MIT" },
+        source: { sourceType: "registry", ref: "org/phi-3-mini-onnx" },
+        limits: { diskBytes: 2_000_000_000, memBytes: 4_000_000_000 },
+        futureField: "ignored"
+      })
+    ).toBe(true);
+  });
+
+  it("rejects an unsupported model format", () => {
+    expect(
+      getModelPackageValidationIssues({
+        id: "phi-3-mini",
+        format: "gguf"
+      }).some((issue) => issue.path === "/format")
+    ).toBe(true);
+  });
+
+  it("rejects a package without an id", () => {
+    expect(
+      getModelPackageValidationIssues({
+        format: "onnx"
+      }).some((issue) => issue.path === "/" && issue.keyword === "required")
+    ).toBe(true);
+  });
+
+  it("rejects an unsupported model source type", () => {
+    expect(
+      getModelPackageValidationIssues({
+        id: "phi-3-mini",
+        format: "onnx",
+        source: { sourceType: "torrent" }
+      }).some((issue) => issue.path === "/source/sourceType")
+    ).toBe(true);
+  });
+
+  it("rejects inline secrets in a model source", () => {
+    expect(
+      getModelPackageValidationIssues({
+        id: "phi-3-mini",
+        format: "onnx",
+        source: { sourceType: "remote", ref: "https://models.example", apiKey: "sk-test" }
+      }).some((issue) => issue.keyword === "forbiddenSecretKey")
+    ).toBe(true);
+  });
+
+  it("rejects URL userinfo credentials in a model source ref", () => {
+    expect(
+      getModelPackageValidationIssues({
+        id: "phi-3-mini",
+        format: "onnx",
+        source: { sourceType: "registry", ref: "https://user:pass@models.example/org/model" }
+      }).some((issue) => issue.path === "/source/ref" && issue.keyword === "pattern")
+    ).toBe(true);
+  });
+
+  it("accepts credential-free source refs that contain '@' outside URL userinfo", () => {
+    expect(
+      validateModelPackage({
+        id: "phi-3-mini",
+        format: "onnx",
+        source: { sourceType: "registry", ref: "https://models.example/org/model@v1" }
+      })
     ).toBe(true);
   });
 });

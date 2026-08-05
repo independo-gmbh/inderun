@@ -8,5 +8,9 @@ and bridge layers. Run `pnpm generate` to regenerate language-specific artifacts
 This includes both the public Mode-1 request/result/error contracts and the shared route-planner boundary contracts
 used by the Rust route-planning core (`route-planner-input.schema.json` and `route-plan.schema.json`).
 
+It also includes provider-family bootstrap contracts such as `model-package.schema.json` (the
+provider-neutral `ModelPackage` used by local-model provider families; see
+`docs/architecture/onnx-runtime-provider-family.md`).
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts` and Swift models for `IndeRunContracts`.

@@ -38,6 +38,9 @@ factories), not in prose.
 - iOS on-device: Apple Foundation Models provider
 - Android on-device: ML Kit GenAI provider
 - Web and native cloud: OpenAI-compatible provider
+- Custom/developer-supplied local models: ONNX Runtime provider family (Milestone 2, specified in
+  [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md); implementation tracked in
+  #85/#86/#87)
 - Shared route planning: Rust core used by the TypeScript/Web side and WASM wrapper
 
 ## Current Guidance
