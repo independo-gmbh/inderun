@@ -34,6 +34,8 @@ export {
 export type {
   FinishReason,
   IndeRunErrorClass,
+  ModelPackageFormat,
+  ModelSourceType,
   SchemaVersion,
   SharedRoutePlan,
   SharedRoutePlannerInput,

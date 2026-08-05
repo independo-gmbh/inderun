@@ -5,8 +5,9 @@ provider-neutral model-loading contract used for developer-supplied/custom local
 architecture baseline for the platform implementation tickets: #85 (Web), #87 (Android), and #86
 (Apple platforms). Those tickets implement providers; they must not re-decide the boundaries below.
 
-This is a Milestone 2 specification. It does not implement any provider. Field-level shapes live in
-the schema, not in this prose (see [Model Package Contract](#model-package-contract)).
+This is a Milestone 2 specification. Field-level shapes live in the schema, not in this prose (see
+[Model Package Contract](#model-package-contract)). The Web member is implemented; Android and Apple
+are not yet (see [Web Implementation](#web-implementation)).
 
 ## Classification And Boundaries
 
@@ -33,9 +34,10 @@ One adapter per platform, each wrapping the platform's ORT distribution:
 - Android: ORT Mobile (`onnxruntime-android`) — tracked in #87
 - Apple platforms: ORT Mobile (`onnxruntime-c` / `onnxruntime-objc`) — tracked in #86
 
-Proposed provider ids follow the existing plain-string id convention: `local.onnx.genai.web`,
-`local.onnx.genai.android`, `local.onnx.genai.apple`. Ids are a proposal and may be adjusted during
-implementation review. Every family member is `type: local` with `privacy.dataLeavesDevice: false`.
+Provider ids follow the existing plain-string id convention: `local.onnx.genai.web` (confirmed by the
+Web implementation), `local.onnx.genai.android`, `local.onnx.genai.apple`. The mobile ids remain a
+proposal until those tickets land. Every family member is `type: local` with
+`privacy.dataLeavesDevice: false`.
 
 ## Interaction Mode And Task
 
@@ -54,6 +56,15 @@ DeepSeek-R1-Distill.
 **Risk (accepted):** the ORT GenAI (`generate()`) API is documented as *"in preview and is subject
 to change"*. Implementers must isolate the GenAI call behind an injectable runtime seam (below) so a
 version change is contained in the adapter.
+
+**Correction — GenAI has no browser build.** ORT GenAI ships Python, .NET, C/C++, and Java packages
+only; there is no JavaScript/browser distribution, and `onnxruntime-web` provides raw inference
+without a generative loop (tokenization, sampling, KV cache). The Web member therefore satisfies the
+*role* GenAI was mandated for — not the literal package — by defaulting to Transformers.js, which
+runs ONNX models on `onnxruntime-web` and owns the generative loop. This is exactly what the
+injectable seam exists for: the seam is the contract, the default implementation is swappable, and
+the mobile members are unaffected and still target ORT GenAI. Source:
+<https://onnxruntime.ai/docs/genai/howto/install.html>.
 
 **Deterministic fixture fallback.** IndeRun already makes on-device adapters testable without their
 native backend via an injectable runtime interface (`AppleFoundationModelsRuntime`,
@@ -189,6 +200,73 @@ concerns.
 Family members declare `cancel: soft`, matching the other on-device adapters (Apple Foundation
 Models, ML Kit). ORT `run` is not hard-interruptible; cancellation produces a terminal cancellation
 outcome with no user-visible events after the cancel point, per `architecture.md`.
+
+## Web Implementation
+
+The Web member ships in `@independo/inderun-web` under the `./onnx` subpath entry point, kept out of
+the provider-agnostic root index like the OpenAI adapter. Provider id: `local.onnx.genai.web`.
+Descriptor: `type: local`, `transport: in_process`, `supports.run: true` with all forward-looking
+flags false, `cancel: soft`, `privacy.dataLeavesDevice: false`. Option shapes and the error table for
+consumers live in the package README, not here.
+
+**Runtime seam.** `OnnxTextGenerationRuntime` has two methods: `prepare(modelPackage)` returning the
+`{ available, reason? }` snapshot, and `generate(input, signal)` returning normalized text. Three
+implementations exist:
+
+- `createTransformersJsRuntime()` — the default. Lazily imports `@huggingface/transformers`, which the
+  application installs; IndeRun does not bundle it. Initialization failures are reported as
+  *runtime package unavailable* rather than thrown, so routing degrades to an explainable rejection
+  rather than a crash. The import specifier stays statically resolvable so bundlers can find the
+  package; apps that do not install it supply their own runtime instead.
+- `createFixtureOnnxRuntime()` — the deterministic in-memory fixture mandated above. It is the test
+  seam and lets demos exercise the on-device route offline.
+- Any application-supplied implementation, for example a hand-rolled `onnxruntime-web` pipeline.
+
+Runtime failures are signalled with `OnnxRuntimeError`, whose `kind` (`capability`, `unavailable`,
+`timeout`, `internal`) selects the IndeRun error class per the mapping table above; anything else a
+runtime throws normalizes to `Internal`. Allocation failures during model load (ONNX Runtime reports
+these as `std::bad_alloc` from session creation) are resource exhaustion and map to `Unavailable`,
+not `CapabilityMismatch`.
+
+The default runtime loads quantized weights (`q4f16` on WebGPU, `q4` otherwise) because
+Transformers.js would otherwise select `fp32` and exhaust browser memory. It covers models that load
+through the `text-generation` pipeline, which is the Mode 1 `text_to_text` case this family targets.
+Multimodal exports are split across separate vision/audio/embedding/decoder graphs and need
+`AutoProcessor` plus a model-specific class; that is out of scope for `text_to_text` and, if ever
+needed, belongs in a custom runtime behind the seam rather than in the provider.
+
+**Model sources.** The Web member honors `registry`, `bundled`, `programmatic`, and `app_managed` and
+rejects the other two in `capabilities()`, matching the matrix above: `filesystem` as unsupported
+(browsers cannot read arbitrary local paths) and `remote` as deferred (the host downloads and then
+re-declares the files). The Transformers.js runtime maps `registry` refs to hub model ids, points the
+loader at locally served assets for `bundled`/`app_managed`, and requires an application-supplied
+generator for `programmatic`.
+
+**Capability gate order.** Model package schema validation (reusing `getModelPackageValidationIssues`
+from the contracts package, including its inline-secret and URL-userinfo rules) → Web source-type
+support → `runtime.platforms` includes `web` → declared tasks include `text_to_text` → delegate to
+`runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection carrying
+the reason string, for example:
+
+- `capability_unavailable`: *model source unavailable: 'filesystem' model sources are unsupported on
+  Web because browsers cannot read arbitrary local paths.*
+- `capability_unavailable`: *runtime package unavailable: install the optional dependency
+  @huggingface/transformers (…).*
+- `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
+  generation budget (`constraints.timeoutMs`, else the provider's `timeoutMs`) elapses; `Unavailable`
+  for runtime initialization failures and resource exhaustion. There is no `AuthError`,
+  `RateLimited`, or `Offline` path.
+
+**Browser constraints.** WASM is the CPU baseline; WebGPU is used when `navigator.gpu` exists.
+Backend choice is an internal detail surfaced only in capability `reason` strings — never a routing
+target. WASM threads require cross-origin isolation (`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`), and the host application is responsible for serving
+and caching model and ORT WASM assets; IndeRun owns no download or cache layer in Milestone 2.
+
+**Authoring a custom local provider.** Implement `OnnxTextGenerationRuntime` rather than a new
+`ProviderAdapter` when the model is ONNX: the provider already owns descriptor semantics, model
+package validation, source gating, timeouts, and error normalization. Implement `ProviderAdapter`
+directly only for a different runtime family.
 
 ## Documentation Requirements For Platform Tickets (#85–#87)
 

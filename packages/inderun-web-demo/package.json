@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@independo/inderun-contracts": "workspace:^",
     "@independo/inderun-web": "workspace:^"
   },

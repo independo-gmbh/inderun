@@ -8,7 +8,7 @@
 
 TypeScript/Web SDK for IndeRun.
 
-This package provides the Web SDK entrypoint, the engine core, routing, telemetry, error normalization, and the OpenAI-compatible cloud provider.
+This package provides the Web SDK entrypoint, the engine core, routing, telemetry, error normalization, the OpenAI-compatible cloud provider, and the Web ONNX Runtime provider for developer-supplied local models.
 
 ## Basic Usage
 
@@ -47,6 +47,122 @@ The provider normalizes OpenAI transport and API failures into the IndeRun error
 taxonomy (`AuthError`, `RateLimited`, `Timeout`, `Unavailable`, `Internal`). The
 exact status-to-class mapping is documented on the provider in code — see
 `OpenAIResponsesProvider` — so it stays in sync with behavior.
+
+## On-Device Models: ONNX Runtime (Web)
+
+`local.onnx.genai.web` runs developer-supplied ONNX models in the browser. Registering it is what
+makes `constraints.privacy = "local_required"` routable. Pass `onnx` to the factory (`openAI` and
+`onnx` are both optional, but at least one is required):
+
+```ts
+import { createIndeRunWeb } from "@independo/inderun-web";
+
+const inderun = createIndeRunWeb({
+  onnx: {
+    modelPackage: {
+      id: "phi-3-mini-web",
+      format: "onnx",
+      tasks: ["text_to_text"],
+      runtime: { platforms: ["web"] },
+      source: { sourceType: "registry", ref: "onnx-community/Phi-3-mini-4k-instruct" }
+    }
+  }
+});
+```
+
+`modelPackage` is the provider-neutral `ModelPackage` contract from
+`@independo/inderun-contracts`; only `id` and `format` are required, and the package is validated
+(including the inline-secret and URL-userinfo rules) before every attempt. Model files must never
+carry credentials — use `authContextRef` and secure storage instead.
+
+Options: `id` (defaults to `local.onnx.genai.web`), `modelPackage` (required), `runtime`, and
+`timeoutMs` (a request's `constraints.timeoutMs` wins).
+
+The default runtime loads **quantized** weights (`q4f16` on WebGPU, `q4` otherwise). Transformers.js
+would otherwise pick `fp32`, which makes ONNX Runtime fail session creation with an allocation error
+(`std::bad_alloc`) for anything but tiny models. Override with `dtype` when your model does not
+publish that variant:
+
+```ts
+import { OnnxRuntimeWebProvider, createTransformersJsRuntime } from "@independo/inderun-web/onnx";
+
+const provider = new OnnxRuntimeWebProvider({
+  modelPackage,
+  runtime: createTransformersJsRuntime({ dtype: "q8", device: "wasm" })
+});
+```
+
+The default runtime targets models that load through the Transformers.js `text-generation` pipeline
+— for example `onnx-community/gemma-3-1b-it-ONNX`. Multimodal exports split across separate
+encoder/decoder graphs need `AutoProcessor` plus a model-specific class and should implement the
+runtime seam instead — see [Custom runtimes](#custom-runtimes).
+
+### Runtime dependency
+
+The default runtime uses [Transformers.js](https://www.npmjs.com/package/@huggingface/transformers),
+which runs ONNX models on `onnxruntime-web` and owns the generation loop (ONNX Runtime GenAI has no
+browser build). It is an optional dependency that IndeRun does not bundle — install it yourself:
+
+```sh
+pnpm add @huggingface/transformers
+```
+
+If the package is present but fails to initialize, the provider reports itself unavailable and
+routing produces an explainable `capability_unavailable` rejection instead of throwing. Bundlers do
+need to resolve the specifier, so an app that imports `@independo/inderun-web/onnx` without
+installing Transformers.js should pass its own runtime (or a `load` override) — see
+[Custom runtimes](#custom-runtimes). WASM threads additionally require
+cross-origin isolation (`Cross-Origin-Opener-Policy: same-origin`,
+`Cross-Origin-Embedder-Policy: require-corp`) on whatever serves your app.
+
+### Supported model sources
+
+| `source.sourceType` | Web         |
+| ------------------- | ----------- |
+| `registry`          | Supported (hub model id in `source.ref`) |
+| `bundled`           | Supported (assets served by your app) |
+| `app_managed`       | Supported (assets served by your app) |
+| `programmatic`      | Supported (requires `createGenerator`) |
+| `remote`            | Deferred — download yourself, then declare the files |
+| `filesystem`        | Unsupported — browsers cannot read arbitrary local paths |
+
+### Errors
+
+| Condition                                                   | `errorClass`         |
+| ----------------------------------------------------------- | -------------------- |
+| Capability gate fails pre-attempt, model missing/incompatible | `CapabilityMismatch` |
+| Runtime initialization failure, resource exhaustion          | `Unavailable`        |
+| Generation exceeded its timeout budget                       | `Timeout`            |
+| Malformed/empty model output, unexpected runtime failure     | `Internal`           |
+
+A purely local runtime never produces `AuthError`, `RateLimited`, or `Offline`.
+
+### Custom runtimes
+
+Swap the execution backend without touching provider semantics by implementing
+`OnnxTextGenerationRuntime`:
+
+```ts
+import {
+  OnnxRuntimeWebProvider,
+  OnnxRuntimeError,
+  createFixtureOnnxRuntime,
+  type OnnxTextGenerationRuntime
+} from "@independo/inderun-web/onnx";
+
+const runtime: OnnxTextGenerationRuntime = {
+  async prepare(modelPackage) {
+    return { available: true };
+  },
+  async generate({ messages, generation }, signal) {
+    // Throw OnnxRuntimeError("capability" | "unavailable" | "timeout" | "internal", …)
+    // to steer IndeRun error normalization.
+    return { text: "…" };
+  }
+};
+```
+
+`createFixtureOnnxRuntime()` provides a deterministic in-memory runtime for tests and offline demos.
 
 ## Commands
 

@@ -68,6 +68,12 @@ const result = await inderun.run({
 > Browser apps must route OpenAI calls through a same-origin proxy that keeps the key server-side — never ship
 > provider credentials to the browser.
 
+For on-device execution with a developer-supplied ONNX model, pass `onnx` as well (or instead) and
+register the Web ONNX Runtime provider — see the
+[`@independo/inderun-web` README](packages/inderun-web/README.md#on-device-models-onnx-runtime-web)
+and the [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md). The
+provider ships from the `@independo/inderun-web/onnx` subpath.
+
 ### iOS / macOS (Swift)
 
 **Requirements:**
@@ -190,6 +196,7 @@ Never place raw API keys in a `TaskRequest`. Providers resolve credentials from 
 - [Project brief](docs/architecture/technical-brief.md)
 - [Architecture overview](docs/architecture/architecture.md)
 - [Provider model](docs/architecture/providers.md)
+- [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
 - [CI behavior](docs/ci.md)
 - [Releases & publishing](docs/release.md)
 - [Contributor workflow and build commands](CONTRIBUTING.md)

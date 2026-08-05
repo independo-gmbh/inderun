@@ -2,3 +2,8 @@ packages:
   - "packages/*"
 allowBuilds:
   esbuild: true
+  # Node-only extras pulled in by @huggingface/transformers. The demo runs the ONNX provider in the
+  # browser, so these native builds are never used.
+  onnxruntime-node: false
+  protobufjs: false
+  sharp: false

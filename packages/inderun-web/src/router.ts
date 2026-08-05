@@ -135,10 +135,17 @@ export class Router {
     const localCandidates = eligible.filter((candidate) => candidate.descriptor.type !== "cloud");
     const cloudCandidates = eligible.filter((candidate) => candidate.descriptor.type === "cloud");
 
-    const selected = eligible.find((candidate) => {
+    // Constraint filtering must apply to the whole candidate list, not just the selected provider:
+    // the remainder becomes the engine's fallback chain, and a fallback that violates the request
+    // constraints would let a `local_required` run be retried against a cloud provider.
+    const admissible = eligible.filter((candidate) => {
       const descriptor = candidate.descriptor;
       const constraints = planInput.constraints;
-      const privacy = descriptor.privacy?.dataLeavesDevice ?? descriptor.type !== "cloud";
+      // Mirrors `is_data_private` in the shared Rust planner: a provider is private when it
+      // declares that data does not leave the device, defaulting to non-cloud providers.
+      const isDataPrivate = descriptor.privacy
+        ? !descriptor.privacy.dataLeavesDevice
+        : descriptor.type !== "cloud";
 
       if (constraints.cloud === "forbidden" && descriptor.type === "cloud") {
         return false;
@@ -148,7 +155,7 @@ export class Router {
         return false;
       }
 
-      if (constraints.privacy === "local_required" && !privacy) {
+      if (constraints.privacy === "local_required" && !isDataPrivate) {
         return false;
       }
 
@@ -163,11 +170,7 @@ export class Router {
       return candidate.capabilities.available;
     });
 
-    const ordered = selected
-      ? [selected, ...eligible.filter((candidate) => candidate !== selected)]
-      : [];
-
-    if (ordered.length === 0) {
+    if (admissible.length === 0) {
       const failureSummary = this.buildFallbackFailureSummary({
         online,
         constraints: planInput.constraints,
@@ -192,18 +195,18 @@ export class Router {
       };
     }
 
-    const selectedProviderId = ordered[0]?.descriptor.id;
+    const selectedProviderId = admissible[0]?.descriptor.id;
 
     return {
       selectedProviderId,
-      fallbackProviderIds: ordered.slice(1).map((candidate) => candidate.descriptor.id),
-      candidates: ordered.map((candidate, index) => ({
+      fallbackProviderIds: admissible.slice(1).map((candidate) => candidate.descriptor.id),
+      candidates: admissible.map((candidate, index) => ({
         providerId: candidate.descriptor.id,
         order: index
       })),
       rejectedProviders: [],
       explanation: {
-        summary: `Selected provider '${selectedProviderId}' deterministically from ${ordered.length} eligible candidate(s).`,
+        summary: `Selected provider '${selectedProviderId}' deterministically from ${admissible.length} eligible candidate(s).`,
         selectedProviderId
       }
     };
