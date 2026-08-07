@@ -41,5 +41,17 @@ Protect `main` with these required checks:
 
 - The JavaScript workflow also regenerates the shared contract and WASM artifacts before package builds.
 - `pnpm generate` emits the contract types for every language from `contracts/schemas/`: TypeScript, Kotlin, and Swift for the full surface, plus the Rust route-core model (`rust/inderun-route-core/src/generated/contracts.rs`) from the two route schemas. The generated Rust file is committed and normalized with `rustfmt` so `cargo fmt --check` stays green.
-- `packages/inderun-route-core-wasm/generated/` is intentionally not checked in.
+- `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
+  exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
+  resolve the package's literal `import("../generated/inderun_route_core.js")` without
+  requiring the Rust/wasm-bindgen toolchain locally. CI's `wasm-bindgen --target web` step
+  overwrites it with the real generated bindings during the build; the stub is not meant to be
+  committed back and should only be hand-updated if the Rust route-core API changes.
+- `packages/inderun-web-demo`'s `build` script runs `scripts/verify-wasm-route-planner-bundled.mjs`
+  after `vite build`, failing the build if the shared route-core WASM asset and JS chunk are not
+  found in `dist/assets/`. This is the regression gate for issue #109: the WASM route planner's
+  dynamic import previously used a variable specifier plus `/* @vite-ignore */`, which Vite
+  cannot statically resolve into a bundled chunk — and critically, `@vite-ignore` also suppresses
+  Rollup's "cannot be statically analyzed" warning, so a build-time `onwarn` hook cannot catch
+  this class of regression; checking the actual emitted output is the only reliable gate.
 - Dependabot is configured for GitHub Actions, npm, Cargo, Gradle, and Swift Package Manager in the repository.

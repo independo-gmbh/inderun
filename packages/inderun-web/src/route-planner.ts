@@ -23,11 +23,31 @@ export interface SharedPlannerModule {
 }
 
 /**
- * Strategy that turns planner input into a deterministic route plan, or `null`
- * when the planner is unavailable (callers then fall back to local selection).
+ * Coarse, privacy-safe reason the WASM planner produced no route plan. Used
+ * only for observability (telemetry/logging) — callers still fall back to
+ * local selection regardless of which reason fired.
+ */
+export type WasmUnavailableReason =
+  "import_failed" | "invalid_module_shape" | "init_failed" | "plan_failed";
+
+/**
+ * Result of a {@link RoutePlanner} attempt. `routePlan` is `null` when the
+ * planner could not produce a plan, in which case `source` is `"unavailable"`
+ * and `unavailableReason` narrows down why, so callers can log/emit telemetry
+ * instead of silently swapping planners.
+ */
+export interface PlannerOutcome {
+  routePlan: SharedPlannerRoutePlan | null;
+  source: "wasm" | "unavailable";
+  unavailableReason?: WasmUnavailableReason;
+}
+
+/**
+ * Strategy that turns planner input into a deterministic route plan, or an
+ * "unavailable" outcome (callers then fall back to local selection).
  */
 export interface RoutePlanner {
-  planRoute(input: SharedPlannerInput): Promise<SharedPlannerRoutePlan | null>;
+  planRoute(input: SharedPlannerInput): Promise<PlannerOutcome>;
 }
 
 /**
@@ -40,27 +60,37 @@ export interface ProviderRuntimeSnapshot {
   capabilities: SharedPlannerInput["providers"][number]["capabilities"];
 }
 
-const DEFAULT_WASM_SPECIFIER = "@independo/inderun-route-core-wasm";
-
 /**
  * {@link RoutePlanner} backed by the Rust route core compiled to WASM. The
- * module is imported lazily and memoized; if it cannot be loaded, `planRoute`
- * resolves to `null` so the engine can fall back to local selection.
+ * module specifier is a static literal (not configurable) so bundlers such as
+ * Vite/webpack/Rollup can statically resolve and chunk it — a variable
+ * specifier defeats bundler analysis and silently never loads in the browser
+ * (see issue #109). The module is imported lazily and memoized; if it cannot
+ * be loaded, `planRoute` resolves an "unavailable" outcome so the engine can
+ * fall back to local selection, and logs once via `console.warn` so the
+ * degradation is never fully silent.
  */
 export class WasmRoutePlanner implements RoutePlanner {
   private modulePromise?: Promise<SharedPlannerModule | null>;
+  private loadFailureReason?: WasmUnavailableReason;
+  private hasWarned = false;
 
-  constructor(private readonly moduleSpecifier: string = DEFAULT_WASM_SPECIFIER) {}
-
-  async planRoute(input: SharedPlannerInput): Promise<SharedPlannerRoutePlan | null> {
+  async planRoute(input: SharedPlannerInput): Promise<PlannerOutcome> {
     const module = await this.loadModule();
     if (!module) {
-      return null;
+      const unavailableReason = this.loadFailureReason ?? "import_failed";
+      this.warnOnce(unavailableReason);
+      return { routePlan: null, source: "unavailable", unavailableReason };
     }
 
-    const json = JSON.stringify(input);
-    const result = await module.planRouteJson(json);
-    return JSON.parse(result) as SharedPlannerRoutePlan;
+    try {
+      const json = JSON.stringify(input);
+      const result = await module.planRouteJson(json);
+      return { routePlan: JSON.parse(result) as SharedPlannerRoutePlan, source: "wasm" };
+    } catch (error) {
+      this.warnOnce("plan_failed", error);
+      return { routePlan: null, source: "unavailable", unavailableReason: "plan_failed" };
+    }
   }
 
   private async loadModule(): Promise<SharedPlannerModule | null> {
@@ -71,21 +101,43 @@ export class WasmRoutePlanner implements RoutePlanner {
   }
 
   private async importModule(): Promise<SharedPlannerModule | null> {
+    let mod: SharedPlannerModule;
     try {
-      const mod = (await import(/* @vite-ignore */ this.moduleSpecifier)) as SharedPlannerModule;
-
-      if (mod.initSharedCore) {
-        await mod.initSharedCore();
-      }
-
-      if (typeof mod.planRouteJson !== "function") {
-        return null;
-      }
-
-      return mod;
-    } catch {
+      mod = (await import("@independo/inderun-route-core-wasm")) as SharedPlannerModule;
+    } catch (error) {
+      this.loadFailureReason = "import_failed";
+      this.warnOnce("import_failed", error);
       return null;
     }
+
+    if (typeof mod.planRouteJson !== "function") {
+      this.loadFailureReason = "invalid_module_shape";
+      this.warnOnce("invalid_module_shape");
+      return null;
+    }
+
+    if (mod.initSharedCore) {
+      try {
+        await mod.initSharedCore();
+      } catch (error) {
+        this.loadFailureReason = "init_failed";
+        this.warnOnce("init_failed", error);
+        return null;
+      }
+    }
+
+    return mod;
+  }
+
+  private warnOnce(reason: WasmUnavailableReason, error?: unknown): void {
+    if (this.hasWarned) {
+      return;
+    }
+    this.hasWarned = true;
+    console.warn(
+      `[IndeRun] WASM route planner unavailable (${reason}); falling back to local route selection.`,
+      error
+    );
   }
 }
 

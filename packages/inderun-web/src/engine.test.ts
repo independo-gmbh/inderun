@@ -278,17 +278,20 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
     const planner: RoutePlanner = {
       async planRoute() {
         return {
-          selectedProviderId: "provider-b",
-          fallbackProviderIds: ["provider-a"],
-          candidates: [
-            { providerId: "provider-b", order: 0 },
-            { providerId: "provider-a", order: 1 }
-          ],
-          rejectedProviders: [],
-          failureCode: null,
-          explanation: {
-            summary: "Selected provider 'provider-b' from shared Rust planner."
-          }
+          routePlan: {
+            selectedProviderId: "provider-b",
+            fallbackProviderIds: ["provider-a"],
+            candidates: [
+              { providerId: "provider-b", order: 0 },
+              { providerId: "provider-a", order: 1 }
+            ],
+            rejectedProviders: [],
+            failureCode: null,
+            explanation: {
+              summary: "Selected provider 'provider-b' from shared Rust planner."
+            }
+          },
+          source: "wasm"
         };
       }
     };

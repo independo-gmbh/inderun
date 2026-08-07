@@ -24,6 +24,23 @@ wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
 pnpm --filter @independo/inderun-route-core-wasm build
 ```
 
+## Consuming from a bundler
+
+`@independo/inderun-route-core-wasm`'s default export uses a static, literal `import()` of
+its generated bindings, and those bindings' `--target web` init defaults to
+`new URL('inderun_route_core_bg.wasm', import.meta.url)` followed by `fetch(...)` when no
+explicit module/bytes are passed in. This is the standard wasm-bindgen + bundler idiom: Vite,
+webpack 5, and Rollup all recognize `new URL(relative, import.meta.url)` natively and emit the
+referenced file as a real asset — no bundler-specific WASM plugin or config is required (see
+`packages/inderun-web-demo` for a working example).
+
+If an app needs to self-host the `.wasm` file explicitly (for example, precaching it for
+offline/PWA use), the `./generated/*` export subpath exposes the raw generated assets:
+
+```ts
+import wasmUrl from "@independo/inderun-route-core-wasm/generated/inderun_route_core_bg.wasm?url";
+```
+
 ## About IndeRun
 
 This package is developed and published from the

@@ -15,6 +15,7 @@ import {
   type RoutePlanner,
   type SharedPlannerInput,
   type SharedPlannerRoutePlan,
+  type WasmUnavailableReason,
   WasmRoutePlanner
 } from "./route-planner.js";
 
@@ -38,6 +39,16 @@ export interface RouteSelection {
    * Explanation detailing the selection decision. Useful for debugging and telemetry.
    */
   explanation: string;
+  /**
+   * Which planner produced `routePlan`: the shared Rust/WASM core, or the
+   * local TypeScript fallback used when the WASM planner is unavailable.
+   */
+  plannerSource: "wasm" | "fallback";
+  /**
+   * Set when `plannerSource` is `"fallback"` because the WASM planner failed;
+   * `undefined` when the fallback was not caused by a planner failure.
+   */
+  plannerUnavailableReason?: WasmUnavailableReason;
 }
 
 /**
@@ -66,13 +77,13 @@ export class Router {
     const snapshots = await collectProviderRuntimeSnapshots(this.registry.list(), hostServices);
 
     const planInput = buildSharedPlannerInput(request, snapshots, online);
-    const routePlan = await this.planner.planRoute(planInput);
+    const outcome = await this.planner.planRoute(planInput);
 
-    if (routePlan) {
-      return this.selectFromSharedPlan(snapshots, routePlan);
+    if (outcome.routePlan) {
+      return this.selectFromSharedPlan(snapshots, outcome.routePlan);
     }
 
-    return this.selectFallbackRoute(request, snapshots, online);
+    return this.selectFallbackRoute(request, snapshots, online, outcome.unavailableReason);
   }
 
   private selectFromSharedPlan(
@@ -83,25 +94,28 @@ export class Router {
       throw this.routePlanFailure(routePlan);
     }
 
-    return this.buildSelectionFromRoutePlan(snapshots, routePlan);
+    return this.buildSelectionFromRoutePlan(snapshots, routePlan, "wasm");
   }
 
   private selectFallbackRoute(
     request: TaskRequest,
     snapshots: ProviderRuntimeSnapshot[],
-    online: boolean
+    online: boolean,
+    plannerUnavailableReason?: WasmUnavailableReason
   ): RouteSelection {
     const plan = this.createFallbackPlan(request, snapshots, online);
     if (!plan.selectedProviderId) {
       throw this.routePlanFailure(plan);
     }
 
-    return this.buildSelectionFromRoutePlan(snapshots, plan);
+    return this.buildSelectionFromRoutePlan(snapshots, plan, "fallback", plannerUnavailableReason);
   }
 
   private buildSelectionFromRoutePlan(
     snapshots: ProviderRuntimeSnapshot[],
-    routePlan: SharedPlannerRoutePlan
+    routePlan: SharedPlannerRoutePlan,
+    plannerSource: "wasm" | "fallback",
+    plannerUnavailableReason?: WasmUnavailableReason
   ): RouteSelection {
     const orderedProviders = routePlan.candidates
       .map((candidate) =>
@@ -118,7 +132,9 @@ export class Router {
       provider: selected.provider,
       fallbackProviders: orderedProviders.slice(1).map((snapshot) => snapshot.provider),
       routePlan,
-      explanation: routePlan.explanation.summary
+      explanation: routePlan.explanation.summary,
+      plannerSource,
+      ...(plannerUnavailableReason ? { plannerUnavailableReason } : {})
     };
   }
 

@@ -43,6 +43,14 @@ factories), not in prose.
   - Web on-device: `local.onnx.genai.web`, shipped in `@independo/inderun-web/onnx`
   - Android and Apple members are not implemented yet (#87/#86)
 - Shared route planning: Rust core used by the TypeScript/Web side and WASM wrapper
+  (`@independo/inderun-route-core-wasm`). The Web SDK's default `WasmRoutePlanner`
+  (`packages/inderun-web/src/route-planner.ts`) loads it via a static, literal dynamic
+  `import()` so bundlers (Vite et al.) can statically resolve and chunk it — see #109 for why
+  a variable specifier silently never loads in a bundled browser build. If the module fails to
+  import, initialize, or plan (network failure, unsupported environment, etc.), the planner
+  degrades to the in-process TypeScript fallback planner and reports the reason via the
+  `route_decided` telemetry event's `plannerSource`/`plannerUnavailableReason` fields (see
+  `docs/architecture/architecture.md`) rather than failing the request or staying silent.
 
 ## Current Guidance
 
