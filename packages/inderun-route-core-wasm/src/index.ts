@@ -34,8 +34,9 @@ export async function planRouteJson(inputJson: string): Promise<string> {
 
 async function importGeneratedModule(): Promise<WasmGeneratedModule> {
   try {
-    const specifier = "../generated/inderun_route_core.js";
-    return (await import(specifier)) as WasmGeneratedModule;
+    // Literal specifier (not a variable) so bundlers can statically resolve and
+    // chunk it — a variable specifier defeats bundler analysis (see issue #109).
+    return (await import("../generated/inderun_route_core.js")) as WasmGeneratedModule;
   } catch (error) {
     throw new Error(
       "Generated WASM bindings are missing. Build them with wasm-pack before using @independo/inderun-route-core-wasm.",

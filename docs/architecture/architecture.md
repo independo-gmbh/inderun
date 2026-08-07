@@ -32,6 +32,8 @@ Cancellation should produce a terminal cancellation outcome and no further user-
 
 Fallback should be predictable and inspectable. If a preferred provider cannot execute, the engine should use the same normalized routing and error model rather than exposing provider-specific control flow to the app.
 
+This also applies to the route *planner* itself, not just providers: on Web, routing is planned by the shared Rust/WASM core by default, with an in-process TypeScript re-implementation as a fallback when the WASM module is unavailable. That degradation must be inspectable rather than silent — the `route_decided` telemetry event's payload carries `plannerSource` (`"wasm"` or `"fallback"`) and, when the fallback was caused by a planner failure, `plannerUnavailableReason` (one of `"import_failed"`, `"invalid_module_shape"`, `"init_failed"`, `"plan_failed"`). See `docs/architecture/providers.md` for the loading mechanism and `packages/inderun-web/src/route-planner.ts` for the reason taxonomy.
+
 ## Security And Parity
 
 Credentials must be referenced through secure storage, not embedded in request payloads. Cross-platform behavior should stay aligned even when the underlying runtime differs by OS or provider.

@@ -22,6 +22,8 @@ export { ProviderRegistry } from "./registry.js";
 export { type RouteSelection, Router } from "./router.js";
 export {
   type RoutePlanner,
+  type PlannerOutcome,
+  type WasmUnavailableReason,
   type SharedPlannerInput,
   type SharedPlannerRoutePlan,
   WasmRoutePlanner

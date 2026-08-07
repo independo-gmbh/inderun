@@ -114,7 +114,9 @@ export class IndeRun {
           taskKind: request.task.kind,
           explanation: routeSelection.explanation,
           constraints: request.constraints ?? null,
-          preferences: request.preferences ?? null
+          preferences: request.preferences ?? null,
+          plannerSource: routeSelection.plannerSource,
+          plannerUnavailableReason: routeSelection.plannerUnavailableReason ?? null
         }
       });
 
