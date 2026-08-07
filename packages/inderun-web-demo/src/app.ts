@@ -8,6 +8,8 @@ export interface AppDependencies {
   config: {
     model: string;
     proxyEndpointUrl: string;
+    /** Model reference backing the on-device ONNX provider, when configured. */
+    onDeviceModel?: string;
   };
   runPrompt(prompt: string, executionMode: "on_device" | "cloud"): Promise<TaskResult>;
 }
@@ -37,7 +39,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
   let state: AppState = {
     status: "idle",
     prompt: DEFAULT_PROMPT,
-    executionMode: "cloud"
+    executionMode: "on_device"
   };
 
   const render = () => {
@@ -75,7 +77,13 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
             <button id="run-button" type="button" ${state.status === "running" ? "disabled" : ""}>
               ${state.status === "running" ? "Running..." : state.executionMode === "on_device" ? "Run On Device" : "Run Through Cloud"}
             </button>
-            <p class="hint">Endpoint: <code class="code">${escapeHtml(deps.config.proxyEndpointUrl)}</code></p>
+            <p class="hint">
+              ${
+                state.executionMode === "on_device"
+                  ? `On-device model: <code class="code">${escapeHtml(deps.config.onDeviceModel ?? "not configured")}</code>`
+                  : `Endpoint: <code class="code">${escapeHtml(deps.config.proxyEndpointUrl)}</code>`
+              }
+            </p>
           </div>
         </section>
 
@@ -94,7 +102,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
         <section class="panel limitations">
           <h2 class="subtitle">Known Limitations</h2>
           <ul>
-            <li>On-device routing requires a local provider setup that matches the request constraints.</li>
+            <li>On-device routing uses the Web ONNX Runtime provider. Without <code class="code">VITE_INDERUN_ONNX_MODEL_ID</code> it runs a deterministic fixture runtime instead of real model weights.</li>
             <li>The browser never carries production secrets. The standalone demo proxy resolves upstream endpoint and bearer-token configuration server-side.</li>
             <li>The canonical result field is <code class="code">telemetry.totalMs</code>, not <code class="timing">timing.totalMs</code>.</li>
           </ul>

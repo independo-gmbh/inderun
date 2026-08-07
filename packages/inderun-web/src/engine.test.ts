@@ -370,6 +370,32 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       expect(result.telemetry.totalMs).toBe(100);
     });
 
+    it("honors an explicit privacy descriptor when routing local_required through the fallback planner", async () => {
+      // Regression: the fallback planner used to read `dataLeavesDevice` without negating it,
+      // which rejected local providers that declare their privacy explicitly and admitted cloud
+      // ones. Mirrors `is_data_private` in the shared Rust planner.
+      const localProvider = createMockLocalProvider("mock-local-private", true);
+      const localDescriptor = localProvider.describe();
+      localProvider.describe = () => ({
+        ...localDescriptor,
+        privacy: { dataLeavesDevice: false }
+      });
+
+      registry.register(createMockCloudProvider("mock-cloud-1", true));
+      registry.register(localProvider);
+
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run({
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "test prompt",
+        constraints: { privacy: "local_required" }
+      });
+
+      expect(result.telemetry.providerUsed).toBe("mock-local-private");
+    });
+
     it("ensures the result runId matches the engine's runId", async () => {
       const provider = createMockLocalProvider("mock-local-1", true);
       registry.register(provider);

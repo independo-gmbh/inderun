@@ -40,6 +40,10 @@
     "./openai": {
       "types": "./dist/openai.d.ts",
       "default": "./dist/openai.js"
+    },
+    "./onnx": {
+      "types": "./dist/onnx.d.ts",
+      "default": "./dist/onnx.js"
     }
   },
   "files": [
@@ -54,6 +58,14 @@
   "dependencies": {
     "@independo/inderun-contracts": "workspace:^",
     "@independo/inderun-route-core-wasm": "workspace:^"
+  },
+  "peerDependencies": {
+    "@huggingface/transformers": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

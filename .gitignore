@@ -259,3 +259,6 @@ tmp
 test_repo/
 test_dir/
 .pnpm-store/
+
+# Local env overrides
+.env.local
