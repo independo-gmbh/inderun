@@ -39,8 +39,8 @@ importers:
         specifier: ^3.9.6
         version: 3.9.6
       quicktype:
-        specifier: ^24.0.2
-        version: 24.0.2
+        specifier: ^26.0.0
+        version: 26.0.0
       semantic-release:
         specifier: ^25.0.8
         version: 25.0.8(typescript@6.0.3)
@@ -1917,9 +1917,6 @@ packages:
     resolution: {integrity: sha512-qjdpeo2yKlYTH7nFdK0vbZWuTCesk4o63v5iVOlhMQPfuIZQfW/HI35SjfhA+4qpg36rnFSvUK5b1m+ckIblQQ==}
     engines: {node: '>= 0.6.0'}
 
-  js-base64@3.9.1:
-    resolution: {integrity: sha512-U73qptcvf/HIOauFOmqT3a0mDUp0MYlfd15oqoe9kqZt5XhiXVb+HG09sLvI9PQ9tZIBFS4nlErai8zbWazP0g==}
-
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
@@ -2466,9 +2463,6 @@ packages:
   pako@0.2.9:
     resolution: {integrity: sha512-NUcwaKxUxWrZLpDG+z/xZaCgQITkA/Dv4V/T6bw7VON6l1Xz/VnrBqrYjZQ12TamKHzITTfOEIYUj48y2KXImA==}
 
-  pako@1.0.11:
-    resolution: {integrity: sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==}
-
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
     engines: {node: '>=6'}
@@ -2609,21 +2603,21 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
-  quicktype-core@24.0.2:
-    resolution: {integrity: sha512-Tv3jO/2FdYrcBVDCDC+27gOIAmXzrJv2O10KPJ1CPw5b5GKw+0MSq8zVnl0zz3byp8MZ1VEFj6+uc2VOxpY63g==}
+  quicktype-core@26.0.0:
+    resolution: {integrity: sha512-tLSe2RkSj7c7ocTc+QMuQDGgEetGhZvKXLv1vNwpAQX2x8oOGYU9KSgJdIP9Qvy5hm47S2k3ZAX1LQAdS75JaA==}
     engines: {node: '>=20.0.0'}
 
-  quicktype-graphql-input@24.0.2:
-    resolution: {integrity: sha512-0lNkN+EZhpP0cNQ2B07uztZkyo2UPdYx0Q17UL/ahTuYTkBjnK7ibgW99UhkatyJD9RZG00xOuYLQWC/kr/wkg==}
+  quicktype-graphql-input@26.0.0:
+    resolution: {integrity: sha512-bI129FVf6LLrG+6rh0gB9905oqNN0oGuZYIS0gV3V3C4JEdaR2qavdM/r925pUISwM3frrYE4McSDsuAzrHRTw==}
     engines: {node: '>=20.0.0'}
 
-  quicktype-typescript-input@24.0.2:
-    resolution: {integrity: sha512-lr1aXOfFXwM/oBJ8Fbig5DBhHsIN/J3k/rLnksK9S6XdnZbvxgcKLrXhIKWl3cpUonKwsNU2Imr4mg0NDxpkow==}
+  quicktype-typescript-input@26.0.0:
+    resolution: {integrity: sha512-8Fo23bQ2yON2VdjIgPvzLx0nqaqjgUb/xIBcYjd0D4U5cWJ7oABLeNRH0krcSrFp9ez5qDPHB2xbkSLXNFaW9w==}
     engines: {node: '>=20.0.0'}
 
-  quicktype@24.0.2:
-    resolution: {integrity: sha512-04npRjVbNKdIG1S341EKyOU3pZWj9yZ22eC+VuKeHM4lx5FMM1GOajIxpwbpaOQ/5ZZ6Bbyz7odzXX/ZdXt3wQ==}
-    engines: {node: '>=20.0.0'}
+  quicktype@26.0.0:
+    resolution: {integrity: sha512-6sGRYEe3402KFTVKhqnsE6Z6Jdi5jryc/6cg+A8kx3dvIy01Ex35OcuuuZUZDbvzFw+1fkseCpLpbGhDS3uLJA==}
+    engines: {node: '>=20.19.0'}
     hasBin: true
 
   rc@1.2.8:
@@ -2818,14 +2812,16 @@ packages:
   std-env@4.2.0:
     resolution: {integrity: sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==}
 
-  stream-chain@2.2.5:
-    resolution: {integrity: sha512-1TJmBx6aSWqZ4tx7aTpBDXK0/e2hhcNSTV8+CbFJtDjbb+I1mZ8lHit0Grw9GRT+6JbIrrDd8esncgBi8aBXGA==}
+  stream-chain@4.2.5:
+    resolution: {integrity: sha512-Wtyq3bNE3ggLR0v2vftqvuhltym3WbZAkZpfIrkr5F/6vpeUmWmwTgXa16zD87gpahwJ/Qulq3zVfUlgIc0J2A==}
+    engines: {node: '>=22'}
 
   stream-combiner2@1.1.1:
     resolution: {integrity: sha512-3PnJbYgS56AeWgtKF5jtJRT6uFJe56Z0Hc5Ngg/6sI6rIt8iiMBTa9cvdyFfpMQjaVHr8dusbNeFGIIonxOvKw==}
 
-  stream-json@1.8.0:
-    resolution: {integrity: sha512-HZfXngYHUAr1exT4fxlbc1IOce1RYxp2ldeaf97LYCOPSoOqY/1Psp7iGvpb+6JIOgkra9zDYnPX01hGAHzEPw==}
+  stream-json@3.5.0:
+    resolution: {integrity: sha512-dobB7zipGW8o11PvdRljQSWuyMxifADLvoHeA4elwNWOTbZo6+BlNa+P6aCq7Y9jRiWTy2Ucu2xSv0Y2/T+/kQ==}
+    engines: {node: '>=22'}
 
   string-to-stream@3.0.1:
     resolution: {integrity: sha512-Hl092MV3USJuUCC6mfl9sPzGloA3K5VwdIeJjYIkXY/8K+mUvaeEabWJgArp+xXrsWxCajeT2pc4axbVhIZJyg==}
@@ -3015,11 +3011,6 @@ packages:
 
   typescript-json-schema@0.67.4:
     resolution: {integrity: sha512-BhDCVfwGtPKKt9JOBvh6ocmSbEk7ftx7dpqqIpvGNrjzYcUKm8pnYwKSFfNJwqcp/qNTfZr9sKtVyTxx4V9iRA==}
-    hasBin: true
-
-  typescript@5.8.3:
-    resolution: {integrity: sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ==}
-    engines: {node: '>=14.17'}
     hasBin: true
 
   typescript@5.9.3:
@@ -4754,9 +4745,9 @@ snapshots:
     dependencies:
       reusify: 1.1.0
 
-  fdir@6.5.0(picomatch@4.0.4):
+  fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
-      picomatch: 4.0.4
+      picomatch: 4.0.5
 
   figures@2.0.0:
     dependencies:
@@ -5079,8 +5070,6 @@ snapshots:
       lodash.uniqby: 4.7.0
 
   java-properties@1.0.2: {}
-
-  js-base64@3.9.1: {}
 
   js-tokens@4.0.0: {}
 
@@ -5426,8 +5415,6 @@ snapshots:
 
   pako@0.2.9: {}
 
-  pako@1.0.11: {}
-
   parent-module@1.0.1:
     dependencies:
       callsites: 3.1.0
@@ -5540,7 +5527,7 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  quicktype-core@24.0.2:
+  quicktype-core@26.0.0:
     dependencies:
       '@glideapps/ts-necessities': 2.2.3
       '@types/readable-stream': 4.0.10
@@ -5548,9 +5535,7 @@ snapshots:
       browser-or-node: 3.0.0
       collection-utils: 1.0.1
       is-url: 1.2.4
-      js-base64: 3.9.1
       lodash: 4.18.1
-      pako: 1.0.11
       pluralize: 8.0.0
       readable-stream: 4.5.2
       unicode-properties: 1.4.1
@@ -5558,21 +5543,22 @@ snapshots:
       wordwrap: 1.0.0
       yaml: 2.9.0
 
-  quicktype-graphql-input@24.0.2:
+  quicktype-graphql-input@26.0.0:
     dependencies:
       collection-utils: 1.0.1
       graphql: 16.14.2
-      quicktype-core: 24.0.2
+      quicktype-core: 26.0.0
 
-  quicktype-typescript-input@24.0.2:
+  quicktype-typescript-input@26.0.0:
     dependencies:
-      quicktype-core: 24.0.2
+      quicktype-core: 26.0.0
+      typescript: 5.9.3
       typescript-json-schema: 0.67.4
     transitivePeerDependencies:
       - '@swc/core'
       - '@swc/wasm'
 
-  quicktype@24.0.2:
+  quicktype@26.0.0:
     dependencies:
       '@glideapps/ts-necessities': 2.4.0
       '@types/readable-stream': 4.0.10
@@ -5583,13 +5569,13 @@ snapshots:
       graphql: 16.14.2
       lodash: 4.18.1
       moment: 2.30.1
-      quicktype-core: 24.0.2
-      quicktype-graphql-input: 24.0.2
-      quicktype-typescript-input: 24.0.2
+      quicktype-core: 26.0.0
+      quicktype-graphql-input: 26.0.0
+      quicktype-typescript-input: 26.0.0
       readable-stream: 4.7.0
-      stream-json: 1.8.0
+      stream-json: 3.5.0
       string-to-stream: 3.0.1
-      typescript: 5.8.3
+      wordwrap: 1.0.0
     transitivePeerDependencies:
       - '@swc/core'
       - '@swc/wasm'
@@ -5895,16 +5881,16 @@ snapshots:
 
   std-env@4.2.0: {}
 
-  stream-chain@2.2.5: {}
+  stream-chain@4.2.5: {}
 
   stream-combiner2@1.1.1:
     dependencies:
       duplexer2: 0.1.4
       readable-stream: 2.3.8
 
-  stream-json@1.8.0:
+  stream-json@3.5.0:
     dependencies:
-      stream-chain: 2.2.5
+      stream-chain: 4.2.5
 
   string-to-stream@3.0.1:
     dependencies:
@@ -6017,8 +6003,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
+      fdir: 6.5.0(picomatch@4.0.5)
+      picomatch: 4.0.5
 
   tinyrainbow@3.1.1: {}
 
@@ -6096,8 +6082,6 @@ snapshots:
     transitivePeerDependencies:
       - '@swc/core'
       - '@swc/wasm'
-
-  typescript@5.8.3: {}
 
   typescript@5.9.3: {}
 

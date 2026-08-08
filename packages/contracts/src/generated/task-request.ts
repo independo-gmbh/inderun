@@ -21,7 +21,7 @@ export type TaskRequest = {
     /**
      * A list of interaction messages for multi-turn conversation or chat-style execution.
      */
-    messages?: Message[];
+    messages?: [Message, ...Message[]];
     /**
      * Soft routing preferences used for deterministic provider ordering.
      */

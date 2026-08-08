@@ -41,7 +41,7 @@
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.7.0",
     "prettier": "^3.9.6",
-    "quicktype": "^24.0.2",
+    "quicktype": "^26.0.0",
     "semantic-release": "^25.0.8",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0"
