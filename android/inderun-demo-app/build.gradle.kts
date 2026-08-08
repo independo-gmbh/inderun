@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "app.independo.inderun.demo"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "app.independo.inderun.demo"

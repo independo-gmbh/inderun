@@ -18,22 +18,22 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.release.tag_name }}
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5.6.0
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           java-version: '21'
           distribution: zulu
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+        run: sdkmanager "platforms;android-37" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
       - name: Publish to Maven Central
         working-directory: android
