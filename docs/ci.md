@@ -29,13 +29,67 @@ scan the product code, not the sample apps.
 
 ## Branch Protection
 
-Protect `main` with these required checks:
+`main` and `dev` require these status checks before merging:
 
 - `JavaScript`
 - `Rust`
 - `Swift`
 - `Android`
-- `Capacitor Plugin`
+- `Analyze (actions)`, `Analyze (javascript-typescript)`, `Analyze (rust)`, `Analyze (java-kotlin)`, `Analyze (swift)` (from `CodeQL`)
+
+`JavaScript`, `Rust`, `Swift`, and `Android` each start with a cheap `changes` job
+(`dorny/paths-filter`) that gates the real job with `if:`. A PR that doesn't touch a
+given ecosystem still gets a `skipped` (not `pending`) conclusion for that check, so
+required-status-check evaluation always resolves — see path filters below.
+
+## Path-based job gating
+
+To avoid running, e.g., the Android build for a docs-only or web-only PR, each of
+`javascript.yml`/`android.yml`/`rust.yml`/`swift.yml` runs a `changes` job first and
+skips the real job via `needs`/`if` when nothing relevant changed:
+
+- `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**` (feeds the WASM bindings), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
+- `android.yml`: `android/**`
+- `rust.yml`: `rust/**`, `Cargo.toml`, `Cargo.lock`
+- `swift.yml`: `ios/**`, `Package.swift`
+
+Each filter also includes the workflow's own file, so editing a workflow always
+re-runs it. This is deliberately done as an in-workflow `changes` job rather than a
+top-level `on.pull_request.paths:` filter — GitHub can leave a required check stuck
+`Pending` forever if the whole workflow is skipped by trigger-level path filtering.
+`codeql.yml` is not path-gated; it's the security scan and cheap enough to always run.
+
+## Pinned actions
+
+Third-party actions (everything except `dtolnay/rust-toolchain`) are pinned to a full
+commit SHA with the human-readable version in a trailing comment, e.g.:
+
+```yaml
+uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+```
+
+Dependabot's `github-actions` ecosystem entry in `dependabot.yml` keeps these current —
+it updates both the SHA and the version comment together. `dtolnay/rust-toolchain@stable`
+is the one intentional exception: it tracks whatever Rust's current stable release is,
+which is the point of using it, so pinning it to a SHA would defeat the purpose.
+
+## Dependabot major-version bumps
+
+Dependabot groups minor/patch updates per ecosystem, but major-version bumps land as
+individual, ungrouped PRs and are **not auto-mergeable** — they need manual triage:
+
+- Tightly coupled peer packages (e.g. `vite` + `vitest`) can each break CI on their own
+  when bumped independently, because Dependabot doesn't know about the peer coupling.
+  These typically need to be bumped together in one manual commit on the PR branch (or
+  closed in favor of a combined bump), not merged as-is.
+- A major version can drop/rename CLI flags or change generated output (e.g. `quicktype`
+  dropping the Kotlin `just-types` framework in v26), which is a real migration, not a
+  CI fix — treat these as their own follow-up task rather than force-merging.
+- Android dependency majors (e.g. `androidx.core`) can raise the minimum `compileSdk`
+  they build against — bump `compileSdk` in the relevant `android/*/build.gradle.kts`
+  modules and, if Robolectric doesn't support the new API level yet, pin
+  `sdk=<supported-level>` in that module's `src/test/resources/robolectric.properties`
+  (this decouples the Robolectric test SDK from `compileSdk`).
 
 ## Notes
 

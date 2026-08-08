@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "app.independo.inderun.providers.openai"
-    compileSdk = 34
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 26
