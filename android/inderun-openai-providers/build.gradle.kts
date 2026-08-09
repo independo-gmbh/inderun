@@ -25,7 +25,7 @@ dependencies {
     implementation(project(":inderun-contracts"))
     implementation(project(":inderun-core"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("org.json:json:20260522")
+    implementation("org.json:json:20260719")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")
