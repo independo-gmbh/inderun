@@ -967,4 +967,43 @@ final class IndeRunTests: XCTestCase {
 
         XCTAssertTrue(issues.isEmpty)
     }
+
+    func testOnnxAppleRunThrowsRawCancellationErrorWithoutNormalizing() async {
+        let runtime = createFixtureOnnxRuntime(options: FixtureOnnxRuntimeOptions(delay: .seconds(10)))
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let request = TaskRequest(prompt: "Hello")
+
+        let runTask = Task {
+            try await provider.run(request: request, context: RunContext(runId: "run_cancel", hostServices: hostServices))
+        }
+        runTask.cancel()
+
+        do {
+            _ = try await runTask.value
+            XCTFail("Should have thrown CancellationError")
+        } catch is CancellationError {
+            // expected: real Task cancellation propagates raw, matching OpenAIProvider/IndeRun.swift
+        } catch {
+            XCTFail("Expected raw CancellationError, got \(error)")
+        }
+    }
+
+    func testOnnxAppleRunThrowsTimeoutWhenGenerationExceedsDeadline() async {
+        let runtime = createFixtureOnnxRuntime(options: FixtureOnnxRuntimeOptions(delay: .seconds(10)))
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime, timeout: .milliseconds(50))
+        )
+        let request = TaskRequest(prompt: "Hello")
+
+        do {
+            _ = try await provider.run(request: request, context: RunContext(runId: "run_timeout", hostServices: hostServices))
+            XCTFail("Should have thrown Timeout")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .Timeout)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
 }

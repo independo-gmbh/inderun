@@ -290,14 +290,29 @@ member's `OnnxTextGenerationRuntime`, adapted to Swift Concurrency (cancellation
 `Task` cancellation rather than an explicit `AbortSignal` parameter). Two implementations exist:
 
 - `SystemOnnxGenAiRuntime()` — the default. Tokenizes with `swift-transformers`'s
-  `AutoTokenizer.from(modelFolder:)` and runs inference through the official ONNX Runtime SPM
+  `AutoTokenizer.from(modelFolder:)`, applying the tokenizer's chat template
+  (`Tokenizer.applyChatTemplate`) when `tokenizer_config.json` declares one and falling back to a
+  plain `"role: content"` join otherwise; runs inference through the official ONNX Runtime SPM
   bindings (`OnnxRuntimeBindings` / `ORTSession`). **IO contract**: the model graph must expose
   exactly `input_ids` and `attention_mask` inputs (`int64`, `[1, sequenceLength]`) and a `logits`
   output (`float32`, `[1, sequenceLength, vocabSize]`) — the plain decoder-only export shape,
-  without `past_key_values`. Decoding is **greedy (argmax) with no KV-cache reuse**: the full
-  sequence is recomputed on every generated token. This is a real, documented performance
-  limitation, not a hidden one — apps that need throughput, sampling, or the
-  `past_key_values`/Hugging Face Optimum export convention supply their own `OnnxGenAiRuntime`.
+  without `past_key_values`. **Graph file convention**: `ModelPackage.files.required` has no
+  positional semantics of its own in the schema, so this runtime defines one — the *first* entry
+  is the ONNX graph file; any remaining entries (for example external weight shards) must be
+  present alongside it but are not referenced directly. `ModelPackage.integrity.checksums`
+  (`sha256:<hex>`) are verified for every file this runtime resolves, before load. The session
+  cache key covers `id`, `version`, `source`, and `integrity.checksums` together, not `id` alone,
+  so swapping a model's bytes without bumping `id` does not silently keep serving a stale session.
+  Decoding is **greedy (argmax) with no KV-cache reuse**: the full sequence is recomputed on every
+  generated token, with no CoreML execution provider, shared `ORTEnv`, or thread-pool policy
+  configured. This is a real, documented performance limitation, not a hidden one — CPU-only,
+  unoptimized. `generation.stop` sequences are honored; `temperature`/`topP`/`seed` are not (no
+  sampling, argmax only). Apps that need throughput, sampling, an accelerated execution provider,
+  or the `past_key_values`/Hugging Face Optimum export convention supply their own
+  `OnnxGenAiRuntime`; hardening this default runtime (CoreML EP, shared environment, thread
+  policy, buffer reuse, KV-cache) is tracked in #126, and real-device verification (load time,
+  token latency, peak memory, cancellation behavior, repeated-run stability against an actual
+  model) is tracked in #88 — this default has not yet been run against a real model on-device.
   `programmatic` model sources are also out of scope for this default runtime (no files to
   resolve, matching the Web member's own `programmatic` carve-out); it reports *runtime package
   unavailable* rather than throwing.
@@ -325,9 +340,17 @@ example:
   Apple platforms; supply model files as bundled, programmatic, app_managed, filesystem.*
 - `capability_unavailable`: *model files missing: 'model.onnx' not found at \<resolved path\>.*
 - `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
-  generation budget (`constraints.timeoutMs`, else the provider's configured timeout) elapses or
-  the request is cancelled; `Unavailable` for ONNX Runtime session initialization failures. There
-  is no `AuthError`, `RateLimited`, or `Offline` path.
+  generation budget (`constraints.timeoutMs`, else the provider's configured timeout) elapses;
+  `Unavailable` for ONNX Runtime session initialization failures. There is no `AuthError`,
+  `RateLimited`, or `Offline` path. Real `Task` cancellation (the caller cancelling its own task,
+  as opposed to the provider's own deadline elapsing) propagates as a raw `CancellationError`
+  rather than an `IndeRunException`, matching the established Swift-side convention
+  (`OpenAIProvider`, `IndeRun.swift`) rather than the Web member's `AbortError → Timeout` mapping —
+  the two platforms differ here because Swift Concurrency has first-class cancellation and the
+  rest of this SDK already relies on it. `ORTSession.run()` itself is a blocking synchronous call
+  that cannot be interrupted mid-call; cancellation is observed only between decode steps
+  (`cancel: .soft`), so a cancelled or timed-out request still waits out its current in-flight
+  step.
 
 **Packaging and binary size.** ORT Mobile's native binary is statically linked via the SPM
 `onnxruntime` product and adds meaningfully to app binary size; the model files themselves must

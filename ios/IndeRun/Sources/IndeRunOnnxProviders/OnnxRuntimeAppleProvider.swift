@@ -158,6 +158,11 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
                     OnnxGenerationInput(modelPackage: self.modelPackage, messages: messages, generation: request.generation)
                 )
             }
+        } catch is CancellationError {
+            // Real Task cancellation propagates raw, uncaught, matching OpenAIProvider and
+            // IndeRun.swift -- it is not normalized into an IndeRunException. Only the explicit
+            // deadline branch in `runWithTimeout` below produces a `Timeout` IndeRunException.
+            throw CancellationError()
         } catch {
             throw mapRuntimeError(error, context: context)
         }
@@ -197,10 +202,6 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
             case .internalFailure:
                 return createInternal(message: runtimeError.message, runId: context.runId, providerId: id, details: detailsArg)
             }
-        }
-
-        if error is CancellationError {
-            return createTimeout(message: "ONNX Runtime Apple generation timed out or was cancelled.", runId: context.runId, providerId: id)
         }
 
         if let indeRunError = error as? IndeRunException {
