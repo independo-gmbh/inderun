@@ -6,9 +6,9 @@ architecture baseline for the platform implementation tickets: #85 (Web), #87 (A
 (Apple platforms). Those tickets implement providers; they must not re-decide the boundaries below.
 
 This is a Milestone 2 specification. Field-level shapes live in the schema, not in this prose (see
-[Model Package Contract](#model-package-contract)). The Web and Apple members are implemented;
-Android is not yet (see [Web Implementation](#web-implementation) and
-[Apple Implementation](#apple-implementation)).
+[Model Package Contract](#model-package-contract)). The Web, Apple, and Android members are all
+implemented (see [Web Implementation](#web-implementation), [Apple
+Implementation](#apple-implementation), and [Android Implementation](#android-implementation)).
 
 ## Classification And Boundaries
 
@@ -22,7 +22,7 @@ normalized errors. It must not expose ORT session options, ORT `InferenceSession
 Execution Providers.
 
 **ORT Execution Providers are not IndeRun routing concepts.** ORT Execution Providers (CPU, WebGPU,
-WebGL, WebNN, CoreML, NNAPI, XNNPACK, …) are hardware/backend execution choices *inside* ORT. They
+WebGL, WebNN, CoreML, NNAPI, XNNPACK, …) are hardware/backend execution choices _inside_ ORT. They
 are not equivalent to IndeRun providers and never appear as public routing targets. Their
 availability feeds only into a provider's dynamic capability check and, indirectly, into a route
 rejection `reason` string. The router selects an IndeRun provider, never an ORT backend.
@@ -54,18 +54,26 @@ handles the generative loop for ONNX models — tokenization, inference, logits 
 sampling, and KV-cache management — and ships tutorials for models such as Phi-3, Phi-2, and
 DeepSeek-R1-Distill.
 
-**Risk (accepted):** the ORT GenAI (`generate()`) API is documented as *"in preview and is subject
-to change"*. Implementers must isolate the GenAI call behind an injectable runtime seam (below) so a
+**Risk (accepted):** the ORT GenAI (`generate()`) API is documented as _"in preview and is subject
+to change"_. Implementers must isolate the GenAI call behind an injectable runtime seam (below) so a
 version change is contained in the adapter.
 
 **Correction — GenAI has no browser build.** ORT GenAI ships Python, .NET, C/C++, and Java packages
 only; there is no JavaScript/browser distribution, and `onnxruntime-web` provides raw inference
 without a generative loop (tokenization, sampling, KV cache). The Web member therefore satisfies the
-*role* GenAI was mandated for — not the literal package — by defaulting to Transformers.js, which
-runs ONNX models on `onnxruntime-web` and owns the generative loop. This is exactly what the
-injectable seam exists for: the seam is the contract, the default implementation is swappable, and
-the mobile members are unaffected and still target ORT GenAI. Source:
+_role_ GenAI was mandated for — not the literal package — by defaulting to Transformers.js, which
+runs ONNX models on `onnxruntime-web` and owns the generative loop. Source:
 <https://onnxruntime.ai/docs/genai/howto/install.html>.
+
+**Correction — the mobile members target raw ORT Mobile, not the ORT GenAI package.** Both shipped
+mobile members (Apple, Android) default to the platform's raw ONNX Runtime Mobile bindings plus a
+hand-written greedy decode loop and an external tokenizer, rather than
+`onnxruntime-genai`/`onnxruntime-extensions`. This keeps both defaults on the same well-established,
+non-preview API surface used by the Web member's underlying runtime, at the documented cost of no
+KV-cache reuse and CPU-only execution (see the platform sections below). This is exactly what the
+injectable seam exists for: the seam is the contract, and any application (or a future IndeRun
+default) can supply an ORT-GenAI-backed `OnnxGenAiRuntime`/`AndroidOnnxGenAiRuntime` implementation
+without changing the provider.
 
 **Deterministic fixture fallback.** IndeRun already makes on-device adapters testable without their
 native backend via an injectable runtime interface (`AppleFoundationModelsRuntime`,
@@ -110,14 +118,14 @@ download, cache, or otherwise supply model files; the model package's `source` d
 The `ModelPackage.source.sourceType` discriminator enumerates where model files come from. Expected
 support per platform for the first implementations:
 
-| Source type    | Web       | Apple platforms | Android   |
-| -------------- | --------- | --------------- | --------- |
-| `registry`     | Supported | Deferred        | Deferred  |
-| `bundled`      | Supported | Supported       | Supported |
-| `programmatic` | Supported | Supported       | Supported |
-| `app_managed`  | Supported | Supported       | Supported |
-| `remote`       | Deferred  | Deferred        | Deferred  |
-| `filesystem`   | Unsupported | Supported     | Supported |
+| Source type    | Web         | Apple platforms | Android   |
+| -------------- | ----------- | --------------- | --------- |
+| `registry`     | Supported   | Deferred        | Deferred  |
+| `bundled`      | Supported   | Supported       | Supported |
+| `programmatic` | Supported   | Supported       | Supported |
+| `app_managed`  | Supported   | Supported       | Supported |
+| `remote`       | Deferred    | Deferred        | Deferred  |
+| `filesystem`   | Unsupported | Supported       | Supported |
 
 Notes:
 
@@ -178,19 +186,19 @@ Raw ORT exceptions must never leak to app code. Adapters map failures into the n
 `RateLimited`, `Timeout`, `Unavailable`, `Internal`) using the existing error factories and the
 `toIndeRunException` normalizer. Expected mappings:
 
-| Failure condition                                   | `errorClass`               |
-| --------------------------------------------------- | -------------------------- |
-| Capability mismatch (checked before attempt)        | `CapabilityMismatch`       |
-| Provider/runtime unavailable                        | `Unavailable`              |
-| Invalid request                                     | `Internal` (request-shaped) |
-| Model unavailable / files missing                   | `CapabilityMismatch`       |
-| Model incompatible (opset/operator/format)          | `CapabilityMismatch`       |
-| Runtime initialization failure                      | `Unavailable`              |
-| Resource exhaustion (memory/backend)                | `Unavailable`              |
-| Timeout                                             | `Timeout`                  |
-| Cancelled                                           | terminal cancellation (no post-cancel events) |
-| Provider failure (unexpected runtime throwable)     | `Internal`                 |
-| Internal error                                      | `Internal`                 |
+| Failure condition                               | `errorClass`                                  |
+| ----------------------------------------------- | --------------------------------------------- |
+| Capability mismatch (checked before attempt)    | `CapabilityMismatch`                          |
+| Provider/runtime unavailable                    | `Unavailable`                                 |
+| Invalid request                                 | `Internal` (request-shaped)                   |
+| Model unavailable / files missing               | `CapabilityMismatch`                          |
+| Model incompatible (opset/operator/format)      | `CapabilityMismatch`                          |
+| Runtime initialization failure                  | `Unavailable`                                 |
+| Resource exhaustion (memory/backend)            | `Unavailable`                                 |
+| Timeout                                         | `Timeout`                                     |
+| Cancelled                                       | terminal cancellation (no post-cancel events) |
+| Provider failure (unexpected runtime throwable) | `Internal`                                    |
+| Internal error                                  | `Internal`                                    |
 
 The precise class-to-cause mapping lives in the adapter code, consistent with `providers.md`. There
 is no `RateLimited`/`AuthError`/`Offline` path for a purely local runtime; those remain cloud
@@ -216,7 +224,7 @@ implementations exist:
 
 - `createTransformersJsRuntime()` — the default. Lazily imports `@huggingface/transformers`, which the
   application installs; IndeRun does not bundle it. Initialization failures are reported as
-  *runtime package unavailable* rather than thrown, so routing degrades to an explainable rejection
+  _runtime package unavailable_ rather than thrown, so routing degrades to an explainable rejection
   rather than a crash. The import specifier stays statically resolvable so bundlers can find the
   package; apps that do not install it supply their own runtime instead.
 - `createFixtureOnnxRuntime()` — the deterministic in-memory fixture mandated above. It is the test
@@ -249,10 +257,10 @@ support → `runtime.platforms` includes `web` → declared tasks include `text_
 `runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection carrying
 the reason string, for example:
 
-- `capability_unavailable`: *model source unavailable: 'filesystem' model sources are unsupported on
-  Web because browsers cannot read arbitrary local paths.*
-- `capability_unavailable`: *runtime package unavailable: install the optional dependency
-  @huggingface/transformers (…).*
+- `capability_unavailable`: _model source unavailable: 'filesystem' model sources are unsupported on
+  Web because browsers cannot read arbitrary local paths._
+- `capability_unavailable`: _runtime package unavailable: install the optional dependency
+  @huggingface/transformers (…)._
 - `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
   generation budget (`constraints.timeoutMs`, else the provider's `timeoutMs`) elapses; `Unavailable`
   for runtime initialization failures and resource exhaustion. There is no `AuthError`,
@@ -297,7 +305,7 @@ member's `OnnxTextGenerationRuntime`, adapted to Swift Concurrency (cancellation
   exactly `input_ids` and `attention_mask` inputs (`int64`, `[1, sequenceLength]`) and a `logits`
   output (`float32`, `[1, sequenceLength, vocabSize]`) — the plain decoder-only export shape,
   without `past_key_values`. **Graph file convention**: `ModelPackage.files.required` has no
-  positional semantics of its own in the schema, so this runtime defines one — the *first* entry
+  positional semantics of its own in the schema, so this runtime defines one — the _first_ entry
   is the ONNX graph file; any remaining entries (for example external weight shards) must be
   present alongside it but are not referenced directly. `ModelPackage.integrity.checksums`
   (`sha256:<hex>`) are verified for every file this runtime resolves, before load. The session
@@ -314,8 +322,8 @@ member's `OnnxTextGenerationRuntime`, adapted to Swift Concurrency (cancellation
   token latency, peak memory, cancellation behavior, repeated-run stability against an actual
   model) is tracked in #88 — this default has not yet been run against a real model on-device.
   `programmatic` model sources are also out of scope for this default runtime (no files to
-  resolve, matching the Web member's own `programmatic` carve-out); it reports *runtime package
-  unavailable* rather than throwing.
+  resolve, matching the Web member's own `programmatic` carve-out); it reports _runtime package
+  unavailable_ rather than throwing.
 - `createFixtureOnnxRuntime(options:)` — the deterministic in-memory fixture mandated above,
   public/importable like the Web member's `createFixtureOnnxRuntime` (this diverges deliberately
   from the private-to-tests fixture convention used by `AppleFoundationModelsProvider`, per the
@@ -336,9 +344,9 @@ and `source.ref` URL-userinfo, not a full AJV-equivalent port) → Apple source-
 `runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection, for
 example:
 
-- `capability_unavailable`: *model source unavailable: 'registry' model sources are deferred on
-  Apple platforms; supply model files as bundled, programmatic, app_managed, filesystem.*
-- `capability_unavailable`: *model files missing: 'model.onnx' not found at \<resolved path\>.*
+- `capability_unavailable`: _model source unavailable: 'registry' model sources are deferred on
+  Apple platforms; supply model files as bundled, programmatic, app_managed, filesystem._
+- `capability_unavailable`: _model files missing: 'model.onnx' not found at \<resolved path\>._
 - `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
   generation budget (`constraints.timeoutMs`, else the provider's configured timeout) elapses;
   `Unavailable` for ONNX Runtime session initialization failures. There is no `AuthError`,
@@ -363,6 +371,90 @@ model download/update flows in Milestone 2 — apps that fetch models remotely s
 `ProviderAdapter` when the model is ONNX: `OnnxRuntimeAppleProvider` already owns descriptor
 semantics, model package validation, source gating, timeouts, and error normalization. Implement
 `ProviderAdapter` directly only for a different runtime family, mirroring the Web guidance above.
+
+## Android Implementation
+
+The Android member ships as its own Gradle library module, `inderun-onnx-providers`
+(`android/inderun-onnx-providers`), following the same one-module-per-provider-family convention as
+`inderun-mlkit-providers` and `inderun-openai-providers`. Provider id: `local.onnx.genai.android`.
+Descriptor: `type: local`, `transport: in_process`, `supports.run: true` with all forward-looking
+flags false, `cancel: soft`, `privacy.dataLeavesDevice: false`.
+
+**Runtime seam.** `AndroidOnnxGenAiRuntime` has two suspend methods: `prepare(modelPackage)`
+returning the `{available, reason?}` snapshot, and `generate(input)` returning normalized text — the
+same shape as the Web and Apple members' runtime seams, adapted to Kotlin Coroutines (cancellation
+is ambient via coroutine `Job` cancellation, matching Apple's `Task` cancellation model rather than
+the Web member's explicit `AbortSignal` parameter). Two implementations exist:
+
+- `SystemAndroidOnnxGenAiRuntime(context)` — the default. Runs inference through ONNX Runtime
+  Mobile's Java bindings (`com.microsoft.onnxruntime:onnxruntime-android`) and tokenizes with a
+  Hugging Face tokenizer (`ai.djl.huggingface:tokenizers` plus its Android native binding,
+  `ai.djl.android:tokenizer-native`). **IO contract**: identical to the Apple member — the model
+  graph must expose exactly `input_ids` and `attention_mask` inputs (`int64`, `[1,
+sequenceLength]`) and a `logits` output (`float32`, `[1, sequenceLength, vocabSize]`), the plain
+  decoder-only export shape without `past_key_values`. **Graph file convention**: same as Apple —
+  `ModelPackage.files.required`'s _first_ entry is the ONNX graph file; remaining entries (for
+  example external weight shards) must be present alongside it. `ModelPackage.integrity.checksums`
+  (`sha256:<hex>`) are verified for every required file before load. The session cache key covers
+  `id`, `format`, `version`, `source`, and `integrity.checksums` together, not `id` alone. Decoding
+  is **greedy (argmax) with no KV-cache reuse**: the full sequence is recomputed on every generated
+  token, CPU execution provider only — no NNAPI or XNNPACK acceleration configured. This is a real,
+  documented performance limitation, not a hidden one. `generation.stop` sequences are honored;
+  `temperature`/`topP`/`seed` are not (no sampling, argmax only). Unlike the Apple and Web members,
+  this default runtime does **not** attempt chat-template application — Hugging Face chat-template
+  support in the Android tokenizer binding is not guaranteed across models, so it falls back
+  unconditionally to a plain `"role: content"` join; apps that need chat templates, sampling, an
+  accelerated execution provider, or a KV-cached decode loop supply their own
+  `AndroidOnnxGenAiRuntime`. `programmatic` model sources are out of scope for this default runtime
+  (no files to resolve, matching the Web/Apple members' own `programmatic` carve-out); it reports
+  _runtime package unavailable_ rather than throwing. This default runtime has not been run against
+  a real model on-device — real-device verification (load time, token latency, peak memory,
+  cancellation behavior, repeated-run stability) is an explicit follow-up, matching the Apple
+  member's own #88 carve-out.
+- `createFixtureOnnxRuntime(options)` — the deterministic in-memory fixture mandated above,
+  public/importable like the Web and Apple members' fixtures.
+- Any application-supplied implementation of `AndroidOnnxGenAiRuntime`.
+
+**Model sources.** The Android member honors `bundled`, `programmatic`, `app_managed`, and
+`filesystem`, and rejects `registry` and `remote` in `capabilities()`, matching the support matrix
+above. `SystemAndroidOnnxGenAiRuntime` resolves `bundled` by copying the referenced Android asset
+directory (`context.assets`) into app-private storage on first use; `filesystem` and `app_managed`
+resolve to a directory path from `source.ref` (absolute for `filesystem`, relative to
+`context.filesDir` for `app_managed`).
+
+**Capability gate order.** Identical to the Apple member: model package structural validation (a
+hand-written `getModelPackageValidationIssues` in `inderun-onnx-providers` — no generated JSON
+Schema validator exists in Kotlin, so this is a scoped subset covering `id` presence, inline-secret
+keys, and `source.ref` URL-userinfo, not a full AJV-equivalent port) → Android source-type support →
+`runtime.platforms` includes `android` → declared tasks include `text_to_text` → delegate to
+`runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection, for
+example:
+
+- `capability_unavailable`: _model source unavailable: 'registry' model sources are deferred on
+  Android; supply model files as bundled, programmatic, app_managed, filesystem._
+- `capability_unavailable`: _model files missing: 'model.onnx' not found at \<resolved path\>._
+- `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
+  generation budget (`constraints.timeoutMs`, else the provider's configured timeout) elapses via a
+  `withTimeout` race around `runtime.generate`; `Unavailable` for ONNX Runtime session
+  initialization failures. There is no `AuthError`, `RateLimited`, or `Offline` path. Real coroutine
+  cancellation (the caller cancelling its own job, as opposed to the provider's own deadline
+  elapsing) propagates as a raw `CancellationException` rather than an `IndeRunException`, matching
+  the Apple member's `CancellationError` convention rather than the Web member's `AbortError →
+Timeout` mapping. `OrtSession.run()` itself is a blocking synchronous call that cannot be
+  interrupted mid-call; cancellation is observed only between decode steps (`cancel: soft`).
+
+**Packaging and binary size.** ORT Mobile's Android AAR bundles native `.so` libraries per ABI and
+adds meaningfully to app binary size; the model files themselves must also fit on-device disk and
+load into device memory (see [Platform Constraints](#platform-constraints-reference)). Neither
+IndeRun nor this provider owns model download/update flows in Milestone 2 — apps that fetch models
+remotely still supply them as `bundled`/`app_managed`/`programmatic` once resolved, per the model
+source matrix.
+
+**Authoring a custom local provider.** Implement `AndroidOnnxGenAiRuntime` rather than a new
+`ProviderAdapter` when the model is ONNX: `AndroidOnnxRuntimeProvider` already owns descriptor
+semantics, model package validation, source gating, timeouts, and error normalization. Implement
+`ProviderAdapter` directly only for a different runtime family, mirroring the Web and Apple guidance
+above.
 
 ## Documentation Requirements For Platform Tickets (#85–#87)
 
@@ -392,5 +484,5 @@ External technical claims below are drawn only from the official ONNX Runtime do
   size. Source: <https://onnxruntime.ai/docs/tutorials/mobile/>.
 - **GenAI** — the ORT `generate()` API handles the generative loop (tokenization, inference, logits
   processing, search/sampling, KV-cache) for models such as Phi-3 and DeepSeek-R1-Distill, and is
-  documented as *"in preview and is subject to change"*. Source:
+  documented as _"in preview and is subject to change"_. Source:
   <https://onnxruntime.ai/docs/genai/>.

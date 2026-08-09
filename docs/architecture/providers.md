@@ -56,7 +56,8 @@ factories), not in prose.
   - Apple on-device: `local.onnx.genai.apple`, shipped in the `IndeRunOnnxProviders` SwiftPM
     library product; raised the SDK's Apple platform minimums to iOS 16 / macOS 14 (see
     [Apple Implementation](onnx-runtime-provider-family.md#apple-implementation))
-  - Android member is not implemented yet (#87)
+  - Android on-device: `local.onnx.genai.android`, shipped in the `inderun-onnx-providers` Gradle
+    module (see [Android Implementation](onnx-runtime-provider-family.md#android-implementation))
 - Browser-managed on-device models: Web system-model provider family (Milestone 2, specified in
   [web-system-model-provider-family.md](web-system-model-provider-family.md)) — the browser owns
   model availability/download/execution, unlike the developer-supplied ONNX family
