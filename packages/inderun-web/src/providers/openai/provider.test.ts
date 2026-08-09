@@ -10,8 +10,8 @@ import {
   type HttpRequest,
   type HttpResponse,
   type SecureStorageService
-} from "./index.js";
-import { OpenAIResponsesProvider } from "./openai.js";
+} from "../../index.js";
+import { DEFAULT_OPENAI_RESPONSES_ENDPOINT, OpenAIResponsesProvider } from "../../openai.js";
 
 class MockSecureStorage implements SecureStorageService {
   constructor(private readonly slots: Record<string, string> = {}) {}
@@ -131,19 +131,69 @@ describe("OpenAIResponsesProvider", () => {
     });
   });
 
-  it("reports available capabilities for proxy mode without secure storage", async () => {
+  it("reports available capabilities for proxy mode without secure storage when the endpoint is reachable", async () => {
     const provider = new OpenAIResponsesProvider({
       model: "gpt-5.2",
       auth: "none"
     });
 
-    await expect(provider.capabilities(createHost(new MockHttpClient([])))).resolves.toEqual({
+    await expect(
+      provider.capabilities(createHost(new MockHttpClient([jsonResponse({}, 200)])))
+    ).resolves.toEqual({
       available: true
     });
   });
 
+  it("probes endpoint reachability with an unauthenticated GET and reports unavailable on 5xx", async () => {
+    const httpClient = new MockHttpClient([jsonResponse({}, 502, {})]);
+    const provider = new OpenAIResponsesProvider({ model: "gpt-5.2", auth: "none" });
+
+    const result = await provider.capabilities(createHost(httpClient));
+
+    expect(result).toEqual({
+      available: false,
+      reason: "OpenAI Responses endpoint returned HTTP 502."
+    });
+    expect(httpClient.requests[0]).toMatchObject({
+      method: "GET",
+      url: DEFAULT_OPENAI_RESPONSES_ENDPOINT
+    });
+  });
+
+  it("treats a non-5xx reachability response (e.g. 401/405) as available", async () => {
+    const httpClient = new MockHttpClient([jsonResponse({}, 405)]);
+    const provider = new OpenAIResponsesProvider({ model: "gpt-5.2", auth: "none" });
+
+    await expect(provider.capabilities(createHost(httpClient))).resolves.toEqual({
+      available: true
+    });
+  });
+
+  it("reports unavailable when the reachability probe throws a network error", async () => {
+    const provider = new OpenAIResponsesProvider({ model: "gpt-5.2", auth: "none" });
+
+    await expect(provider.capabilities(createHost(new ThrowingHttpClient()))).resolves.toEqual({
+      available: false,
+      reason: "OpenAI Responses endpoint health check timed out."
+    });
+  });
+
+  it("caches the reachability result within healthCheckCacheMs and does not re-probe", async () => {
+    const httpClient = new MockHttpClient([jsonResponse({}, 200)]);
+    const provider = new OpenAIResponsesProvider({ model: "gpt-5.2", auth: "none" });
+    const host = createHost(httpClient);
+
+    const first = await provider.capabilities(host);
+    const second = await provider.capabilities(host);
+
+    expect(first).toEqual({ available: true });
+    expect(second).toEqual({ available: true });
+    expect(httpClient.requests).toHaveLength(1);
+  });
+
   it("posts a Responses API request and maps output_text to TaskResult output text", async () => {
     const httpClient = new MockHttpClient([
+      jsonResponse({}, 200), // reachability probe issued by the router before selecting this provider
       jsonResponse({
         output_text: "Hello from Responses.",
         status: "completed",
@@ -174,11 +224,11 @@ describe("OpenAIResponsesProvider", () => {
       outputTokens: 4,
       totalTokens: 7
     });
-    expect(httpClient.requests).toHaveLength(1);
-    expect(httpClient.requests[0]?.url).toBe("https://api.openai.com/v1/responses");
-    expect(httpClient.requests[0]?.headers?.Authorization).toBe("Bearer sk-from-slot");
+    expect(httpClient.requests).toHaveLength(2);
+    expect(httpClient.requests[1]?.url).toBe("https://api.openai.com/v1/responses");
+    expect(httpClient.requests[1]?.headers?.Authorization).toBe("Bearer sk-from-slot");
 
-    const body = JSON.parse(httpClient.requests[0]?.body ?? "{}") as Record<string, unknown>;
+    const body = JSON.parse(httpClient.requests[1]?.body ?? "{}") as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "gpt-5.2",
       input: "Say hello.",
@@ -191,6 +241,7 @@ describe("OpenAIResponsesProvider", () => {
 
   it("aggregates text from Responses output items when output_text is not present", async () => {
     const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
       jsonResponse({
         output: [
           {
@@ -210,7 +261,10 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   it("maps system messages to developer messages for Responses input arrays", async () => {
-    const httpClient = new MockHttpClient([jsonResponse({ output_text: "Done." })]);
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ output_text: "Done." })
+    ]);
 
     await runWithProvider(
       createRequest({
@@ -223,7 +277,7 @@ describe("OpenAIResponsesProvider", () => {
       httpClient
     );
 
-    const body = JSON.parse(httpClient.requests[0]?.body ?? "{}") as {
+    const body = JSON.parse(httpClient.requests[1]?.body ?? "{}") as {
       input: Array<{ role: string; content: string }>;
     };
     expect(body.input).toEqual([
@@ -233,7 +287,10 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   it("supports proxy mode without sending an Authorization header", async () => {
-    const httpClient = new MockHttpClient([jsonResponse({ output_text: "Proxy response." })]);
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ output_text: "Proxy response." })
+    ]);
     const engine = createIndeRunWeb({
       openAI: {
         model: "gpt-5.2",
@@ -253,8 +310,8 @@ describe("OpenAIResponsesProvider", () => {
     const result = await engine.run(createRequest({ authContextRef: undefined }));
 
     expect(result.output.text).toBe("Proxy response.");
-    expect(httpClient.requests[0]?.url).toBe("/api/inderun/openai-responses");
-    expect(httpClient.requests[0]?.headers?.Authorization).toBeUndefined();
+    expect(httpClient.requests[1]?.url).toBe("/api/inderun/openai-responses");
+    expect(httpClient.requests[1]?.headers?.Authorization).toBeUndefined();
   });
 
   it("requires explicit opt-in before createIndeRunWeb uses the direct OpenAI endpoint with browser credentials", () => {
@@ -285,14 +342,16 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   it("throws AuthError when authContextRef is required but missing", async () => {
-    const httpClient = new MockHttpClient([]);
+    // Only the router's reachability probe is queued: run() throws AuthError before making
+    // its own request, since authContextRef validation happens before the HTTP call.
+    const httpClient = new MockHttpClient([jsonResponse({}, 200)]);
 
     await expect(
       runWithProvider(createRequest({ authContextRef: undefined }), httpClient)
     ).rejects.toMatchObject({
       errorClass: "AuthError"
     });
-    expect(httpClient.requests).toHaveLength(0);
+    expect(httpClient.requests).toHaveLength(1);
   });
 
   it("throws AuthError with a precise message when secure storage is missing at runtime", async () => {
@@ -313,9 +372,29 @@ describe("OpenAIResponsesProvider", () => {
     expect(httpClient.requests).toHaveLength(0);
   });
 
-  it("maps DOM-style abort errors to Timeout", async () => {
-    await expect(runWithProvider(createRequest(), new ThrowingHttpClient())).rejects.toMatchObject({
+  it("maps DOM-style abort errors thrown mid-run to Timeout when called directly (bypassing routing)", async () => {
+    // provider.run() is invoked directly here, not through engine.run()/the router: a
+    // reachability-probe failure now makes the router treat this provider as an unavailable
+    // capability (see the next test), so run()'s own abort-mapping to Timeout is exercised
+    // in isolation instead.
+    const provider = new OpenAIResponsesProvider({ model: "gpt-5.2", auth: "none" });
+
+    await expect(
+      provider.run(createRequest(), {
+        runId: "run_abort",
+        hostServices: createHost(new ThrowingHttpClient())
+      })
+    ).rejects.toMatchObject({
       errorClass: "Timeout"
+    });
+  });
+
+  it("routes around an unreachable OpenAI provider (reachability probe throws) as Unavailable", async () => {
+    // A reachability-probe failure makes the provider report `available: false`, so the
+    // router excludes it as a routing candidate before ever attempting run() (fail-fast,
+    // rather than attempting a doomed request and paying the full run timeout).
+    await expect(runWithProvider(createRequest(), new ThrowingHttpClient())).rejects.toMatchObject({
+      errorClass: "Unavailable"
     });
   });
 
@@ -334,6 +413,7 @@ describe("OpenAIResponsesProvider", () => {
 
     for (const testCase of cases) {
       const httpClient = new MockHttpClient([
+        jsonResponse({}, 200), // reachability probe
         jsonResponse(
           { error: { message: `OpenAI failed with ${testCase.status}` } },
           testCase.status,

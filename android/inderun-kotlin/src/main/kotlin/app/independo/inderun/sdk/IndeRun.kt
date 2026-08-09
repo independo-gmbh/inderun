@@ -10,6 +10,7 @@ import app.independo.inderun.contracts.TelemetryEvent
 import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
+import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.Router
 import app.independo.inderun.core.RunContext
@@ -160,6 +161,16 @@ class IndeRun(
 
             throw exception
         }
+    }
+
+    /**
+     * Reports each registered provider's static descriptor and current dynamic capability check,
+     * without executing a task. Useful for UI that shows live provider availability before a run.
+     */
+    suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = registry.list().map { provider ->
+        val descriptor = provider.describe()
+        val capabilities = provider.capabilities(hostServices)
+        ProviderCapabilitySnapshot(descriptor.id, descriptor, capabilities)
     }
 
     /**

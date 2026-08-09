@@ -8,7 +8,7 @@
 
 TypeScript/Web SDK for IndeRun.
 
-This package provides the Web SDK entrypoint, the engine core, routing, telemetry, error normalization, the OpenAI-compatible cloud provider, and the Web ONNX Runtime provider for developer-supplied local models.
+This package provides the Web SDK entrypoint, the engine core, routing, telemetry, error normalization, the OpenAI-compatible cloud provider, the Web ONNX Runtime provider for developer-supplied local models, and the Web system-model provider for browser-managed on-device models.
 
 ## Basic Usage
 
@@ -163,6 +163,76 @@ const runtime: OnnxTextGenerationRuntime = {
 ```
 
 `createFixtureOnnxRuntime()` provides a deterministic in-memory runtime for tests and offline demos.
+
+## On-Device Models: Web System-Model Provider
+
+`local.system-model.web` runs a browser-managed on-device model — currently
+[Chrome's Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`, Gemini
+Nano). Unlike the ONNX provider above, this provider takes no `modelPackage`: the browser owns
+model availability, download, and execution. Registering it also makes
+`constraints.privacy = "local_required"` routable. Pass `systemModel` to the factory:
+
+```ts
+import { createIndeRunWeb } from "@independo/inderun-web";
+
+const inderun = createIndeRunWeb({
+  systemModel: {}
+});
+```
+
+Options: `id` (defaults to `local.system-model.web`), `runtime` (defaults to
+`createChromePromptApiRuntime()`), and `timeoutMs` (a request's `constraints.timeoutMs` wins).
+
+### Browser support
+
+Desktop Chrome 138+ only (Windows 10/11, macOS 13+, Linux, ChromeOS), and requires roughly 22 GB
+free storage plus either a >4 GB VRAM GPU or a 16 GB RAM / 4+ core CPU. These figures come from
+Chrome and may change — see the [Prompt API docs](https://developer.chrome.com/docs/ai/prompt-api)
+for the current requirements. Edge exposes an analogous API, but this package has not yet verified
+whether it shares the exact `LanguageModel` global shape. Everywhere else, the provider reports
+itself unavailable (`api_missing`) rather than throwing.
+
+### Errors
+
+| Condition                                                   | `errorClass`         |
+| ------------------------------------------------------------- | --------------------- |
+| Capability gate fails pre-attempt (any non-available state)   | `CapabilityMismatch`  |
+| Hardware/browser-feature failure surfaced during generation   | `CapabilityMismatch`  |
+| Storage/network constraints, transient failure                | `Unavailable`         |
+| Generation aborted or exceeded its timeout budget              | `Timeout`             |
+| Malformed/empty model output, unexpected runtime failure       | `Internal`            |
+
+A purely local runtime never produces `AuthError`, `RateLimited`, or `Offline`. See
+[`docs/architecture/web-system-model-provider-family.md`](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/web-system-model-provider-family.md)
+in the monorepo for the full capability-state vocabulary.
+
+### Custom runtimes
+
+Swap the execution backend without touching provider semantics by implementing
+`SystemModelRuntime`:
+
+```ts
+import {
+  SystemModelWebProvider,
+  SystemModelRuntimeError,
+  createFixtureSystemModelRuntime,
+  type SystemModelRuntime
+} from "@independo/inderun-web/system-model";
+
+const runtime: SystemModelRuntime = {
+  async availability() {
+    return { kind: "available" };
+  },
+  async generate({ messages, generation }, signal) {
+    // Throw SystemModelRuntimeError("capability" | "unavailable" | "timeout" | "internal", …)
+    // to steer IndeRun error normalization.
+    return { text: "…" };
+  }
+};
+```
+
+`createFixtureSystemModelRuntime()` provides a deterministic in-memory runtime for tests and
+offline demos.
 
 ## Commands
 

@@ -12,21 +12,21 @@ import {
   createUnavailable,
   toIndeRunException,
   type IndeRunException
-} from "./errors.js";
-import type { HostServices } from "./host.js";
+} from "../../core/errors.js";
+import type { HostServices } from "../../core/host.js";
 import {
   OnnxRuntimeError,
   type OnnxGenerationMessage,
   type OnnxGenerationOutput,
   type OnnxTextGenerationRuntime
-} from "./onnx-runtime.js";
-import { createTransformersJsRuntime } from "./onnx-transformers-runtime.js";
+} from "./runtime.js";
+import { createTransformersJsRuntime } from "./transformers-runtime.js";
 import type {
   ProviderAdapter,
   ProviderDescriptor,
   ProviderDynamicCapabilities,
   RunContext
-} from "./provider.js";
+} from "../../core/provider.js";
 
 /** Default provider id of the Web member of the ONNX Runtime provider family. */
 export const DEFAULT_ONNX_WEB_PROVIDER_ID = "local.onnx.genai.web";

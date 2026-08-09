@@ -45,10 +45,65 @@ class OpenAIProviderTest {
                 connectivity = onlineConnectivity(),
                 secureStorage = fakeSecureStorage(),
                 clock = fakeClock(),
-                httpClient = FakeHttpClient(emptyList()),
+                httpClient = FakeHttpClient(
+                    listOf(HttpResponse(body = "", headers = emptyMap(), status = 200, statusText = "OK")),
+                ),
             ),
         )
         assertTrue(available.available)
+    }
+
+    @Test
+    fun capabilitiesReportsUnavailableOn5xxReachabilityProbe() = runTest {
+        val httpClient = FakeHttpClient(
+            listOf(HttpResponse(body = "", headers = emptyMap(), status = 502, statusText = "Bad Gateway")),
+        )
+        val provider = OpenAIProvider(OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none))
+
+        val result = provider.capabilities(fakeHostServices(httpClient = httpClient))
+
+        assertFalse(result.available)
+        assertEquals("OpenAI Responses endpoint returned HTTP 502.", result.reason)
+        assertEquals(Method.Get, httpClient.requests.single().method)
+    }
+
+    @Test
+    fun capabilitiesTreatsNon5xxReachabilityResponseAsAvailable() = runTest {
+        val httpClient = FakeHttpClient(
+            listOf(HttpResponse(body = "", headers = emptyMap(), status = 405, statusText = "Method Not Allowed")),
+        )
+        val provider = OpenAIProvider(OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none))
+
+        val result = provider.capabilities(fakeHostServices(httpClient = httpClient))
+
+        assertTrue(result.available)
+    }
+
+    @Test
+    fun capabilitiesReportsUnavailableWhenReachabilityProbeThrows() = runTest {
+        val httpClient = FakeHttpClient(listOf(IllegalStateException("network down")))
+        val provider = OpenAIProvider(OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none))
+
+        val result = provider.capabilities(fakeHostServices(httpClient = httpClient))
+
+        assertFalse(result.available)
+        assertEquals("OpenAI Responses endpoint is unreachable.", result.reason)
+    }
+
+    @Test
+    fun capabilitiesCachesReachabilityResultWithinCacheWindow() = runTest {
+        val httpClient = FakeHttpClient(
+            listOf(HttpResponse(body = "", headers = emptyMap(), status = 200, statusText = "OK")),
+        )
+        val provider = OpenAIProvider(OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none))
+        val host = fakeHostServices(httpClient = httpClient)
+
+        val first = provider.capabilities(host)
+        val second = provider.capabilities(host)
+
+        assertTrue(first.available)
+        assertTrue(second.available)
+        assertEquals(1, httpClient.requests.size)
     }
 
     @Test

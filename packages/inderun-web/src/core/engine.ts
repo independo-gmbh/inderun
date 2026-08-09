@@ -4,6 +4,7 @@ import {
   type TaskResult
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
+import type { ProviderCapabilitySnapshot } from "./provider.js";
 import { ProviderRegistry } from "./registry.js";
 import { Router } from "./router.js";
 import { createInternal, toIndeRunException } from "./errors.js";
@@ -212,5 +213,19 @@ export class IndeRun {
 
       throw exception;
     }
+  }
+
+  /**
+   * Reports each registered provider's static descriptor and current dynamic capability check,
+   * without executing a task. Useful for UI that shows live provider availability before a run.
+   */
+  async checkCapabilities(): Promise<ProviderCapabilitySnapshot[]> {
+    return Promise.all(
+      this.registry.list().map(async (provider) => ({
+        providerId: provider.describe().id,
+        descriptor: provider.describe(),
+        capabilities: await provider.capabilities(this.hostServices)
+      }))
+    );
   }
 }

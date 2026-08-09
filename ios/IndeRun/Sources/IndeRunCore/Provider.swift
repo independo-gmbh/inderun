@@ -131,6 +131,22 @@ public struct ProviderDynamicCapabilities: Codable, Sendable {
     }
 }
 
+// MARK: - ProviderCapabilitySnapshot
+
+/// Snapshot of a registered provider's static descriptor and current dynamic
+/// capability check, without executing a task.
+public struct ProviderCapabilitySnapshot: Sendable {
+    public let providerId: String
+    public let descriptor: ProviderDescriptor
+    public let capabilities: ProviderDynamicCapabilities
+
+    public init(providerId: String, descriptor: ProviderDescriptor, capabilities: ProviderDynamicCapabilities) {
+        self.providerId = providerId
+        self.descriptor = descriptor
+        self.capabilities = capabilities
+    }
+}
+
 // MARK: - RunContext
 public struct RunContext: Sendable {
     public let runId: String
