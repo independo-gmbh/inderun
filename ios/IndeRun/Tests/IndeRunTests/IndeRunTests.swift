@@ -3,6 +3,7 @@ import IndeRunContracts
 @testable import IndeRunCore
 @testable import IndeRunAppleProviders
 @testable import IndeRunOpenAIProviders
+@testable import IndeRunOnnxProviders
 @testable import IndeRunSwift
 
 // MARK: - Mocks for Testing
@@ -789,5 +790,220 @@ final class IndeRunTests: XCTestCase {
 
         XCTAssertNotNil(registry.get(id: "openai"))
         XCTAssertEqual(registry.list().count, 1)
+    }
+
+    // MARK: - ONNX Runtime Apple provider
+
+    private func makeOnnxModelPackage(sourceType: SourceType = .bundled) -> ModelPackage {
+        ModelPackage(
+            files: Files(config: nil, external: nil, filesRequired: ["model.onnx"], tokenizer: "tokenizer.json"),
+            format: .onnx,
+            id: "test-model",
+            integrity: nil,
+            license: nil,
+            limits: nil,
+            runtime: nil,
+            source: Source(ref: "models/test-model", sourceType: sourceType),
+            tasks: ["text_to_text"],
+            version: "1.0"
+        )
+    }
+
+    func testOnnxAppleDescriptor() {
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: createFixtureOnnxRuntime())
+        )
+        let descriptor = provider.describe()
+
+        XCTAssertEqual(descriptor.id, OnnxRuntimeAppleProvider.defaultId)
+        XCTAssertEqual(descriptor.type, .local)
+        XCTAssertEqual(descriptor.transport, .inProcess)
+        XCTAssertTrue(descriptor.supports.run)
+        XCTAssertFalse(descriptor.supports.streaming)
+        XCTAssertEqual(descriptor.cancel, .soft)
+        XCTAssertEqual(descriptor.tasks, ["text_to_text"])
+        XCTAssertEqual(descriptor.privacy?.dataLeavesDevice, false)
+    }
+
+    func testOnnxAppleCapabilitiesRejectsMalformedModelPackage() async {
+        let modelPackage = ModelPackage(
+            files: nil, format: .onnx, id: "", integrity: nil, license: nil, limits: nil,
+            runtime: nil, source: nil, tasks: nil, version: nil
+        )
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: modelPackage, runtime: createFixtureOnnxRuntime())
+        )
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertFalse(capabilities.available)
+        XCTAssertTrue(capabilities.reason?.contains("model package malformed") ?? false)
+    }
+
+    func testOnnxAppleCapabilitiesRejectsDeferredSourceTypes() async {
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(
+                modelPackage: makeOnnxModelPackage(sourceType: .registry),
+                runtime: createFixtureOnnxRuntime()
+            )
+        )
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertFalse(capabilities.available)
+        XCTAssertTrue(capabilities.reason?.contains("registry") ?? false)
+    }
+
+    func testOnnxAppleCapabilitiesAcceptsFilesystemSource() async {
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(
+                modelPackage: makeOnnxModelPackage(sourceType: .filesystem),
+                runtime: createFixtureOnnxRuntime()
+            )
+        )
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertTrue(capabilities.available)
+    }
+
+    func testOnnxAppleCapabilitiesRejectsUnsupportedTask() async {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.tasks = ["image_to_text"]
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: modelPackage, runtime: createFixtureOnnxRuntime())
+        )
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertFalse(capabilities.available)
+        XCTAssertTrue(capabilities.reason?.contains("unsupported task") ?? false)
+    }
+
+    func testOnnxAppleRunReturnsTaskResultFromFixture() async throws {
+        let runtime = createFixtureOnnxRuntime(
+            options: FixtureOnnxRuntimeOptions(respond: { input in
+                OnnxGenerationOutput(text: "Bonjour, \(input.messages.last?.content ?? "")")
+            })
+        )
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let request = TaskRequest(prompt: "world")
+
+        let result = try await provider.run(
+            request: request,
+            context: RunContext(runId: "run_onnx_apple", hostServices: hostServices)
+        )
+
+        XCTAssertEqual(result.runId, "run_onnx_apple")
+        XCTAssertEqual(result.output.text, "Bonjour, world")
+        XCTAssertEqual(result.finishReason, .stop)
+        XCTAssertEqual(result.telemetry.providerUsed, OnnxRuntimeAppleProvider.defaultId)
+    }
+
+    func testOnnxAppleRunThrowsCapabilityMismatchWhenUnavailable() async {
+        let runtime = createFixtureOnnxRuntime(
+            options: FixtureOnnxRuntimeOptions(availability: OnnxRuntimeAvailability(available: false, reason: "model files missing"))
+        )
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let request = TaskRequest(prompt: "Hello")
+
+        do {
+            _ = try await provider.run(request: request, context: RunContext(runId: "run_unavailable", hostServices: hostServices))
+            XCTFail("Should have thrown CapabilityMismatch")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .CapabilityMismatch)
+            XCTAssertEqual(err.providerId, OnnxRuntimeAppleProvider.defaultId)
+        } catch {
+            XCTFail("Expected IndeRunException")
+        }
+    }
+
+    func testOnnxAppleRunMapsRuntimeErrorKindsToErrorClasses() async {
+        let cases: [(OnnxRuntimeErrorKind, IndeRunErrorClass)] = [
+            (.capability, .CapabilityMismatch),
+            (.unavailable, .Unavailable),
+            (.timeout, .Timeout),
+            (.internalFailure, .Internal)
+        ]
+
+        for (kind, expectedClass) in cases {
+            let runtime = createFixtureOnnxRuntime(
+                options: FixtureOnnxRuntimeOptions(failWith: OnnxRuntimeError(kind: kind, message: "runtime failure"))
+            )
+            let provider = OnnxRuntimeAppleProvider(
+                options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+            )
+            let request = TaskRequest(prompt: "Hello")
+
+            do {
+                _ = try await provider.run(request: request, context: RunContext(runId: "run_error", hostServices: hostServices))
+                XCTFail("Should have thrown for kind \(kind)")
+            } catch let err as IndeRunException {
+                XCTAssertEqual(err.errorClass, expectedClass)
+            } catch {
+                XCTFail("Expected IndeRunException for kind \(kind)")
+            }
+        }
+    }
+
+    func testOnnxAppleModelPackageValidationRejectsUrlUserinfoInSourceRef() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.source = Source(ref: "https://user:pass@example.com/model", sourceType: .bundled)
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertTrue(issues.contains { $0.path == "/source/ref" })
+    }
+
+    func testOnnxAppleModelPackageValidationAllowsPlainUrlInSourceRef() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.source = Source(ref: "https://example.com/model", sourceType: .bundled)
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertTrue(issues.isEmpty)
+    }
+
+    func testOnnxAppleRunThrowsRawCancellationErrorWithoutNormalizing() async {
+        let runtime = createFixtureOnnxRuntime(options: FixtureOnnxRuntimeOptions(delay: .seconds(10)))
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let request = TaskRequest(prompt: "Hello")
+
+        let runTask = Task {
+            try await provider.run(request: request, context: RunContext(runId: "run_cancel", hostServices: hostServices))
+        }
+        runTask.cancel()
+
+        do {
+            _ = try await runTask.value
+            XCTFail("Should have thrown CancellationError")
+        } catch is CancellationError {
+            // expected: real Task cancellation propagates raw, matching OpenAIProvider/IndeRun.swift
+        } catch {
+            XCTFail("Expected raw CancellationError, got \(error)")
+        }
+    }
+
+    func testOnnxAppleRunThrowsTimeoutWhenGenerationExceedsDeadline() async {
+        let runtime = createFixtureOnnxRuntime(options: FixtureOnnxRuntimeOptions(delay: .seconds(10)))
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime, timeout: .milliseconds(50))
+        )
+        let request = TaskRequest(prompt: "Hello")
+
+        do {
+            _ = try await provider.run(request: request, context: RunContext(runId: "run_timeout", hostServices: hostServices))
+            XCTFail("Should have thrown Timeout")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .Timeout)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
     }
 }

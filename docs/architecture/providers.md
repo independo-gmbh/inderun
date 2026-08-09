@@ -53,7 +53,10 @@ factories), not in prose.
 - Custom/developer-supplied local models: ONNX Runtime provider family (Milestone 2, specified in
   [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md))
   - Web on-device: `local.onnx.genai.web`, shipped in `@independo/inderun-web/onnx`
-  - Android and Apple members are not implemented yet (#87/#86)
+  - Apple on-device: `local.onnx.genai.apple`, shipped in the `IndeRunOnnxProviders` SwiftPM
+    library product; raised the SDK's Apple platform minimums to iOS 16 / macOS 14 (see
+    [Apple Implementation](onnx-runtime-provider-family.md#apple-implementation))
+  - Android member is not implemented yet (#87)
 - Browser-managed on-device models: Web system-model provider family (Milestone 2, specified in
   [web-system-model-provider-family.md](web-system-model-provider-family.md)) — the browser owns
   model availability/download/execution, unlike the developer-supplied ONNX family
