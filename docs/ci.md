@@ -14,7 +14,7 @@ truth for exact steps. This table describes only what each one covers.
 - The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Maven Publish` (`maven-publish.yml`): on a published (non-prerelease) GitHub release, publishes the Android library modules to Maven Central.
-- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. Also runs weekly on a schedule.
+- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
 
 ## Code Scanning
 
@@ -27,15 +27,27 @@ repository root) rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and
 `./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both
 scan the product code, not the sample apps.
 
+CodeQL's `pull_request` trigger only targets `main` — every PR into `main` gets full
+analysis. `dev` is not PR-gated by CodeQL; it relies on the weekly `schedule` run
+(`cron: "27 3 * * 1"`), which scans the repository's default branch (`dev`). This
+trades slightly staler dev coverage (up to a week) for not running five CodeQL matrix
+jobs on every dev-targeted PR. Because of this, `dev` branch protection must **not**
+require the `Analyze (*)` contexts — see Branch Protection below.
+
 ## Branch Protection
 
-`main` and `dev` require these status checks before merging:
+`main` requires these status checks before merging:
 
 - `JavaScript`
 - `Rust`
 - `Swift`
 - `Android`
 - `Analyze (actions)`, `Analyze (javascript-typescript)`, `Analyze (rust)`, `Analyze (java-kotlin)`, `Analyze (swift)` (from `CodeQL`)
+
+`dev` requires only `JavaScript`, `Rust`, `Swift`, `Android` — not the `Analyze (*)`
+contexts, since `codeql.yml`'s `pull_request` trigger is `main`-only (see Code
+Scanning above). Requiring them on `dev` would leave every dev-targeted PR stuck
+`Pending` forever, since the check would never be produced.
 
 `JavaScript`, `Rust`, `Swift`, and `Android` each start with a cheap `changes` job
 (`dorny/paths-filter`) that gates the real job with `if:`. A PR that doesn't touch a
@@ -57,7 +69,8 @@ Each filter also includes the workflow's own file, so editing a workflow always
 re-runs it. This is deliberately done as an in-workflow `changes` job rather than a
 top-level `on.pull_request.paths:` filter — GitHub can leave a required check stuck
 `Pending` forever if the whole workflow is skipped by trigger-level path filtering.
-`codeql.yml` is not path-gated; it's the security scan and cheap enough to always run.
+`codeql.yml` is not path-gated within `main` PRs; it always runs there (see Code
+Scanning above for why it's excluded from `dev` PRs instead of path-gated).
 
 ## Pinned actions
 
