@@ -38,6 +38,18 @@ factories), not in prose.
 - iOS on-device: Apple Foundation Models provider
 - Android on-device: ML Kit GenAI provider
 - Web and native cloud: OpenAI-compatible provider
+  - `capabilities()` probes endpoint reachability with a cheap, unauthenticated `GET` against the
+    configured endpoint after the static host-service checks pass — the OpenAI API (and
+    OpenAI-compatible servers generally) has no dedicated health endpoint, so this is the
+    lightest-weight signal available. A response with status `>= 500`, or a network-level probe
+    failure (timeout, connection error), reports `available: false`; any other HTTP response
+    (including 4xx, which just signals a method/auth mismatch on the probe request, not that the
+    service is down) reports `available: true`. Because a provider that fails this probe is
+    excluded as a routing candidate before `run()` is attempted, an unreachable endpoint now fails
+    fast with an `Unavailable` error instead of being attempted and timing out mid-request. The
+    result is cached briefly (`healthCheckCacheMs`, default 5000ms) since this same
+    `capabilities()` call is shared by both the router (on every real `run()`) and
+    `checkCapabilities()` (UI introspection) — see `docs/architecture/architecture.md`.
 - Custom/developer-supplied local models: ONNX Runtime provider family (Milestone 2, specified in
   [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md))
   - Web on-device: `local.onnx.genai.web`, shipped in `@independo/inderun-web/onnx`

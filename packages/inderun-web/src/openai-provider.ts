@@ -16,6 +16,9 @@ import type {
 
 export const DEFAULT_OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 
+const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 3000;
+const DEFAULT_HEALTH_CHECK_CACHE_MS = 5000;
+
 /**
  * Configuration for the OpenAI Responses provider.
  */
@@ -45,6 +48,17 @@ export interface OpenAIProviderOptions {
    * Optional HTTP timeout for the host transport attempt.
    */
   timeoutMs?: number;
+  /**
+   * Timeout for the endpoint reachability probe issued from `capabilities()`.
+   * Defaults to 3000ms. The OpenAI API has no dedicated health endpoint, so this
+   * is a cheap unauthenticated `GET` against the configured endpoint.
+   */
+  healthCheckTimeoutMs?: number;
+  /**
+   * How long a reachability probe result is cached before `capabilities()` re-probes.
+   * Defaults to 5000ms. Avoids re-probing on every routing decision and UI capability check.
+   */
+  healthCheckCacheMs?: number;
 }
 
 type OpenAIResponseBody = {
@@ -80,6 +94,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
   private readonly id: string;
   private readonly endpointUrl: string;
   private readonly auth: "authContextRef" | "none";
+  private cachedHealth?: { result: ProviderDynamicCapabilities; checkedAt: number };
 
   /**
    * Creates an OpenAI Responses provider.
@@ -118,6 +133,11 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
 
   /**
    * Reports dynamic provider availability for the current host.
+   *
+   * After the static host-service checks pass, this probes endpoint reachability with a
+   * cheap unauthenticated `GET` against the configured endpoint (the OpenAI API has no
+   * dedicated health endpoint). The result is cached for `healthCheckCacheMs` so routing
+   * decisions and repeated UI capability checks don't re-probe on every call.
    * @param host - Host services available to the engine.
    */
   async capabilities(host: HostServices): Promise<ProviderDynamicCapabilities> {
@@ -135,7 +155,46 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
       };
     }
 
-    return { available: true };
+    return this.checkEndpointReachable(host.httpClient, host.clock);
+  }
+
+  private async checkEndpointReachable(
+    httpClient: NonNullable<HostServices["httpClient"]>,
+    clock: HostServices["clock"]
+  ): Promise<ProviderDynamicCapabilities> {
+    const now = clock ? clock.now() : Date.now();
+    const cacheMs = this.options.healthCheckCacheMs ?? DEFAULT_HEALTH_CHECK_CACHE_MS;
+
+    if (this.cachedHealth && now - this.cachedHealth.checkedAt < cacheMs) {
+      return this.cachedHealth.result;
+    }
+
+    let result: ProviderDynamicCapabilities;
+    try {
+      const response = await httpClient.send({
+        method: "GET",
+        url: this.endpointUrl,
+        timeoutMs: this.options.healthCheckTimeoutMs ?? DEFAULT_HEALTH_CHECK_TIMEOUT_MS
+      });
+
+      result =
+        response.status >= 500
+          ? {
+              available: false,
+              reason: `OpenAI Responses endpoint returned HTTP ${response.status}.`
+            }
+          : { available: true };
+    } catch (err) {
+      result = {
+        available: false,
+        reason: isAbortError(err)
+          ? "OpenAI Responses endpoint health check timed out."
+          : "OpenAI Responses endpoint is unreachable."
+      };
+    }
+
+    this.cachedHealth = { result, checkedAt: now };
+    return result;
   }
 
   /**
