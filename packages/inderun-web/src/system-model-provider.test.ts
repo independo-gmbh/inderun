@@ -131,6 +131,25 @@ describe("SystemModelWebProvider descriptor", () => {
 
     expect(provider.describe().id).toBe("custom.system-model");
   });
+
+  it("defaults to the Chrome Prompt API runtime, not the deterministic fixture", async () => {
+    const originalLanguageModel = Object.getOwnPropertyDescriptor(globalThis, "LanguageModel");
+    Reflect.deleteProperty(globalThis, "LanguageModel");
+
+    try {
+      const provider = new SystemModelWebProvider();
+      const capabilities = await provider.capabilities(createHost());
+
+      // The fixture runtime always reports available; only the real Chrome runtime reports
+      // api_missing when `LanguageModel` is undefined.
+      expect(capabilities.available).toBe(false);
+      expect(capabilities.reason).toContain("API missing");
+    } finally {
+      if (originalLanguageModel) {
+        Object.defineProperty(globalThis, "LanguageModel", originalLanguageModel);
+      }
+    }
+  });
 });
 
 describe("SystemModelWebProvider capabilities", () => {

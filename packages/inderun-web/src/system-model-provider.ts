@@ -8,9 +8,9 @@ import {
   type IndeRunException
 } from "./errors.js";
 import type { HostServices } from "./host.js";
+import { createChromePromptApiRuntime } from "./system-model-chrome-runtime.js";
 import {
   SystemModelRuntimeError,
-  createFixtureSystemModelRuntime,
   type SystemModelAvailability,
   type SystemModelPromptMessage,
   type SystemModelRuntime
@@ -37,9 +37,9 @@ export interface SystemModelProviderOptions {
    */
   id?: string;
   /**
-   * Runtime implementation used to check availability and execute generation. Defaults to a
-   * deterministic fixture runtime; applications should inject `createChromePromptApiRuntime()`
-   * from `system-model.js` to use the real browser API.
+   * Runtime implementation used to check availability and execute generation. Defaults to
+   * `createChromePromptApiRuntime()`; pass `createFixtureSystemModelRuntime()` from
+   * `system-model.js` for tests and offline demos.
    */
   runtime?: SystemModelRuntime;
   /**
@@ -67,7 +67,7 @@ export class SystemModelWebProvider implements ProviderAdapter {
    */
   constructor(private readonly options: SystemModelProviderOptions = {}) {
     this.id = options.id ?? DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID;
-    this.runtime = options.runtime ?? createFixtureSystemModelRuntime();
+    this.runtime = options.runtime ?? createChromePromptApiRuntime();
   }
 
   /**
