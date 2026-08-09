@@ -10,8 +10,8 @@ import {
   type HttpRequest,
   type HttpResponse,
   type SecureStorageService
-} from "./index.js";
-import { DEFAULT_OPENAI_RESPONSES_ENDPOINT, OpenAIResponsesProvider } from "./openai.js";
+} from "../../index.js";
+import { DEFAULT_OPENAI_RESPONSES_ENDPOINT, OpenAIResponsesProvider } from "../../openai.js";
 
 class MockSecureStorage implements SecureStorageService {
   constructor(private readonly slots: Record<string, string> = {}) {}

@@ -1,11 +1,11 @@
 import type { ModelPackage } from "@independo/inderun-contracts";
 import { afterEach, describe, expect, it } from "vitest";
-import { OnnxRuntimeError } from "./onnx-runtime.js";
+import { OnnxRuntimeError } from "./runtime.js";
 import {
   createTransformersJsRuntime,
   type TransformersModule,
   type TransformersTextGenerator
-} from "./onnx-transformers-runtime.js";
+} from "./transformers-runtime.js";
 
 interface PipelineCall {
   task: string;

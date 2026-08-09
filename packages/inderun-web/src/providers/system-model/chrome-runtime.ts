@@ -4,7 +4,7 @@ import {
   type SystemModelGenerationInput,
   type SystemModelGenerationOutput,
   type SystemModelRuntime
-} from "./system-model-runtime.js";
+} from "./runtime.js";
 
 /**
  * Structural view of the Chrome/Edge Prompt API's `LanguageModel` global this runtime uses.

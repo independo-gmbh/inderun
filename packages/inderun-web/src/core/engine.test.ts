@@ -13,7 +13,7 @@ import {
   type ProviderAdapter,
   Router,
   type RoutePlanner
-} from "./index.js";
+} from "../index.js";
 
 function createMockLocalProvider(id: string, available = true): ProviderAdapter {
   return {

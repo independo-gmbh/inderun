@@ -1,19 +1,19 @@
 import {
   createBrowserHostServices,
   type CreateBrowserHostServicesOptions
-} from "./browser-host.js";
-import { IndeRun } from "./engine.js";
-import { OnnxRuntimeWebProvider, type OnnxProviderOptions } from "./onnx-provider.js";
+} from "./core/browser-host.js";
+import { IndeRun } from "./core/engine.js";
+import { OnnxRuntimeWebProvider, type OnnxProviderOptions } from "./providers/onnx/provider.js";
 import {
   DEFAULT_OPENAI_RESPONSES_ENDPOINT,
   OpenAIResponsesProvider,
   type OpenAIProviderOptions
-} from "./openai-provider.js";
-import { ProviderRegistry } from "./registry.js";
+} from "./providers/openai/provider.js";
+import { ProviderRegistry } from "./core/registry.js";
 import {
   SystemModelWebProvider,
   type SystemModelProviderOptions
-} from "./system-model-provider.js";
+} from "./providers/system-model/provider.js";
 
 /**
  * Configuration for the default Web SDK factory.

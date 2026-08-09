@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { SystemModelRuntimeError } from "./system-model-runtime.js";
-import { createChromePromptApiRuntime } from "./system-model-chrome-runtime.js";
+import { SystemModelRuntimeError } from "./runtime.js";
+import { createChromePromptApiRuntime } from "./chrome-runtime.js";
 
 interface FakeSession {
   prompt: (input: string, options?: { signal?: AbortSignal }) => Promise<string>;

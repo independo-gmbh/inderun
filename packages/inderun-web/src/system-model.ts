@@ -11,7 +11,7 @@ export {
   DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID,
   SystemModelWebProvider,
   type SystemModelProviderOptions
-} from "./system-model-provider.js";
+} from "./providers/system-model/provider.js";
 
 export {
   SystemModelRuntimeError,
@@ -24,7 +24,7 @@ export {
   type SystemModelPromptMessage,
   type SystemModelRuntime,
   type SystemModelRuntimeErrorKind
-} from "./system-model-runtime.js";
+} from "./providers/system-model/runtime.js";
 
 export {
   createChromePromptApiRuntime,
@@ -32,4 +32,4 @@ export {
   type ChromePromptApiRuntimeOptions,
   type PromptApiLanguageModel,
   type PromptApiSession
-} from "./system-model-chrome-runtime.js";
+} from "./providers/system-model/chrome-runtime.js";

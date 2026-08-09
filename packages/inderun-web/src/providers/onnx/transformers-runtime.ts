@@ -5,7 +5,7 @@ import {
   type OnnxGenerationOutput,
   type OnnxRuntimeAvailability,
   type OnnxTextGenerationRuntime
-} from "./onnx-runtime.js";
+} from "./runtime.js";
 
 /**
  * Structural view of the `@huggingface/transformers` entry points this runtime uses.

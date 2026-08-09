@@ -6,18 +6,18 @@ import {
   ProviderRegistry,
   type HostServices,
   type ProviderAdapter
-} from "./index.js";
+} from "../../index.js";
 import {
   DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID,
   SystemModelWebProvider,
   type SystemModelProviderOptions
-} from "./system-model.js";
+} from "../../system-model.js";
 import {
   SystemModelRuntimeError,
   createFixtureSystemModelRuntime,
   type SystemModelAvailabilityKind,
   type SystemModelRuntime
-} from "./system-model-runtime.js";
+} from "./runtime.js";
 
 function createHost(): HostServices {
   return {

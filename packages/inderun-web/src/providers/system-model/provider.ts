@@ -6,21 +6,21 @@ import {
   createUnavailable,
   toIndeRunException,
   type IndeRunException
-} from "./errors.js";
-import type { HostServices } from "./host.js";
-import { createChromePromptApiRuntime } from "./system-model-chrome-runtime.js";
+} from "../../core/errors.js";
+import type { HostServices } from "../../core/host.js";
+import { createChromePromptApiRuntime } from "./chrome-runtime.js";
 import {
   SystemModelRuntimeError,
   type SystemModelAvailability,
   type SystemModelPromptMessage,
   type SystemModelRuntime
-} from "./system-model-runtime.js";
+} from "./runtime.js";
 import type {
   ProviderAdapter,
   ProviderDescriptor,
   ProviderDynamicCapabilities,
   RunContext
-} from "./provider.js";
+} from "../../core/provider.js";
 
 /** Default provider id of the Web member of the system-model provider family. */
 export const DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID = "local.system-model.web";

@@ -6,7 +6,7 @@ import {
   ProviderRegistry,
   type HostServices,
   type ProviderAdapter
-} from "./index.js";
+} from "../../index.js";
 import {
   DEFAULT_ONNX_WEB_PROVIDER_ID,
   OnnxRuntimeError,
@@ -14,7 +14,7 @@ import {
   createFixtureOnnxRuntime,
   type OnnxProviderOptions,
   type OnnxTextGenerationRuntime
-} from "./onnx.js";
+} from "../../onnx.js";
 
 const MODEL_PACKAGE: ModelPackage = {
   id: "phi-3-mini-web",

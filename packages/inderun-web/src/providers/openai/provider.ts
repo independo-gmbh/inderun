@@ -5,14 +5,14 @@ import {
   createRateLimited,
   createTimeout,
   createUnavailable
-} from "./errors.js";
-import type { HostServices, HttpRequest } from "./host.js";
+} from "../../core/errors.js";
+import type { HostServices, HttpRequest } from "../../core/host.js";
 import type {
   ProviderAdapter,
   ProviderDescriptor,
   ProviderDynamicCapabilities,
   RunContext
-} from "./provider.js";
+} from "../../core/provider.js";
 
 export const DEFAULT_OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 
