@@ -824,4 +824,56 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       expect(result.output.text).toBe("Mock local response: hello telemetry throw");
     });
   });
+
+  describe("checkCapabilities", () => {
+    it("returns a snapshot per registered provider, in registration order, without executing run()", async () => {
+      const available = createMockLocalProvider("mock-local-1", true);
+      const unavailable: ProviderAdapter = {
+        describe() {
+          return {
+            id: "mock-cloud-unavailable",
+            type: "cloud",
+            transport: "http",
+            supports: {
+              run: true,
+              streaming: false,
+              realtime: false,
+              tools: false,
+              reasoningEvents: false,
+              structuredOutput: false,
+              multimodal: false
+            },
+            cancel: "none",
+            tasks: ["text_to_text"]
+          };
+        },
+        async capabilities() {
+          return { available: false, reason: "not configured" };
+        },
+        async run() {
+          throw new Error("run() should not be called by checkCapabilities()");
+        }
+      };
+
+      registry.register(available);
+      registry.register(unavailable);
+
+      const host = createMockHostServices(true);
+      const engine = new IndeRun(registry, host);
+
+      const snapshots = await engine.checkCapabilities();
+
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[0]).toMatchObject({
+        providerId: "mock-local-1",
+        descriptor: available.describe(),
+        capabilities: { available: true }
+      });
+      expect(snapshots[1]).toMatchObject({
+        providerId: "mock-cloud-unavailable",
+        descriptor: unavailable.describe(),
+        capabilities: { available: false, reason: "not configured" }
+      });
+    });
+  });
 });

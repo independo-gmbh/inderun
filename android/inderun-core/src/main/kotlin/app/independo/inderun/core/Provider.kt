@@ -68,6 +68,12 @@ data class ProviderDynamicCapabilities(
     val reason: String? = null,
 )
 
+data class ProviderCapabilitySnapshot(
+    val providerId: String,
+    val descriptor: ProviderDescriptor,
+    val capabilities: ProviderDynamicCapabilities,
+)
+
 data class RunContext(
     val runId: String,
     val hostServices: HostServices,

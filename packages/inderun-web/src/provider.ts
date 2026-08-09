@@ -92,6 +92,16 @@ export interface ProviderDynamicCapabilities {
 }
 
 /**
+ * Snapshot of a registered provider's static descriptor and current dynamic
+ * capability check, without executing a task.
+ */
+export interface ProviderCapabilitySnapshot {
+  providerId: string;
+  descriptor: ProviderDescriptor;
+  capabilities: ProviderDynamicCapabilities;
+}
+
+/**
  * Execution context passed to provider run commands.
  */
 export interface RunContext {

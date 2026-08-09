@@ -13,6 +13,7 @@ export {
 export {
   type ProviderDescriptor,
   type ProviderDynamicCapabilities,
+  type ProviderCapabilitySnapshot,
   type RunContext,
   type ProviderAdapter
 } from "./provider.js";

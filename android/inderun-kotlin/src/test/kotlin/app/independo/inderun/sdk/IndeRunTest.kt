@@ -93,6 +93,59 @@ class IndeRunTest {
         assertEquals("Hello from sdk provider", result.output.text)
     }
 
+    @Test
+    fun checkCapabilitiesReturnsSnapshotsWithoutExecutingRun() = runTest {
+        val hostServices = HostServices(
+            connectivity = object : ConnectivityService {
+                override fun isOnline(): Boolean = true
+            },
+            secureStorage = object : SecureStorageService {
+                override fun get(authContextRef: String): String? = null
+                override fun put(authContextRef: String, value: String) = Unit
+                override fun remove(authContextRef: String) = Unit
+            },
+            clock = object : ClockService {
+                override fun elapsedRealtimeMillis(): Long = 0L
+            },
+        )
+        val unavailable = object : ProviderAdapter {
+            override fun describe(): ProviderDescriptor = ProviderDescriptor(
+                id = "unavailable-provider",
+                type = ProviderDescriptor.ProviderType.cloud,
+                transport = ProviderDescriptor.TransportType.http,
+                supports = ProviderDescriptor.SupportsCapabilities(
+                    run = true,
+                    streaming = false,
+                    realtime = false,
+                    tools = false,
+                    reasoningEvents = false,
+                    structuredOutput = false,
+                    multimodal = false,
+                ),
+                cancel = ProviderDescriptor.CancelSemantics.none,
+                tasks = listOf("text_to_text"),
+            )
+
+            override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities = ProviderDynamicCapabilities(available = false, reason = "not configured")
+
+            override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = error("run() should not be called by checkCapabilities()")
+        }
+        val registry = ProviderRegistry().apply {
+            register(FakeProvider())
+            register(unavailable)
+        }
+        val indeRun = IndeRun(registry, hostServices)
+
+        val snapshots = indeRun.checkCapabilities()
+
+        assertEquals(2, snapshots.size)
+        assertEquals("sdk-provider", snapshots[0].providerId)
+        assertEquals(true, snapshots[0].capabilities.available)
+        assertEquals("unavailable-provider", snapshots[1].providerId)
+        assertEquals(false, snapshots[1].capabilities.available)
+        assertEquals("not configured", snapshots[1].capabilities.reason)
+    }
+
     private class FakeProvider : ProviderAdapter {
         override fun describe(): ProviderDescriptor = ProviderDescriptor(
             id = "sdk-provider",

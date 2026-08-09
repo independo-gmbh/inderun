@@ -191,7 +191,25 @@ final class IndeRunTests: XCTestCase {
         // Throws on duplicate registration
         XCTAssertThrowsError(try registry.register(p1))
     }
-    
+
+    func testCheckCapabilitiesReturnsSnapshotsWithoutExecutingRun() async throws {
+        let available = MockProvider(id: "local_p", type: .local)
+        let unavailable = MockProvider(id: "cloud_p", type: .cloud)
+        unavailable.isAvailable = false
+        unavailable.shouldFail = true
+        try registry.register(available)
+        try registry.register(unavailable)
+
+        let snapshots = await inderun.checkCapabilities()
+
+        XCTAssertEqual(snapshots.count, 2)
+        let byId = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.providerId, $0) })
+        XCTAssertEqual(byId["local_p"]?.descriptor.id, "local_p")
+        XCTAssertEqual(byId["local_p"]?.capabilities.available, true)
+        XCTAssertEqual(byId["cloud_p"]?.descriptor.id, "cloud_p")
+        XCTAssertEqual(byId["cloud_p"]?.capabilities.available, false)
+    }
+
     func testRoutingOnDeviceSuccess() async throws {
         let p1 = MockProvider(id: "local_p", type: .local)
         try registry.register(p1)
@@ -702,6 +720,66 @@ final class IndeRunTests: XCTestCase {
         } catch {
             XCTFail("Expected IndeRunException")
         }
+    }
+
+    func testOpenAIProviderCapabilitiesReportsUnavailableOn5xxReachabilityProbe() async {
+        let httpClient = MockHttpClientService(
+            responses: [
+                .success(HttpResponse(body: "", headers: [:], status: 502, statusText: "Bad Gateway"))
+            ]
+        )
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+        let hostServices = HostServices(connectivity: connectivity, clock: clock, httpClient: httpClient)
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertFalse(capabilities.available)
+        XCTAssertEqual(capabilities.reason, "OpenAI Responses endpoint returned HTTP 502.")
+        let requests = await httpClient.snapshotRequests()
+        XCTAssertEqual(requests.first?.method, .get)
+    }
+
+    func testOpenAIProviderCapabilitiesTreatsNon5xxReachabilityResponseAsAvailable() async {
+        let httpClient = MockHttpClientService(
+            responses: [
+                .success(HttpResponse(body: "", headers: [:], status: 405, statusText: "Method Not Allowed"))
+            ]
+        )
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+        let hostServices = HostServices(connectivity: connectivity, clock: clock, httpClient: httpClient)
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertTrue(capabilities.available)
+    }
+
+    func testOpenAIProviderCapabilitiesReportsUnavailableWhenReachabilityProbeThrows() async {
+        let httpClient = MockHttpClientService(responses: [.failure(TestCancellationError())])
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+        let hostServices = HostServices(connectivity: connectivity, clock: clock, httpClient: httpClient)
+
+        let capabilities = await provider.capabilities(host: hostServices)
+
+        XCTAssertFalse(capabilities.available)
+        XCTAssertEqual(capabilities.reason, "OpenAI Responses endpoint is unreachable.")
+    }
+
+    func testOpenAIProviderCapabilitiesCachesReachabilityResultWithinCacheWindow() async {
+        let httpClient = MockHttpClientService(
+            responses: [
+                .success(HttpResponse(body: "", headers: [:], status: 200, statusText: "OK"))
+            ]
+        )
+        let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+        let hostServices = HostServices(connectivity: connectivity, clock: clock, httpClient: httpClient)
+
+        let first = await provider.capabilities(host: hostServices)
+        let second = await provider.capabilities(host: hostServices)
+
+        XCTAssertTrue(first.available)
+        XCTAssertTrue(second.available)
+        let requests = await httpClient.snapshotRequests()
+        XCTAssertEqual(requests.count, 1)
     }
 
     func testAppleCloudProviderRegistryFactoryRegistersOpenAIProvider() throws {

@@ -198,4 +198,22 @@ public final class IndeRun: Sendable {
             runId: runId
         )
     }
+
+    /// Reports each registered provider's static descriptor and current dynamic capability check,
+    /// without executing a task. Useful for UI that shows live provider availability before a run.
+    public func checkCapabilities() async -> [ProviderCapabilitySnapshot] {
+        var snapshots: [ProviderCapabilitySnapshot] = []
+        for provider in registry.list() {
+            let descriptor = provider.describe()
+            let capabilities = await provider.capabilities(host: hostServices)
+            snapshots.append(
+                ProviderCapabilitySnapshot(
+                    providerId: descriptor.id,
+                    descriptor: descriptor,
+                    capabilities: capabilities
+                )
+            )
+        }
+        return snapshots
+    }
 }
