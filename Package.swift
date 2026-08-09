@@ -8,8 +8,8 @@ import PackageDescription
 let package = Package(
     name: "IndeRun",
     platforms: [
-        .iOS(.v15),
-        .macOS(.v12)
+        .iOS(.v16),
+        .macOS(.v14)
     ],
     products: [
         .library(
@@ -31,9 +31,20 @@ let package = Package(
         .library(
             name: "IndeRunOpenAIProviders",
             targets: ["IndeRunOpenAIProviders"]
+        ),
+        .library(
+            name: "IndeRunOnnxProviders",
+            targets: ["IndeRunOnnxProviders"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        // ONNX Runtime C/Objective-C bindings for the Apple ONNX Runtime provider family member.
+        // macOS 14 / iOS 16 (this package's platform minimums) are required by this dependency.
+        .package(url: "https://github.com/microsoft/onnxruntime-swift-package-manager", from: "1.24.2"),
+        // Hugging Face tokenizer parsing, used by the default ONNX runtime to tokenize model input
+        // without hand-rolling a tokenizer implementation.
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3")
+    ],
     targets: [
         .target(
             name: "IndeRunContracts",
@@ -60,9 +71,26 @@ let package = Package(
             dependencies: ["IndeRunCore", "IndeRunContracts"],
             path: "ios/IndeRun/Sources/IndeRunOpenAIProviders"
         ),
+        .target(
+            name: "IndeRunOnnxProviders",
+            dependencies: [
+                "IndeRunCore",
+                "IndeRunContracts",
+                .product(name: "onnxruntime", package: "onnxruntime-swift-package-manager"),
+                .product(name: "Tokenizers", package: "swift-transformers")
+            ],
+            path: "ios/IndeRun/Sources/IndeRunOnnxProviders"
+        ),
         .testTarget(
             name: "IndeRunTests",
-            dependencies: ["IndeRunSwift", "IndeRunContracts", "IndeRunCore", "IndeRunAppleProviders", "IndeRunOpenAIProviders"],
+            dependencies: [
+                "IndeRunSwift",
+                "IndeRunContracts",
+                "IndeRunCore",
+                "IndeRunAppleProviders",
+                "IndeRunOpenAIProviders",
+                "IndeRunOnnxProviders"
+            ],
             path: "ios/IndeRun/Tests/IndeRunTests"
         )
     ]

@@ -6,8 +6,9 @@ architecture baseline for the platform implementation tickets: #85 (Web), #87 (A
 (Apple platforms). Those tickets implement providers; they must not re-decide the boundaries below.
 
 This is a Milestone 2 specification. Field-level shapes live in the schema, not in this prose (see
-[Model Package Contract](#model-package-contract)). The Web member is implemented; Android and Apple
-are not yet (see [Web Implementation](#web-implementation)).
+[Model Package Contract](#model-package-contract)). The Web and Apple members are implemented;
+Android is not yet (see [Web Implementation](#web-implementation) and
+[Apple Implementation](#apple-implementation)).
 
 ## Classification And Boundaries
 
@@ -267,6 +268,78 @@ and caching model and ORT WASM assets; IndeRun owns no download or cache layer i
 `ProviderAdapter` when the model is ONNX: the provider already owns descriptor semantics, model
 package validation, source gating, timeouts, and error normalization. Implement `ProviderAdapter`
 directly only for a different runtime family.
+
+## Apple Implementation
+
+The Apple member ships as its own SwiftPM library product, `IndeRunOnnxProviders`
+(`ios/IndeRun/Sources/IndeRunOnnxProviders`), kept out of `IndeRunSwift`/`IndeRunAppleProviders`
+like the Web member is kept out of the provider-agnostic root index. Provider id:
+`local.onnx.genai.apple`. Descriptor: `type: .local`, `transport: .inProcess`, `supports.run:
+true` with all forward-looking flags false, `cancel: .soft`, `privacy.dataLeavesDevice: false`.
+
+**Platform minimums.** Landing this member raised the whole SDK's minimum platforms from iOS 15 /
+macOS 12 to **iOS 16 / macOS 14**, because its dependencies require it: the official ONNX Runtime
+SPM bindings (`microsoft/onnxruntime-swift-package-manager`, macOS 14 minimum) and
+`swift-transformers`'s `Tokenizers` module (iOS 16 minimum). SwiftPM has no per-target platform
+override in a single manifest, so this is a package-wide, breaking bump — every IndeRun Apple
+consumer, not only ONNX users, now needs iOS 16 / macOS 14.
+
+**Runtime seam.** `OnnxGenAiRuntime` has two methods: `prepare(_:)` returning the `{available,
+reason?}` snapshot, and `generate(_:)` returning normalized text — the same shape as the Web
+member's `OnnxTextGenerationRuntime`, adapted to Swift Concurrency (cancellation is ambient via
+`Task` cancellation rather than an explicit `AbortSignal` parameter). Two implementations exist:
+
+- `SystemOnnxGenAiRuntime()` — the default. Tokenizes with `swift-transformers`'s
+  `AutoTokenizer.from(modelFolder:)` and runs inference through the official ONNX Runtime SPM
+  bindings (`OnnxRuntimeBindings` / `ORTSession`). **IO contract**: the model graph must expose
+  exactly `input_ids` and `attention_mask` inputs (`int64`, `[1, sequenceLength]`) and a `logits`
+  output (`float32`, `[1, sequenceLength, vocabSize]`) — the plain decoder-only export shape,
+  without `past_key_values`. Decoding is **greedy (argmax) with no KV-cache reuse**: the full
+  sequence is recomputed on every generated token. This is a real, documented performance
+  limitation, not a hidden one — apps that need throughput, sampling, or the
+  `past_key_values`/Hugging Face Optimum export convention supply their own `OnnxGenAiRuntime`.
+  `programmatic` model sources are also out of scope for this default runtime (no files to
+  resolve, matching the Web member's own `programmatic` carve-out); it reports *runtime package
+  unavailable* rather than throwing.
+- `createFixtureOnnxRuntime(options:)` — the deterministic in-memory fixture mandated above,
+  public/importable like the Web member's `createFixtureOnnxRuntime` (this diverges deliberately
+  from the private-to-tests fixture convention used by `AppleFoundationModelsProvider`, per the
+  fixture's explicit mandate to support offline demos as well as tests).
+- Any application-supplied implementation of `OnnxGenAiRuntime`.
+
+**Model sources.** The Apple member honors `bundled`, `programmatic`, `app_managed`, and
+`filesystem`, and rejects `registry` and `remote` in `capabilities()`, matching the support
+matrix above. `SystemOnnxGenAiRuntime` resolves `bundled` under `Bundle.main.resourceURL`,
+`filesystem` and `app_managed` as a directory path from `source.ref` (absolute for `filesystem`,
+relative to the app's Application Support directory for `app_managed`).
+
+**Capability gate order.** Model package structural validation (a hand-written
+`getModelPackageValidationIssues` in `IndeRunOnnxProviders` — no generated JSON Schema validator
+exists in Swift, so this is a scoped subset covering `id`/`format` presence, inline-secret keys,
+and `source.ref` URL-userinfo, not a full AJV-equivalent port) → Apple source-type support →
+`runtime.platforms` includes `apple` → declared tasks include `text_to_text` → delegate to
+`runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection, for
+example:
+
+- `capability_unavailable`: *model source unavailable: 'registry' model sources are deferred on
+  Apple platforms; supply model files as bundled, programmatic, app_managed, filesystem.*
+- `capability_unavailable`: *model files missing: 'model.onnx' not found at \<resolved path\>.*
+- `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
+  generation budget (`constraints.timeoutMs`, else the provider's configured timeout) elapses or
+  the request is cancelled; `Unavailable` for ONNX Runtime session initialization failures. There
+  is no `AuthError`, `RateLimited`, or `Offline` path.
+
+**Packaging and binary size.** ORT Mobile's native binary is statically linked via the SPM
+`onnxruntime` product and adds meaningfully to app binary size; the model files themselves must
+also fit on-device disk and load into device memory (see
+[Platform Constraints](#platform-constraints-reference)). Neither IndeRun nor this provider owns
+model download/update flows in Milestone 2 — apps that fetch models remotely still supply them as
+`bundled`/`app_managed`/`programmatic` once resolved, per the model source matrix.
+
+**Authoring a custom local provider.** Implement `OnnxGenAiRuntime` rather than a new
+`ProviderAdapter` when the model is ONNX: `OnnxRuntimeAppleProvider` already owns descriptor
+semantics, model package validation, source gating, timeouts, and error normalization. Implement
+`ProviderAdapter` directly only for a different runtime family, mirroring the Web guidance above.
 
 ## Documentation Requirements For Platform Tickets (#85–#87)
 

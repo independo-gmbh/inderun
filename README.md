@@ -78,7 +78,7 @@ provider ships from the `@independo/inderun-web/onnx` subpath.
 
 **Requirements:**
 
-- SDK: iOS 15+ / macOS 12+, Swift 5.9+ (Swift Package Manager).
+- SDK: iOS 16+ / macOS 14+, Swift 5.9+ (Swift Package Manager).
 - On-device provider (Apple Foundation Models): an Apple Intelligence–capable device running a FoundationModels-supported
   OS (iOS 26+ / macOS 26+). Availability is checked at runtime; IndeRun falls back to the cloud provider when it is
   unavailable. **No special Info.plist entitlement is required** for on-device execution.
@@ -170,7 +170,7 @@ and consumes the SDKs published from this monorepo (npm, SwiftPM git tag, Maven 
 | Platform     | SDK minimum                                    | On-device local model                                  |
 | ------------ | ---------------------------------------------- | ------------------------------------------------------ |
 | Web          | Node 24+ / modern browser (ES2022 + WASM)      | — (cloud provider only)                                |
-| iOS / macOS  | iOS 15+ / macOS 12+, Swift 5.9+                | Apple Intelligence device, iOS 26+ / macOS 26+         |
+| iOS / macOS  | iOS 16+ / macOS 14+, Swift 5.9+                | Apple Intelligence device, iOS 26+ / macOS 26+         |
 | Android      | Android 8.0+ (API 26), JDK 17                  | Device with AICore / Gemini Nano support               |
 
 The OpenAI-compatible cloud provider is available on every platform. On-device execution additionally requires the
