@@ -33,7 +33,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@saithodev/semantic-release-backmerge": "^4.0.1",
-    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
     "conventional-changelog-conventionalcommits": "^10.2.1",
