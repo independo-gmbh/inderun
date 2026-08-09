@@ -44,6 +44,10 @@
     "./onnx": {
       "types": "./dist/onnx.d.ts",
       "default": "./dist/onnx.js"
+    },
+    "./system-model": {
+      "types": "./dist/system-model.d.ts",
+      "default": "./dist/system-model.js"
     }
   },
   "files": [

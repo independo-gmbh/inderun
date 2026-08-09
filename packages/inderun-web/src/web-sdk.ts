@@ -10,6 +10,10 @@ import {
   type OpenAIProviderOptions
 } from "./openai-provider.js";
 import { ProviderRegistry } from "./registry.js";
+import {
+  SystemModelWebProvider,
+  type SystemModelProviderOptions
+} from "./system-model-provider.js";
 
 /**
  * Configuration for the default Web SDK factory.
@@ -24,6 +28,12 @@ export interface CreateIndeRunWebOptions {
    * local models. Registering it is what makes `constraints.privacy = "local_required"` routable.
    */
   onnx?: OnnxProviderOptions;
+  /**
+   * Web system-model provider configuration registered by the factory, for browser-managed
+   * on-device models (for example Chrome's Prompt API). Unlike `onnx`, this provider takes no
+   * developer-supplied model: the browser owns model availability, download, and execution.
+   */
+  systemModel?: SystemModelProviderOptions;
   /**
    * Optional browser host service overrides.
    */
@@ -41,8 +51,9 @@ export interface CreateIndeRunWebOptions {
 /**
  * Creates a Web SDK instance with the configured providers registered.
  *
- * Pass `openAI` for cloud execution, `onnx` for developer-supplied local models, or both to let
- * routing choose between them; at least one is required.
+ * Pass `openAI` for cloud execution, `onnx` for developer-supplied local models, `systemModel` for
+ * browser-managed on-device models, or any combination to let routing choose between them; at
+ * least one is required.
  *
  * Use `openAI.auth = "none"` with a proxy endpoint for production browser apps so the OpenAI API key never ships
  * to the client. Direct OpenAI calls require `allowDirectOpenAIEndpoint` and should resolve credentials through
@@ -51,9 +62,9 @@ export interface CreateIndeRunWebOptions {
  * @param options - Provider configuration and optional host service overrides.
  */
 export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
-  if (!options.openAI && !options.onnx) {
+  if (!options.openAI && !options.onnx && !options.systemModel) {
     throw new Error(
-      "createIndeRunWeb requires at least one provider configuration (openAI and/or onnx)."
+      "createIndeRunWeb requires at least one provider configuration (openAI, onnx, and/or systemModel)."
     );
   }
 
@@ -66,6 +77,10 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
 
   if (options.onnx) {
     registry.register(new OnnxRuntimeWebProvider(options.onnx));
+  }
+
+  if (options.systemModel) {
+    registry.register(new SystemModelWebProvider(options.systemModel));
   }
 
   return new IndeRun(registry, createBrowserHostServices(options.hostServices));

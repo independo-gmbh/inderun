@@ -42,6 +42,12 @@ factories), not in prose.
   [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md))
   - Web on-device: `local.onnx.genai.web`, shipped in `@independo/inderun-web/onnx`
   - Android and Apple members are not implemented yet (#87/#86)
+- Browser-managed on-device models: Web system-model provider family (Milestone 2, specified in
+  [web-system-model-provider-family.md](web-system-model-provider-family.md)) — the browser owns
+  model availability/download/execution, unlike the developer-supplied ONNX family
+  - Web on-device: `local.system-model.web` (Chrome Prompt API, `LanguageModel`), shipped in
+    `@independo/inderun-web/system-model`
+  - Desktop Chrome 138+ only; degrades honestly (`capability_unavailable`) elsewhere
 - Shared route planning: Rust core used by the TypeScript/Web side and WASM wrapper
   (`@independo/inderun-route-core-wasm`). The Web SDK's default `WasmRoutePlanner`
   (`packages/inderun-web/src/route-planner.ts`) loads it via a static, literal dynamic
