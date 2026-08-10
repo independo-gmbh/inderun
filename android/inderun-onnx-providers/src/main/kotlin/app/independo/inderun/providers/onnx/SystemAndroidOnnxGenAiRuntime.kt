@@ -229,7 +229,12 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
         tempDir.mkdirs()
         try {
             copyAssetTree(assetPath, tempDir)
-            File(tempDir, EXTRACTION_COMPLETE_MARKER).createNewFile()
+            val completionMarker = File(tempDir, EXTRACTION_COMPLETE_MARKER)
+            if (!completionMarker.createNewFile()) {
+                throw IllegalStateException(
+                    "failed to create extraction completion marker '$EXTRACTION_COMPLETE_MARKER'.",
+                )
+            }
         } catch (error: Throwable) {
             tempDir.deleteRecursively()
             throw OnnxRuntimeError(
