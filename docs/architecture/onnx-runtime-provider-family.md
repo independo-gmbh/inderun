@@ -394,13 +394,19 @@ the Web member's explicit `AbortSignal` parameter). Two implementations exist:
 sequenceLength]`) and a `logits` output (`float32`, `[1, sequenceLength, vocabSize]`), the plain
   decoder-only export shape without `past_key_values`. **Graph file convention**: same as Apple —
   `ModelPackage.files.required`'s _first_ entry is the ONNX graph file; remaining entries (for
-  example external weight shards) must be present alongside it. `ModelPackage.integrity.checksums`
-  (`sha256:<hex>`) are verified for every required file before load. The session cache key covers
-  `id`, `format`, `version`, `source`, and `integrity.checksums` together, not `id` alone. Decoding
-  is **greedy (argmax) with no KV-cache reuse**: the full sequence is recomputed on every generated
-  token, CPU execution provider only — no NNAPI or XNNPACK acceleration configured. This is a real,
-  documented performance limitation, not a hidden one. `generation.stop` sequences are honored;
-  `temperature`/`topP`/`seed` are not (no sampling, argmax only). Unlike the Apple and Web members,
+  example external weight shards) must be present alongside it. Every file named in
+  `ModelPackage.integrity.checksums` is verified before load, not only the required-file list;
+  an algorithm prefix other than `sha256:` is a capability failure rather than a silently skipped
+  check. The session cache key covers `id`, `format`, `version`, `source`, and
+  `integrity.checksums` together, not `id` alone. **Stop conditions**: generation stops on the
+  tokenizer's end-of-sequence token — resolved from the model config JSON's `eos_token_id` field,
+  since the DJL tokenizer binding does not expose special token ids the way `swift-transformers`
+  does on Apple — on a `generation.stop` suffix match, or once `maxOutputTokens` is reached,
+  whichever comes first; cancellation is checked before every decode step. Decoding is **greedy
+  (argmax) with no KV-cache reuse**: the full sequence is recomputed on every generated token, CPU
+  execution provider only — no NNAPI or XNNPACK acceleration configured. This is a real, documented
+  performance limitation, not a hidden one. `temperature`/`topP`/`seed` are not honored (no
+  sampling, argmax only). Unlike the Apple and Web members,
   this default runtime does **not** attempt chat-template application — Hugging Face chat-template
   support in the Android tokenizer binding is not guaranteed across models, so it falls back
   unconditionally to a plain `"role: content"` join; apps that need chat templates, sampling, an
@@ -418,8 +424,11 @@ sequenceLength]`) and a `logits` output (`float32`, `[1, sequenceLength, vocabSi
 **Model sources.** The Android member honors `bundled`, `programmatic`, `app_managed`, and
 `filesystem`, and rejects `registry` and `remote` in `capabilities()`, matching the support matrix
 above. `SystemAndroidOnnxGenAiRuntime` resolves `bundled` by copying the referenced Android asset
-directory (`context.assets`) into app-private storage on first use; `filesystem` and `app_managed`
-resolve to a directory path from `source.ref` (absolute for `filesystem`, relative to
+directory (`context.assets`) into app-private storage, into a directory keyed by the session cache
+key (not by `id` alone) so a changed `version`/`ref`/checksum extracts into a fresh directory
+instead of reusing stale bytes; extraction is atomic (copied into a temp directory, marked complete,
+then moved into place) so an interrupted copy cannot poison a later load. `filesystem` and
+`app_managed` resolve to a directory path from `source.ref` (absolute for `filesystem`, relative to
 `context.filesDir` for `app_managed`).
 
 **Capability gate order.** Identical to the Apple member: model package structural validation (a

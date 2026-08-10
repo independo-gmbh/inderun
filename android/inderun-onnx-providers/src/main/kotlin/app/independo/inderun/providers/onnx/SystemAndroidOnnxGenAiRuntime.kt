@@ -9,13 +9,17 @@ import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.SourceType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.nio.LongBuffer
 import java.security.MessageDigest
+import kotlin.coroutines.coroutineContext
 
 /**
  * Production [AndroidOnnxGenAiRuntime] backed by ONNX Runtime Mobile
@@ -30,15 +34,28 @@ import java.security.MessageDigest
  * **Graph file convention**: [ModelPackage.files]'s `required` list has no positional semantics of
  * its own in the schema, so this runtime defines one -- the *first* entry is the ONNX graph file;
  * any remaining entries (for example external weight shards) must be present alongside it but are
- * not referenced directly. [ModelPackage.integrity] checksums (`sha256:<hex>`) are verified for
- * every file this runtime resolves, before load.
+ * not referenced directly. Every file named in [ModelPackage.integrity]'s checksum map is verified
+ * (`sha256:<hex>` only; any other algorithm prefix is a capability failure, not a silently skipped
+ * check), before load.
+ *
+ * **Stop conditions.** Generation stops on the tokenizer's end-of-sequence token (resolved from the
+ * model config JSON's `eos_token_id`, since the DJL tokenizer binding does not expose it directly),
+ * on a `generation.stop` suffix match, or once `generation.maxOutputTokens` tokens have been
+ * produced -- whichever comes first. Coroutine cancellation is checked before every decode step
+ * (`cancel: soft`: `OrtSession.run()` itself cannot be interrupted mid-call).
  *
  * Decoding is **greedy (argmax) with no KV-cache reuse**: the full sequence is recomputed on every
- * generated token, CPU execution provider only. `generation.stop` sequences are honored;
- * `temperature`/`topP`/`seed` are not (no sampling, argmax only). This is a real, documented
- * performance limitation, not a hidden one. Chat formatting falls back to a plain `"role: content"`
- * join -- unlike the Apple/Web members, no chat-template application is attempted, since Hugging
- * Face chat-template support in the Android tokenizer binding is not guaranteed across models.
+ * generated token, CPU execution provider only. `temperature`/`topP`/`seed` are not honored (no
+ * sampling, argmax only). This is a real, documented performance limitation, not a hidden one. Chat
+ * formatting falls back to a plain `"role: content"` join -- unlike the Apple/Web members, no
+ * chat-template application is attempted, since Hugging Face chat-template support in the Android
+ * tokenizer binding is not guaranteed across models.
+ *
+ * **Bundled asset extraction.** `bundled` sources are copied from Android assets into app-private
+ * storage under a directory keyed by the session cache key (id/format/version/source/checksums), so
+ * a changed `version`/`ref`/checksum extracts into a fresh directory rather than silently reusing
+ * stale bytes. Extraction is atomic (copied into a temp directory, marked complete, then moved into
+ * place) so an interrupted copy cannot poison a later load.
  *
  * `programmatic` model sources are out of scope for this default runtime (no files to resolve,
  * matching the Web/Apple members' own `programmatic` carve-out); it reports *runtime package
@@ -53,6 +70,8 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
     override suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability = try {
         withContext(Dispatchers.IO) { loadSession(modelPackage) }
         AndroidOnnxRuntimeAvailability(available = true)
+    } catch (error: CancellationException) {
+        throw error
     } catch (error: OnnxRuntimeError) {
         AndroidOnnxRuntimeAvailability(available = false, reason = error.message)
     } catch (error: Throwable) {
@@ -96,7 +115,7 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
                 message = "model source unavailable: no model source was configured.",
             )
 
-        val directory = resolveDirectory(modelPackage, sourceType)
+        val directory = resolveDirectory(modelPackage, sourceType, cacheKey)
         val requiredFiles = modelPackage.files?.required.orEmpty()
         if (requiredFiles.isEmpty()) {
             throw OnnxRuntimeError(
@@ -114,8 +133,8 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
                     message = "model files missing: '$relativePath' not found at ${file.absolutePath}.",
                 )
             }
-            verifyChecksum(file, relativePath, modelPackage)
         }
+        verifyChecksums(directory, modelPackage)
 
         val tokenizerFile = modelPackage.files?.tokenizer?.let { File(directory, it) }
 
@@ -146,16 +165,27 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
             )
         }
 
-        return LoadedSession(cacheKey = cacheKey, environment = ortEnvironment, session = session, tokenizer = tokenizer)
+        val eosTokenId = resolveEosTokenId(directory, modelPackage)
+
+        return LoadedSession(
+            cacheKey = cacheKey,
+            environment = ortEnvironment,
+            session = session,
+            tokenizer = tokenizer,
+            eosTokenId = eosTokenId,
+        )
     }
 
-    private fun resolveDirectory(modelPackage: ModelPackage, sourceType: SourceType): File {
+    private fun resolveDirectory(modelPackage: ModelPackage, sourceType: SourceType, cacheKey: String): File {
         val ref = modelPackage.source?.ref
         return when (sourceType) {
             SourceType.Bundled -> {
                 val relative = ref.orEmpty()
-                val assetDir = File(context.filesDir, "inderun-onnx-assets/${modelPackage.id}")
-                copyAssetDirectory(relative, assetDir)
+                val assetDir = File(
+                    context.filesDir,
+                    "inderun-onnx-assets/${modelPackage.id}/${cacheKeyDigest(cacheKey)}",
+                )
+                extractAssetDirectory(relative, assetDir)
                 assetDir
             }
             SourceType.Filesystem -> {
@@ -184,9 +214,42 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
         }
     }
 
-    private fun copyAssetDirectory(assetPath: String, targetDir: File) {
-        if (targetDir.exists() && targetDir.listFiles()?.isNotEmpty() == true) return
-        targetDir.mkdirs()
+    /**
+     * Extracts a bundled asset directory into app-private storage exactly once per
+     * [cacheKeyDigest], atomically: the copy lands in a sibling temp directory, a completion
+     * marker is written last, and only then is the temp directory moved into place. A directory
+     * missing the marker (never completed, or a previous run crashed mid-copy) is re-extracted
+     * rather than trusted.
+     */
+    private fun extractAssetDirectory(assetPath: String, targetDir: File) {
+        if (File(targetDir, EXTRACTION_COMPLETE_MARKER).exists()) return
+
+        val tempDir = File(targetDir.parentFile, "${targetDir.name}.tmp-${System.nanoTime()}")
+        tempDir.deleteRecursively()
+        tempDir.mkdirs()
+        try {
+            copyAssetTree(assetPath, tempDir)
+            File(tempDir, EXTRACTION_COMPLETE_MARKER).createNewFile()
+        } catch (error: Throwable) {
+            tempDir.deleteRecursively()
+            throw OnnxRuntimeError(
+                kind = OnnxRuntimeErrorKind.CAPABILITY,
+                message = "model source unavailable: failed to extract bundled model assets for '$assetPath'.",
+                originalError = error,
+            )
+        }
+
+        targetDir.deleteRecursively()
+        if (!tempDir.renameTo(targetDir)) {
+            tempDir.deleteRecursively()
+            throw OnnxRuntimeError(
+                kind = OnnxRuntimeErrorKind.CAPABILITY,
+                message = "model source unavailable: failed to install extracted model assets for '$assetPath'.",
+            )
+        }
+    }
+
+    private fun copyAssetTree(assetPath: String, targetDir: File) {
         val assetManager = context.assets
         val entries = assetManager.list(assetPath).orEmpty()
         entries.forEach { entry ->
@@ -197,46 +260,42 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
                     File(targetDir, entry).outputStream().use { output -> input.copyTo(output) }
                 }
             } else {
-                copyAssetDirectory(childAssetPath, File(targetDir, entry))
+                val childDir = File(targetDir, entry)
+                childDir.mkdirs()
+                copyAssetTree(childAssetPath, childDir)
             }
         }
     }
 
-    private fun verifyChecksum(file: File, relativePath: String, modelPackage: ModelPackage) {
-        val expected = modelPackage.integrity?.checksums?.get(relativePath) ?: return
-        val prefix = "sha256:"
-        if (!expected.startsWith(prefix)) return
-
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            var read = input.read(buffer)
-            while (read >= 0) {
-                digest.update(buffer, 0, read)
-                read = input.read(buffer)
-            }
-        }
-        val actual = digest.digest().joinToString(separator = "") { "%02x".format(it) }
-        val expectedHex = expected.removePrefix(prefix)
-        if (!actual.equals(expectedHex, ignoreCase = true)) {
-            throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "checksum/integrity mismatch: '$relativePath' does not match the expected checksum.",
-            )
+    /**
+     * Verifies every file named in `integrity.checksums`, not only the required-file list, so a
+     * checksum declared for the tokenizer or config file is enforced too. Files the map names but
+     * that this runtime did not resolve a path for are skipped (mirrors the Apple member); an
+     * unsupported checksum algorithm is a capability failure rather than a silently skipped check.
+     */
+    private fun verifyChecksums(directory: File, modelPackage: ModelPackage) {
+        val checksums = modelPackage.integrity?.checksums ?: return
+        for ((relativePath, expected) in checksums) {
+            val file = File(directory, relativePath)
+            if (!file.exists()) continue
+            verifyChecksum(file, relativePath, expected)
         }
     }
 
     private fun formatMessages(messages: List<AndroidOnnxGenerationMessage>): String = messages.joinToString(separator = "\n") { "${it.role.rawValue}: ${it.content}" }
 
-    private fun decode(session: LoadedSession, prompt: String, input: AndroidOnnxGenerationInput): String {
+    private suspend fun decode(session: LoadedSession, prompt: String, input: AndroidOnnxGenerationInput): String {
         val maxNewTokens = (input.generation?.maxOutputTokens ?: DEFAULT_MAX_NEW_TOKENS).toInt()
-        val stopSequences = input.generation?.stop.orEmpty()
+        val stopSequences = input.generation?.stop.orEmpty().filter { it.isNotEmpty() }
 
         val encoding = session.tokenizer.encode(prompt)
         val ids = encoding.ids.toMutableList()
         val generatedIds = mutableListOf<Long>()
+        var matchedStop: String? = null
 
-        repeat(maxNewTokens) {
+        while (generatedIds.size < maxNewTokens) {
+            coroutineContext.ensureActive()
+
             val sequenceLength = ids.size
             val inputIds = LongBuffer.wrap(ids.toLongArray())
             val attentionMask = LongBuffer.wrap(LongArray(sequenceLength) { 1L })
@@ -255,13 +314,23 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
             ids += nextTokenId
             generatedIds += nextTokenId
 
-            val decodedSoFar = session.tokenizer.decode(generatedIds.toLongArray())
-            if (stopSequences.any { decodedSoFar.endsWith(it) }) {
-                return@repeat
+            if (isEosToken(nextTokenId, session.eosTokenId)) {
+                break
+            }
+
+            val decodedSoFar = session.tokenizer.decode(generatedIds.toLongArray(), true)
+            val stop = matchStopSequence(decodedSoFar, stopSequences)
+            if (stop != null) {
+                matchedStop = stop
+                break
             }
         }
 
-        return session.tokenizer.decode(generatedIds.toLongArray())
+        var text = session.tokenizer.decode(generatedIds.toLongArray(), true)
+        if (matchedStop != null && text.endsWith(matchedStop)) {
+            text = text.removeSuffix(matchedStop)
+        }
+        return text
     }
 
     private fun argmaxLastToken(result: OrtSession.Result): Long {
@@ -272,6 +341,7 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
             )
         } as OnnxTensor
 
+        @Suppress("UNCHECKED_CAST")
         val logits = logitsTensor.value as Array<Array<FloatArray>>
         val lastStepLogits = logits[0].last()
         var bestIndex = 0
@@ -283,6 +353,27 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
             }
         }
         return bestIndex.toLong()
+    }
+
+    /**
+     * Resolves the tokenizer's end-of-sequence token id from the model config JSON's
+     * `eos_token_id` field (a plain integer, or the first entry when the field is a list, per the
+     * Hugging Face `config.json` convention). The DJL tokenizer binding does not expose special
+     * token ids directly, unlike `swift-transformers` on Apple, so this runtime reads the config
+     * file itself. Absence of a resolvable config or field means generation relies solely on
+     * `generation.stop`/`maxOutputTokens`, not on EOS detection.
+     */
+    private fun resolveEosTokenId(directory: File, modelPackage: ModelPackage): Long? {
+        val configFile = modelPackage.files?.config?.let { File(directory, it) }
+            ?: File(directory, "config.json").takeIf { it.exists() }
+            ?: return null
+        if (!configFile.exists()) return null
+
+        return try {
+            parseEosTokenId(configFile.readText())
+        } catch (error: Throwable) {
+            null
+        }
     }
 
     private fun sessionCacheKey(modelPackage: ModelPackage): String {
@@ -305,6 +396,7 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
         val environment: OrtEnvironment,
         val session: OrtSession,
         val tokenizer: HuggingFaceTokenizer,
+        val eosTokenId: Long?,
     ) {
         fun close() {
             session.close()
@@ -314,5 +406,73 @@ class SystemAndroidOnnxGenAiRuntime(private val context: Context) : AndroidOnnxG
 
     private companion object {
         const val DEFAULT_MAX_NEW_TOKENS = 256L
+        const val EXTRACTION_COMPLETE_MARKER = ".inderun-onnx-extraction-complete"
     }
+}
+
+/** Whether the just-generated token is the tokenizer's end-of-sequence token. */
+internal fun isEosToken(tokenId: Long, eosTokenId: Long?): Boolean = eosTokenId != null && tokenId == eosTokenId
+
+/** Returns the first `generation.stop` sequence the decoded-so-far text ends with, or `null`. */
+internal fun matchStopSequence(decodedSoFar: String, stopSequences: List<String>): String? = stopSequences.firstOrNull { decodedSoFar.endsWith(it) }
+
+/**
+ * Verifies a single resolved file against a `algorithm:hex` checksum string. Only `sha256` is
+ * supported; any other algorithm prefix is a capability failure rather than a silently skipped
+ * check, since the schema permits arbitrary non-empty checksum strings and a configured-but-unknown
+ * algorithm must not be mistaken for "no integrity check requested".
+ */
+internal fun verifyChecksum(file: File, relativePath: String, expected: String) {
+    val prefix = "sha256:"
+    if (!expected.startsWith(prefix, ignoreCase = true)) {
+        throw OnnxRuntimeError(
+            kind = OnnxRuntimeErrorKind.CAPABILITY,
+            message = "checksum/integrity mismatch: unsupported checksum algorithm for '$relativePath' " +
+                "(only 'sha256:<hex>' is supported).",
+        )
+    }
+
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var read = input.read(buffer)
+        while (read >= 0) {
+            digest.update(buffer, 0, read)
+            read = input.read(buffer)
+        }
+    }
+    val actual = digest.digest().joinToString(separator = "") { "%02x".format(it) }
+    val expectedHex = expected.substring(prefix.length)
+    if (!actual.equals(expectedHex, ignoreCase = true)) {
+        throw OnnxRuntimeError(
+            kind = OnnxRuntimeErrorKind.CAPABILITY,
+            message = "checksum/integrity mismatch: '$relativePath' does not match the expected checksum.",
+        )
+    }
+}
+
+/**
+ * Extracts `eos_token_id` from a Hugging Face-style `config.json` payload. The field is either a
+ * plain integer or a list of integers (some model configs declare multiple eos candidates); the
+ * first value is used either way. Returns `null` when the field is absent or malformed.
+ */
+internal fun parseEosTokenId(configJson: String): Long? {
+    val json = JSONObject(configJson)
+    if (!json.has("eos_token_id")) return null
+
+    val value = json.get("eos_token_id")
+    return when (value) {
+        is Int -> value.toLong()
+        is Long -> value
+        is org.json.JSONArray -> if (value.length() > 0) value.getLong(0) else null
+        else -> null
+    }
+}
+
+/** Short, filesystem-safe digest of a session cache key, used to key extracted-asset directories
+ * so a changed model identity (version/source/checksums) extracts into a fresh directory instead
+ * of reusing stale bytes copied under an older identity. */
+internal fun cacheKeyDigest(cacheKey: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(cacheKey.toByteArray(Charsets.UTF_8))
+    return digest.joinToString(separator = "") { "%02x".format(it) }.take(16)
 }

@@ -9,6 +9,8 @@ Android workspace for the IndeRun SDK, host services, provider adapters, and dem
 - `inderun-contracts` - generated Kotlin contract models
 - `inderun-mlkit-providers` - on-device ML Kit GenAI provider
 - `inderun-openai-providers` - OpenAI-compatible cloud provider
+- `inderun-onnx-providers` - ONNX Runtime provider for developer-supplied local models
+  (`local.onnx.genai.android`)
 - `inderun-demo-app` - demo app for reviewing the Mode 1 flow
 
 ## Commands
