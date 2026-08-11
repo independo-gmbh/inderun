@@ -55,7 +55,10 @@ factories), not in prose.
   - Web on-device: `local.onnx.genai.web`, shipped in `@independo/inderun-web/onnx`
   - Apple on-device: `local.onnx.genai.apple`, shipped in the `IndeRunOnnxProviders` SwiftPM
     library product; raised the SDK's Apple platform minimums to iOS 16 / macOS 14 (see
-    [Apple Implementation](onnx-runtime-provider-family.md#apple-implementation))
+    [Apple Implementation](onnx-runtime-provider-family.md#apple-implementation)). Demonstrated
+    alongside Apple Foundation Models and the OpenAI-compatible cloud provider, routed by
+    `checkCapabilities()` and a `Privacy`-preference selector, in the iOS sample app
+    (`ios/SampleApps/IndeRunDemo`).
   - Android on-device: `local.onnx.genai.android`, shipped in the `inderun-onnx-providers` Gradle
     module (see [Android Implementation](onnx-runtime-provider-family.md#android-implementation))
 - Browser-managed on-device models: Web system-model provider family (Milestone 2, specified in
