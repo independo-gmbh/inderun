@@ -60,7 +60,14 @@ factories), not in prose.
     `checkCapabilities()` and a `Privacy`-preference selector, in the iOS sample app
     (`ios/SampleApps/IndeRunDemo`).
   - Android on-device: `local.onnx.genai.android`, shipped in the `inderun-onnx-providers` Gradle
-    module (see [Android Implementation](onnx-runtime-provider-family.md#android-implementation))
+    module (see [Android Implementation](onnx-runtime-provider-family.md#android-implementation)).
+    Demonstrated alongside Android ML Kit GenAI and the OpenAI-compatible cloud provider, routed
+    by `checkCapabilities()` and a `PrivacyPreference` selector, in the Android sample app
+    (`android/inderun-demo-app`). Requires `libc++_shared.so` per ABI, which the module gets AGP
+    to package via a no-op CMake native target (see the module's `src/main/cpp/`) —
+    `ai.djl.android:tokenizer-native`'s prebuilt `libdjl_tokenizer.so` dynamically links it but
+    does not ship it itself, so a consumer app that omits it fails with `UnsatisfiedLinkError:
+    dlopen failed: library "libc++_shared.so" not found` the first time the tokenizer loads.
 - Browser-managed on-device models: Web system-model provider family (Milestone 2, specified in
   [web-system-model-provider-family.md](web-system-model-provider-family.md)) — the browser owns
   model availability/download/execution, unlike the developer-supplied ONNX family

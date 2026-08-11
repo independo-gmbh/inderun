@@ -6,9 +6,27 @@ plugins {
 android {
     namespace = "app.independo.inderun.providers.onnx"
     compileSdk = 37
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         minSdk = 26
+
+        // No native code of our own: this CMake target exists solely to make the NDK's CMake
+        // toolchain copy libc++_shared.so into the build output, because
+        // ai.djl.android:tokenizer-native's libdjl_tokenizer.so dynamically links it without
+        // shipping it. See docs/architecture/onnx-runtime-provider-family.md#android-implementation.
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     compileOptions {

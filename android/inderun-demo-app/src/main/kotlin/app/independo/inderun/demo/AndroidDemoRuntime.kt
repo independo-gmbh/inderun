@@ -1,60 +1,69 @@
 package app.independo.inderun.demo
 
 import android.content.Context
-import app.independo.inderun.contracts.HttpRequest
-import app.independo.inderun.contracts.IndeRunErrorClass
-import app.independo.inderun.contracts.Method
+import app.independo.inderun.contracts.Files
+import app.independo.inderun.contracts.Format
+import app.independo.inderun.contracts.Generation
+import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.Source
+import app.independo.inderun.contracts.SourceType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestTask
+import app.independo.inderun.contracts.TelemetryEvent
+import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderAdapter
+import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderRegistry
+import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.providers.mlkit.AndroidMlKitGenAiProvider
-import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
+import app.independo.inderun.providers.onnx.AndroidOnnxRuntimeProvider
+import app.independo.inderun.providers.onnx.createFixtureOnnxRuntime
 import app.independo.inderun.providers.openai.OpenAIAuthMode
 import app.independo.inderun.providers.openai.OpenAIProvider
 import app.independo.inderun.providers.openai.OpenAIProviderOptions
 import app.independo.inderun.sdk.IndeRun
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
+/**
+ * Registered providers this demo drives IndeRun's capability-based routing across: Android ML Kit
+ * GenAI on-device, an ONNX Runtime local provider, and an OpenAI-compatible cloud endpoint. Routing
+ * is automatic -- IndeRun picks among these per the selected [PrivacyPreference] and each
+ * provider's reported capabilities, not a manual per-provider toggle.
+ */
 internal interface DemoRuntime {
-    suspend fun refreshAvailability(settings: DemoSettings): DemoAvailabilitySnapshot
-    suspend fun run(
-        prompt: String,
-        executionMode: DemoExecutionMode,
-        settings: DemoSettings,
-    ): DemoExecutionOutcome
+    suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot>
+    suspend fun run(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoExecutionOutcome
+    fun lastRouteDecision(): RouteDecision?
 }
 
 internal class AndroidDemoRuntime(
     private val context: Context,
+    private val onnxDownloader: DemoOnnxDownloader,
     private val hostServices: HostServices = HostServicesFactory.create(context.applicationContext),
 ) : DemoRuntime {
-    override suspend fun refreshAvailability(settings: DemoSettings): DemoAvailabilitySnapshot = DemoAvailabilitySnapshot(
-        onDevice = probeOnDeviceAvailability(),
-        cloud = probeCloudAvailability(settings),
-    )
+    private val telemetryService = DemoTelemetryService()
 
-    override suspend fun run(
-        prompt: String,
-        executionMode: DemoExecutionMode,
-        settings: DemoSettings,
-    ): DemoExecutionOutcome {
+    override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = makeIndeRun(settings).checkCapabilities()
+
+    override suspend fun run(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoExecutionOutcome {
         val request = TaskRequest(
             schemaVersion = SchemaVersion.V1_0,
-            prompt = prompt.trim(),
+            prompt = prompt,
             task = TaskRequestTask(),
-            constraints = executionMode.requestConstraints,
+            // SystemAndroidOnnxGenAiRuntime recomputes the full sequence on every decode step (no
+            // KV-cache reuse -- see docs/architecture/onnx-runtime-provider-family.md and
+            // https://github.com/independo-gmbh/inderun/issues/126), so the default 256-token
+            // budget is heavy enough to risk memory pressure on-device. Cap it low for this demo.
+            generation = Generation(maxOutputTokens = 32),
+            constraints = privacy.constraints,
         )
 
         return try {
-            val result = IndeRun.initialize(
-                context = context.applicationContext,
-                registry = createRegistry(settings),
-            ).run(request)
-
+            val result = makeIndeRun(settings).run(request)
             DemoExecutionOutcome.Success(
                 outputText = result.output.text,
                 metadata = AttemptMetadata(
@@ -67,35 +76,21 @@ internal class AndroidDemoRuntime(
             )
         } catch (error: IndeRunException) {
             DemoExecutionOutcome.Failure(
-                error = DemoErrorState(
+                DemoErrorState(
                     title = "Normalized Error",
                     body = "${error.errorClass.rawValue}\n\n${error.message}",
                     metadata = AttemptMetadata(
                         runId = error.runId ?: "n/a",
-                        providerUsed = error.providerId ?: executionMode.providerFallback,
+                        providerUsed = error.providerId ?: "n/a",
                         totalMs = error.details?.get("totalMs").toDoubleOrNull(),
                         providerId = error.providerId,
                         retryAfterMs = error.retryAfterMs,
                     ),
                 ),
-                onDeviceStatusOverride = when {
-                    executionMode == DemoExecutionMode.OnDevice -> DemoAvailabilityState.unavailable(error.message)
-                    else -> null
-                },
-                cloudStatusOverride = when {
-                    executionMode != DemoExecutionMode.Cloud -> null
-                    error.errorClass == IndeRunErrorClass.Offline ->
-                        DemoAvailabilityState.unavailable("Device is offline. Reconnect or switch to on-device mode.")
-
-                    error.errorClass == IndeRunErrorClass.Unavailable ->
-                        DemoAvailabilityState.unavailable(unavailableCloudMessage(settings.endpointUrl.trim()))
-
-                    else -> null
-                },
             )
         } catch (error: Throwable) {
             DemoExecutionOutcome.Failure(
-                error = DemoErrorState(
+                DemoErrorState(
                     title = "Unexpected Error",
                     body = error.localizedMessage ?: error.toString(),
                     metadata = null,
@@ -104,73 +99,12 @@ internal class AndroidDemoRuntime(
         }
     }
 
-    private suspend fun probeOnDeviceAvailability(): DemoAvailabilityState {
-        val capabilities = onDeviceProvider().capabilities(hostServices)
-        if (capabilities.available) {
-            return DemoAvailabilityState.available(
-                "Android ML Kit GenAI reported availability for this device and current system state.",
-            )
-        }
+    override fun lastRouteDecision(): RouteDecision? = telemetryService.lastRouteDecision()
 
-        val reason = capabilities.reason ?: "Android ML Kit GenAI is currently unavailable."
-        return when {
-            reason.contains("can be downloaded", ignoreCase = true) ->
-                DemoAvailabilityState.downloadable(reason)
-
-            reason.contains("currently downloading", ignoreCase = true) ->
-                DemoAvailabilityState.downloading(reason)
-
-            else -> DemoAvailabilityState.unavailable(reason)
-        }
-    }
-
-    private suspend fun probeCloudAvailability(settings: DemoSettings): DemoAvailabilityState {
-        val endpointUrl = settings.endpointUrl.trim()
-        val model = settings.model.trim()
-
-        if (endpointUrl.isEmpty()) {
-            return DemoAvailabilityState.unavailable(
-                "Enter a cloud endpoint URL. The default emulator proxy URL is ${DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL}.",
-            )
-        }
-
-        if (!isValidEndpointUrl(endpointUrl)) {
-            return DemoAvailabilityState.unavailable("The configured cloud endpoint URL is not valid.")
-        }
-
-        if (model.isEmpty()) {
-            return DemoAvailabilityState.unavailable("Enter a model name for the cloud request.")
-        }
-
-        if (!hostServices.connectivity.isOnline()) {
-            return DemoAvailabilityState.unavailable(
-                "Device is offline. The cloud route will fail before the endpoint is contacted.",
-            )
-        }
-
-        val httpClient = hostServices.httpClient
-            ?: return DemoAvailabilityState.unavailable(
-                "The host is missing the HTTP support required for cloud execution.",
-            )
-
-        return try {
-            val response = httpClient.send(
-                HttpRequest(
-                    method = Method.Get,
-                    url = createProbeUrl(endpointUrl),
-                    timeoutMs = 2_000L,
-                ),
-            )
-            DemoAvailabilityState.available(
-                "Cloud execution is configured and the endpoint is reachable. Probe status: ${response.status}. Requests use app-side auth disabled.",
-            )
-        } catch (_: Throwable) {
-            DemoAvailabilityState.unavailable(unavailableCloudMessage(endpointUrl))
-        }
-    }
-
-    private fun createRegistry(settings: DemoSettings): ProviderRegistry {
-        val registry = AndroidProviderRegistryFactory.makeDefaultRegistry(context.applicationContext)
+    private fun makeIndeRun(settings: DemoSettings): IndeRun {
+        val registry = ProviderRegistry()
+        registry.register(AndroidMlKitGenAiProvider())
+        registry.register(makeOnnxProvider(settings.onnxModelSelection))
         registry.register(
             OpenAIProvider(
                 OpenAIProviderOptions(
@@ -181,13 +115,68 @@ internal class AndroidDemoRuntime(
                 ),
             ),
         )
-        return registry
+        return IndeRun(registry, hostServices, telemetryService)
     }
 
-    private fun onDeviceProvider(): ProviderAdapter = AndroidProviderRegistryFactory
-        .makeDefaultRegistry(context.applicationContext)
-        .get(AndroidMlKitGenAiProvider.DEFAULT_ID)
-        ?: AndroidMlKitGenAiProvider()
+    private fun makeOnnxProvider(selection: DemoOnnxModelSelection): AndroidOnnxRuntimeProvider {
+        val model = selection.modelOption
+        if (model != null && onnxDownloader.isDownloaded(model)) {
+            val modelPackage = ModelPackage(
+                files = Files(
+                    required = listOf("model.onnx"),
+                    tokenizer = "tokenizer.json",
+                    config = "config.json",
+                ),
+                format = Format.Onnx,
+                id = model.id,
+                source = Source(ref = onnxDownloader.relativeRef(model), sourceType = SourceType.AppManaged),
+                tasks = listOf("text_to_text"),
+            )
+            // No runtime override: defaults to SystemAndroidOnnxGenAiRuntime(context), real ONNX
+            // Runtime inference.
+            return AndroidOnnxRuntimeProvider(context = context, modelPackage = modelPackage, id = AndroidOnnxRuntimeProvider.DEFAULT_ID)
+        }
+
+        // Fixture (either selected explicitly, or the real model hasn't finished downloading yet)
+        // -- it echoes the prompt, it does not generate text -- so the demo still works out of the
+        // box while a real model downloads in the background.
+        val fixturePackage = ModelPackage(
+            format = Format.Onnx,
+            id = "demo-fixture-model",
+            source = Source(sourceType = SourceType.Programmatic),
+            tasks = listOf("text_to_text"),
+        )
+        return AndroidOnnxRuntimeProvider(
+            modelPackage = fixturePackage,
+            runtime = createFixtureOnnxRuntime(),
+            id = AndroidOnnxRuntimeProvider.DEFAULT_ID,
+        )
+    }
+}
+
+/**
+ * Captures the last `route_decided` telemetry event so the UI can show a routing transparency
+ * panel, mirroring the web demo's `RouteDecisionTelemetryService` and the iOS demo's
+ * `DemoTelemetryService`.
+ */
+internal class DemoTelemetryService : TelemetryService {
+    private val lock = ReentrantLock()
+    private var lastEvent: TelemetryEvent? = null
+
+    override fun emit(event: TelemetryEvent) {
+        if (event.type != TelemetryEventType.RouteDecided) return
+        lock.withLock { lastEvent = event }
+    }
+
+    fun lastRouteDecision(): RouteDecision? {
+        val event = lock.withLock { lastEvent } ?: return null
+        return RouteDecision(
+            selectedProviderId = event.payload["selectedProviderId"] as? String,
+            explanation = event.payload["explanation"] as? String ?: "",
+            rejectedProviderIds = (event.payload["rejectedProviderIds"] as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+            fallbackProviderIds = (event.payload["fallbackProviderIds"] as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+        )
+    }
 }
 
 private fun Any?.toDoubleOrNull(): Double? = when (this) {
