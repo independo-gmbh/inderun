@@ -178,6 +178,10 @@ Cargo.lock
 ## User settings
 xcuserdata/
 
+## Generated per-checkout workspace state (SwiftPM resolution cache, etc.) for .xcodeproj-based
+## apps in this repo. Only project.pbxproj and xcshareddata/xcschemes/*.xcscheme are tracked.
+project.xcworkspace/
+
 ## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
 *.xcscmblueprint
 *.xccheckout
