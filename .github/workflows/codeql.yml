@@ -24,7 +24,7 @@ jobs:
       packages: read
       actions: read
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.timeout-minutes || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +39,10 @@ jobs:
             build-mode: manual
           - language: swift
             build-mode: manual
+            # swift build pulls in onnxruntime-swift-package-manager (large prebuilt
+            # XCFramework) plus swift-huggingface/swift-transformers/swift-nio/swift-crypto
+            # -- a cold build can exceed the default 30min job timeout.
+            timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,6 +93,19 @@ jobs:
         if: matrix.language == 'java-kotlin'
         working-directory: android
         run: ./gradlew assembleDebug
+
+      # Cache SwiftPM checkouts/build artifacts (repo-root .build) keyed on
+      # Package.resolved so unchanged dependencies (onnxruntime-swift-package-manager's
+      # XCFramework, swift-huggingface, swift-transformers, swift-nio, ...) aren't
+      # re-fetched/re-built on every run.
+      - name: Cache SwiftPM dependencies
+        if: matrix.language == 'swift'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-
 
       # Fast manual Swift build of the SwiftPM library targets, replacing the
       # autobuilder (which picks the ios/SampleApps demo xcodeproj and fails).
