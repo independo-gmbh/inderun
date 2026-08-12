@@ -281,6 +281,34 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(telemetry.events[0].type, .attemptFailed)
     }
     
+    /// Regression test: a cloud provider must never appear as a *fallback* candidate under
+    /// `localRequired`, even when the primary (local) provider fails at execution time and even
+    /// though the cloud provider is otherwise available. The Swift-side fallback route planner
+    /// (`Router.createFallbackPlan`, used whenever the shared Rust route-core dylib isn't loaded --
+    /// which is always true on iOS) previously applied its cloud/privacy constraint filter only
+    /// when picking the primary candidate, not when building the fallback list, so a failing local
+    /// provider could silently fall through to a cloud provider under `Local Only`.
+    func testRoutingLocalRequiredNeverFallsBackToCloudProvider() async throws {
+        let local = MockProvider(id: "local_p", type: .local)
+        local.shouldFail = true
+        let cloud = MockProvider(id: "cloud_p", type: .cloud)
+        try registry.register(local)
+        try registry.register(cloud)
+
+        let request = TaskRequest(
+            prompt: "Test local-required never falls back to cloud",
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+        )
+
+        do {
+            _ = try await inderun.run(request: request)
+            XCTFail("Should have thrown rather than falling back to the cloud provider")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.providerId, "local_p")
+            XCTAssertNotEqual(err.providerId, "cloud_p")
+        }
+    }
+
     func testRoutingCloudOffline() async throws {
         let p1 = MockProvider(id: "cloud_p", type: .cloud)
         try registry.register(p1)

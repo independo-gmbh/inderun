@@ -8,8 +8,11 @@ registered providers:
 - an ONNX Runtime local provider (`IndeRunOnnxProviders`). By default it auto-downloads a small
   real model (DistilGPT-2, quantized, ~84 MB) from Hugging Face on first launch and runs actual
   on-device generation — the same "just try it out" experience as the web demo's automatic
-  model download, no manual setup required. A no-download fixture runtime (echoes the prompt
-  instead of generating text) is available as an alternate selection.
+  model download, no manual setup required. A second, more capable instruction-tuned model
+  (LaMini-GPT-124M, quantized, ~130 MB) is available from the same picker and exercises the
+  SDK's KV-cache decode path (see [#126](https://github.com/independo-gmbh/inderun/issues/126)).
+  A no-download fixture runtime (echoes the prompt instead of generating text) is available as
+  an alternate selection.
 - an OpenAI-compatible cloud endpoint configured in the app, typically via `@independo/inderun-demo-proxy`
 
 ## Requirements
@@ -23,11 +26,11 @@ registered providers:
   - no setup needed — DistilGPT-2 (quantized, ~84 MB) downloads automatically from Hugging
     Face on first launch (Wi-Fi recommended) into the app's Application Support directory,
     and is cached there afterward. Progress shows under **ONNX Local Settings**.
-  - the catalog (`DemoOnnxModelOption.catalog` in `DemoOnnxModel.swift`) is limited to plain
-    decoder-only ONNX exports (`input_ids`/`attention_mask` in, `logits` out, no
-    `past_key_values`) because that's what the SDK's default `SystemOnnxGenAiRuntime`
-    supports; more capable instruction-tuned models can be added once
-    [#126](https://github.com/independo-gmbh/inderun/issues/126) adds KV-cache support
+  - the catalog (`DemoOnnxModelOption.catalog` in `DemoOnnxModel.swift`) is limited to exports
+    `SystemOnnxGenAiRuntime` auto-detects: plain decoder-only graphs
+    (`input_ids`/`attention_mask` in, `logits` out, no `past_key_values`) or Hugging Face
+    Optimum's non-merged `decoder_with_past_model` KV-cache export — not the `_merged` variant,
+    which needs a `use_cache_branch` boolean input this runtime's ORT bindings can't feed
   - select **Fixture (no download)** from the ONNX Model picker to fall back to a
     deterministic runtime that echoes the prompt instead of generating text
 - For cloud mode:
@@ -118,8 +121,16 @@ pnpm --filter @independo/inderun-demo-proxy dev
   instruction phrased as a task (e.g. "Summarize X") often makes it immediately predict the
   end-of-text token, producing empty output. The default prompt is a declarative sentence
   fragment for the model to continue, which it follows far more reliably — edit-in the same
-  style if you change it. Every small instruction-tuned model checked (Qwen2.5-0.5B-Instruct,
-  Qwen1.5-0.5B-Chat, TinyLlama-1.1B-Chat) only ships a KV-cache export, which the SDK's default
-  runtime doesn't support (see #126), so a base model is the only fit today.
+  style if you change it.
+- LaMini-GPT-124M is a GPT-2-architecture model fine-tuned on the LaMini-instruction dataset, so
+  it follows plain instructions ("Summarize X", "List three Y") noticeably better than base
+  DistilGPT-2 despite a similar parameter count — it's the model to pick for output quality, not
+  just plumbing. It has no chat template either (same plain `"role: content"` prompt join), but
+  unlike DistilGPT-2 its instruction fine-tuning makes it far less prone to immediately emitting
+  end-of-text on task-shaped prompts. Most other small instruction-tuned models checked
+  (Qwen2.5-0.5B-Instruct, Qwen1.5-0.5B-Chat, TinyLlama-1.1B-Chat) only ship a *merged*
+  `use_cache_branch`-gated KV-cache export, which the SDK's default runtime deliberately doesn't
+  support (see #126's doc comment); LaMini-GPT-124M's non-merged `decoder_with_past_model`
+  export is the one that fits.
 - Cloud settings are persisted locally with `UserDefaults` so repeated manual testing is faster.
 - The UI calls IndeRun's public Swift APIs only. It does not talk directly to Apple Foundation Models, ONNX Runtime, or a cloud API.

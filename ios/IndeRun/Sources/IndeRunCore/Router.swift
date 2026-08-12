@@ -124,7 +124,13 @@ public final class Router: Sendable {
             $0.descriptor.tasks.contains(planInput.task.kind) && $0.descriptor.supports.run
         }
 
-        let selected = eligible.first { snapshot in
+        // Constraint-satisfying candidates only -- applied once, before picking a primary and
+        // before building the fallback list, so a provider that violates the request's
+        // cloud/privacy constraints (e.g. a cloud provider under `localRequired`) can never appear
+        // as a fallback just because it happened to sit later in `eligible`. Mirrors the Rust
+        // route-core's `plan_route`, which filters all candidates uniformly via `evaluate_provider`
+        // before splitting them into selected + fallback.
+        let constrained = eligible.filter { snapshot in
             let descriptor = snapshot.descriptor
             let constraints = planInput.constraints
             let isPrivate = descriptor.privacy?.dataLeavesDevice == false || descriptor.type != .cloud
@@ -137,8 +143,8 @@ public final class Router: Sendable {
             return snapshot.capabilities.available
         }
 
-        let ordered: [ProviderSnapshot] = selected.map { selectedSnapshot -> [ProviderSnapshot] in
-            [selectedSnapshot] + eligible.filter { $0.descriptor.id != selectedSnapshot.descriptor.id }
+        let ordered: [ProviderSnapshot] = constrained.first.map { selectedSnapshot -> [ProviderSnapshot] in
+            [selectedSnapshot] + constrained.filter { $0.descriptor.id != selectedSnapshot.descriptor.id }
         } ?? []
         if ordered.isEmpty {
             let failureCode: FailureCode? = !networkOnline
