@@ -260,12 +260,17 @@ final class DemoViewModel: ObservableObject {
                 )
             )
         } catch let error as IndeRunException {
+            // `details.originalError` (when present) carries the underlying native error message
+            // an adapter attached before normalizing to this generic `IndeRunException` -- surface
+            // it here rather than silently dropping it, since it's often the only clue to what
+            // actually failed (e.g. the raw ONNX Runtime error text behind an "Internal" class).
+            let originalErrorSuffix = error.details?["originalError"]?.stringValue.map { "\n\nOriginal error:\n\($0)" } ?? ""
             errorState = ErrorState(
                 title: "Normalized Error",
                 body: """
 \(error.errorClass.rawValue)
 
-\(error.message)
+\(error.message)\(originalErrorSuffix)
 """,
                 metadata: AttemptMetadata(
                     runId: error.runId ?? "n/a",

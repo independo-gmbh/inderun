@@ -2,11 +2,12 @@ import Foundation
 
 /// A downloadable ONNX text-generation model for the ONNX Local provider.
 ///
-/// `SystemOnnxGenAiRuntime` (the SDK's default ONNX runtime) only supports plain decoder-only
-/// graphs (`input_ids`/`attention_mask` in, `logits` out, no `past_key_values`), so the catalog
-/// is limited to small base language models like this one until
-/// https://github.com/independo-gmbh/inderun/issues/126 adds KV-cache support. Add more capable
-/// instruction-tuned models here once that lands.
+/// `SystemOnnxGenAiRuntime` (the SDK's default ONNX runtime) auto-detects two decoder-only IO
+/// shapes (see its doc comment): a plain full-recompute graph, and a KV-cache
+/// `past_key_values`/`present` graph (Hugging Face Optimum's `decoder_with_past_model` export,
+/// not the `_merged` variant -- merged graphs need a `use_cache_branch` boolean input this
+/// runtime's ORT bindings can't feed and are unsupported). Both catalog entries below exercise
+/// one of the two paths.
 struct DemoOnnxModelOption: Identifiable, Hashable {
     struct RemoteFile: Hashable {
         /// Path within the Hugging Face repo.
@@ -22,6 +23,7 @@ struct DemoOnnxModelOption: Identifiable, Hashable {
     let huggingFaceRepo: String
     let files: [RemoteFile]
 
+    /// Plain (full-recompute) decode path: no `past_key_values` in the graph.
     static let distilgpt2Quantized = DemoOnnxModelOption(
         id: "distilgpt2-quantized",
         title: "DistilGPT-2 (quantized, ~84 MB)",
@@ -34,13 +36,33 @@ struct DemoOnnxModelOption: Identifiable, Hashable {
         ]
     )
 
-    static let catalog: [DemoOnnxModelOption] = [distilgpt2Quantized]
+    /// KV-cache decode path: an instruction-tuned GPT-2-family model (LaMini-GPT, fine-tuned on
+    /// the LaMini-instruction dataset) whose `decoder_with_past_model_quantized.onnx` export
+    /// requires `past_key_values` on every step (not merged/branch-gated), exercising
+    /// `SystemOnnxGenAiRuntime`'s auto-detected KV-cache path end to end -- including its
+    /// GPT-2-style `config.json` field names (`n_layer`/`n_head`/`n_embd`), which this runtime
+    /// also reads alongside the Llama-style names. Follows plain instructions noticeably better
+    /// than base DistilGPT-2 despite a similar architecture size.
+    static let laminiGpt124mQuantized = DemoOnnxModelOption(
+        id: "lamini-gpt-124m-quantized",
+        title: "LaMini-GPT-124M (instruction-tuned, quantized, ~130 MB)",
+        huggingFaceRepo: "Xenova/LaMini-GPT-124M",
+        files: [
+            RemoteFile(repoPath: "onnx/decoder_with_past_model_quantized.onnx", localFileName: "model.onnx", weight: 0.985),
+            RemoteFile(repoPath: "tokenizer.json", localFileName: "tokenizer.json", weight: 0.013),
+            RemoteFile(repoPath: "tokenizer_config.json", localFileName: "tokenizer_config.json", weight: 0.001),
+            RemoteFile(repoPath: "config.json", localFileName: "config.json", weight: 0.001)
+        ]
+    )
+
+    static let catalog: [DemoOnnxModelOption] = [distilgpt2Quantized, laminiGpt124mQuantized]
 }
 
 /// User-facing selection for the ONNX Local provider, including the no-download fixture option.
 enum DemoOnnxModelSelection: String, CaseIterable, Identifiable {
     case fixture
     case distilgpt2Quantized
+    case laminiGpt124mQuantized
 
     var id: String { rawValue }
 
@@ -50,6 +72,8 @@ enum DemoOnnxModelSelection: String, CaseIterable, Identifiable {
             return "Fixture (no download)"
         case .distilgpt2Quantized:
             return DemoOnnxModelOption.distilgpt2Quantized.title
+        case .laminiGpt124mQuantized:
+            return DemoOnnxModelOption.laminiGpt124mQuantized.title
         }
     }
 
@@ -59,6 +83,8 @@ enum DemoOnnxModelSelection: String, CaseIterable, Identifiable {
             return nil
         case .distilgpt2Quantized:
             return .distilgpt2Quantized
+        case .laminiGpt124mQuantized:
+            return .laminiGpt124mQuantized
         }
     }
 }

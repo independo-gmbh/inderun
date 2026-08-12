@@ -301,29 +301,87 @@ member's `OnnxTextGenerationRuntime`, adapted to Swift Concurrency (cancellation
   `AutoTokenizer.from(modelFolder:)`, applying the tokenizer's chat template
   (`Tokenizer.applyChatTemplate`) when `tokenizer_config.json` declares one and falling back to a
   plain `"role: content"` join otherwise; runs inference through the official ONNX Runtime SPM
-  bindings (`OnnxRuntimeBindings` / `ORTSession`). **IO contract**: the model graph must expose
-  exactly `input_ids` and `attention_mask` inputs (`int64`, `[1, sequenceLength]`) and a `logits`
-  output (`float32`, `[1, sequenceLength, vocabSize]`) — the plain decoder-only export shape,
-  without `past_key_values`. **Graph file convention**: `ModelPackage.files.required` has no
-  positional semantics of its own in the schema, so this runtime defines one — the _first_ entry
-  is the ONNX graph file; any remaining entries (for example external weight shards) must be
-  present alongside it but are not referenced directly. `ModelPackage.integrity.checksums`
-  (`sha256:<hex>`) are verified for every file this runtime resolves, before load. The session
-  cache key covers `id`, `version`, `source`, and `integrity.checksums` together, not `id` alone,
-  so swapping a model's bytes without bumping `id` does not silently keep serving a stale session.
-  Decoding is **greedy (argmax) with no KV-cache reuse**: the full sequence is recomputed on every
-  generated token, with no CoreML execution provider, shared `ORTEnv`, or thread-pool policy
-  configured. This is a real, documented performance limitation, not a hidden one — CPU-only,
-  unoptimized. `generation.stop` sequences are honored; `temperature`/`topP`/`seed` are not (no
-  sampling, argmax only). Apps that need throughput, sampling, an accelerated execution provider,
-  or the `past_key_values`/Hugging Face Optimum export convention supply their own
-  `OnnxGenAiRuntime`; hardening this default runtime (CoreML EP, shared environment, thread
-  policy, buffer reuse, KV-cache) is tracked in #126, and real-device verification (load time,
-  token latency, peak memory, cancellation behavior, repeated-run stability against an actual
-  model) is tracked in #88 — this default has not yet been run against a real model on-device.
-  `programmatic` model sources are also out of scope for this default runtime (no files to
-  resolve, matching the Web member's own `programmatic` carve-out); it reports _runtime package
-  unavailable_ rather than throwing.
+  bindings (`OnnxRuntimeBindings` / `ORTSession`). **IO contract**: both supported decode paths
+  below require `input_ids`/`attention_mask` inputs (`int64`) and a `logits` output (`float32`,
+  `[1, sequenceLength, vocabSize]`). Which path a given model uses is auto-detected from the
+  graph's declared input names at load time — no `ModelPackage` field or app-facing configuration
+  selects it:
+  - **Plain** (no `past_key_values.*` inputs): shape `[1, sequenceLength]`, the full sequence
+    recomputed every decode step. Always supported; the fallback whenever KV-cache detection can't
+    establish every assumption below.
+  - **KV-cache** (`past_key_values.{layer}.key`/`.value` inputs present, the legacy (non-merged)
+    Hugging Face Optimum `decoder_with_past_model` export convention): exactly one token is fed as
+    `input_ids` per model call — this graph shape traces `input_ids`'s sequence-length axis fixed
+    at 1, not dynamic, so (unlike a merged/optional-past graph) it cannot accept the whole prompt
+    in a single call. The prompt is therefore replayed through the same session one token at a
+    time (discarding logits) to build up `past_key_values` before the first real generated token,
+    then generation proceeds one token per call the same way, with `attention_mask` covering the
+    full running sequence and each call's `present.{layer}.key`/`.value` outputs threaded back in
+    as the next call's `past_key_values.*` inputs directly (no copy). Detection additionally
+    requires `num_hidden_layers` (or GPT-2-style `n_layer`), `num_attention_heads`/`n_head` (or
+    `num_key_value_heads` for GQA models), and `hidden_size`/`n_embd` (or an explicit `head_dim`)
+    to be readable from `config.json` in the model directory, and every expected
+    `past_key_values.{layer}.{key,value}` input /
+    `present.{layer}.{key,value}` output to be present by that naming convention; an optional
+    `position_ids` input is fed the running absolute position when the graph declares it. Graphs
+    that instead declare a `use_cache_branch` boolean input (merged Optimum exports, which accept
+    the whole prompt on their first call) fall back to the plain path instead — the ONNX Runtime
+    Objective-C bindings this runtime depends on (as of `onnxruntime-swift-package-manager`
+    1.24.2) expose no `bool` tensor element type to feed it, and this runtime does not implement
+    the merged graph's alternate calling convention. This path's one-token-per-call shape was
+    corrected against a real device failure (`Got invalid dimensions for input: input_ids ...
+    Expected: 1`) surfaced by a real exported model (LaMini-GPT, added to the iOS demo app);
+    detection remains deliberately conservative — any unresolvable assumption falls back to the
+    plain path rather than guessing. See #88 for remaining broader real-device verification (load
+    time, memory, cancellation, other model families).
+
+  **Graph file convention**: `ModelPackage.files.required` has no positional semantics of its own
+  in the schema, so this runtime defines one — the _first_ entry is the ONNX graph file; any
+  remaining entries (for example external weight shards) must be present alongside it but are not
+  referenced directly. `ModelPackage.integrity.checksums` (`sha256:<hex>`) are verified for every
+  file this runtime resolves, before load. The session cache key covers `id`, `version`, `source`,
+  and `integrity.checksums` together, not `id` alone, so swapping a model's bytes without bumping
+  `id` does not silently keep serving a stale session.
+
+  **Execution.** A single `ORTEnv` is created once and shared process-wide across every session,
+  per ORT's own guidance that one environment should exist per process rather than per session.
+  Session creation and every `run()` call execute on a dedicated serial queue rather than inline on
+  the Swift Concurrency cooperative thread pool, since `ORTSession.init`/`run()` are blocking
+  synchronous calls. The CoreML execution provider is configured by default on the plain decode
+  path (`ORTCoreMLExecutionProviderOptions` with its own defaults), falling back to XNNPACK and
+  then ORT's default CPU EP if CoreML EP configuration fails on the host (availability and
+  compilation behavior vary by device/OS); `setIntraOpNumThreads` is set explicitly, bounded by
+  the device's active processor count, rather than left at ORT's implicit default. CoreML compiles
+  the graph into an on-device `.mlmodelc` cache on first load — managed entirely by ORT/CoreML, not
+  by IndeRun — keyed by the model and execution-provider options, and invalidated by a changed
+  model file or EP option set. **The KV-cache path never uses CoreML**, regardless of host
+  availability: its first decode call feeds a genuinely zero-length `past_key_values` tensor (see
+  above), and ORT's CoreML EP rejects a dynamic-shaped input with zero elements at run time
+  (`Input (past_key_values.0.key) has a dynamic shape (...) but the runtime shape (...) has zero
+  elements. This is not supported by the CoreML EP.` — a real device failure surfaced by
+  LaMini-GPT, not a hypothetical one); since ORT's execution provider list is fixed at
+  session-creation time, not selectable per call, that graph's session is created directly on
+  XNNPACK/CPU. The plain decode path preallocates its `input_ids`/`attention_mask`
+  buffers once per generation (sized to the max possible sequence length) and writes into a
+  subrange each step rather than allocating fresh buffers per token; the KV-cache path's per-call
+  buffers are already fixed-size (exactly one token each), and its `past_key_values` reuse (above)
+  is itself the buffer-reuse win for that path — though note the prompt-replay calls mean this
+  path issues one ORT call per prompt token plus one per generated token, not one call per
+  generated token as the plain path does.
+
+  **Decoding** defaults to greedy (argmax). Setting `generation.temperature` switches to sampling:
+  logits are scaled by `1 / temperature`, optionally narrowed to the smallest token set whose
+  cumulative probability reaches `generation.topP` (nucleus sampling), then sampled — seeded
+  (reproducibly) when `generation.seed` is set, otherwise drawn from
+  `SystemRandomNumberGenerator`. `generation.stop` sequences are honored on both decode paths.
+  Apps that need an accelerated execution provider this runtime doesn't configure, a different
+  sampling strategy, or a KV-cache export shape this runtime doesn't auto-detect (for example
+  `use_cache_branch`-gated merged graphs) supply their own `OnnxGenAiRuntime`; real-device
+  verification (load time, token latency, peak memory, cancellation behavior, repeated-run
+  stability against an actual model, for both decode paths) is tracked in #88 — this default has
+  not yet been run against a real model on-device. `programmatic` model sources are also out of
+  scope for this default runtime (no files to resolve, matching the Web member's own
+  `programmatic` carve-out); it reports _runtime package unavailable_ rather than throwing.
 - `createFixtureOnnxRuntime(options:)` — the deterministic in-memory fixture mandated above,
   public/importable like the Web member's `createFixtureOnnxRuntime` (this diverges deliberately
   from the private-to-tests fixture convention used by `AppleFoundationModelsProvider`, per the
