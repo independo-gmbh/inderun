@@ -77,6 +77,11 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          # .build/ holds SwiftPM checkouts (e.g. swift-huggingface) -- vendored
+          # dependency source we don't control, not our code to fix findings in.
+          config: |
+            paths-ignore:
+              - '.build/**'
 
       # Explicit Gradle build of all Android modules (debug variant, no release
       # signing, tests skipped), instead of letting autobuild guess a target.

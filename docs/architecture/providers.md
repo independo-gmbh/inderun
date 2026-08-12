@@ -58,7 +58,18 @@ factories), not in prose.
     [Apple Implementation](onnx-runtime-provider-family.md#apple-implementation)). Demonstrated
     alongside Apple Foundation Models and the OpenAI-compatible cloud provider, routed by
     `checkCapabilities()` and a `Privacy`-preference selector, in the iOS sample app
-    (`ios/SampleApps/IndeRunDemo`).
+    (`ios/SampleApps/IndeRunDemo`). Depends transitively on `swift-huggingface` (via
+    `swift-transformers`' `Tokenizers`) for `AutoTokenizer.from(modelFolder:)`, used only to
+    load tokenizer config from an already-resolved local directory with hardcoded literal
+    filenames (`config.json`, `tokenizer.json`, ...) — no Hub network/download/cache APIs
+    (`HubApi.snapshot(from:)`, `.from(pretrained:)`, `HubCache`/`HubClient`) are called today.
+    Those Hub-network/cache-path APIs have open CodeQL `swift/path-injection` findings
+    upstream (`HubCache.cachedFilePath` builds cache paths from `revision`/`filename` without
+    the same validation `storeFile`/`storeData` apply; tracked in
+    huggingface/swift-huggingface#62). Before any
+    future code calls those APIs with a repo ID or filename that isn't a hardcoded literal,
+    check whether that issue is resolved, and if not, validate repo-id/filename inputs at the
+    call site.
   - Android on-device: `local.onnx.genai.android`, shipped in the `inderun-onnx-providers` Gradle
     module (see [Android Implementation](onnx-runtime-provider-family.md#android-implementation)).
     Demonstrated alongside Android ML Kit GenAI and the OpenAI-compatible cloud provider, routed
