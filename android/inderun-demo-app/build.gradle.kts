@@ -41,6 +41,7 @@ dependencies {
     implementation(project(":inderun-core"))
     implementation(project(":inderun-kotlin"))
     implementation(project(":inderun-mlkit-providers"))
+    implementation(project(":inderun-onnx-providers"))
     implementation(project(":inderun-openai-providers"))
 
     implementation("androidx.activity:activity-compose:1.13.0")

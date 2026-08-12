@@ -35,6 +35,21 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-37" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
+      # inderun-onnx-providers declares a CMake native target (see its build.gradle.kts) solely to
+      # get AGP to package libc++_shared.so; publishToMavenCentral reaches those tasks, so the
+      # NDK/CMake must be present -- android-actions/setup-android doesn't install them by default
+      # and AGP does not auto-download a missing NDK in CI.
+      - name: Cache Android NDK and CMake
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: android-ndk-27.2.12479018-cmake-3.22.1
+
+      - name: Install Android NDK and CMake
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+
       - name: Publish to Maven Central
         working-directory: android
         run: ./gradlew publishToMavenCentral --no-daemon --stacktrace

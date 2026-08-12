@@ -4,69 +4,65 @@ import SwiftUI
 import IndeRunAppleProviders
 import IndeRunContracts
 import IndeRunCore
+import IndeRunOnnxProviders
 import IndeRunOpenAIProviders
 import IndeRunSwift
 
 @MainActor
 final class DemoViewModel: ObservableObject {
-    enum ExecutionMode: String, CaseIterable, Identifiable {
-        case onDevice
-        case cloud
+    enum PrivacyPreference: String, CaseIterable, Identifiable {
+        case localRequired
+        case localPreferred
+        case cloudAllowed
+        case cloudRequired
 
         var id: String { rawValue }
 
-        var requestConstraints: TaskRequestConstraints {
+        var constraints: TaskRequestConstraints {
             switch self {
-            case .onDevice:
-                return TaskRequestConstraints(privacy: .localRequired)
-            case .cloud:
-                return TaskRequestConstraints(privacy: .cloudRequired)
+            case .localRequired:
+                return TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+            case .localPreferred:
+                return TaskRequestConstraints(cloud: nil, privacy: .localPreferred, timeoutMs: nil)
+            case .cloudAllowed:
+                return TaskRequestConstraints(cloud: nil, privacy: .cloudAllowed, timeoutMs: nil)
+            case .cloudRequired:
+                return TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)
             }
         }
 
         var title: String {
             switch self {
-            case .onDevice:
-                return "On Device"
-            case .cloud:
-                return "Cloud"
+            case .localRequired:
+                return "Local Only"
+            case .localPreferred:
+                return "Prefer Local"
+            case .cloudAllowed:
+                return "Cloud Allowed"
+            case .cloudRequired:
+                return "Cloud Only"
             }
         }
     }
 
-    enum AvailabilityState {
-        case checking(String)
-        case available(String)
-        case unavailable(String)
+    struct ProviderBadge: Identifiable {
+        let id: String
+        let label: String
+        let available: Bool
+        let reason: String?
+    }
 
-        var title: String {
-            switch self {
-            case .checking:
-                return "Checking"
-            case .available:
-                return "Available"
-            case .unavailable:
-                return "Unavailable"
-            }
-        }
+    enum CapabilitiesState {
+        case loading
+        case ready([ProviderBadge])
+        case failed
+    }
 
-        var message: String {
-            switch self {
-            case .checking(let message), .available(let message), .unavailable(let message):
-                return message
-            }
-        }
-
-        var color: Color {
-            switch self {
-            case .checking:
-                return .secondary
-            case .available:
-                return .green
-            case .unavailable:
-                return .red
-            }
-        }
+    struct RouteDecision {
+        let selectedProviderId: String?
+        let explanation: String
+        let rejectedProviderIds: [String]
+        let fallbackProviderIds: [String]
     }
 
     struct AttemptMetadata {
@@ -96,119 +92,139 @@ final class DemoViewModel: ObservableObject {
     private enum DefaultsKey {
         static let endpointURL = "inderun.demo.cloudEndpointURL"
         static let model = "inderun.demo.cloudModel"
+        static let onnxModelSelection = "inderun.demo.onnxModelSelection"
     }
 
-    private enum CloudEndpointReachability {
-        case reachable(statusCode: Int)
-        case unreachable(message: String)
-    }
+    private static let providerLabels: [String: String] = [
+        "apple_foundation_models": "Apple On-Device",
+        "openai_compatible_cloud": "Cloud",
+        OnnxRuntimeAppleProvider.defaultId: "ONNX Local"
+    ]
 
-    private static let demoProxyPath = "/api/inderun/openai-responses"
     static let defaultCloudEndpointURL = "http://127.0.0.1:8787/api/inderun/openai-responses"
     static let defaultCloudModel = "gpt-5.2"
 
-    @Published var prompt = "Summarize when on-device AI is preferable to cloud AI in two short sentences."
-    @Published var executionMode: ExecutionMode = .onDevice
+    // A declarative sentence fragment, not an instruction: the default ONNX Local model
+    // (DistilGPT-2, a non-instruction-tuned base model with no chat template) continues plain
+    // text far more reliably than it follows a task instruction, which it often responds to by
+    // immediately predicting the end-of-text token -- i.e. empty output.
+    @Published var prompt = "On-device AI is useful because"
+    @Published var privacy: PrivacyPreference = .cloudAllowed
     @Published var cloudEndpointURL: String {
         didSet { persistCloudSettings() }
     }
     @Published var cloudModel: String {
         didSet { persistCloudSettings() }
     }
-    @Published private(set) var onDeviceStatus: AvailabilityState = .checking("Checking whether Apple Foundation Models are usable right now.")
-    @Published private(set) var cloudStatus: AvailabilityState = .checking("Checking local cloud configuration and network state.")
+    @Published var onnxModelSelection: DemoOnnxModelSelection {
+        didSet {
+            userDefaults.set(onnxModelSelection.rawValue, forKey: DefaultsKey.onnxModelSelection)
+            Task { await ensureSelectedOnnxModelDownloaded() }
+        }
+    }
+    @Published private(set) var onnxDownloadState: DemoOnnxDownloadState = .idle
+    @Published private(set) var capabilitiesState: CapabilitiesState = .loading
     @Published private(set) var result: ResultState?
     @Published private(set) var errorState: ErrorState?
+    @Published private(set) var lastRouteDecision: RouteDecision?
     @Published private(set) var isRunning = false
 
     private let hostServices: HostServices
     private let userDefaults: UserDefaults
+    private let telemetryService = DemoTelemetryService()
     private let onDeviceProvider = AppleFoundationModelsProvider()
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         self.cloudEndpointURL = userDefaults.string(forKey: DefaultsKey.endpointURL) ?? Self.defaultCloudEndpointURL
         self.cloudModel = userDefaults.string(forKey: DefaultsKey.model) ?? Self.defaultCloudModel
+        let persistedSelection = userDefaults.string(forKey: DefaultsKey.onnxModelSelection)
+            .flatMap(DemoOnnxModelSelection.init(rawValue:))
+        // Defaults to a real downloadable model (not the fixture) so the demo generates actual
+        // text on first launch with no manual setup, mirroring the web demo's default experience.
+        self.onnxModelSelection = persistedSelection ?? .distilgpt2Quantized
         self.hostServices = DefaultHostServices.make()
-    }
-
-    var executionModeDescription: String {
-        switch executionMode {
-        case .onDevice:
-            return "Use Apple Foundation Models directly through the IndeRun Apple provider. This requires a supported physical device and current Apple Intelligence availability."
-        case .cloud:
-            return "Use the IndeRun OpenAI-compatible provider against the configured endpoint. For local simulator testing, point this at the standalone demo proxy."
-        }
     }
 
     var cloudSettingsHint: String {
         "The default endpoint targets the local demo proxy on port 8787. On a physical device, replace 127.0.0.1 with your machine's LAN IP or another reachable proxy or server URL."
     }
 
-    var runButtonTitle: String {
-        switch executionMode {
-        case .onDevice:
-            return "Run On Device"
-        case .cloud:
-            return "Run Through Cloud"
+    var onnxSettingsHint: String {
+        switch onnxDownloadState {
+        case .idle:
+            return onnxModelSelection.modelOption == nil
+                ? "The fixture runtime echoes the prompt back instead of generating text."
+                : "Downloads automatically on first use and is cached afterward. Wi-Fi recommended."
+        case .downloading(let progress):
+            return "Downloading model... \(Int((progress * 100).rounded()))%. The fixture runtime is used until this completes."
+        case .ready:
+            return "Model downloaded and ready for on-device inference."
+        case .failed(let message):
+            return "Download failed: \(message). Falls back to the fixture runtime until this succeeds; pick the model again to retry."
+        }
+    }
+
+    /// Kicks off (or resumes) the download for the selected model, if any and not already
+    /// cached. Called on selection change and on app launch alongside `refreshAvailability()`.
+    func ensureSelectedOnnxModelDownloaded() async {
+        guard let model = onnxModelSelection.modelOption else {
+            onnxDownloadState = .idle
+            return
+        }
+
+        if DemoOnnxModelDownloader.shared.isDownloaded(model) {
+            onnxDownloadState = .ready
+            return
+        }
+
+        let progress = Progress(totalUnitCount: 1000)
+        onnxDownloadState = .downloading(progress: 0)
+
+        let pollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.onnxDownloadState = .downloading(progress: progress.fractionCompleted)
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
+        }
+
+        do {
+            try await DemoOnnxModelDownloader.shared.download(model, into: progress)
+            pollTask.cancel()
+            onnxDownloadState = .ready
+            await refreshAvailability()
+        } catch {
+            pollTask.cancel()
+            onnxDownloadState = .failed(error.localizedDescription)
         }
     }
 
     var canRun: Bool {
-        guard !isRunning else { return false }
-        guard !trimmedPrompt.isEmpty else { return false }
-
-        switch executionMode {
-        case .onDevice:
-            return true
-        case .cloud:
-            return !trimmedCloudEndpointURL.isEmpty &&
-                !trimmedCloudModel.isEmpty &&
-                URL(string: trimmedCloudEndpointURL) != nil
-        }
+        !isRunning && !trimmedPrompt.isEmpty
     }
 
     func refreshAvailability() async {
-        let onDeviceCapabilities = await onDeviceProvider.capabilities(host: hostServices)
-        if onDeviceCapabilities.available {
-            onDeviceStatus = .available("Apple Foundation Models reported availability for this device and current system state.")
-        } else {
-            onDeviceStatus = .unavailable("Apple Foundation Models are not currently available. Device eligibility, Apple Intelligence enablement, locale, or model readiness may be blocking execution.")
-        }
+        capabilitiesState = .loading
 
-        guard !trimmedCloudEndpointURL.isEmpty else {
-            cloudStatus = .unavailable("Enter a cloud endpoint URL. The default local proxy URL is http://127.0.0.1:8787/api/inderun/openai-responses.")
-            return
-        }
-
-        guard URL(string: trimmedCloudEndpointURL) != nil else {
-            cloudStatus = .unavailable("The configured cloud endpoint URL is not valid.")
-            return
-        }
-
-        guard !trimmedCloudModel.isEmpty else {
-            cloudStatus = .unavailable("Enter a model name for the cloud request.")
-            return
-        }
-
-        let online = await hostServices.connectivity.isOnline()
-        let cloudCapabilities = await makeCloudProvider().capabilities(host: hostServices)
-
-        guard cloudCapabilities.available else {
-            cloudStatus = .unavailable("The host is missing the HTTP support required for cloud execution.")
-            return
-        }
-
-        if !online {
-            cloudStatus = .unavailable("Device is offline. The cloud route will fail before the endpoint is contacted.")
-            return
-        }
-
-        switch await probeCloudEndpoint() {
-        case .reachable(let statusCode):
-            cloudStatus = .available("Cloud execution is configured and the endpoint is reachable. Probe status: \(statusCode). Requests will use app-side auth disabled.")
-        case .unreachable(let message):
-            cloudStatus = .unavailable(message)
+        do {
+            let inderun = try makeIndeRun()
+            let snapshots = await inderun.checkCapabilities()
+            let usingRealOnnxModel = onnxModelSelection.modelOption.map { DemoOnnxModelDownloader.shared.isDownloaded($0) } ?? false
+            let badges = snapshots.map { snapshot -> ProviderBadge in
+                var label = Self.providerLabels[snapshot.providerId] ?? snapshot.descriptor.type.rawValue
+                if snapshot.providerId == OnnxRuntimeAppleProvider.defaultId && !usingRealOnnxModel {
+                    label += " (fixture)"
+                }
+                return ProviderBadge(
+                    id: snapshot.providerId,
+                    label: label,
+                    available: snapshot.capabilities.available,
+                    reason: snapshot.capabilities.reason
+                )
+            }
+            capabilitiesState = .ready(badges)
+        } catch {
+            capabilitiesState = .failed
         }
     }
 
@@ -222,7 +238,14 @@ final class DemoViewModel: ObservableObject {
             let inderun = try makeIndeRun()
             let request = TaskRequest(
                 prompt: trimmedPrompt,
-                constraints: executionMode.requestConstraints
+                // SystemOnnxGenAiRuntime recomputes the full sequence on every decode step (no
+                // KV-cache reuse -- see docs/architecture/onnx-runtime-provider-family.md and
+                // https://github.com/independo-gmbh/inderun/issues/126), so the default 256-token
+                // budget is heavy enough to risk a memory-pressure kill on-device. Cap it low for
+                // this demo; real apps needing longer output should wait for #126 or supply a
+                // custom runtime.
+                generation: Generation(maxOutputTokens: 32, seed: nil, stop: nil, temperature: nil, topP: nil),
+                constraints: privacy.constraints
             )
             let taskResult = try await inderun.run(request: request)
 
@@ -236,26 +259,7 @@ final class DemoViewModel: ObservableObject {
                     retryAfterMs: nil
                 )
             )
-
-            switch executionMode {
-            case .onDevice:
-                onDeviceStatus = .available("The last on-device request completed successfully.")
-            case .cloud:
-                cloudStatus = .available("The configured cloud route completed the last request successfully.")
-            }
         } catch let error as IndeRunException {
-            if error.errorClass == .CapabilityMismatch {
-                onDeviceStatus = .unavailable("The provider rejected on-device execution for the current device or system state.")
-            }
-
-            if error.errorClass == .Offline {
-                cloudStatus = .unavailable("Device is offline. Reconnect or switch to on-device mode.")
-            }
-
-            if executionMode == .cloud && error.errorClass == .Unavailable {
-                cloudStatus = .unavailable(unavailableCloudMessage())
-            }
-
             errorState = ErrorState(
                 title: "Normalized Error",
                 body: """
@@ -265,7 +269,7 @@ final class DemoViewModel: ObservableObject {
 """,
                 metadata: AttemptMetadata(
                     runId: error.runId ?? "n/a",
-                    providerUsed: error.providerId ?? executionMode.rawValue,
+                    providerUsed: error.providerId ?? "n/a",
                     totalMs: error.details?["totalMs"]?.doubleValue,
                     providerId: error.providerId,
                     retryAfterMs: error.retryAfterMs
@@ -278,6 +282,9 @@ final class DemoViewModel: ObservableObject {
                 metadata: nil
             )
         }
+
+        lastRouteDecision = telemetryService.lastRouteDecision()
+        await refreshAvailability()
     }
 
     private var trimmedPrompt: String {
@@ -300,8 +307,56 @@ final class DemoViewModel: ObservableObject {
     private func makeIndeRun() throws -> IndeRun {
         let registry = ProviderRegistry()
         try registry.register(onDeviceProvider)
+        try registry.register(makeOnnxProvider())
         try registry.register(makeCloudProvider())
-        return IndeRun(registry: registry, hostServices: hostServices)
+        return IndeRun(registry: registry, hostServices: hostServices, telemetryService: telemetryService)
+    }
+
+    private func makeOnnxProvider() -> OnnxRuntimeAppleProvider {
+        if let model = onnxModelSelection.modelOption, DemoOnnxModelDownloader.shared.isDownloaded(model) {
+            let directory = DemoOnnxModelDownloader.shared.localDirectory(for: model)
+            let modelPackage = ModelPackage(
+                files: Files(
+                    config: nil,
+                    external: nil,
+                    filesRequired: ["model.onnx"],
+                    tokenizer: "tokenizer.json"
+                ),
+                format: .onnx,
+                id: model.id,
+                integrity: nil,
+                license: nil,
+                limits: nil,
+                runtime: nil,
+                source: Source(ref: directory.path, sourceType: .filesystem),
+                tasks: ["text_to_text"],
+                version: nil
+            )
+            // No runtime override: defaults to SystemOnnxGenAiRuntime(), real ONNX Runtime inference.
+            return OnnxRuntimeAppleProvider(options: OnnxProviderOptions(modelPackage: modelPackage))
+        }
+
+        // Fixture (either selected explicitly, or the real model hasn't finished downloading
+        // yet) -- it echoes the prompt, it does not generate text -- so the demo still works
+        // out of the box while a real model downloads in the background.
+        let modelPackage = ModelPackage(
+            files: nil,
+            format: .onnx,
+            id: "demo-fixture-model",
+            integrity: nil,
+            license: nil,
+            limits: nil,
+            runtime: nil,
+            source: Source(ref: nil, sourceType: .programmatic),
+            tasks: ["text_to_text"],
+            version: nil
+        )
+        return OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(
+                modelPackage: modelPackage,
+                runtime: createFixtureOnnxRuntime()
+            )
+        )
     }
 
     private func makeCloudProvider() -> OpenAIProvider {
@@ -314,60 +369,34 @@ final class DemoViewModel: ObservableObject {
             )
         )
     }
+}
 
-    private func probeCloudEndpoint() async -> CloudEndpointReachability {
-        guard let httpClient = hostServices.httpClient else {
-            return .unreachable(message: "The host is missing the HTTP support required for cloud execution.")
-        }
+/// Captures the last `route_decided` telemetry event so the UI can show a routing
+/// transparency panel, mirroring the web demo's `RouteDecisionTelemetryService`.
+final class DemoTelemetryService: TelemetryService, @unchecked Sendable {
+    private let lock = NSRecursiveLock()
+    private var lastEvent: TelemetryEvent?
 
-        let probeURL = cloudProbeURL()
-        let request = HttpRequest(
-            method: .get,
-            url: probeURL,
-            timeoutMs: 2_000
+    func emit(event: TelemetryEvent) {
+        guard event.type == .routeDecided else { return }
+        lock.lock()
+        lastEvent = event
+        lock.unlock()
+    }
+
+    func lastRouteDecision() -> DemoViewModel.RouteDecision? {
+        lock.lock()
+        let event = lastEvent
+        lock.unlock()
+
+        guard let event else { return nil }
+
+        return DemoViewModel.RouteDecision(
+            selectedProviderId: event.payload["selectedProviderId"]?.stringValue,
+            explanation: event.payload["explanation"]?.stringValue ?? "",
+            rejectedProviderIds: event.payload["rejectedProviderIds"]?.stringArrayValue ?? [],
+            fallbackProviderIds: event.payload["fallbackProviderIds"]?.stringArrayValue ?? []
         )
-
-        do {
-            let response = try await httpClient.send(request: request)
-            return .reachable(statusCode: response.status)
-        } catch {
-            return .unreachable(message: unavailableCloudMessage())
-        }
-    }
-
-    private func cloudProbeURL() -> String {
-        guard let url = URL(string: trimmedCloudEndpointURL) else {
-            return trimmedCloudEndpointURL
-        }
-
-        if url.path == Self.demoProxyPath, let healthURL = buildHealthURL(from: url) {
-            return healthURL.absoluteString
-        }
-
-        return trimmedCloudEndpointURL
-    }
-
-    private func buildHealthURL(from endpointURL: URL) -> URL? {
-        guard var components = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false) else {
-            return nil
-        }
-
-        components.path = "/health"
-        components.query = nil
-        components.fragment = nil
-        return components.url
-    }
-
-    private func unavailableCloudMessage() -> String {
-        if let url = URL(string: trimmedCloudEndpointURL),
-           let host = url.host,
-           (host == "127.0.0.1" || host == "localhost"),
-           url.port == 8787,
-           url.path == Self.demoProxyPath {
-            return "Could not reach the local demo proxy at \(trimmedCloudEndpointURL). Start `pnpm --filter @independo/inderun-demo-proxy dev` or change the endpoint URL."
-        }
-
-        return "Could not reach the configured cloud endpoint at \(trimmedCloudEndpointURL). Check the URL, port, server process, and network path."
     }
 }
 
@@ -386,5 +415,13 @@ private extension JSONAny {
             return Double(value)
         }
         return nil
+    }
+
+    var stringValue: String? {
+        value as? String
+    }
+
+    var stringArrayValue: [String]? {
+        value as? [String]
     }
 }

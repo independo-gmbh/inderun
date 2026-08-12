@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -13,10 +14,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             IndeRunDemoTheme {
+                val onnxDownloader = remember { AndroidDemoOnnxModelDownloader(applicationContext) }
                 val demoViewModel = viewModel<DemoViewModel>(
                     factory = DemoViewModel.factory(
                         settingsStore = SharedPreferencesDemoSettingsStore(applicationContext),
-                        runtime = AndroidDemoRuntime(applicationContext),
+                        runtime = AndroidDemoRuntime(applicationContext, onnxDownloader),
+                        onnxDownloader = onnxDownloader,
                     ),
                 )
                 val uiState by demoViewModel.uiState.collectAsStateWithLifecycle()
@@ -24,10 +27,11 @@ class MainActivity : ComponentActivity() {
                 DemoScreen(
                     uiState = uiState,
                     onPromptChange = demoViewModel::updatePrompt,
-                    onExecutionModeChange = demoViewModel::updateExecutionMode,
+                    onPrivacyChange = demoViewModel::updatePrivacy,
                     onCloudEndpointUrlChange = demoViewModel::updateCloudEndpointUrl,
                     onCloudModelChange = demoViewModel::updateCloudModel,
-                    onRefreshClick = demoViewModel::refreshAvailability,
+                    onOnnxModelSelectionChange = demoViewModel::updateOnnxModelSelection,
+                    onRefreshClick = demoViewModel::refreshCapabilities,
                     onRunClick = demoViewModel::runPrompt,
                 )
             }

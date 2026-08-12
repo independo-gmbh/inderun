@@ -413,10 +413,22 @@ sequenceLength]`) and a `logits` output (`float32`, `[1, sequenceLength, vocabSi
   accelerated execution provider, or a KV-cached decode loop supply their own
   `AndroidOnnxGenAiRuntime`. `programmatic` model sources are out of scope for this default runtime
   (no files to resolve, matching the Web/Apple members' own `programmatic` carve-out); it reports
-  _runtime package unavailable_ rather than throwing. This default runtime has not been run against
-  a real model on-device — real-device verification (load time, token latency, peak memory,
-  cancellation behavior, repeated-run stability) is an explicit follow-up, matching the Apple
-  member's own #88 carve-out.
+  _runtime package unavailable_ rather than throwing. **Native dependency**: `ai.djl.android:tokenizer-native`'s
+  prebuilt `libdjl_tokenizer.so` dynamically links `libc++_shared.so`, but the artifact does not
+  bundle it — an app that depends on `inderun-onnx-providers` and doesn't separately provide
+  `libc++_shared.so` for every targeted ABI fails the first tokenizer load with
+  `UnsatisfiedLinkError: dlopen failed: library "libc++_shared.so" not found`, surfaced by this
+  provider as a `capability_unavailable` "tokenizer/config missing" reason (the underlying
+  `UnsatisfiedLinkError` is attached as `originalError` but not included in the reason string).
+  `inderun-onnx-providers` now declares a no-op CMake native target
+  (`src/main/cpp/CMakeLists.txt`, `-DANDROID_STL=c++_shared`) purely so the NDK's own CMake
+  toolchain copies the matching `libc++_shared.so` into the build output per ABI and AGP packages
+  it — no binary committed to source control, sourced from the module's declared `ndkVersion`
+  instead. This was found and fixed via real-device
+  verification on an Android emulator (arm64-v8a, API 34): the default runtime downloads, loads,
+  and generates text from a real DistilGPT-2 ONNX export end-to-end (load time, token latency, and
+  repeated-run stability were not separately profiled — that remains a follow-up, matching the
+  Apple member's own #88 carve-out).
 - `createFixtureOnnxRuntime(options)` — the deterministic in-memory fixture mandated above,
   public/importable like the Web and Apple members' fixtures.
 - Any application-supplied implementation of `AndroidOnnxGenAiRuntime`.

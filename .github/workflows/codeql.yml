@@ -56,6 +56,22 @@ jobs:
         if: matrix.language == 'java-kotlin'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
 
+      # inderun-onnx-providers declares a CMake native target (see its build.gradle.kts) solely to
+      # get AGP to package libc++_shared.so; assembleDebug reaches those tasks, so the NDK/CMake
+      # must be present -- android-actions/setup-android doesn't install them by default.
+      - name: Cache Android NDK and CMake
+        if: matrix.language == 'java-kotlin'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: android-ndk-27.2.12479018-cmake-3.22.1
+
+      - name: Install Android NDK and CMake
+        if: matrix.language == 'java-kotlin'
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
         with:
