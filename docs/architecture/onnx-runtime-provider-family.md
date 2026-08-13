@@ -67,13 +67,18 @@ runs ONNX models on `onnxruntime-web` and owns the generative loop. Source:
 
 **Correction — the mobile members target raw ORT Mobile, not the ORT GenAI package.** Both shipped
 mobile members (Apple, Android) default to the platform's raw ONNX Runtime Mobile bindings plus a
-hand-written greedy decode loop and an external tokenizer, rather than
+hand-written decode loop and an external tokenizer, rather than
 `onnxruntime-genai`/`onnxruntime-extensions`. This keeps both defaults on the same well-established,
-non-preview API surface used by the Web member's underlying runtime, at the documented cost of no
-KV-cache reuse and CPU-only execution (see the platform sections below). This is exactly what the
-injectable seam exists for: the seam is the contract, and any application (or a future IndeRun
-default) can supply an ORT-GenAI-backed `OnnxGenAiRuntime`/`AndroidOnnxGenAiRuntime` implementation
-without changing the provider.
+non-preview API surface used by the Web member's underlying runtime. Both mobile members now
+auto-detect and reuse `past_key_values`/KV-cache export shapes where the graph and `config.json`
+support it (falling back to full-sequence recompute otherwise) and configure an accelerated
+execution provider (CoreML/XNNPACK on Apple, NNAPI/XNNPACK on Android) with a CPU fallback — this is
+no longer a blanket "no KV-cache reuse, CPU-only" limitation, though none of it has been exercised
+against a real model on a real device beyond the plain-path verification noted in each platform
+section (#88). This is exactly what the injectable seam exists for regardless: the seam is the
+contract, and any application (or a future IndeRun default) can supply an
+ORT-GenAI-backed `OnnxGenAiRuntime`/`AndroidOnnxGenAiRuntime` implementation without changing the
+provider.
 
 **Deterministic fixture fallback.** IndeRun already makes on-device adapters testable without their
 native backend via an injectable runtime interface (`AppleFoundationModelsRuntime`,
@@ -447,31 +452,99 @@ the Web member's explicit `AbortSignal` parameter). Two implementations exist:
 - `SystemAndroidOnnxGenAiRuntime(context)` — the default. Runs inference through ONNX Runtime
   Mobile's Java bindings (`com.microsoft.onnxruntime:onnxruntime-android`) and tokenizes with a
   Hugging Face tokenizer (`ai.djl.huggingface:tokenizers` plus its Android native binding,
-  `ai.djl.android:tokenizer-native`). **IO contract**: identical to the Apple member — the model
-  graph must expose exactly `input_ids` and `attention_mask` inputs (`int64`, `[1,
-sequenceLength]`) and a `logits` output (`float32`, `[1, sequenceLength, vocabSize]`), the plain
-  decoder-only export shape without `past_key_values`. **Graph file convention**: same as Apple —
-  `ModelPackage.files.required`'s _first_ entry is the ONNX graph file; remaining entries (for
-  example external weight shards) must be present alongside it. Every file named in
-  `ModelPackage.integrity.checksums` is verified before load, not only the required-file list;
-  an algorithm prefix other than `sha256:` is a capability failure rather than a silently skipped
-  check. The session cache key covers `id`, `format`, `version`, `source`, and
-  `integrity.checksums` together, not `id` alone. **Stop conditions**: generation stops on the
-  tokenizer's end-of-sequence token — resolved from the model config JSON's `eos_token_id` field,
-  since the DJL tokenizer binding does not expose special token ids the way `swift-transformers`
-  does on Apple — on a `generation.stop` suffix match, or once `maxOutputTokens` is reached,
-  whichever comes first; cancellation is checked before every decode step. Decoding is **greedy
-  (argmax) with no KV-cache reuse**: the full sequence is recomputed on every generated token, CPU
-  execution provider only — no NNAPI or XNNPACK acceleration configured. This is a real, documented
-  performance limitation, not a hidden one. `temperature`/`topP`/`seed` are not honored (no
-  sampling, argmax only). Unlike the Apple and Web members,
-  this default runtime does **not** attempt chat-template application — Hugging Face chat-template
-  support in the Android tokenizer binding is not guaranteed across models, so it falls back
-  unconditionally to a plain `"role: content"` join; apps that need chat templates, sampling, an
-  accelerated execution provider, or a KV-cached decode loop supply their own
-  `AndroidOnnxGenAiRuntime`. `programmatic` model sources are out of scope for this default runtime
-  (no files to resolve, matching the Web/Apple members' own `programmatic` carve-out); it reports
-  _runtime package unavailable_ rather than throwing. **Native dependency**: `ai.djl.android:tokenizer-native`'s
+  `ai.djl.android:tokenizer-native`). Implemented across several files by concern, mirroring the
+  Apple member's own split (`SystemOnnxGenAiRuntime.swift` + `OnnxSessionLoading*.swift` +
+  `OnnxSampling.swift` + `OnnxTensorExecution.swift` + `SystemOnnxGenAiRuntime+Decoders.swift`):
+  `SystemAndroidOnnxGenAiRuntime.kt` (orchestration), `OnnxSessionLoading.kt` (session/tokenizer/EP
+  loading, asset extraction, checksums), `OnnxSessionLoadingKvCacheDetection.kt` (decode-strategy
+  detection), `OnnxDecoders.kt` (the two decode-step strategies below), `OnnxSampling.kt`
+  (temperature/top-p/seed sampling), and `OnnxTensorExecution.kt` (the dedicated dispatcher and
+  `OrtException`-wrapping run helper).
+
+  **IO contract**: this runtime auto-detects, from the loaded graph's declared input names, which
+  of two decoder-only export shapes a model uses — no `ModelPackage` field or app-facing
+  configuration selects it, identical in spirit to the Apple member's detection:
+  - **Plain** (no `past_key_values.*` inputs): shape `[1, sequenceLength]`, the full sequence
+    recomputed every decode step. Always supported; the fallback whenever KV-cache detection can't
+    establish every assumption below.
+  - **KV-cache** (`past_key_values.{layer}.key`/`.value` inputs present, the legacy (non-merged)
+    Hugging Face Optimum `decoder_with_past_model` export convention): exactly one token is fed as
+    `input_ids` per model call — this graph shape traces `input_ids`'s sequence-length axis fixed
+    at 1, so the prompt is replayed through the same session one token at a time (discarding
+    logits) to build up `past_key_values` before the first real generated token, then generation
+    proceeds one token per call the same way, with each call's `present.{layer}.key`/`.value`
+    outputs threaded back in as the next call's `past_key_values.*` inputs directly (no copy).
+    Detection additionally requires `num_hidden_layers` (or GPT-2-style `n_layer`),
+    `num_attention_heads`/`n_head` (or `num_key_value_heads` for GQA models), and
+    `hidden_size`/`n_embd` (or an explicit `head_dim`) to be readable from `config.json`, and every
+    expected `past_key_values.{layer}.{key,value}` input / `present.{layer}.{key,value}` output to
+    be present by that naming convention; an optional `position_ids` input is fed the running
+    absolute position when the graph declares it. Graphs that instead declare a `use_cache_branch`
+    boolean input (merged Optimum exports) fall back to the plain path — this runtime does not
+    implement the merged graph's alternate calling convention. Detection is deliberately
+    conservative — any unresolvable assumption falls back to the plain path rather than guessing —
+    and, like the rest of this default runtime, has not been exercised against a real KV-cache
+    export on an Android device; that remains part of #88, mirroring the Apple member's own
+    real-device carve-out (the Apple member's equivalent path *was* corrected against a real device
+    failure on LaMini-GPT — the Android path is unverified, not merely undocumented).
+
+  **Graph file convention**: same as Apple — `ModelPackage.files.required`'s _first_ entry is the
+  ONNX graph file; remaining entries (for example external weight shards) must be present alongside
+  it. Every file named in `ModelPackage.integrity.checksums` is verified before load, not only the
+  required-file list; an algorithm prefix other than `sha256:` is a capability failure rather than a
+  silently skipped check. The session cache key covers `id`, `format`, `version`, `source`, and
+  `integrity.checksums` together, not `id` alone.
+
+  **Execution.** `OrtEnvironment.getEnvironment()` already returns a process-wide singleton per its
+  own Java API contract, so — unlike the Apple member's `ORTEnv`, which needed an explicit
+  shared-instance wrapper — no separate wrapper is needed here; every session reuses the same
+  environment instance as-is. Session creation and every `run()` call execute on a dedicated
+  single-thread `CoroutineDispatcher` rather than `Dispatchers.IO`/`Dispatchers.Default`, since
+  `OrtSession.run()` and session construction are blocking synchronous calls. The NNAPI execution
+  provider is configured by default on the plain decode path (`SessionOptions.addNnapi()`), falling
+  back to XNNPACK (`addXnnpack`) and then ORT's default CPU EP if NNAPI configuration fails on the
+  host; `setIntraOpNumThreads` is set explicitly, bounded by the device's available processor
+  count, rather than left at ORT's implicit default. **The KV-cache path never uses NNAPI**,
+  regardless of host availability: its first decode call feeds a genuinely zero-length
+  `past_key_values` tensor, and the Apple member's CoreML EP is documented to reject an analogous
+  zero-length dynamic-shaped input at run time on a real device — this runtime applies the same
+  conservative rule to NNAPI on the same reasoning, but whether NNAPI actually rejects it the same
+  way is an unverified assumption carried over from the Apple finding, not a confirmed
+  Android-device result (#88). Since ORT's execution provider list is fixed at session-creation
+  time, that graph's session is created directly on XNNPACK/CPU. The plain decode path preallocates
+  its `input_ids`/`attention_mask` buffers once per generation, as direct `LongBuffer`s sized to
+  `promptLength + maxOutputTokens`, and writes into a growing subrange each step rather than
+  allocating a fresh buffer per token; the KV-cache path's `past_key_values` reuse (above) is itself
+  the buffer-reuse win for that path.
+
+  **Decoding** defaults to greedy (argmax). Setting `generation.temperature` switches to sampling:
+  logits are scaled by `1 / temperature`, optionally narrowed to the smallest token set whose
+  cumulative probability reaches `generation.topP` (nucleus sampling), then sampled — seeded
+  (reproducibly) via `kotlin.random.Random(seed)` when `generation.seed` is set, natively seedable
+  unlike the Apple member's `SystemRandomNumberGenerator` (which needed a custom `SplitMix64`).
+  `generation.stop` sequences are honored on both decode paths. **Stop conditions**: generation
+  stops on the tokenizer's end-of-sequence token — resolved from the model config JSON's
+  `eos_token_id` field, since the DJL tokenizer binding does not expose special token ids the way
+  `swift-transformers` does on Apple — on a `generation.stop` suffix match, or once
+  `maxOutputTokens` is reached, whichever comes first; cancellation is checked before every decode
+  step.
+
+  Unlike the Apple and Web members, this default runtime does **not** attempt chat-template
+  application: `ai.djl.huggingface:tokenizers` (`0.33.0`) exposes no `applyChatTemplate`-equivalent
+  API or special-token accessor on its public `HuggingFaceTokenizer` surface — this is a verified,
+  permanent gap for this runtime, not an oversight pending evaluation, and it falls back
+  unconditionally to a plain `"role: content"` join. Apps that need chat templates, an execution
+  provider/sampling strategy this runtime doesn't configure, or a KV-cache export shape this runtime
+  doesn't auto-detect (for example `use_cache_branch`-gated merged graphs) supply their own
+  `AndroidOnnxGenAiRuntime`; real-device verification (load time, token latency, peak memory,
+  cancellation behavior, repeated-run stability against an actual model, for both decode paths, and
+  whether NNAPI actually degrades on the KV-cache path's zero-length tensor the way CoreML does) is
+  tracked in #88 — this default has not yet been run against a real model on-device beyond the
+  plain-path DistilGPT-2 verification below. `programmatic` model sources are out of scope for this
+  default runtime (no files to resolve, matching the Web/Apple members' own `programmatic`
+  carve-out); it reports _runtime package unavailable_ rather than throwing.
+
+  **Native dependency**: `ai.djl.android:tokenizer-native`'s
   prebuilt `libdjl_tokenizer.so` dynamically links `libc++_shared.so`, but the artifact does not
   bundle it — an app that depends on `inderun-onnx-providers` and doesn't separately provide
   `libc++_shared.so` for every targeted ABI fails the first tokenizer load with
@@ -484,9 +557,11 @@ sequenceLength]`) and a `logits` output (`float32`, `[1, sequenceLength, vocabSi
   it — no binary committed to source control, sourced from the module's declared `ndkVersion`
   instead. This was found and fixed via real-device
   verification on an Android emulator (arm64-v8a, API 34): the default runtime downloads, loads,
-  and generates text from a real DistilGPT-2 ONNX export end-to-end (load time, token latency, and
-  repeated-run stability were not separately profiled — that remains a follow-up, matching the
-  Apple member's own #88 carve-out).
+  and generates text from a real DistilGPT-2 ONNX export end-to-end on the plain (no-KV-cache,
+  no-sampling) decode path (load time, token latency, and repeated-run stability were not
+  separately profiled — that remains a follow-up, matching the Apple member's own #88 carve-out).
+  The EP configuration, KV-cache decode path, and sampling added since have not themselves been
+  re-verified against that or any other real device.
 - `createFixtureOnnxRuntime(options)` — the deterministic in-memory fixture mandated above,
   public/importable like the Web and Apple members' fixtures.
 - Any application-supplied implementation of `AndroidOnnxGenAiRuntime`.

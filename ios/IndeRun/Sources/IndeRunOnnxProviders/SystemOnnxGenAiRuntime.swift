@@ -137,7 +137,7 @@ public final class SystemOnnxGenAiRuntime: OnnxGenAiRuntime {
     private func encodeInput(_ messages: [OnnxGenerationMessage], tokenizer: Tokenizer) -> [Int] {
         let chatMessages: [[String: any Sendable]] = messages.map { ["role": $0.role.rawValue, "content": $0.content] }
         if let tokenIds = try? tokenizer.applyChatTemplate(messages: chatMessages) {
-            return tokenIds
+        return tokenIds
         }
         return tokenizer.encode(text: normalizedPrompt(from: messages))
     }
