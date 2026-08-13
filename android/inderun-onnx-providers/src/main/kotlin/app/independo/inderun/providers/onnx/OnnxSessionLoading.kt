@@ -163,11 +163,15 @@ internal class LoadedSessionBox(private val context: Context) {
             // Falls back to ORT's implicit default thread count.
         }
 
-        val nnapiEnabled = useNnapi && try {
-            options.addNnapi()
-            true
-        } catch (error: OrtException) {
+        val nnapiEnabled = if (!useNnapi) {
             false
+        } else {
+            try {
+                options.addNnapi()
+                true
+            } catch (error: OrtException) {
+                false
+            }
         }
         if (!nnapiEnabled) {
             try {
