@@ -1,13 +1,18 @@
 /* This file was generated from JSON Schema using quicktype. Do not edit by hand. */
 
 /**
- * The standard response payload for completed text-to-text execution within the IndeRun
- * framework.
+ * The response payload for a completed text-to-text execution. A full execution failure
+ * (validation, routing, or every attempted provider failing) is surfaced by run() throwing
+ * an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
+ * are reserved for a provider reporting a non-fatal, degraded outcome on an
+ * otherwise-successful result (not currently produced by any provider in this codebase).
  */
 export type TaskResult = {
     /**
-     * Standardized reason describing how generation concluded (e.g., 'stop', 'length',
-     * 'cancelled', or 'error').
+     * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+     * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+     * otherwise-returned result — no provider in this codebase currently produces it, since a
+     * full execution failure is instead surfaced by run() throwing an IndeRunError.
      */
     finishReason: FinishReason;
     /**
@@ -34,8 +39,10 @@ export type TaskResult = {
 }
 
 /**
- * Standardized reason describing how generation concluded (e.g., 'stop', 'length',
- * 'cancelled', or 'error').
+ * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+ * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+ * otherwise-returned result — no provider in this codebase currently produces it, since a
+ * full execution failure is instead surfaced by run() throwing an IndeRunError.
  */
 export type FinishReason = "stop" | "length" | "cancelled" | "error";
 
@@ -59,8 +66,9 @@ export type Output = {
  */
 export type Telemetry = {
     /**
-     * Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
-     * 'Unavailable').
+     * Present only if a provider reports a degraded outcome on an otherwise-successful result;
+     * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+     * IndeRunError never produces a TaskResult at all.
      */
     errorClass?: ErrorClass;
     /**
@@ -77,8 +85,9 @@ export type Telemetry = {
 }
 
 /**
- * Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
- * 'Unavailable').
+ * Present only if a provider reports a degraded outcome on an otherwise-successful result;
+ * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+ * IndeRunError never produces a TaskResult at all.
  */
 export type ErrorClass = "CapabilityMismatch" | "Offline" | "AuthError" | "RateLimited" | "Timeout" | "Unavailable" | "Internal";
 

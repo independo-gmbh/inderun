@@ -14,7 +14,7 @@
     "test:kotlin": "cd android && ./gradlew test",
     "test:swift": "swift test",
     "generate": "pnpm generate:code && pnpm generate:kotlin",
-    "generate:code": "node contracts/scripts/generate-contracts.mjs",
+    "generate:code": "node contracts/scripts/generate-contracts.mjs && node contracts/scripts/generate-api-surface.mjs",
     "generate:kotlin": "cd android && ./gradlew :inderun-contracts:spotlessApply",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

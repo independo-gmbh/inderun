@@ -1,5 +1,10 @@
 # Cross-Platform API Surface Generation — Research Pass (Issue #123)
 
+**Status: MVP implemented.** The Option A recommendation below (`IndeRunApi.run` +
+`.checkCapabilities`) has been built — see the [Recommendation](#recommendation) and
+[Next step](#next-step) sections for details and links. The Baseline/Options/Answers
+sections below remain the original research record.
+
 ## Scope
 
 [Issue #123](https://github.com/independo-gmbh/inderun/issues/123) asked whether the
@@ -176,6 +181,18 @@ this doc originally estimated.
 Option B remains not recommended — it saves nothing over Option A and blurs the
 data/behavior boundary the issue explicitly calls out as a hard constraint.
 
+**Implemented.** The MVP scoped above is built: the versioned spec lives at
+[`contracts/api/inderun-api.json`](../../contracts/api/inderun-api.json) and the
+generator at
+[`contracts/scripts/generate-api-surface.mjs`](../../contracts/scripts/generate-api-surface.mjs),
+wired into `pnpm generate:code` as a sibling step to the data-contract generator. It
+emits the `IndeRunApi` surface as a TS `interface`, Swift `protocol`, and Kotlin
+`interface` (`packages/inderun-web/src/core/generated/inderun-api.ts`,
+`ios/IndeRun/Sources/IndeRunSwift/Generated/IndeRunApi.swift`,
+`android/inderun-kotlin/src/main/kotlin/app/independo/inderun/sdk/generated/IndeRunApi.kt`),
+and the hand-written `IndeRun` class now implements/conforms to it on all three
+platforms, with CI failing on regeneration drift.
+
 ## Answers to the issue's open questions
 
 - **Spec format**: a small versioned, self-schema-validated YAML/JSON spec
@@ -201,9 +218,38 @@ data/behavior boundary the issue explicitly calls out as a hard constraint.
   next to the hand-written concrete provider/engine classes that implement/conform
   to them, so IDEs and reviewers can tell the two apart at a glance.
 
+## Known limitation: payload-shape parity is not enforced
+
+This generator enforces cross-language parity for `IndeRunApi` *operation
+signatures* — method name, params, return type, and async idiom — across
+TypeScript, Kotlin, and Swift. It does **not** enforce that the payload types
+those signatures reference stay in sync across languages. `TaskRequest` and
+`TaskResult` already get that guarantee independently via the JSON-Schema/
+quicktype contract pipeline (`pnpm generate` / `contracts/schemas/*.schema.json`).
+`ProviderCapabilitySnapshot` (and its nested `ProviderDescriptor`/
+`ProviderDynamicCapabilities` types) does not: it is handwritten separately in
+TypeScript (`packages/inderun-web/src/core/provider.ts`), Kotlin
+(`android/inderun-core/src/main/kotlin/app/independo/inderun/core/Provider.kt`),
+and Swift (`ios/IndeRun/Sources/IndeRunCore/Provider.swift`), so one language's
+`ProviderCapabilitySnapshot` could gain, lose, or rename a field and every
+generated `IndeRunApi` interface would still compile — the generator only
+checks that `checkCapabilities()`'s signature matches, not that the type it
+returns has matching shape. Migrating `ProviderCapabilitySnapshot` under the
+same JSON-Schema/quicktype discipline as `TaskRequest`/`TaskResult` is a
+natural next step, alongside `ProviderAdapter` generation.
+
 ## Next step
 
-This doc recommends building Option A as a follow-up implementation task (spec
-schema + generator + 3 emitters + CI wiring), scoped to `IndeRunApi.run` +
-`.checkCapabilities` only. `ProviderAdapter` and any streaming/session operations
-are explicitly out of scope for that first cut per the guard above.
+The Option A MVP (spec schema + generator + 3 emitters + CI wiring), scoped to
+`IndeRunApi.run` + `.checkCapabilities`, is implemented — see
+[`contracts/api/inderun-api.json`](../../contracts/api/inderun-api.json) and
+[`contracts/scripts/generate-api-surface.mjs`](../../contracts/scripts/generate-api-surface.mjs).
+
+Remaining, explicitly deferred (not yet built, per CLAUDE.md's Milestone 1 scope):
+
+- `ProviderAdapter` (`describe`/`capabilities`/`run`) as a second, separate
+  spec/interface, mirroring how it's already conceptually separate from
+  `IndeRunApi` in the architecture docs.
+- Streaming/session operations (`stream`/`openSession`) — the spec format is
+  expected to extend to a `stream: true` variant without rework, but no
+  streaming declarations are generated until Milestone 2/3 are actually scoped.

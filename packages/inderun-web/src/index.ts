@@ -44,6 +44,7 @@ export {
 } from "./core/errors.js";
 
 export { IndeRun } from "./core/engine.js";
+export type { IndeRunApi } from "./core/generated/inderun-api.js";
 
 export {
   type TelemetryEventType,

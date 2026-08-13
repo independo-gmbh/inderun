@@ -108,6 +108,17 @@ jobs:
       - name: Generate contracts
         run: pnpm generate:code
 
+      # The Kotlin data-contracts output (android/inderun-contracts/.../Contracts.kt)
+      # is deliberately excluded here: this job runs `pnpm generate:code` (no
+      # Gradle toolchain), which skips the `generate:kotlin` Spotless pass that
+      # the committed file requires to stay ktlint-clean. Diffing it here would
+      # always report spurious formatting drift. The Android workflow's
+      # `spotlessCheck` step covers that file's formatting, and this repo's
+      # release workflow's drift check (which runs the full `pnpm generate`,
+      # Spotless included) covers real content drift for it.
+      - name: Verify generated contracts and API surface are up to date
+        run: git diff --exit-code -- packages/contracts/src/generated ios/IndeRun/Sources/IndeRunContracts rust/inderun-route-core/src/generated packages/inderun-web/src/core/generated android/inderun-kotlin/src/main/kotlin/app/independo/inderun/sdk/generated ios/IndeRun/Sources/IndeRunSwift/Generated
+
       - name: Build Rust WASM bindings
         run: |
           RUSTC="$(rustup which rustc --toolchain stable)" \

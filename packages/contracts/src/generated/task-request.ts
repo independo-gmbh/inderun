@@ -1,8 +1,10 @@
 /* This file was generated from JSON Schema using quicktype. Do not edit by hand. */
 
 /**
- * The standard request payload for initiating a text-to-text execution task within the
- * IndeRun framework.
+ * The request payload for a Mode 1 (request/response) text-to-text execution. At least one
+ * of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be
+ * present together, though callers should typically supply just one;
+ * `constraints`/`preferences` steer routing but never select a provider directly.
  */
 export type TaskRequest = {
     /**

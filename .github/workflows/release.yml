@@ -89,6 +89,9 @@ jobs:
       - name: Generate contracts
         run: pnpm generate
 
+      - name: Verify generated contracts and API surface are up to date
+        run: git diff --exit-code -- packages/contracts/src/generated android/inderun-contracts/src/main/kotlin ios/IndeRun/Sources/IndeRunContracts rust/inderun-route-core/src/generated packages/inderun-web/src/core/generated android/inderun-kotlin/src/main/kotlin/app/independo/inderun/sdk/generated ios/IndeRun/Sources/IndeRunSwift/Generated
+
       - name: Build Rust WASM bindings
         run: |
           RUSTC="$(rustup which rustc --toolchain stable)" \
