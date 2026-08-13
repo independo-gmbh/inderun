@@ -28,6 +28,8 @@ Capacitor is treated as an app-facing bridge layer over the existing platform SD
 
 Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introspection call that returns each registered provider's static descriptor and current dynamic capability check without executing a task or producing side effects. It exists with the same shape on the TypeScript, Swift, and Kotlin engines, and is intended for UI that needs to show live provider availability before a run (for example, the Web demo's provider badges).
 
+Method-signature parity for `ProviderAdapter` and `IndeRun` across TypeScript, Swift, and Kotlin is currently kept in sync by convention and review, not generation — see [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and recommendation on whether that should change.
+
 ## Cancellation And Fallback
 
 Cancellation should produce a terminal cancellation outcome and no further user-visible events after the cancel point.
