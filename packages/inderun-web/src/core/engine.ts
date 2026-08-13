@@ -5,6 +5,7 @@ import {
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
 import type { ProviderCapabilitySnapshot } from "./provider.js";
+import type { IndeRunApi } from "./generated/inderun-api.js";
 import { ProviderRegistry } from "./registry.js";
 import { Router } from "./router.js";
 import { createInternal, toIndeRunException } from "./errors.js";
@@ -15,7 +16,7 @@ import { type TelemetryEvent, type TelemetryService, NoOpTelemetryService } from
  * Validates tasks, executes routing rules based on request constraints and connectivity,
  * triggers provider adapters, and logs timing telemetry.
  */
-export class IndeRun {
+export class IndeRun implements IndeRunApi {
   private router: Router;
   private telemetryService: TelemetryService;
 

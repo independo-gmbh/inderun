@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-request.schema.json",
   "title": "TaskRequest",
-  "description": "The standard request payload for initiating a text-to-text execution task within the IndeRun framework.",
+  "description": "The request payload for a Mode 1 (request/response) text-to-text execution. At least one of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be present together, though callers should typically supply just one; `constraints`/`preferences` steer routing but never select a provider directly.",
   "type": "object",
   "additionalProperties": true,
   "required": ["schemaVersion", "task"],

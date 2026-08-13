@@ -2,7 +2,7 @@ import Foundation
 import IndeRunCore
 import IndeRunContracts
 
-public final class IndeRun: Sendable {
+public final class IndeRun: IndeRunApi {
     private let registry: ProviderRegistry
     private let hostServices: HostServices
     private let telemetryService: (any TelemetryService)?

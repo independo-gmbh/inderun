@@ -108,6 +108,17 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
 
 - The JavaScript workflow also regenerates the shared contract and WASM artifacts before package builds.
 - `pnpm generate` emits the contract types for every language from `contracts/schemas/`: TypeScript, Kotlin, and Swift for the full surface, plus the Rust route-core model (`rust/inderun-route-core/src/generated/contracts.rs`) from the two route schemas. The generated Rust file is committed and normalized with `rustfmt` so `cargo fmt --check` stays green.
+- Both `javascript.yml` and `release.yml` follow their "Generate contracts" step with a
+  "Verify generated contracts and API surface are up to date" step that runs
+  `git diff --exit-code` over the generated-output directories, failing the build if
+  regenerating produced an uncommitted diff (i.e. someone edited a generated file by hand,
+  or forgot to run the generator after a schema/spec change). The two workflows check a
+  slightly different set of paths: `javascript.yml` runs `pnpm generate:code` (no Gradle
+  toolchain) and deliberately excludes `android/inderun-contracts/src/main/kotlin` from its
+  diff, because that step skips the `generate:kotlin` Spotless pass and would otherwise
+  always report spurious formatting drift; `release.yml` runs the full `pnpm generate`
+  (Spotless included) and includes that path, since its output is guaranteed
+  ktlint-clean.
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
   exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
   resolve the package's literal `import("../generated/inderun_route_core.js")` without

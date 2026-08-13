@@ -92,12 +92,24 @@ export interface ProviderDynamicCapabilities {
 }
 
 /**
- * Snapshot of a registered provider's static descriptor and current dynamic
- * capability check, without executing a task.
+ * One registered provider's identity, fixed capabilities, and live availability,
+ * as of the moment checkCapabilities() was called.
  */
 export interface ProviderCapabilitySnapshot {
+  /**
+   * Stable identifier for this provider, matching the value used in routing
+   * preferences/constraints.
+   */
   providerId: string;
+  /**
+   * The provider's static, unchanging capability declaration (supported modes,
+   * privacy posture, model info).
+   */
   descriptor: ProviderDescriptor;
+  /**
+   * The provider's current dynamic availability (e.g. whether it's reachable/loaded
+   * right now) — this is the part that can change between calls.
+   */
   capabilities: ProviderDynamicCapabilities;
 }
 

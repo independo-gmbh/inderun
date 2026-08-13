@@ -13,8 +13,10 @@
 
 import Foundation
 
-/// The standard request payload for initiating a text-to-text execution task within the
-/// IndeRun framework.
+/// The request payload for a Mode 1 (request/response) text-to-text execution. At least one
+/// of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be
+/// present together, though callers should typically supply just one;
+/// `constraints`/`preferences` steer routing but never select a provider directly.
 // MARK: - TaskRequest
 public struct TaskRequest: Codable, Sendable {
     /// A unique identifier used to retrieve credentials from a secure local storage. Raw
@@ -522,12 +524,17 @@ public enum Level: String, Codable, Sendable {
     case off = "off"
 }
 
-/// The standard response payload for completed text-to-text execution within the IndeRun
-/// framework.
+/// The response payload for a completed text-to-text execution. A full execution failure
+/// (validation, routing, or every attempted provider failing) is surfaced by run() throwing
+/// an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
+/// are reserved for a provider reporting a non-fatal, degraded outcome on an
+/// otherwise-successful result (not currently produced by any provider in this codebase).
 // MARK: - TaskResult
 public struct TaskResult: Codable, Sendable {
-    /// Standardized reason describing how generation concluded (e.g., 'stop', 'length',
-    /// 'cancelled', or 'error').
+    /// How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+    /// 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+    /// otherwise-returned result — no provider in this codebase currently produces it, since a
+    /// full execution failure is instead surfaced by run() throwing an IndeRunError.
     public var finishReason: FinishReason
     /// The normalized content returned from the selected provider.
     public var output: Output
@@ -604,8 +611,10 @@ public extension TaskResult {
     }
 }
 
-/// Standardized reason describing how generation concluded (e.g., 'stop', 'length',
-/// 'cancelled', or 'error').
+/// How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+/// 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+/// otherwise-returned result — no provider in this codebase currently produces it, since a
+/// full execution failure is instead surfaced by run() throwing an IndeRunError.
 public enum FinishReason: String, Codable, Sendable {
     case cancelled = "cancelled"
     case error = "error"
@@ -676,8 +685,9 @@ public enum OutputType: String, Codable, Sendable {
 /// Required metadata providing an overview of the execution result and performance metrics.
 // MARK: - TaskResultTelemetry
 public struct TaskResultTelemetry: Codable, Sendable {
-    /// Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
-    /// 'Unavailable').
+    /// Present only if a provider reports a degraded outcome on an otherwise-successful result;
+    /// no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+    /// IndeRunError never produces a TaskResult at all.
     public var errorClass: ErrorClass?
     /// The identifier for the specific provider that handled the request (e.g.,
     /// 'openai_compatible_cloud').
@@ -738,10 +748,15 @@ public extension TaskResultTelemetry {
     }
 }
 
-/// Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
-/// 'Unavailable').
+/// Present only if a provider reports a degraded outcome on an otherwise-successful result;
+/// no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+/// IndeRunError never produces a TaskResult at all.
 ///
-/// Normalized error taxonomy class.
+/// Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+/// CapabilityMismatch (request needs something no eligible provider supports),
+/// Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+/// failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+/// execution budget), Internal (unexpected engine-side failure).
 public enum ErrorClass: String, Codable, Sendable {
     case AuthError = "AuthError"
     case CapabilityMismatch = "CapabilityMismatch"
@@ -814,12 +829,18 @@ public extension Usage {
     }
 }
 
-/// Normalized Milestone-1 error contract.
+/// The error shape thrown by run() (wrapped in an IndeRunException) when execution fails —
+/// via validation, routing (no eligible provider), or every attempted provider failing.
+/// Never returned as part of a successful TaskResult.
 // MARK: - IndeRunError
 public struct IndeRunError: Codable, Sendable {
     /// Optional structured diagnostic details. It must not contain raw secrets.
     public var details: [String: JSONAny]?
-    /// Normalized error taxonomy class.
+    /// Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+    /// CapabilityMismatch (request needs something no eligible provider supports),
+    /// Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+    /// failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+    /// execution budget), Internal (unexpected engine-side failure).
     public var errorClass: ErrorClass
     /// Human-readable error message suitable for logs and developer diagnostics.
     public var message: String

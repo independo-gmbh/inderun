@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-result.schema.json",
   "title": "TaskResult",
-  "description": "The standard response payload for completed text-to-text execution within the IndeRun framework.",
+  "description": "The response payload for a completed text-to-text execution. A full execution failure (validation, routing, or every attempted provider failing) is surfaced by run() throwing an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal, degraded outcome on an otherwise-successful result (not currently produced by any provider in this codebase).",
   "type": "object",
   "additionalProperties": true,
   "required": ["schemaVersion", "runId", "output", "finishReason", "telemetry"],
@@ -33,7 +33,7 @@
       }
     },
     "finishReason": {
-      "description": "Standardized reason describing how generation concluded (e.g., 'stop', 'length', 'cancelled', or 'error').",
+      "description": "How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an otherwise-returned result — no provider in this codebase currently produces it, since a full execution failure is instead surfaced by run() throwing an IndeRunError.",
       "enum": ["stop", "length", "cancelled", "error"]
     },
     "usage": {
@@ -75,7 +75,7 @@
           "minimum": 0
         },
         "errorClass": {
-          "description": "Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or 'Unavailable').",
+          "description": "Present only if a provider reports a degraded outcome on an otherwise-successful result; no provider in this codebase currently sets this. Distinct from run() throwing — a thrown IndeRunError never produces a TaskResult at all.",
           "enum": [
             "CapabilityMismatch",
             "Offline",
