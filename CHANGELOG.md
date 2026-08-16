@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/independo-gmbh/inderun/compare/v0.2.0...v0.2.1) (2026-08-16)
+
+### Bug Fixes 🛠️
+
+* **ci:** discard regenerated WASM stub before semantic-release backmerge ([ca98aa7](https://github.com/independo-gmbh/inderun/commit/ca98aa7b85b7d2d5a079c90ab4fa582dcabcfe7a))
+* **deps:** pin adm-zip and sharp to patched versions via pnpm overrides ([aecd636](https://github.com/independo-gmbh/inderun/commit/aecd636f5840f63abe66b81093e4aef85d447e0b))
+
 ## [0.2.0](https://github.com/independo-gmbh/inderun/compare/v0.1.2...v0.2.0) (2026-08-16)
 
 ### Features 🚀
