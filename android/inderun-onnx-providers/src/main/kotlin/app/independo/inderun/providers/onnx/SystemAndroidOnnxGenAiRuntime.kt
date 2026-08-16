@@ -12,50 +12,19 @@ import kotlin.coroutines.coroutineContext
  * (`com.microsoft.onnxruntime:onnxruntime-android`) and a Hugging Face tokenizer
  * (`ai.djl.huggingface:tokenizers`).
  *
- * **IO contract**: this runtime auto-detects, from the loaded graph's declared input names, which
- * of two decoder-only export shapes a model uses -- no [ModelPackage] field or app-facing
- * configuration selects it (see [detectDecodeStrategy] in `OnnxSessionLoadingKvCacheDetection.kt`).
- * Both require `input_ids`/`attention_mask` (`int64`) and a `logits` output (`float32`, `[1,
- * sequenceLength, vocabSize]`):
- *
- * - **Plain** (no `past_key_values.*` inputs, [DecodeStrategy.FullRecompute]): the full sequence
- *   is recomputed on every decode step. Always supported; the fallback when KV-cache detection
- *   can't establish every assumption below.
- * - **KV-cache** ([DecodeStrategy.KvCache], matching the legacy (non-merged) Hugging Face Optimum
- *   `decoder_with_past_model` export convention): exactly one token is fed as `input_ids` per
- *   model call, the prompt replayed one token at a time first. Requires `num_hidden_layers` (or
- *   GPT-2-style `n_layer`), `num_attention_heads`/`n_head` (or `num_key_value_heads`), and
- *   `hidden_size`/`n_embd` (or `head_dim`) to be readable from `config.json`. Mirrors the Apple
- *   member's `KvCacheDecoder`; see `OnnxDecoders.kt`.
- *
- * **Decode loop.** Generation defaults to greedy (argmax); `generation.temperature`/`topP`/`seed`
- * select sampling instead (see `OnnxSampling.kt`). `generation.stop` sequences are honored. Session
- * creation and every `run()` call execute on a dedicated single-thread dispatcher rather than
- * [kotlinx.coroutines.Dispatchers.IO]/[kotlinx.coroutines.Dispatchers.Default], since
- * `OrtSession.run()` is a blocking synchronous call (`OnnxTensorExecution.kt`). `OrtEnvironment` is
- * already a process-wide singleton per its own Java API contract (`OrtEnvironment.getEnvironment()`),
- * so no separate shared-instance wrapper is needed, unlike the Apple member's `ORTEnv`. The NNAPI
- * execution provider is configured by default on the plain decode path, falling back to XNNPACK
- * and then ORT's default CPU EP if NNAPI is unavailable on the host; the KV-cache path never uses
- * NNAPI (see `OnnxSessionLoading.kt`). See
- * `docs/architecture/onnx-runtime-provider-family.md` for the full specification and residual
- * risks -- none of the above has been exercised on a real device or model; that remains #88.
- *
- * **Chat formatting.** Chat-template application is not attempted: `ai.djl.huggingface:tokenizers`
- * exposes no `applyChatTemplate`-equivalent API (verified against its `0.33.0` public surface), so
- * this is a permanent gap for this runtime, not an oversight pending evaluation -- unlike the
- * Apple/Web members. Input always falls back to a plain `"role: content"` join.
- *
- * **Bundled asset extraction.** `bundled` sources are copied from Android assets into app-private
- * storage under a directory keyed by the session cache key (id/format/version/source/checksums), so
- * a changed `version`/`ref`/checksum extracts into a fresh directory rather than silently reusing
- * stale bytes. Extraction is atomic (copied into a temp directory, marked complete, then moved into
- * place) so an interrupted copy cannot poison a later load.
+ * This type only orchestrates; the actual behavior is documented next to where it's implemented,
+ * not restated here (kept in one place to avoid the two copies drifting apart):
+ * - Decode-strategy auto-detection (plain vs. KV-cache IO contract): [detectDecodeStrategy] in
+ *   `OnnxSessionLoadingKvCacheDetection.kt`.
+ * - Session/execution-provider setup, bundled-asset extraction, and the KV-cache/NNAPI
+ *   incompatibility: `OnnxSessionLoading.kt`.
+ * - Sampling (greedy/temperature/top-p): `OnnxSampling.kt`.
+ * - The two decode-step loops: `OnnxDecoders.kt`.
+ * - Chat-template gap: [formatMessages].
  *
  * `programmatic` model sources are out of scope for this default runtime (no files to resolve,
  * matching the Web/Apple members' own `programmatic` carve-out); it reports *runtime package
- * unavailable* rather than throwing. This default runtime has not been run against a real model
- * on-device -- real-device verification is tracked alongside the Apple member's own follow-up (#88).
+ * unavailable* rather than throwing.
  */
 class SystemAndroidOnnxGenAiRuntime(context: Context) : AndroidOnnxGenAiRuntime {
 
@@ -82,6 +51,12 @@ class SystemAndroidOnnxGenAiRuntime(context: Context) : AndroidOnnxGenAiRuntime 
         return AndroidOnnxGenerationOutput(text = text, finishReason = FinishReason.STOP)
     }
 
+    /**
+     * Chat-template application is not attempted: `ai.djl.huggingface:tokenizers` exposes no
+     * `applyChatTemplate`-equivalent API (verified against its `0.33.0` public surface), so this
+     * is a permanent gap for this runtime, not an oversight pending evaluation -- unlike the
+     * Apple/Web members. Falls back unconditionally to a plain `"role: content"` join.
+     */
     private fun formatMessages(messages: List<AndroidOnnxGenerationMessage>): String = messages.joinToString(separator = "\n") { "${it.role.rawValue}: ${it.content}" }
 
     private suspend fun decode(loaded: LoadedSession, prompt: String, input: AndroidOnnxGenerationInput): String {

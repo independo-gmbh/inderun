@@ -30,6 +30,22 @@ Multimodal exports (Gemma 4's `any-to-any` E2B/E4B, for example) are split acros
 vision/audio/decoder graphs and do **not** load through that pipeline; they would need a custom
 `OnnxTextGenerationRuntime`.
 
+## Expected Failure Modes
+
+- `CapabilityMismatch`: **On Device** selected but the ONNX Web provider isn't usable in this
+  browser (e.g. no WebGPU/WASM support for the runtime)
+- `Offline`: **Cloud** selected but the browser has no network connection
+- `Unavailable`: the demo proxy or configured cloud endpoint could not be reached, or failed
+  before returning a response
+- `AuthError`: the configured upstream rejected authentication
+- `Internal`: an unexpected runtime or payload-mapping failure occurred
+
+The demo surfaces these as the normalized error shown in place of generated text — see
+[Error Model](../../docs/architecture/providers.md#error-model). Note this demo does not yet
+exercise the Web system-model provider (Chrome Prompt API); see the
+[Provider Matrix](../../docs/architecture/providers.md#provider-matrix) for its dedicated test
+coverage.
+
 ## Security Model
 
 The browser app uses the proxy-first configuration from `@independo/inderun-web`. The browser does not carry raw provider secrets.

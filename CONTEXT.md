@@ -26,14 +26,15 @@ Treat them as the architecture baseline.
 
 ## 3) Scope Boundaries (Current Phase)
 
-In scope now (Milestone 1 — Text→Text MVP):
+Milestone planning, scope, and status live in GitHub Issues and Milestones
+(https://github.com/independo-gmbh/inderun/milestones), not in this file. Check
+there for what's currently in scope before starting work — do not infer scope
+from this document or assume it is up to date.
 
-- Mode 1: `run()` for `text_to_text`
-
-Future (Milestone 2), not yet implemented:
-
-- Mode 2: `stream()` + cancellation semantics
-- Mode 3: `openSession()` / realtime session model
+As of this writing, Mode 1 `run()` is implemented and stable, and provider
+breadth (ONNX Runtime, web system-model) has landed. Mode 2 `stream()` +
+cancellation semantics and Mode 3 `openSession()` / realtime sessions remain
+unimplemented.
 
 Out of scope now:
 
@@ -181,6 +182,26 @@ When behavior or contracts change, update docs in the same task:
 - provider semantics/capabilities: `docs/architecture/providers.md`
 - project framing/scope: `docs/architecture/technical-brief.md`
 - CI/process behavior: `docs/ci.md`
+
+Any change that adds a provider, changes a provider's capability check, task
+support, interaction modes, cancellation behavior, or error mapping MUST update
+the [Provider Matrix](docs/architecture/providers.md#provider-matrix) row for
+that provider (and the family-specific doc, if one exists) in the same task.
+
+**Where technical detail belongs.** `docs/architecture/*.md` files are for durable,
+high-level information: concepts, boundaries, contracts, public type/function
+names, and rationale that doesn't change with routine implementation work. They
+are not the place for algorithm walkthroughs, exact control-flow/gate ordering,
+buffer/threading strategy, or other detail that lives next to the code it
+describes — that content drifts out of sync with the implementation almost
+immediately, and belongs in code comments (doc comments on the relevant
+type/function) or a package-level README instead. When writing or reviewing an
+architecture doc, if a sentence would need to change every time someone edits the
+function it's describing, move it into a comment at that function instead of
+stating it in prose here — the doc should then just name the function and link to
+its directory. See `docs/architecture/onnx-runtime-provider-family.md`'s
+"Implementation detail... lives in code comments in [directory]" sections for the
+pattern.
 
 If the change is material and docs are not updated, the task is incomplete.
 

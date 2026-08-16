@@ -154,6 +154,14 @@ actor LoadedSessionBox {
 
         try verifyChecksums(modelPackage, directory: directory)
 
+        // Loads tokenizer config from an already-resolved local directory with hardcoded literal
+        // filenames only -- no Hub network/download/cache APIs (`HubApi.snapshot(from:)`,
+        // `.from(pretrained:)`, `HubCache`/`HubClient`) are called. Those Hub-network/cache-path
+        // APIs have open CodeQL swift/path-injection findings upstream (`HubCache.cachedFilePath`
+        // builds cache paths from `revision`/`filename` without the same validation
+        // `storeFile`/`storeData` apply; tracked in huggingface/swift-huggingface#62). Before
+        // calling those APIs with a repo ID or filename that isn't a hardcoded literal, check
+        // whether that issue is resolved, and if not, validate repo-id/filename inputs first.
         let tokenizer: Tokenizer
         do {
             tokenizer = try await AutoTokenizer.from(modelFolder: directory)

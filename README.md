@@ -5,7 +5,6 @@
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml"><img alt="Rust" src="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml"><img alt="Android" src="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg?branch=dev"></a>
-  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml"><img alt="Capacitor Plugin" src="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml/badge.svg?branch=dev"></a>
 </p>
 
 <p align="center">
@@ -32,9 +31,10 @@ The project is organized around a few stable ideas:
 ## Status
 
 IndeRun is currently focused on Mode 1 `run()` execution for `text_to_text`. Streaming and realtime sessions are
-planned (Milestone 2) but not yet implemented; the shipped surface is request/response execution. Every platform can
-always use the OpenAI-compatible **cloud** provider; **on-device** execution is used automatically by routing when the
-device supports it (or forced with a `localRequired` privacy constraint).
+planned but not yet implemented; the shipped surface is request/response execution. Every platform can always use the
+OpenAI-compatible **cloud** provider; **on-device** execution is used automatically by routing when the device
+supports it (or forced with a `localRequired` privacy constraint). See
+[GitHub Milestones](https://github.com/independo-gmbh/inderun/milestones) for current roadmap status.
 
 ## Platforms
 
@@ -161,9 +161,8 @@ val result = indeRun.run(
 
 ### Capacitor (hybrid apps)
 
-A thin Capacitor bridge (`@independo/capacitor-inderun`) delegates to the native iOS and Android SDKs. It lives in its
-own, SwiftPM-publishable repository — **[independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor)** —
-and consumes the SDKs published from this monorepo (npm, SwiftPM git tag, Maven Central). See that repo for install and usage.
+A thin Capacitor bridge is used internally to integrate the native iOS and Android SDKs into hybrid applications. It
+is not currently published as a public package or repository.
 
 ## Minimum system requirements
 
@@ -210,3 +209,5 @@ MIT. See `LICENSE`.
 
 This project is sponsored by [netidee](https://www.netidee.at/inderun) and developed
 by [Independo GmbH](https://www.independo.app).
+
+Explore more [open-source tools and research from Independo](https://www.independo.app/open-source).
