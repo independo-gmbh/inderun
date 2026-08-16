@@ -32,14 +32,12 @@ streaming/session support cannot leak in even as unused scaffolding.
 
 ## Browser Support
 
-Desktop Chrome 138+ only (Windows 10/11, macOS 13+, Linux, ChromeOS Chromebook Plus 16389.0.0+),
-requiring roughly 22 GB free storage and either a GPU with >4 GB VRAM or a CPU with 16 GB RAM and
-4+ cores. These figures come from Chrome's own documentation and may drift; consult
-<https://developer.chrome.com/docs/ai/prompt-api> rather than treating them as fixed. Edge exposes
-an analogous API per public announcements, but this family has not verified whether Edge's global
-shares the exact `LanguageModel` surface — do not claim Edge support until confirmed. Firefox and
-Safari are unsupported. Everywhere unsupported, the provider degrades to an honest
-`capability_unavailable` rejection rather than throwing.
+Desktop Chrome 138+ only; Firefox and Safari are unsupported; Edge is unconfirmed. Everywhere
+unsupported, the provider degrades to an honest `capability_unavailable` rejection rather than
+throwing. Exact OS/storage/hardware requirements drift with Chrome's own documentation, so the
+current numbers are consumer-facing content, not architecture — see
+[`packages/inderun-web/README.md`](../../packages/inderun-web/README.md#browser-support) (which
+links to Chrome's own docs) rather than restating them here.
 
 ## Capability State Vocabulary
 
@@ -69,13 +67,12 @@ human-readable text — no new route-rejection codes are added.
 
 ## Provider Error Mapping
 
-| Runtime signal                                        | `errorClass`          |
-| ------------------------------------------------------- | ---------------------- |
-| Any non-`available` capability kind (checked pre-attempt) | `CapabilityMismatch`   |
-| Hardware/browser-feature failure during `generate()`        | `CapabilityMismatch`   |
-| Storage/network constraints, transient failure                | `Unavailable`           |
-| Generation aborted or exceeded its timeout budget                | `Timeout`               |
-| Missing prompt/messages, malformed/empty output, unexpected throwable | `Internal`         |
+Same `errorClass` mapping as documented for consumers in
+[`packages/inderun-web/README.md`](../../packages/inderun-web/README.md#errors) (§ On-Device Models:
+Web System-Model Provider → Errors): capability-gate/hardware failures map to `CapabilityMismatch`,
+storage/network/transient failures to `Unavailable`, aborts/timeouts to `Timeout`, and malformed
+output or unexpected throwables to `Internal`. A purely local runtime never produces `AuthError`,
+`RateLimited`, or `Offline`.
 
 There is no `AuthError`/`RateLimited`/`Offline` path — purely local execution, same as the ONNX
 family and the platform system-model providers.

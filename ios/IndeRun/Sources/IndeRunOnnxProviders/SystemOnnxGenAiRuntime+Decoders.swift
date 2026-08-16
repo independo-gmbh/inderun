@@ -84,6 +84,12 @@ struct FullRecomputeDecoder: StepDecoder {
 /// outputs threaded back in as the next call's `past_key_values.*` inputs directly (no copy),
 /// which is itself the buffer reuse win for this path. The prompt is replayed one token at a time
 /// before real generation begins -- see `step(sampling:)`.
+///
+/// The fixed-at-1 sequence-length shape (as opposed to feeding the whole prompt in one call) was
+/// corrected against a real device failure (`Got invalid dimensions for input: input_ids ...
+/// Expected: 1`) surfaced by a real exported model, LaMini-GPT, in the iOS demo app -- not a
+/// hypothetical constraint. See #88 for remaining real-device verification (load time, memory,
+/// cancellation, other model families).
 struct KvCacheDecoder: StepDecoder {
     let loaded: LoadedSession
     let layout: KvCacheLayout

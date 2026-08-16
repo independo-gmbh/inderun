@@ -5,7 +5,7 @@ provider-neutral model-loading contract used for developer-supplied/custom local
 architecture baseline for the platform implementation tickets: #85 (Web), #87 (Android), and #86
 (Apple platforms). Those tickets implement providers; they must not re-decide the boundaries below.
 
-This is a Milestone 2 specification. Field-level shapes live in the schema, not in this prose (see
+Field-level shapes live in the schema, not in this prose (see
 [Model Package Contract](#model-package-contract)). The Web, Apple, and Android members are all
 implemented (see [Web Implementation](#web-implementation), [Apple
 Implementation](#apple-implementation), and [Android Implementation](#android-implementation)).
@@ -58,27 +58,25 @@ DeepSeek-R1-Distill.
 to change"_. Implementers must isolate the GenAI call behind an injectable runtime seam (below) so a
 version change is contained in the adapter.
 
-**Correction — GenAI has no browser build.** ORT GenAI ships Python, .NET, C/C++, and Java packages
-only; there is no JavaScript/browser distribution, and `onnxruntime-web` provides raw inference
-without a generative loop (tokenization, sampling, KV cache). The Web member therefore satisfies the
-_role_ GenAI was mandated for — not the literal package — by defaulting to Transformers.js, which
-runs ONNX models on `onnxruntime-web` and owns the generative loop. Source:
+**GenAI has no browser build.** ORT GenAI ships Python, .NET, C/C++, and Java packages only; there
+is no JavaScript/browser distribution, and `onnxruntime-web` provides raw inference without a
+generative loop (tokenization, sampling, KV cache). The Web member satisfies the _role_ GenAI was
+mandated for — not the literal package — by defaulting to Transformers.js, which runs ONNX models on
+`onnxruntime-web` and owns the generative loop. Source:
 <https://onnxruntime.ai/docs/genai/howto/install.html>.
 
-**Correction — the mobile members target raw ORT Mobile, not the ORT GenAI package.** Both shipped
-mobile members (Apple, Android) default to the platform's raw ONNX Runtime Mobile bindings plus a
-hand-written decode loop and an external tokenizer, rather than
-`onnxruntime-genai`/`onnxruntime-extensions`. This keeps both defaults on the same well-established,
-non-preview API surface used by the Web member's underlying runtime. Both mobile members now
-auto-detect and reuse `past_key_values`/KV-cache export shapes where the graph and `config.json`
-support it (falling back to full-sequence recompute otherwise) and configure an accelerated
-execution provider (CoreML/XNNPACK on Apple, NNAPI/XNNPACK on Android) with a CPU fallback — this is
-no longer a blanket "no KV-cache reuse, CPU-only" limitation, though none of it has been exercised
-against a real model on a real device beyond the plain-path verification noted in each platform
-section (#88). This is exactly what the injectable seam exists for regardless: the seam is the
-contract, and any application (or a future IndeRun default) can supply an
-ORT-GenAI-backed `OnnxGenAiRuntime`/`AndroidOnnxGenAiRuntime` implementation without changing the
-provider.
+**The mobile members target raw ORT Mobile, not the ORT GenAI package.** Both shipped mobile members
+(Apple, Android) default to the platform's raw ONNX Runtime Mobile bindings plus a hand-written
+decode loop and an external tokenizer, rather than `onnxruntime-genai`/`onnxruntime-extensions`. This
+keeps both defaults on the same well-established, non-preview API surface used by the Web member's
+underlying runtime. Both mobile members auto-detect and reuse `past_key_values`/KV-cache export
+shapes where the graph and `config.json` support it (falling back to full-sequence recompute
+otherwise) and configure an accelerated execution provider (CoreML/XNNPACK on Apple, NNAPI/XNNPACK on
+Android) with a CPU fallback, though none of it has been exercised against a real model on a real
+device beyond the plain-path verification noted in each platform section (#88). This is exactly what
+the injectable seam exists for regardless: the seam is the contract, and any application (or a future
+IndeRun default) can supply an ORT-GenAI-backed `OnnxGenAiRuntime`/`AndroidOnnxGenAiRuntime`
+implementation without changing the provider.
 
 **Deterministic fixture fallback.** IndeRun already makes on-device adapters testable without their
 native backend via an injectable runtime interface (`AppleFoundationModelsRuntime`,
@@ -115,7 +113,7 @@ contracts. The schema is intentionally lean and forward-compatible: only `id` an
 required, and unknown fields are permitted. This document does not restate the fields; consult the
 schema.
 
-IndeRun does not own model download/update flows in Milestone 2. Host applications may bundle,
+IndeRun does not own model download/update flows today. Host applications may bundle,
 download, cache, or otherwise supply model files; the model package's `source` describes how.
 
 ## Model Source Support Matrix
@@ -140,7 +138,7 @@ Notes:
   on `bundled`/`app_managed`/`programmatic`/`registry` instead.
 - `remote` (host-managed download) is deferred everywhere: the host application performs the download
   and then supplies files as `bundled`/`app_managed`/`programmatic`. IndeRun does not own the
-  download in Milestone 2.
+  download itself.
 - "Deferred" means the contract permits it but the first implementation need not support it;
   "Unsupported" means the platform cannot honor it.
 
@@ -217,410 +215,87 @@ outcome with no user-visible events after the cancel point, per `architecture.md
 
 ## Web Implementation
 
-The Web member ships in `@independo/inderun-web` under the `./onnx` subpath entry point, kept out of
-the provider-agnostic root index like the OpenAI adapter. Provider id: `local.onnx.genai.web`.
-Descriptor: `type: local`, `transport: in_process`, `supports.run: true` with all forward-looking
-flags false, `cancel: soft`, `privacy.dataLeavesDevice: false`. Option shapes and the error table for
-consumers live in the package README, not here.
+Ships in `@independo/inderun-web` under the `./onnx` subpath entry point. Provider id:
+`local.onnx.genai.web`. Runtime seam: `OnnxTextGenerationRuntime` (`prepare`/`generate`), with a
+default `createTransformersJsRuntime()` (lazy `@huggingface/transformers` import, not bundled by
+IndeRun), a `createFixtureOnnxRuntime()` test/demo seam, and support for an application-supplied
+implementation. Model sources: `registry`, `bundled`, `programmatic`, `app_managed` (see
+[Model Source Support Matrix](#model-source-support-matrix) for the full per-platform picture).
 
-**Runtime seam.** `OnnxTextGenerationRuntime` has two methods: `prepare(modelPackage)` returning the
-`{ available, reason? }` snapshot, and `generate(input, signal)` returning normalized text. Three
-implementations exist:
+Implementation detail (runtime seam internals, quantization defaults, capability gate order, error
+mapping, browser/WASM constraints) lives in code comments in
+[`packages/inderun-web/src/providers/onnx/`](../../packages/inderun-web/src/providers/onnx/) and in
+[`packages/inderun-web/README.md`](../../packages/inderun-web/README.md) — this document does not
+duplicate it, to avoid drifting out of sync with the implementation.
 
-- `createTransformersJsRuntime()` — the default. Lazily imports `@huggingface/transformers`, which the
-  application installs; IndeRun does not bundle it. Initialization failures are reported as
-  _runtime package unavailable_ rather than thrown, so routing degrades to an explainable rejection
-  rather than a crash. The import specifier stays statically resolvable so bundlers can find the
-  package; apps that do not install it supply their own runtime instead.
-- `createFixtureOnnxRuntime()` — the deterministic in-memory fixture mandated above. It is the test
-  seam and lets demos exercise the on-device route offline.
-- Any application-supplied implementation, for example a hand-rolled `onnxruntime-web` pipeline.
-
-Runtime failures are signalled with `OnnxRuntimeError`, whose `kind` (`capability`, `unavailable`,
-`timeout`, `internal`) selects the IndeRun error class per the mapping table above; anything else a
-runtime throws normalizes to `Internal`. Allocation failures during model load (ONNX Runtime reports
-these as `std::bad_alloc` from session creation) are resource exhaustion and map to `Unavailable`,
-not `CapabilityMismatch`.
-
-The default runtime loads quantized weights (`q4f16` on WebGPU, `q4` otherwise) because
-Transformers.js would otherwise select `fp32` and exhaust browser memory. It covers models that load
-through the `text-generation` pipeline, which is the Mode 1 `text_to_text` case this family targets.
-Multimodal exports are split across separate vision/audio/embedding/decoder graphs and need
-`AutoProcessor` plus a model-specific class; that is out of scope for `text_to_text` and, if ever
-needed, belongs in a custom runtime behind the seam rather than in the provider.
-
-**Model sources.** The Web member honors `registry`, `bundled`, `programmatic`, and `app_managed` and
-rejects the other two in `capabilities()`, matching the matrix above: `filesystem` as unsupported
-(browsers cannot read arbitrary local paths) and `remote` as deferred (the host downloads and then
-re-declares the files). The Transformers.js runtime maps `registry` refs to hub model ids, points the
-loader at locally served assets for `bundled`/`app_managed`, and requires an application-supplied
-generator for `programmatic`.
-
-**Capability gate order.** Model package schema validation (reusing `getModelPackageValidationIssues`
-from the contracts package, including its inline-secret and URL-userinfo rules) → Web source-type
-support → `runtime.platforms` includes `web` → declared tasks include `text_to_text` → delegate to
-`runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection carrying
-the reason string, for example:
-
-- `capability_unavailable`: _model source unavailable: 'filesystem' model sources are unsupported on
-  Web because browsers cannot read arbitrary local paths._
-- `capability_unavailable`: _runtime package unavailable: install the optional dependency
-  @huggingface/transformers (…)._
-- `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
-  generation budget (`constraints.timeoutMs`, else the provider's `timeoutMs`) elapses; `Unavailable`
-  for runtime initialization failures and resource exhaustion. There is no `AuthError`,
-  `RateLimited`, or `Offline` path.
-
-**Browser constraints.** WASM is the CPU baseline; WebGPU is used when `navigator.gpu` exists.
-Backend choice is an internal detail surfaced only in capability `reason` strings — never a routing
-target. WASM threads require cross-origin isolation (`Cross-Origin-Opener-Policy: same-origin` and
-`Cross-Origin-Embedder-Policy: require-corp`), and the host application is responsible for serving
-and caching model and ORT WASM assets; IndeRun owns no download or cache layer in Milestone 2.
-
-**Authoring a custom local provider.** Implement `OnnxTextGenerationRuntime` rather than a new
-`ProviderAdapter` when the model is ONNX: the provider already owns descriptor semantics, model
-package validation, source gating, timeouts, and error normalization. Implement `ProviderAdapter`
-directly only for a different runtime family.
+**Authoring a custom local provider:** implement `OnnxTextGenerationRuntime`, per
+[Authoring A Custom Local ONNX Provider](#authoring-a-custom-local-onnx-provider) below.
 
 ## Apple Implementation
 
-The Apple member ships as its own SwiftPM library product, `IndeRunOnnxProviders`
-(`ios/IndeRun/Sources/IndeRunOnnxProviders`), kept out of `IndeRunSwift`/`IndeRunAppleProviders`
-like the Web member is kept out of the provider-agnostic root index. Provider id:
-`local.onnx.genai.apple`. Descriptor: `type: .local`, `transport: .inProcess`, `supports.run:
-true` with all forward-looking flags false, `cancel: .soft`, `privacy.dataLeavesDevice: false`.
+Ships as its own SwiftPM library product, `IndeRunOnnxProviders`
+(`ios/IndeRun/Sources/IndeRunOnnxProviders`). Provider id: `local.onnx.genai.apple`. Runtime seam:
+`OnnxGenAiRuntime` (`prepare`/`generate`), with a default `SystemOnnxGenAiRuntime()` (ONNX Runtime
+SPM bindings + `swift-transformers` tokenizer), a `createFixtureOnnxRuntime(options:)` test/demo
+seam, and support for an application-supplied implementation. Model sources: `bundled`,
+`programmatic`, `app_managed`, `filesystem` (see
+[Model Source Support Matrix](#model-source-support-matrix)).
 
-**Platform minimums.** Landing this member raised the whole SDK's minimum platforms from iOS 15 /
-macOS 12 to **iOS 16 / macOS 14**, because its dependencies require it: the official ONNX Runtime
-SPM bindings (`microsoft/onnxruntime-swift-package-manager`, macOS 14 minimum) and
-`swift-transformers`'s `Tokenizers` module (iOS 16 minimum). SwiftPM has no per-target platform
-override in a single manifest, so this is a package-wide, breaking bump — every IndeRun Apple
-consumer, not only ONNX users, now needs iOS 16 / macOS 14.
+Landing this member raised the whole SDK's minimum platforms to **iOS 16 / macOS 14** — a
+package-wide, breaking bump for every IndeRun Apple consumer, not only ONNX users — because its
+dependencies require it; see `Package.swift`.
 
-**Runtime seam.** `OnnxGenAiRuntime` has two methods: `prepare(_:)` returning the `{available,
-reason?}` snapshot, and `generate(_:)` returning normalized text — the same shape as the Web
-member's `OnnxTextGenerationRuntime`, adapted to Swift Concurrency (cancellation is ambient via
-`Task` cancellation rather than an explicit `AbortSignal` parameter). Two implementations exist:
+Implementation detail (decode-strategy auto-detection between the plain and KV-cache IO shapes,
+execution-provider fallback and the KV-cache/CoreML incompatibility, buffer reuse, sampling,
+capability gate order, cancellation semantics) lives in code comments in
+[`ios/IndeRun/Sources/IndeRunOnnxProviders/`](../../ios/IndeRun/Sources/IndeRunOnnxProviders/) —
+this document does not duplicate it, to avoid drifting out of sync with the implementation. Real
+device verification beyond the plain decode path is tracked in #88.
 
-- `SystemOnnxGenAiRuntime()` — the default. Tokenizes with `swift-transformers`'s
-  `AutoTokenizer.from(modelFolder:)`, applying the tokenizer's chat template
-  (`Tokenizer.applyChatTemplate`) when `tokenizer_config.json` declares one and falling back to a
-  plain `"role: content"` join otherwise; runs inference through the official ONNX Runtime SPM
-  bindings (`OnnxRuntimeBindings` / `ORTSession`). **IO contract**: both supported decode paths
-  below require `input_ids`/`attention_mask` inputs (`int64`) and a `logits` output (`float32`,
-  `[1, sequenceLength, vocabSize]`). Which path a given model uses is auto-detected from the
-  graph's declared input names at load time — no `ModelPackage` field or app-facing configuration
-  selects it:
-  - **Plain** (no `past_key_values.*` inputs): shape `[1, sequenceLength]`, the full sequence
-    recomputed every decode step. Always supported; the fallback whenever KV-cache detection can't
-    establish every assumption below.
-  - **KV-cache** (`past_key_values.{layer}.key`/`.value` inputs present, the legacy (non-merged)
-    Hugging Face Optimum `decoder_with_past_model` export convention): exactly one token is fed as
-    `input_ids` per model call — this graph shape traces `input_ids`'s sequence-length axis fixed
-    at 1, not dynamic, so (unlike a merged/optional-past graph) it cannot accept the whole prompt
-    in a single call. The prompt is therefore replayed through the same session one token at a
-    time (discarding logits) to build up `past_key_values` before the first real generated token,
-    then generation proceeds one token per call the same way, with `attention_mask` covering the
-    full running sequence and each call's `present.{layer}.key`/`.value` outputs threaded back in
-    as the next call's `past_key_values.*` inputs directly (no copy). Detection additionally
-    requires `num_hidden_layers` (or GPT-2-style `n_layer`), `num_attention_heads`/`n_head` (or
-    `num_key_value_heads` for GQA models), and `hidden_size`/`n_embd` (or an explicit `head_dim`)
-    to be readable from `config.json` in the model directory, and every expected
-    `past_key_values.{layer}.{key,value}` input /
-    `present.{layer}.{key,value}` output to be present by that naming convention; an optional
-    `position_ids` input is fed the running absolute position when the graph declares it. Graphs
-    that instead declare a `use_cache_branch` boolean input (merged Optimum exports, which accept
-    the whole prompt on their first call) fall back to the plain path instead — the ONNX Runtime
-    Objective-C bindings this runtime depends on (as of `onnxruntime-swift-package-manager`
-    1.24.2) expose no `bool` tensor element type to feed it, and this runtime does not implement
-    the merged graph's alternate calling convention. This path's one-token-per-call shape was
-    corrected against a real device failure (`Got invalid dimensions for input: input_ids ...
-    Expected: 1`) surfaced by a real exported model (LaMini-GPT, added to the iOS demo app);
-    detection remains deliberately conservative — any unresolvable assumption falls back to the
-    plain path rather than guessing. See #88 for remaining broader real-device verification (load
-    time, memory, cancellation, other model families).
-
-  **Graph file convention**: `ModelPackage.files.required` has no positional semantics of its own
-  in the schema, so this runtime defines one — the _first_ entry is the ONNX graph file; any
-  remaining entries (for example external weight shards) must be present alongside it but are not
-  referenced directly. `ModelPackage.integrity.checksums` (`sha256:<hex>`) are verified for every
-  file this runtime resolves, before load. The session cache key covers `id`, `version`, `source`,
-  and `integrity.checksums` together, not `id` alone, so swapping a model's bytes without bumping
-  `id` does not silently keep serving a stale session.
-
-  **Execution.** A single `ORTEnv` is created once and shared process-wide across every session,
-  per ORT's own guidance that one environment should exist per process rather than per session.
-  Session creation and every `run()` call execute on a dedicated serial queue rather than inline on
-  the Swift Concurrency cooperative thread pool, since `ORTSession.init`/`run()` are blocking
-  synchronous calls. The CoreML execution provider is configured by default on the plain decode
-  path (`ORTCoreMLExecutionProviderOptions` with its own defaults), falling back to XNNPACK and
-  then ORT's default CPU EP if CoreML EP configuration fails on the host (availability and
-  compilation behavior vary by device/OS); `setIntraOpNumThreads` is set explicitly, bounded by
-  the device's active processor count, rather than left at ORT's implicit default. CoreML compiles
-  the graph into an on-device `.mlmodelc` cache on first load — managed entirely by ORT/CoreML, not
-  by IndeRun — keyed by the model and execution-provider options, and invalidated by a changed
-  model file or EP option set. **The KV-cache path never uses CoreML**, regardless of host
-  availability: its first decode call feeds a genuinely zero-length `past_key_values` tensor (see
-  above), and ORT's CoreML EP rejects a dynamic-shaped input with zero elements at run time
-  (`Input (past_key_values.0.key) has a dynamic shape (...) but the runtime shape (...) has zero
-  elements. This is not supported by the CoreML EP.` — a real device failure surfaced by
-  LaMini-GPT, not a hypothetical one); since ORT's execution provider list is fixed at
-  session-creation time, not selectable per call, that graph's session is created directly on
-  XNNPACK/CPU. The plain decode path preallocates its `input_ids`/`attention_mask`
-  buffers once per generation (sized to the max possible sequence length) and writes into a
-  subrange each step rather than allocating fresh buffers per token; the KV-cache path's per-call
-  buffers are already fixed-size (exactly one token each), and its `past_key_values` reuse (above)
-  is itself the buffer-reuse win for that path — though note the prompt-replay calls mean this
-  path issues one ORT call per prompt token plus one per generated token, not one call per
-  generated token as the plain path does.
-
-  **Decoding** defaults to greedy (argmax). Setting `generation.temperature` switches to sampling:
-  logits are scaled by `1 / temperature`, optionally narrowed to the smallest token set whose
-  cumulative probability reaches `generation.topP` (nucleus sampling), then sampled — seeded
-  (reproducibly) when `generation.seed` is set, otherwise drawn from
-  `SystemRandomNumberGenerator`. `generation.stop` sequences are honored on both decode paths.
-  Apps that need an accelerated execution provider this runtime doesn't configure, a different
-  sampling strategy, or a KV-cache export shape this runtime doesn't auto-detect (for example
-  `use_cache_branch`-gated merged graphs) supply their own `OnnxGenAiRuntime`; real-device
-  verification (load time, token latency, peak memory, cancellation behavior, repeated-run
-  stability against an actual model, for both decode paths) is tracked in #88 — this default has
-  not yet been run against a real model on-device. `programmatic` model sources are also out of
-  scope for this default runtime (no files to resolve, matching the Web member's own
-  `programmatic` carve-out); it reports _runtime package unavailable_ rather than throwing.
-- `createFixtureOnnxRuntime(options:)` — the deterministic in-memory fixture mandated above,
-  public/importable like the Web member's `createFixtureOnnxRuntime` (this diverges deliberately
-  from the private-to-tests fixture convention used by `AppleFoundationModelsProvider`, per the
-  fixture's explicit mandate to support offline demos as well as tests).
-- Any application-supplied implementation of `OnnxGenAiRuntime`.
-
-**Model sources.** The Apple member honors `bundled`, `programmatic`, `app_managed`, and
-`filesystem`, and rejects `registry` and `remote` in `capabilities()`, matching the support
-matrix above. `SystemOnnxGenAiRuntime` resolves `bundled` under `Bundle.main.resourceURL`,
-`filesystem` and `app_managed` as a directory path from `source.ref` (absolute for `filesystem`,
-relative to the app's Application Support directory for `app_managed`).
-
-**Capability gate order.** Model package structural validation (a hand-written
-`getModelPackageValidationIssues` in `IndeRunOnnxProviders` — no generated JSON Schema validator
-exists in Swift, so this is a scoped subset covering `id`/`format` presence, inline-secret keys,
-and `source.ref` URL-userinfo, not a full AJV-equivalent port) → Apple source-type support →
-`runtime.platforms` includes `apple` → declared tasks include `text_to_text` → delegate to
-`runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection, for
-example:
-
-- `capability_unavailable`: _model source unavailable: 'registry' model sources are deferred on
-  Apple platforms; supply model files as bundled, programmatic, app_managed, filesystem._
-- `capability_unavailable`: _model files missing: 'model.onnx' not found at \<resolved path\>._
-- `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
-  generation budget (`constraints.timeoutMs`, else the provider's configured timeout) elapses;
-  `Unavailable` for ONNX Runtime session initialization failures. There is no `AuthError`,
-  `RateLimited`, or `Offline` path. Real `Task` cancellation (the caller cancelling its own task,
-  as opposed to the provider's own deadline elapsing) propagates as a raw `CancellationError`
-  rather than an `IndeRunException`, matching the established Swift-side convention
-  (`OpenAIProvider`, `IndeRun.swift`) rather than the Web member's `AbortError → Timeout` mapping —
-  the two platforms differ here because Swift Concurrency has first-class cancellation and the
-  rest of this SDK already relies on it. `ORTSession.run()` itself is a blocking synchronous call
-  that cannot be interrupted mid-call; cancellation is observed only between decode steps
-  (`cancel: .soft`), so a cancelled or timed-out request still waits out its current in-flight
-  step.
-
-**Packaging and binary size.** ORT Mobile's native binary is statically linked via the SPM
-`onnxruntime` product and adds meaningfully to app binary size; the model files themselves must
-also fit on-device disk and load into device memory (see
-[Platform Constraints](#platform-constraints-reference)). Neither IndeRun nor this provider owns
-model download/update flows in Milestone 2 — apps that fetch models remotely still supply them as
-`bundled`/`app_managed`/`programmatic` once resolved, per the model source matrix.
-
-**Authoring a custom local provider.** Implement `OnnxGenAiRuntime` rather than a new
-`ProviderAdapter` when the model is ONNX: `OnnxRuntimeAppleProvider` already owns descriptor
-semantics, model package validation, source gating, timeouts, and error normalization. Implement
-`ProviderAdapter` directly only for a different runtime family, mirroring the Web guidance above.
+**Authoring a custom local provider:** implement `OnnxGenAiRuntime`, per
+[Authoring A Custom Local ONNX Provider](#authoring-a-custom-local-onnx-provider) below.
 
 ## Android Implementation
 
-The Android member ships as its own Gradle library module, `inderun-onnx-providers`
-(`android/inderun-onnx-providers`), following the same one-module-per-provider-family convention as
-`inderun-mlkit-providers` and `inderun-openai-providers`. Provider id: `local.onnx.genai.android`.
-Descriptor: `type: local`, `transport: in_process`, `supports.run: true` with all forward-looking
-flags false, `cancel: soft`, `privacy.dataLeavesDevice: false`.
+Ships as its own Gradle library module, `inderun-onnx-providers` (`android/inderun-onnx-providers`).
+Provider id: `local.onnx.genai.android`. Runtime seam: `AndroidOnnxGenAiRuntime`
+(`prepare`/`generate`), with a default `SystemAndroidOnnxGenAiRuntime(context)` (ONNX Runtime Mobile
+Java bindings + a Hugging Face tokenizer via `ai.djl`), a `createFixtureOnnxRuntime(options)`
+test/demo seam, and support for an application-supplied implementation. Model sources: `bundled`,
+`programmatic`, `app_managed`, `filesystem` (see
+[Model Source Support Matrix](#model-source-support-matrix)).
 
-**Runtime seam.** `AndroidOnnxGenAiRuntime` has two suspend methods: `prepare(modelPackage)`
-returning the `{available, reason?}` snapshot, and `generate(input)` returning normalized text — the
-same shape as the Web and Apple members' runtime seams, adapted to Kotlin Coroutines (cancellation
-is ambient via coroutine `Job` cancellation, matching Apple's `Task` cancellation model rather than
-the Web member's explicit `AbortSignal` parameter). Two implementations exist:
+Implementation detail (decode-strategy auto-detection, execution-provider fallback and the
+KV-cache/NNAPI incompatibility, buffer reuse, sampling, the Android-specific
+`libc++_shared.so`/`tokenizer-native` packaging fix, capability gate order, cancellation semantics)
+lives in code comments in
+[`android/inderun-onnx-providers/`](../../android/inderun-onnx-providers/) — this document does not
+duplicate it, to avoid drifting out of sync with the implementation. One notable platform gap:
+unlike Apple and Web, this default runtime does not apply chat templates (the DJL tokenizer binding
+exposes no equivalent API), falling back unconditionally to a plain `"role: content"` join. Real
+device verification beyond the plain-path DistilGPT-2 check is tracked in #88.
 
-- `SystemAndroidOnnxGenAiRuntime(context)` — the default. Runs inference through ONNX Runtime
-  Mobile's Java bindings (`com.microsoft.onnxruntime:onnxruntime-android`) and tokenizes with a
-  Hugging Face tokenizer (`ai.djl.huggingface:tokenizers` plus its Android native binding,
-  `ai.djl.android:tokenizer-native`). Implemented across several files by concern, mirroring the
-  Apple member's own split (`SystemOnnxGenAiRuntime.swift` + `OnnxSessionLoading*.swift` +
-  `OnnxSampling.swift` + `OnnxTensorExecution.swift` + `SystemOnnxGenAiRuntime+Decoders.swift`):
-  `SystemAndroidOnnxGenAiRuntime.kt` (orchestration), `OnnxSessionLoading.kt` (session/tokenizer/EP
-  loading, asset extraction, checksums), `OnnxSessionLoadingKvCacheDetection.kt` (decode-strategy
-  detection), `OnnxDecoders.kt` (the two decode-step strategies below), `OnnxSampling.kt`
-  (temperature/top-p/seed sampling), and `OnnxTensorExecution.kt` (the dedicated dispatcher and
-  `OrtException`-wrapping run helper).
+**Authoring a custom local provider:** implement `AndroidOnnxGenAiRuntime`, per
+[Authoring A Custom Local ONNX Provider](#authoring-a-custom-local-onnx-provider) below.
 
-  **IO contract**: this runtime auto-detects, from the loaded graph's declared input names, which
-  of two decoder-only export shapes a model uses — no `ModelPackage` field or app-facing
-  configuration selects it, identical in spirit to the Apple member's detection:
-  - **Plain** (no `past_key_values.*` inputs): shape `[1, sequenceLength]`, the full sequence
-    recomputed every decode step. Always supported; the fallback whenever KV-cache detection can't
-    establish every assumption below.
-  - **KV-cache** (`past_key_values.{layer}.key`/`.value` inputs present, the legacy (non-merged)
-    Hugging Face Optimum `decoder_with_past_model` export convention): exactly one token is fed as
-    `input_ids` per model call — this graph shape traces `input_ids`'s sequence-length axis fixed
-    at 1, so the prompt is replayed through the same session one token at a time (discarding
-    logits) to build up `past_key_values` before the first real generated token, then generation
-    proceeds one token per call the same way, with each call's `present.{layer}.key`/`.value`
-    outputs threaded back in as the next call's `past_key_values.*` inputs directly (no copy).
-    Detection additionally requires `num_hidden_layers` (or GPT-2-style `n_layer`),
-    `num_attention_heads`/`n_head` (or `num_key_value_heads` for GQA models), and
-    `hidden_size`/`n_embd` (or an explicit `head_dim`) to be readable from `config.json`, and every
-    expected `past_key_values.{layer}.{key,value}` input / `present.{layer}.{key,value}` output to
-    be present by that naming convention; an optional `position_ids` input is fed the running
-    absolute position when the graph declares it. Graphs that instead declare a `use_cache_branch`
-    boolean input (merged Optimum exports) fall back to the plain path — this runtime does not
-    implement the merged graph's alternate calling convention. Detection is deliberately
-    conservative — any unresolvable assumption falls back to the plain path rather than guessing —
-    and, like the rest of this default runtime, has not been exercised against a real KV-cache
-    export on an Android device; that remains part of #88, mirroring the Apple member's own
-    real-device carve-out (the Apple member's equivalent path *was* corrected against a real device
-    failure on LaMini-GPT — the Android path is unverified, not merely undocumented).
+## Authoring A Custom Local ONNX Provider
 
-  **Graph file convention**: same as Apple — `ModelPackage.files.required`'s _first_ entry is the
-  ONNX graph file; remaining entries (for example external weight shards) must be present alongside
-  it. Every file named in `ModelPackage.integrity.checksums` is verified before load, not only the
-  required-file list; an algorithm prefix other than `sha256:` is a capability failure rather than a
-  silently skipped check. The session cache key covers `id`, `format`, `version`, `source`, and
-  `integrity.checksums` together, not `id` alone.
-
-  **Execution.** `OrtEnvironment.getEnvironment()` already returns a process-wide singleton per its
-  own Java API contract, so — unlike the Apple member's `ORTEnv`, which needed an explicit
-  shared-instance wrapper — no separate wrapper is needed here; every session reuses the same
-  environment instance as-is. Session creation and every `run()` call execute on a dedicated
-  single-thread `CoroutineDispatcher` rather than `Dispatchers.IO`/`Dispatchers.Default`, since
-  `OrtSession.run()` and session construction are blocking synchronous calls. The NNAPI execution
-  provider is configured by default on the plain decode path (`SessionOptions.addNnapi()`), falling
-  back to XNNPACK (`addXnnpack`) and then ORT's default CPU EP if NNAPI configuration fails on the
-  host; `setIntraOpNumThreads` is set explicitly, bounded by the device's available processor
-  count, rather than left at ORT's implicit default. **The KV-cache path never uses NNAPI**,
-  regardless of host availability: its first decode call feeds a genuinely zero-length
-  `past_key_values` tensor, and the Apple member's CoreML EP is documented to reject an analogous
-  zero-length dynamic-shaped input at run time on a real device — this runtime applies the same
-  conservative rule to NNAPI on the same reasoning, but whether NNAPI actually rejects it the same
-  way is an unverified assumption carried over from the Apple finding, not a confirmed
-  Android-device result (#88). Since ORT's execution provider list is fixed at session-creation
-  time, that graph's session is created directly on XNNPACK/CPU. The plain decode path preallocates
-  its `input_ids`/`attention_mask` buffers once per generation, as direct `LongBuffer`s sized to
-  `promptLength + maxOutputTokens`, and writes into a growing subrange each step rather than
-  allocating a fresh buffer per token; the KV-cache path's `past_key_values` reuse (above) is itself
-  the buffer-reuse win for that path.
-
-  **Decoding** defaults to greedy (argmax). Setting `generation.temperature` switches to sampling:
-  logits are scaled by `1 / temperature`, optionally narrowed to the smallest token set whose
-  cumulative probability reaches `generation.topP` (nucleus sampling), then sampled — seeded
-  (reproducibly) via `kotlin.random.Random(seed)` when `generation.seed` is set, natively seedable
-  unlike the Apple member's `SystemRandomNumberGenerator` (which needed a custom `SplitMix64`).
-  `generation.stop` sequences are honored on both decode paths. **Stop conditions**: generation
-  stops on the tokenizer's end-of-sequence token — resolved from the model config JSON's
-  `eos_token_id` field, since the DJL tokenizer binding does not expose special token ids the way
-  `swift-transformers` does on Apple — on a `generation.stop` suffix match, or once
-  `maxOutputTokens` is reached, whichever comes first; cancellation is checked before every decode
-  step.
-
-  Unlike the Apple and Web members, this default runtime does **not** attempt chat-template
-  application: `ai.djl.huggingface:tokenizers` (`0.33.0`) exposes no `applyChatTemplate`-equivalent
-  API or special-token accessor on its public `HuggingFaceTokenizer` surface — this is a verified,
-  permanent gap for this runtime, not an oversight pending evaluation, and it falls back
-  unconditionally to a plain `"role: content"` join. Apps that need chat templates, an execution
-  provider/sampling strategy this runtime doesn't configure, or a KV-cache export shape this runtime
-  doesn't auto-detect (for example `use_cache_branch`-gated merged graphs) supply their own
-  `AndroidOnnxGenAiRuntime`; real-device verification (load time, token latency, peak memory,
-  cancellation behavior, repeated-run stability against an actual model, for both decode paths, and
-  whether NNAPI actually degrades on the KV-cache path's zero-length tensor the way CoreML does) is
-  tracked in #88 — this default has not yet been run against a real model on-device beyond the
-  plain-path DistilGPT-2 verification below. `programmatic` model sources are out of scope for this
-  default runtime (no files to resolve, matching the Web/Apple members' own `programmatic`
-  carve-out); it reports _runtime package unavailable_ rather than throwing.
-
-  **Native dependency**: `ai.djl.android:tokenizer-native`'s
-  prebuilt `libdjl_tokenizer.so` dynamically links `libc++_shared.so`, but the artifact does not
-  bundle it — an app that depends on `inderun-onnx-providers` and doesn't separately provide
-  `libc++_shared.so` for every targeted ABI fails the first tokenizer load with
-  `UnsatisfiedLinkError: dlopen failed: library "libc++_shared.so" not found`, surfaced by this
-  provider as a `capability_unavailable` "tokenizer/config missing" reason (the underlying
-  `UnsatisfiedLinkError` is attached as `originalError` but not included in the reason string).
-  `inderun-onnx-providers` now declares a no-op CMake native target
-  (`src/main/cpp/CMakeLists.txt`, `-DANDROID_STL=c++_shared`) purely so the NDK's own CMake
-  toolchain copies the matching `libc++_shared.so` into the build output per ABI and AGP packages
-  it — no binary committed to source control, sourced from the module's declared `ndkVersion`
-  instead. This was found and fixed via real-device
-  verification on an Android emulator (arm64-v8a, API 34): the default runtime downloads, loads,
-  and generates text from a real DistilGPT-2 ONNX export end-to-end on the plain (no-KV-cache,
-  no-sampling) decode path (load time, token latency, and repeated-run stability were not
-  separately profiled — that remains a follow-up, matching the Apple member's own #88 carve-out).
-  The EP configuration, KV-cache decode path, and sampling added since have not themselves been
-  re-verified against that or any other real device.
-- `createFixtureOnnxRuntime(options)` — the deterministic in-memory fixture mandated above,
-  public/importable like the Web and Apple members' fixtures.
-- Any application-supplied implementation of `AndroidOnnxGenAiRuntime`.
-
-**Model sources.** The Android member honors `bundled`, `programmatic`, `app_managed`, and
-`filesystem`, and rejects `registry` and `remote` in `capabilities()`, matching the support matrix
-above. `SystemAndroidOnnxGenAiRuntime` resolves `bundled` by copying the referenced Android asset
-directory (`context.assets`) into app-private storage, into a directory keyed by the session cache
-key (not by `id` alone) so a changed `version`/`ref`/checksum extracts into a fresh directory
-instead of reusing stale bytes; extraction is atomic (copied into a temp directory, marked complete,
-then moved into place) so an interrupted copy cannot poison a later load. `filesystem` and
-`app_managed` resolve to a directory path from `source.ref` (absolute for `filesystem`, relative to
-`context.filesDir` for `app_managed`).
-
-**Capability gate order.** Identical to the Apple member: model package structural validation (a
-hand-written `getModelPackageValidationIssues` in `inderun-onnx-providers` — no generated JSON
-Schema validator exists in Kotlin, so this is a scoped subset covering `id` presence, inline-secret
-keys, and `source.ref` URL-userinfo, not a full AJV-equivalent port) → Android source-type support →
-`runtime.platforms` includes `android` → declared tasks include `text_to_text` → delegate to
-`runtime.prepare`. Every failure flattens to one `capability_unavailable` route rejection, for
-example:
-
-- `capability_unavailable`: _model source unavailable: 'registry' model sources are deferred on
-  Android; supply model files as bundled, programmatic, app_managed, filesystem._
-- `capability_unavailable`: _model files missing: 'model.onnx' not found at \<resolved path\>._
-- `CapabilityMismatch` at run time when the same gate fails pre-attempt; `Timeout` when the
-  generation budget (`constraints.timeoutMs`, else the provider's configured timeout) elapses via a
-  `withTimeout` race around `runtime.generate`; `Unavailable` for ONNX Runtime session
-  initialization failures. There is no `AuthError`, `RateLimited`, or `Offline` path. Real coroutine
-  cancellation (the caller cancelling its own job, as opposed to the provider's own deadline
-  elapsing) propagates as a raw `CancellationException` rather than an `IndeRunException`, matching
-  the Apple member's `CancellationError` convention rather than the Web member's `AbortError →
-Timeout` mapping. `OrtSession.run()` itself is a blocking synchronous call that cannot be
-  interrupted mid-call; cancellation is observed only between decode steps (`cancel: soft`).
-
-**Packaging and binary size.** ORT Mobile's Android AAR bundles native `.so` libraries per ABI and
-adds meaningfully to app binary size; the model files themselves must also fit on-device disk and
-load into device memory (see [Platform Constraints](#platform-constraints-reference)). Neither
-IndeRun nor this provider owns model download/update flows in Milestone 2 — apps that fetch models
-remotely still supply them as `bundled`/`app_managed`/`programmatic` once resolved, per the model
-source matrix.
-
-**Authoring a custom local provider.** Implement `AndroidOnnxGenAiRuntime` rather than a new
-`ProviderAdapter` when the model is ONNX: `AndroidOnnxRuntimeProvider` already owns descriptor
+For a new ONNX-backed model, implement the runtime seam for the target platform
+(`OnnxTextGenerationRuntime` on Web, `OnnxGenAiRuntime` on Apple, `AndroidOnnxGenAiRuntime` on
+Android) rather than a new `ProviderAdapter`: the existing platform provider already owns descriptor
 semantics, model package validation, source gating, timeouts, and error normalization. Implement
-`ProviderAdapter` directly only for a different runtime family, mirroring the Web and Apple guidance
-above.
+`ProviderAdapter` directly only for a different runtime family.
 
-## Documentation Requirements For Platform Tickets (#85–#87)
+## Documentation Requirements For Future Platform Work
 
-Each platform implementation must update, in the same task:
+A change to this provider family (new platform member, new model source type, new capability
+condition) must update, in the same task:
 
 - the provider matrix / family overview (`providers.md` and this document as needed)
 - the supported model source types for that platform (this document's matrix)
 - model package requirements it relies on (reference the `ModelPackage` schema; do not duplicate)
-- platform-specific constraints (browser/runtime for Web; packaging, binary size, accelerators for
-  mobile — see platform notes below)
-- route rejection / error examples for that platform
-- provider-authoring notes for custom local model providers
+- the relevant platform's code comments (implementation detail belongs there, not here — see
+  CONTEXT.md §8 "Where technical detail belongs")
 
 ## Platform Constraints (Reference)
 

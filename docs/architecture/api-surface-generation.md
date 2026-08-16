@@ -132,13 +132,13 @@ checklist, not just a fancier one):
 
 **Streaming/session scope guard:** the illustrative idiom mapping for future
 operations (`AsyncIterable<Event>` / `Flow<Event>` / `AsyncThrowingStream<Event,
-Error>`) documents the target shape for Milestone 2/3, but per CLAUDE.md §3
-("design seams... can exist in the contracts... but do not build or optimize
-implementation around them yet"), the spec must **not** gain `stream`/`openSession`
-operations, and the generator must **not** emit streaming declarations, until those
-milestones are actually scoped. The spec format should not need reworking when
-that happens — `async: true` already generalizes to a `stream: true` variant
-later — but nothing streaming-shaped gets generated today.
+Error>`) documents the target shape for a future streaming/session milestone, but
+per CLAUDE.md §3 ("design seams... can exist in the contracts... but do not build
+or optimize implementation around them yet"), the spec must **not** gain
+`stream`/`openSession` operations, and the generator must **not** emit streaming
+declarations, until that work is actually scoped. The spec format should not need
+reworking when that happens — `async: true` already generalizes to a `stream: true`
+variant later — but nothing streaming-shaped gets generated today.
 
 ### Option B — reuse JSON Schema via a non-standard `x-methods` extension
 
@@ -245,11 +245,11 @@ The Option A MVP (spec schema + generator + 3 emitters + CI wiring), scoped to
 [`contracts/api/inderun-api.json`](../../contracts/api/inderun-api.json) and
 [`contracts/scripts/generate-api-surface.mjs`](../../contracts/scripts/generate-api-surface.mjs).
 
-Remaining, explicitly deferred (not yet built, per CLAUDE.md's Milestone 1 scope):
+Remaining, explicitly deferred (not yet built, per CLAUDE.md §3 scope):
 
 - `ProviderAdapter` (`describe`/`capabilities`/`run`) as a second, separate
   spec/interface, mirroring how it's already conceptually separate from
   `IndeRunApi` in the architecture docs.
 - Streaming/session operations (`stream`/`openSession`) — the spec format is
   expected to extend to a `stream: true` variant without rework, but no
-  streaming declarations are generated until Milestone 2/3 are actually scoped.
+  streaming declarations are generated until that work is actually scoped.
