@@ -125,6 +125,9 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   requiring the Rust/wasm-bindgen toolchain locally. CI's `wasm-bindgen --target web` step
   overwrites it with the real generated bindings during the build; the stub is not meant to be
   committed back and should only be hand-updated if the Rust route-core API changes.
+  `release.yml` reverts this overwrite (`git checkout -- packages/inderun-route-core-wasm/generated`)
+  right after the workspace build/test steps and before `semantic-release` runs, since
+  semantic-release's dev back-merge does a `git rebase` that fails on any unstaged change.
 - `packages/inderun-web-demo`'s `build` script runs `scripts/verify-wasm-route-planner-bundled.mjs`
   after `vite build`, failing the build if the shared route-core WASM asset and JS chunk are not
   found in `dist/assets/`. This is the regression gate for issue #109: the WASM route planner's

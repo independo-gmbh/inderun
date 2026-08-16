@@ -108,6 +108,16 @@ jobs:
       - name: Test workspace (JS)
         run: pnpm test:js
 
+      - name: Discard regenerated WASM bindings stub
+        # packages/inderun-route-core-wasm/generated/inderun_route_core.d.ts is a
+        # hand-written stub checked in on purpose (see its header comment, #109) so
+        # `tsc` can resolve the import without the Rust/wasm-bindgen toolchain. The
+        # "Build Rust WASM bindings" step above intentionally overwrites it with the
+        # real generated bindings for this job's build/test steps. Revert that
+        # overwrite now so the working tree is clean for semantic-release's dev
+        # back-merge (git rebase requires no unstaged changes).
+        run: git checkout -- packages/inderun-route-core-wasm/generated
+
       - name: Semantic Release
         run: npx semantic-release
         env:

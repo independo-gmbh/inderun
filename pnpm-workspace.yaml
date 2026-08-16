@@ -1,5 +1,12 @@
 packages:
   - "packages/*"
+overrides:
+  # GHSA-xcpc-8h2w-3j85: adm-zip <0.6.0 allows a crafted ZIP to trigger a 4GB
+  # allocation. Pulled in transitively via onnxruntime-node.
+  adm-zip@<0.6.0: ">=0.6.0"
+  # GHSA-f88m-g3jw-g9cj: sharp <0.35.0 bundles a libvips with several CVEs.
+  # Pulled in transitively via @huggingface/transformers.
+  sharp@<0.35.0: ">=0.35.0"
 allowBuilds:
   esbuild: true
   # Node-only extras pulled in by @huggingface/transformers. The demo runs the ONNX provider in the
