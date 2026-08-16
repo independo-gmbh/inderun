@@ -10,11 +10,13 @@
 		A10000000000000000000001 /* IndeRunDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* IndeRunDemoApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* ContentView.swift */; };
 		A10000000000000000000003 /* DemoViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* DemoViewModel.swift */; };
+		A1000000000000000000000A /* DemoOnnxModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* DemoOnnxModel.swift */; };
 		A10000000000000000000004 /* IndeRun in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000031 /* IndeRun */; };
 		A10000000000000000000005 /* IndeRunCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000032 /* IndeRunCore */; };
 		A10000000000000000000006 /* IndeRunContracts in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000033 /* IndeRunContracts */; };
 		A10000000000000000000007 /* IndeRunAppleProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000034 /* IndeRunAppleProviders */; };
 		A10000000000000000000008 /* IndeRunOpenAIProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000035 /* IndeRunOpenAIProviders */; };
+		A10000000000000000000009 /* IndeRunOnnxProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000036 /* IndeRunOnnxProviders */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +25,7 @@
 		A10000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000000000000000000013 /* DemoViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoViewModel.swift; sourceTree = "<group>"; };
 		A10000000000000000000014 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		A10000000000000000000015 /* DemoOnnxModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoOnnxModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -35,6 +38,7 @@
 				A10000000000000000000006 /* IndeRunContracts in Frameworks */,
 				A10000000000000000000007 /* IndeRunAppleProviders in Frameworks */,
 				A10000000000000000000008 /* IndeRunOpenAIProviders in Frameworks */,
+				A10000000000000000000009 /* IndeRunOnnxProviders in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -56,6 +60,7 @@
 				A10000000000000000000011 /* IndeRunDemoApp.swift */,
 				A10000000000000000000012 /* ContentView.swift */,
 				A10000000000000000000013 /* DemoViewModel.swift */,
+				A10000000000000000000015 /* DemoOnnxModel.swift */,
 			);
 			path = IndeRunDemo;
 			sourceTree = "<group>";
@@ -90,6 +95,7 @@
 				A10000000000000000000033 /* IndeRunContracts */,
 				A10000000000000000000034 /* IndeRunAppleProviders */,
 				A10000000000000000000035 /* IndeRunOpenAIProviders */,
+				A10000000000000000000036 /* IndeRunOnnxProviders */,
 			);
 			productName = IndeRunDemo;
 			productReference = A10000000000000000000010 /* IndeRunDemo.app */;
@@ -120,7 +126,7 @@
 			mainGroup = A10000000000000000000040;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A10000000000000000000030 /* XCLocalSwiftPackageReference "../../IndeRun" */,
+				A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000042 /* Products */;
@@ -150,6 +156,7 @@
 				A10000000000000000000001 /* IndeRunDemoApp.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
 				A10000000000000000000003 /* DemoViewModel.swift in Sources */,
+				A1000000000000000000000A /* DemoOnnxModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -272,37 +279,42 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A10000000000000000000030 /* XCLocalSwiftPackageReference "../../IndeRun" */ = {
+		A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../IndeRun;
+			relativePath = ../../..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000031 /* IndeRun */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../IndeRun" */;
+			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
 			productName = IndeRun;
 		};
 		A10000000000000000000032 /* IndeRunCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../IndeRun" */;
+			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
 			productName = IndeRunCore;
 		};
 		A10000000000000000000033 /* IndeRunContracts */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../IndeRun" */;
+			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
 			productName = IndeRunContracts;
 		};
 		A10000000000000000000034 /* IndeRunAppleProviders */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../IndeRun" */;
+			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
 			productName = IndeRunAppleProviders;
 		};
 		A10000000000000000000035 /* IndeRunOpenAIProviders */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../IndeRun" */;
+			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
 			productName = IndeRunOpenAIProviders;
+		};
+		A10000000000000000000036 /* IndeRunOnnxProviders */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
+			productName = IndeRunOnnxProviders;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

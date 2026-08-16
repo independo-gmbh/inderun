@@ -9,6 +9,62 @@ should live in code comments, schemas, and generated public types whenever possi
 - Read the architecture brief, architecture overview, provider overview, and CI notes.
 - Check the existing package or platform README before changing a public surface.
 
+## Prerequisites
+
+The repository spans four toolchains. Install only the ones you need: each language's commands, tests, and
+CI workflow are independent, so you can contribute to the TypeScript packages without a Swift or Android
+toolchain installed.
+
+| Area                | Requirement                                                                     |
+| ------------------- | ------------------------------------------------------------------------------- |
+| TypeScript packages | Node `24.x` (see `.nvmrc`), pnpm `11.9.0` (`corepack enable`)                   |
+| Rust core           | Rust stable via `rustup`                                                        |
+| Web route planner   | `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (version-matched, below) |
+| Android library     | JDK 21, Android SDK with `compileSdk 37`, `ANDROID_HOME` exported               |
+| Swift SDK           | Swift 5.9+ toolchain; SwiftLint for `pnpm format:swift` / lint                  |
+
+### Rust and the WASM route planner
+
+`pnpm build` builds `@independo/inderun-web-demo`, which bundles the route planner compiled to WebAssembly.
+The bindings under `packages/inderun-route-core-wasm/generated/` are build artifacts and are not checked in,
+so a fresh clone must generate them once before the first `pnpm build`, otherwise the bundler fails with
+`Could not resolve '../generated/inderun_route_core.js'`.
+
+Install the toolchain. The `wasm-bindgen-cli` version must match the `wasm-bindgen` version in `Cargo.lock`,
+or the generated bindings will be rejected at runtime:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.127 --locked
+```
+
+Then generate the bindings:
+
+```sh
+RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable \
+  cargo build -p inderun_route_core --target wasm32-unknown-unknown
+wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
+  --target web --out-dir packages/inderun-route-core-wasm/generated \
+  --out-name inderun_route_core
+```
+
+Re-run both commands whenever the Rust core changes.
+
+`wasm-bindgen` also overwrites `generated/inderun_route_core.d.ts`, which is checked in as a hand-written
+stub so `tsc` resolves without the Rust toolchain. The regenerated file drops that stub's explanatory
+header, so revert it before committing unless the route-core API actually changed:
+
+```sh
+git checkout -- packages/inderun-route-core-wasm/generated/inderun_route_core.d.ts
+```
+
+### Android
+
+Gradle needs the Android SDK location. Either export `ANDROID_HOME` (for example
+`export ANDROID_HOME="$HOME/Android/Sdk"`) or create `android/local.properties` with `sdk.dir=/path/to/Sdk`.
+Unit tests run on a pinned Java 21 toolchain regardless of your default JDK, so Gradle must be able to
+resolve a JDK 21 installation.
+
 ## Setup
 
 - Use the checked-in commands below rather than inventing new workflow steps.

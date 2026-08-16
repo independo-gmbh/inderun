@@ -131,6 +131,28 @@ public struct ProviderDynamicCapabilities: Codable, Sendable {
     }
 }
 
+// MARK: - ProviderCapabilitySnapshot
+
+/// Snapshot of a registered provider's static descriptor and current dynamic
+/// capability check, without executing a task.
+public struct ProviderCapabilitySnapshot: Sendable {
+    /// Stable identifier for this provider, matching the value used in routing
+    /// preferences/constraints.
+    public let providerId: String
+    /// The provider's static, unchanging capability declaration (supported modes,
+    /// privacy posture, model info).
+    public let descriptor: ProviderDescriptor
+    /// The provider's current dynamic availability (e.g. whether it's reachable/loaded
+    /// right now) — this is the part that can change between calls.
+    public let capabilities: ProviderDynamicCapabilities
+
+    public init(providerId: String, descriptor: ProviderDescriptor, capabilities: ProviderDynamicCapabilities) {
+        self.providerId = providerId
+        self.descriptor = descriptor
+        self.capabilities = capabilities
+    }
+}
+
 // MARK: - RunContext
 public struct RunContext: Sendable {
     public let runId: String

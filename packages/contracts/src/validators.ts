@@ -4,12 +4,14 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 import type { IndeRunError } from "./generated/inderun-error.js";
 import type { HttpRequest } from "./generated/http-request.js";
 import type { HttpResponse } from "./generated/http-response.js";
+import type { ModelPackage } from "./generated/model-package.js";
 import type { RoutePlan } from "./generated/route-plan.js";
 import type { RoutePlannerInput } from "./generated/route-planner-input.js";
 import {
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
+  modelPackageSchema,
   routePlanSchema,
   routePlannerInputSchema,
   taskRequestSchema,
@@ -45,6 +47,7 @@ const validateHttpResponseSchema = ajv.compile(httpResponseSchema);
 const validateTelemetryEventSchema = ajv.compile(telemetryEventSchema);
 const validateRoutePlannerInputSchema = ajv.compile(routePlannerInputSchema);
 const validateRoutePlanSchema = ajv.compile(routePlanSchema);
+const validateModelPackageSchema = ajv.compile(modelPackageSchema);
 
 export function validateTaskRequest(value: unknown): value is TaskRequest {
   return getTaskRequestValidationIssues(value).length === 0;
@@ -76,6 +79,10 @@ export function validateRoutePlannerInput(value: unknown): value is RoutePlanner
 
 export function validateRoutePlan(value: unknown): value is RoutePlan {
   return getRoutePlanValidationIssues(value).length === 0;
+}
+
+export function validateModelPackage(value: unknown): value is ModelPackage {
+  return getModelPackageValidationIssues(value).length === 0;
 }
 
 export function getTaskRequestValidationIssues(value: unknown): ValidationIssue[] {
@@ -119,6 +126,12 @@ export function getRoutePlannerInputValidationIssues(value: unknown): Validation
 
 export function getRoutePlanValidationIssues(value: unknown): ValidationIssue[] {
   return getValidationIssues(validateRoutePlanSchema, value);
+}
+
+export function getModelPackageValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateModelPackageSchema, value, {
+    forbidInlineSecrets: true
+  });
 }
 
 function getValidationIssues(

@@ -8,7 +8,8 @@
 node_modules/
 dist/
 .DS_Store
-packages/inderun-route-core-wasm/generated/
+packages/inderun-route-core-wasm/generated/*
+!packages/inderun-route-core-wasm/generated/inderun_route_core.d.ts
 
 .idea
 
@@ -40,8 +41,8 @@ packages/inderun-route-core-wasm/generated/
 .gradle/
 android/.gradle-home/
 android/local.properties
-packages/capacitor-inderun/android/local.properties
 .gradle-home
+.cxx/
 
 # Gradle and Maven with auto-import
 # When using Gradle or Maven with auto-import, you should exclude module files,
@@ -142,7 +143,6 @@ fabric.properties
 # Package Files #
 *.jar
 !android/gradle/wrapper/gradle-wrapper.jar
-!packages/capacitor-inderun/android/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear
@@ -177,6 +177,10 @@ Cargo.lock
 
 ## User settings
 xcuserdata/
+
+## Generated per-checkout workspace state (SwiftPM resolution cache, etc.) for .xcodeproj-based
+## apps in this repo. Only project.pbxproj and xcshareddata/xcschemes/*.xcscheme are tracked.
+project.xcworkspace/
 
 ## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
 *.xcscmblueprint
@@ -261,3 +265,6 @@ tmp
 test_repo/
 test_dir/
 .pnpm-store/
+
+# Local env overrides
+.env.local

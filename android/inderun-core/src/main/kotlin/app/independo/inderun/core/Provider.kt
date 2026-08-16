@@ -68,6 +68,28 @@ data class ProviderDynamicCapabilities(
     val reason: String? = null,
 )
 
+/**
+ * One registered provider's identity, fixed capabilities, and live availability,
+ * as of the moment checkCapabilities() was called.
+ */
+data class ProviderCapabilitySnapshot(
+    /**
+     * Stable identifier for this provider, matching the value used in routing
+     * preferences/constraints.
+     */
+    val providerId: String,
+    /**
+     * The provider's static, unchanging capability declaration (supported modes,
+     * privacy posture, model info).
+     */
+    val descriptor: ProviderDescriptor,
+    /**
+     * The provider's current dynamic availability (e.g. whether it's reachable/loaded
+     * right now) — this is the part that can change between calls.
+     */
+    val capabilities: ProviderDynamicCapabilities,
+)
+
 data class RunContext(
     val runId: String,
     val hostServices: HostServices,

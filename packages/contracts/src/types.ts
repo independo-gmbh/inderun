@@ -1,5 +1,6 @@
 import type {
   IndeRunError,
+  ModelPackage,
   RoutePlan,
   RoutePlannerInput,
   TaskRequest,
@@ -25,3 +26,7 @@ export type SharedRoutePlan = RoutePlan;
 export type RoutingConstraints = NonNullable<TaskRequest["constraints"]>;
 /** Routing preferences (e.g. `optimizeFor`) from a task request. */
 export type RoutingPreferences = NonNullable<TaskRequest["preferences"]>;
+/** Serialization format of a model package (`onnx`, `ort`, `genai`). */
+export type ModelPackageFormat = ModelPackage["format"];
+/** How a model package's files are supplied to a provider (`registry`, `bundled`, ...). */
+export type ModelSourceType = NonNullable<ModelPackage["source"]>["sourceType"];

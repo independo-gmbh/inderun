@@ -4,6 +4,9 @@ import IndeRunCore
 
 public let defaultOpenAIResponsesEndpoint = "https://api.openai.com/v1/responses"
 
+private let defaultHealthCheckTimeoutMs = 3000
+private let defaultHealthCheckCacheMs: Int64 = 5000
+
 public enum OpenAIAuthMode: String, Sendable {
     case authContextRef
     case none
@@ -16,6 +19,13 @@ public struct OpenAIProviderOptions: Sendable {
     public let auth: OpenAIAuthMode
     public let authContextRef: String?
     public let timeoutMs: Int?
+    /// Timeout for the endpoint reachability probe issued from `capabilities()`. Defaults to
+    /// 3000ms. The OpenAI API has no dedicated health endpoint, so this is a cheap
+    /// unauthenticated `GET` against the configured endpoint.
+    public let healthCheckTimeoutMs: Int?
+    /// How long a reachability probe result is cached before `capabilities()` re-probes.
+    /// Defaults to 5000ms.
+    public let healthCheckCacheMs: Int64?
 
     public init(
         id: String = "openai",
@@ -23,7 +33,9 @@ public struct OpenAIProviderOptions: Sendable {
         endpointURL: String = defaultOpenAIResponsesEndpoint,
         auth: OpenAIAuthMode = .authContextRef,
         authContextRef: String? = nil,
-        timeoutMs: Int? = nil
+        timeoutMs: Int? = nil,
+        healthCheckTimeoutMs: Int? = nil,
+        healthCheckCacheMs: Int64? = nil
     ) {
         self.id = id
         self.model = model
@@ -31,6 +43,8 @@ public struct OpenAIProviderOptions: Sendable {
         self.auth = auth
         self.authContextRef = authContextRef
         self.timeoutMs = timeoutMs
+        self.healthCheckTimeoutMs = healthCheckTimeoutMs
+        self.healthCheckCacheMs = healthCheckCacheMs
     }
 }
 
@@ -69,8 +83,10 @@ private struct OpenAIErrorBody {
     }
 }
 
-public final class OpenAIProvider: ProviderAdapter, Sendable {
+public final class OpenAIProvider: ProviderAdapter, @unchecked Sendable {
     private let options: OpenAIProviderOptions
+    private let cacheLock = NSLock()
+    private var cachedHealth: (result: ProviderDynamicCapabilities, checkedAt: Int64)?
 
     public init(options: OpenAIProviderOptions) {
         self.options = options
@@ -96,8 +112,14 @@ public final class OpenAIProvider: ProviderAdapter, Sendable {
         )
     }
 
+    /// Reports dynamic provider availability for the current host.
+    ///
+    /// After the static host-service checks pass, this probes endpoint reachability with a
+    /// cheap unauthenticated `GET` against the configured endpoint (the OpenAI API has no
+    /// dedicated health endpoint). The result is cached for `healthCheckCacheMs` so routing
+    /// decisions and repeated UI capability checks don't re-probe on every call.
     public func capabilities(host: HostServices) async -> ProviderDynamicCapabilities {
-        guard host.httpClient != nil else {
+        guard let httpClient = host.httpClient else {
             return ProviderDynamicCapabilities(
                 available: false,
                 reason: "OpenAI Responses provider requires an HttpClientService."
@@ -111,7 +133,58 @@ public final class OpenAIProvider: ProviderAdapter, Sendable {
             )
         }
 
-        return ProviderDynamicCapabilities(available: true)
+        return await checkEndpointReachable(httpClient: httpClient, clock: host.clock)
+    }
+
+    private func checkEndpointReachable(httpClient: any HttpClientService, clock: ClockService?) async -> ProviderDynamicCapabilities {
+        let now = clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
+        let cacheMs = options.healthCheckCacheMs ?? defaultHealthCheckCacheMs
+
+        if let cached = readCachedHealth(now: now, cacheMs: cacheMs) {
+            return cached
+        }
+
+        let result: ProviderDynamicCapabilities
+        do {
+            let response = try await httpClient.send(
+                request: HttpRequest(
+                    body: nil,
+                    headers: nil,
+                    method: .get,
+                    timeoutMs: options.healthCheckTimeoutMs ?? defaultHealthCheckTimeoutMs,
+                    url: options.endpointURL
+                )
+            )
+            result = response.status >= 500
+                ? ProviderDynamicCapabilities(
+                    available: false,
+                    reason: "OpenAI Responses endpoint returned HTTP \(response.status)."
+                )
+                : ProviderDynamicCapabilities(available: true)
+        } catch {
+            result = ProviderDynamicCapabilities(
+                available: false,
+                reason: "OpenAI Responses endpoint is unreachable."
+            )
+        }
+
+        writeCachedHealth(result: result, checkedAt: now)
+        return result
+    }
+
+    private func readCachedHealth(now: Int64, cacheMs: Int64) -> ProviderDynamicCapabilities? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        guard let cached = cachedHealth, now - cached.checkedAt < cacheMs else {
+            return nil
+        }
+        return cached.result
+    }
+
+    private func writeCachedHealth(result: ProviderDynamicCapabilities, checkedAt: Int64) {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        cachedHealth = (result, checkedAt)
     }
 
     public func run(request: TaskRequest, context: RunContext) async throws -> TaskResult {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/inderun-error.schema.json",
   "title": "IndeRunError",
-  "description": "Normalized Milestone-1 error contract.",
+  "description": "The error shape thrown by run() (wrapped in an IndeRunException) when execution fails — via validation, routing (no eligible provider), or every attempted provider failing. Never returned as part of a successful TaskResult.",
   "type": "object",
   "additionalProperties": true,
   "required": ["schemaVersion", "errorClass", "message"],
@@ -12,7 +12,7 @@
       "const": "1.0"
     },
     "errorClass": {
-      "description": "Normalized error taxonomy class.",
+      "description": "Normalized error taxonomy, shared with TaskResult.telemetry.errorClass: CapabilityMismatch (request needs something no eligible provider supports), Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider throttled the request), Timeout (provider exceeded its execution budget), Internal (unexpected engine-side failure).",
       "enum": [
         "CapabilityMismatch",
         "Offline",

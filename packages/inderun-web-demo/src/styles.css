@@ -154,7 +154,7 @@ h1 {
     margin-bottom: 1rem;
 }
 
-.mode-btn {
+.preference-btn {
     flex: 1;
     padding: 0.5rem;
     border-radius: 999px;
@@ -166,7 +166,7 @@ h1 {
     transition: all 160ms ease;
 }
 
-.mode-btn.active {
+.preference-btn.active {
     background: var(--accent);
     color: #fffdf9;
 }
@@ -287,6 +287,77 @@ pre {
 .limitations ul {
   margin-bottom: 0;
   padding-left: 1.2rem;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.badge {
+  flex: 1;
+  min-width: 200px;
+  border-radius: 18px;
+  padding: 0.85rem 1rem;
+  background: rgba(255, 252, 247, 0.8);
+  border: 1px solid rgba(52, 38, 24, 0.12);
+  border-left: 4px solid var(--line);
+}
+
+.badge-available {
+  border-left-color: rgba(29, 107, 69, 0.7);
+}
+
+.badge-unavailable {
+  border-left-color: rgba(139, 38, 53, 0.7);
+}
+
+.badge-label {
+  margin: 0;
+  font-weight: 700;
+}
+
+.badge-id {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.badge-status {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.badge-available .badge-status {
+  color: var(--success);
+}
+
+.badge-unavailable .badge-status {
+  color: var(--failure);
+}
+
+.badge-reason {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.rejection {
+  margin-top: 0.5rem;
+}
+
+.rejection-provider {
+  margin: 0 0 0.2rem;
+  font-weight: 600;
+}
+
+.rejection ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 @media (max-width: 820px) {

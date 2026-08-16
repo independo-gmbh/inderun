@@ -10,6 +10,7 @@ import app.independo.inderun.contracts.TelemetryEvent
 import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
+import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.Router
 import app.independo.inderun.core.RunContext
@@ -17,6 +18,7 @@ import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.toIndeRunException
 import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
+import app.independo.inderun.sdk.generated.IndeRunApi
 import kotlinx.coroutines.CancellationException
 import java.util.UUID
 
@@ -36,7 +38,7 @@ class IndeRun(
     private val registry: ProviderRegistry,
     private val hostServices: HostServices,
     telemetry: TelemetryService? = null,
-) {
+) : IndeRunApi {
     private val router = Router(registry)
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
 
@@ -47,7 +49,7 @@ class IndeRun(
      *
      * @throws app.independo.inderun.core.IndeRunException on validation, routing, or provider failure.
      */
-    suspend fun run(request: TaskRequest): TaskResult {
+    override suspend fun run(request: TaskRequest): TaskResult {
         val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
 
@@ -160,6 +162,16 @@ class IndeRun(
 
             throw exception
         }
+    }
+
+    /**
+     * Reports each registered provider's static descriptor and current dynamic capability check,
+     * without executing a task. Useful for UI that shows live provider availability before a run.
+     */
+    override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = registry.list().map { provider ->
+        val descriptor = provider.describe()
+        val capabilities = provider.capabilities(hostServices)
+        ProviderCapabilitySnapshot(descriptor.id, descriptor, capabilities)
     }
 
     /**

@@ -33,12 +33,74 @@ intentional:
 The class-to-cause mapping lives in code (provider adapters and the error
 factories), not in prose.
 
-## Current Provider Families
+## Provider Matrix
 
-- iOS on-device: Apple Foundation Models provider
-- Android on-device: ML Kit GenAI provider
-- Web and native cloud: OpenAI-compatible provider
+| Provider family | Web | iOS/macOS | Android | Classification | Task support | Interaction modes | Capability check | Credentials / model loading | Key limitations |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| OpenAI-compatible | Supported | Supported | Supported | Cloud | `text_to_text` | `run` (Mode 1) | Cheap unauthenticated `GET` probe against the configured endpoint, cached (`healthCheckCacheMs`, default 5000ms) | `authContextRef`; no raw secrets in payloads | No dedicated health endpoint; 4xx on the probe still counts as `available: true` |
+| Apple Foundation Models | Not applicable | Supported | Not applicable | Platform-local | `text_to_text` | `run` (Mode 1) | Static host-service check (OS/device support) | None — OS-managed model | iOS/macOS only; model availability gated by OS |
+| Android ML Kit GenAI (Gemini Nano) | Not applicable | Not applicable | Supported | Platform-local | `text_to_text` | `run` (Mode 1) | Static host-service check (device/OS support) | None — OS-managed model | Android only; device-tier gated |
+| ONNX Runtime (`local.onnx.genai.*`) | Shipped (`@independo/inderun-web/onnx`) | Shipped (`IndeRunOnnxProviders` SwiftPM, iOS 16+/macOS 14+) | Shipped (`inderun-onnx-providers` Gradle module) | Custom/developer-supplied local | `text_to_text` | `run` (Mode 1) | Static + dynamic host capability check per platform | Developer supplies model + tokenizer files; no Hub network/download APIs called today | Android requires `libc++_shared.so` packaged by the consumer app; see [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md) |
+| Web system-model (`local.system-model.web`) | Shipped (`@independo/inderun-web/system-model`, Chrome Prompt API `LanguageModel`) | Not applicable | Not applicable | Browser-local | `text_to_text` | `run` (Mode 1) | Runtime feature-detection against the browser API | None — browser-managed model/download | Desktop Chrome 138+ only; degrades honestly (`capability_unavailable`) elsewhere; see [web-system-model-provider-family.md](web-system-model-provider-family.md) |
+
+Streaming (`stream`) and realtime sessions (`openSession`) are not implemented by any provider today — see `CONTEXT.md` §3 for current Mode 1/2/3 status. Do not read this table as implying streaming support.
+
+### Demos & Tests per Family
+
+- **OpenAI-compatible** — `packages/inderun-web/src/providers/openai/provider.test.ts` (reachability, auth, rate-limit/timeout/unavailable/internal error mapping); iOS/Android per-provider suites in `ios/IndeRun/Tests/IndeRunTests` and `android/*/src/test`; live in every sample/demo app below.
+- **Apple Foundation Models** — `ios/IndeRun/Tests/IndeRunTests` (descriptor, unavailable capability, run success, error mapping); demoed in `ios/SampleApps/IndeRunDemo`.
+- **Android ML Kit GenAI** — `AndroidMlKitGenAiProviderTest.kt`; demoed in `android/inderun-demo-app`.
+- **ONNX Runtime** — `packages/inderun-web/src/providers/onnx/{provider,transformers-runtime}.test.ts` (capability rejection, `local_required` no-fallback, runtime-error → error-class mapping); Apple/Android equivalents in the same test trees as above; demoed in `ios/SampleApps/IndeRunDemo` and `android/inderun-demo-app`.
+- **Web system-model** — `packages/inderun-web/src/providers/system-model/{provider,chrome-runtime}.test.ts` (availability states, error mapping, `local_required` behavior). Not yet wired into `packages/inderun-web-demo` (tracked as a follow-up) — the web demo currently covers cloud + ONNX only.
+- **Route selection/rejection + normalized errors** — `rust/inderun-route-core/src/tests.rs` is the canonical suite for rejection reasons (`rejected_providers[].reasons[].code`) and deterministic fallback ordering; `packages/inderun-web/src/core/engine.test.ts` covers the same at the TS engine layer (`CapabilityMismatch`/`Offline`/`Unavailable`, telemetry). The iOS and Android demo app READMEs each document an "Expected Failure Modes" section with concrete triggering scenarios per `errorClass`.
+
+To run this coverage: `pnpm test:js` (Web/TS provider + engine tests), `cargo test -p inderun_route_core` (routing/rejection), `swift test` (iOS), `cd android && ./gradlew test` (Android). See each package's README for demo-app run instructions.
+
+## Provider Notes
+
+Implementation nuance not captured by the matrix above:
+
+- **OpenAI-compatible reachability probe.** The `>= 5xx`-or-network-failure vs. everything-else
+  (including 4xx) split exists because OpenAI-compatible servers have no dedicated health
+  endpoint — a 4xx just means the probe request itself was rejected (method/auth mismatch), not
+  that the service is down. Excluding a failing provider as a routing candidate up front means an
+  unreachable endpoint fails fast with `Unavailable` instead of being attempted and timing out
+  mid-request. The result is cached (`healthCheckCacheMs`) because the same `capabilities()` call
+  backs both the router (every `run()`) and `checkCapabilities()` (UI introspection) — see
+  `docs/architecture/architecture.md`.
+- **ONNX Apple platform floor.** Shipping `IndeRunOnnxProviders` raised the whole SDK's Apple
+  minimums to iOS 16 / macOS 14, not just for ONNX users — SwiftPM has no per-target platform
+  override in a single manifest, so this was a package-wide, breaking bump. Implementation and
+  known-issue details: [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md).
+- **ONNX Android native dependency.** `local.onnx.genai.android` requires `libc++_shared.so` per
+  ABI; the module gets AGP to package it via a no-op CMake native target because
+  `ai.djl.android:tokenizer-native`'s prebuilt `libdjl_tokenizer.so` links it dynamically without
+  shipping it. Details: [Android Implementation](onnx-runtime-provider-family.md#android-implementation).
+- **Web system-model** — the browser owns model availability/download/execution, unlike the
+  developer-supplied ONNX family. Details: [web-system-model-provider-family.md](web-system-model-provider-family.md).
 - Shared route planning: Rust core used by the TypeScript/Web side and WASM wrapper
+  (`@independo/inderun-route-core-wasm`). The Web SDK's default `WasmRoutePlanner`
+  (`packages/inderun-web/src/route-planner.ts`) loads it via a static, literal dynamic
+  `import()` so bundlers (Vite et al.) can statically resolve and chunk it — see #109 for why
+  a variable specifier silently never loads in a bundled browser build. If the module fails to
+  import, initialize, or plan (network failure, unsupported environment, etc.), the planner
+  degrades to the in-process TypeScript fallback planner and reports the reason via the
+  `route_decided` telemetry event's `plannerSource`/`plannerUnavailableReason` fields (see
+  `docs/architecture/architecture.md`) rather than failing the request or staying silent.
+
+## Provider Authoring Workflow
+
+To add a new provider:
+
+1. Define the static descriptor (`describe`) — provider id, supported task kinds, supported interaction modes (`run` only today; `stream`/`openSession` are descriptor seams, not implementable yet), and declared cancellation behavior (`hard` / `soft` / `none`).
+2. Implement the dynamic capability check (`capabilities(host)`) against the current host — static/OS checks first, then any runtime probe (network reachability, browser feature-detection, etc.), matching the pattern used by the existing providers in the matrix above.
+3. Implement `run()` against the normalized `IndeRunApi` request/response shapes. Do not leak provider-specific request/response fields through the public API.
+4. Map provider-specific failures onto the shared `errorClass` taxonomy (`IndeRunException` / `IndeRunError`, see [Error Model](#error-model)) in the adapter — do not invent a parallel error shape.
+5. Resolve any credentials through `authContextRef`; never place raw secrets in request payloads.
+6. Add tests/fixtures that distinguish "provider unavailable" (capability check fails, route rejected) from "provider available but `run()` failed" (normalized error surfaced).
+7. Update this document: add a row to the [Provider Matrix](#provider-matrix) and, if there's implementation nuance worth recording, a bullet under [Provider Notes](#provider-notes). If the provider needs deeper documentation (e.g. a multi-platform family like ONNX Runtime), add a dedicated `docs/architecture/<family>.md` and link it from here.
+
+See CLAUDE.md §5 for the durable version of the contract expectations above.
 
 ## Current Guidance
 

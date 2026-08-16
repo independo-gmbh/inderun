@@ -26,11 +26,17 @@ The same conceptual model is shared across platforms:
 
 Capacitor is treated as an app-facing bridge layer over the existing platform SDKs, not as a separate execution engine. The Capacitor package should forward canonical requests into the existing Web, Swift, and Kotlin SDKs and return the same normalized result and error shapes.
 
+Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introspection call that returns each registered provider's static descriptor and current dynamic capability check without executing a task or producing side effects. It exists with the same shape on the TypeScript, Swift, and Kotlin engines, and is intended for UI that needs to show live provider availability before a run (for example, the Web demo's provider badges).
+
+`IndeRun`'s method-signature surface (`run`/`checkCapabilities`) across TypeScript, Swift, and Kotlin is now generated from a versioned spec and CI-enforced — each platform's hand-written `IndeRun` class implements/conforms to the generated `IndeRunApi` interface/protocol, and CI fails on regeneration drift. `ProviderAdapter` parity is still kept in sync by convention and review, not generation. See [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and current status.
+
 ## Cancellation And Fallback
 
 Cancellation should produce a terminal cancellation outcome and no further user-visible events after the cancel point.
 
 Fallback should be predictable and inspectable. If a preferred provider cannot execute, the engine should use the same normalized routing and error model rather than exposing provider-specific control flow to the app.
+
+This also applies to the route *planner* itself, not just providers: on Web, routing is planned by the shared Rust/WASM core by default, with an in-process TypeScript re-implementation as a fallback when the WASM module is unavailable. That degradation must be inspectable rather than silent — the `route_decided` telemetry event's payload carries `plannerSource` (`"wasm"` or `"fallback"`) and, when the fallback was caused by a planner failure, `plannerUnavailableReason` (one of `"import_failed"`, `"invalid_module_shape"`, `"init_failed"`, `"plan_failed"`). See `docs/architecture/providers.md` for the loading mechanism and `packages/inderun-web/src/route-planner.ts` for the reason taxonomy.
 
 ## Security And Parity
 

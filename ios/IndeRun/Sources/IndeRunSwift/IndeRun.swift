@@ -2,7 +2,7 @@ import Foundation
 import IndeRunCore
 import IndeRunContracts
 
-public final class IndeRun: Sendable {
+public final class IndeRun: IndeRunApi {
     private let registry: ProviderRegistry
     private let hostServices: HostServices
     private let telemetryService: (any TelemetryService)?
@@ -197,5 +197,23 @@ public final class IndeRun: Sendable {
             message: "Execution fell through unexpectedly.",
             runId: runId
         )
+    }
+
+    /// Reports each registered provider's static descriptor and current dynamic capability check,
+    /// without executing a task. Useful for UI that shows live provider availability before a run.
+    public func checkCapabilities() async -> [ProviderCapabilitySnapshot] {
+        var snapshots: [ProviderCapabilitySnapshot] = []
+        for provider in registry.list() {
+            let descriptor = provider.describe()
+            let capabilities = await provider.capabilities(host: hostServices)
+            snapshots.append(
+                ProviderCapabilitySnapshot(
+                    providerId: descriptor.id,
+                    descriptor: descriptor,
+                    capabilities: capabilities
+                )
+            )
+        }
+        return snapshots
     }
 }

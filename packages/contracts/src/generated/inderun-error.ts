@@ -1,7 +1,9 @@
 /* This file was generated from JSON Schema using quicktype. Do not edit by hand. */
 
 /**
- * Normalized Milestone-1 error contract.
+ * The error shape thrown by run() (wrapped in an IndeRunException) when execution fails —
+ * via validation, routing (no eligible provider), or every attempted provider failing.
+ * Never returned as part of a successful TaskResult.
  */
 export type IndeRunError = {
     /**
@@ -9,7 +11,11 @@ export type IndeRunError = {
      */
     details?: { [key: string]: unknown };
     /**
-     * Normalized error taxonomy class.
+     * Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+     * CapabilityMismatch (request needs something no eligible provider supports),
+     * Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+     * failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+     * execution budget), Internal (unexpected engine-side failure).
      */
     errorClass: ErrorClass;
     /**
@@ -40,6 +46,10 @@ export type IndeRunError = {
 }
 
 /**
- * Normalized error taxonomy class.
+ * Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+ * CapabilityMismatch (request needs something no eligible provider supports),
+ * Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+ * failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+ * execution budget), Internal (unexpected engine-side failure).
  */
 export type ErrorClass = "CapabilityMismatch" | "Offline" | "AuthError" | "RateLimited" | "Timeout" | "Unavailable" | "Internal";

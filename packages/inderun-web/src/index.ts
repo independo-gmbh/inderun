@@ -8,24 +8,27 @@ export {
   type HttpResponse,
   type HostServices,
   type ThermalState
-} from "./host.js";
+} from "./core/host.js";
 
 export {
   type ProviderDescriptor,
   type ProviderDynamicCapabilities,
+  type ProviderCapabilitySnapshot,
   type RunContext,
   type ProviderAdapter
-} from "./provider.js";
+} from "./core/provider.js";
 
-export { ProviderRegistry } from "./registry.js";
+export { ProviderRegistry } from "./core/registry.js";
 
-export { type RouteSelection, Router } from "./router.js";
+export { type RouteSelection, Router } from "./core/router.js";
 export {
   type RoutePlanner,
+  type PlannerOutcome,
+  type WasmUnavailableReason,
   type SharedPlannerInput,
   type SharedPlannerRoutePlan,
   WasmRoutePlanner
-} from "./route-planner.js";
+} from "./core/route-planner.js";
 
 export {
   type IndeRunExceptionParams,
@@ -38,16 +41,17 @@ export {
   createUnavailable,
   createInternal,
   toIndeRunException
-} from "./errors.js";
+} from "./core/errors.js";
 
-export { IndeRun } from "./engine.js";
+export { IndeRun } from "./core/engine.js";
+export type { IndeRunApi } from "./core/generated/inderun-api.js";
 
 export {
   type TelemetryEventType,
   type TelemetryEvent,
   type TelemetryService,
   NoOpTelemetryService
-} from "./telemetry.js";
+} from "./core/telemetry.js";
 
 export {
   BrowserConnectivityService,
@@ -56,7 +60,7 @@ export {
   createBrowserHostServices,
   type CreateBrowserHostServicesOptions,
   type FetchHttpClientOptions
-} from "./browser-host.js";
+} from "./core/browser-host.js";
 
 export { createIndeRunWeb, type CreateIndeRunWebOptions } from "./web-sdk.js";
 

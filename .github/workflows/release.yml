@@ -18,6 +18,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write # create GitHub releases + push the version/changelog commit
       issues: write # comment on released issues
@@ -26,7 +27,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # semantic-release needs full history + tags
           persist-credentials: true
@@ -36,13 +37,13 @@ jobs:
           token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Set up pnpm 11.9.0
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11.9.0
           run_install: false
 
       - name: Set up Node 24
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -53,12 +54,14 @@ jobs:
         run: npm i -g npm@^11
 
       - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: this tracks whatever "stable" Rust
+        # currently is, which is the point of using it here.
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo state
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             . -> target
@@ -67,7 +70,7 @@ jobs:
 
       - name: Cache wasm-bindgen CLI
         id: cache-wasm-bindgen
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/wasm-bindgen
@@ -85,6 +88,9 @@ jobs:
 
       - name: Generate contracts
         run: pnpm generate
+
+      - name: Verify generated contracts and API surface are up to date
+        run: git diff --exit-code -- packages/contracts/src/generated android/inderun-contracts/src/main/kotlin ios/IndeRun/Sources/IndeRunContracts rust/inderun-route-core/src/generated packages/inderun-web/src/core/generated android/inderun-kotlin/src/main/kotlin/app/independo/inderun/sdk/generated ios/IndeRun/Sources/IndeRunSwift/Generated
 
       - name: Build Rust WASM bindings
         run: |

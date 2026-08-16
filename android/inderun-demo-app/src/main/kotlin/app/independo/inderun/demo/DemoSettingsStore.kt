@@ -24,9 +24,13 @@ internal class SharedPreferencesDemoSettingsStore(
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: DemoDefaults.DEFAULT_CLOUD_MODEL
+        val onnxModelSelection = preferences.getString(KEY_ONNX_MODEL_SELECTION, null)
+            ?.let { name -> DemoOnnxModelSelection.entries.firstOrNull { it.name == name } }
+            ?: DemoDefaults.DEFAULT_ONNX_MODEL_SELECTION
         return DemoSettings(
             endpointUrl = endpointUrl,
             model = model,
+            onnxModelSelection = onnxModelSelection,
         )
     }
 
@@ -34,11 +38,13 @@ internal class SharedPreferencesDemoSettingsStore(
         preferences.edit()
             .putString(KEY_ENDPOINT_URL, settings.endpointUrl.trim())
             .putString(KEY_MODEL, settings.model.trim())
+            .putString(KEY_ONNX_MODEL_SELECTION, settings.onnxModelSelection.name)
             .apply()
     }
 
     private companion object {
         const val KEY_ENDPOINT_URL = "cloud_endpoint_url"
         const val KEY_MODEL = "cloud_model"
+        const val KEY_ONNX_MODEL_SELECTION = "onnx_model_selection"
     }
 }

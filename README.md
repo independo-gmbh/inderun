@@ -5,7 +5,6 @@
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml"><img alt="Rust" src="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml"><img alt="Android" src="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg?branch=dev"></a>
-  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml"><img alt="Capacitor Plugin" src="https://github.com/independo-gmbh/inderun/actions/workflows/capacitor.yml/badge.svg?branch=dev"></a>
 </p>
 
 <p align="center">
@@ -32,9 +31,10 @@ The project is organized around a few stable ideas:
 ## Status
 
 IndeRun is currently focused on Mode 1 `run()` execution for `text_to_text`. Streaming and realtime sessions are
-planned (Milestone 2) but not yet implemented; the shipped surface is request/response execution. Every platform can
-always use the OpenAI-compatible **cloud** provider; **on-device** execution is used automatically by routing when the
-device supports it (or forced with a `localRequired` privacy constraint).
+planned but not yet implemented; the shipped surface is request/response execution. Every platform can always use the
+OpenAI-compatible **cloud** provider; **on-device** execution is used automatically by routing when the device
+supports it (or forced with a `localRequired` privacy constraint). See
+[GitHub Milestones](https://github.com/independo-gmbh/inderun/milestones) for current roadmap status.
 
 ## Platforms
 
@@ -68,11 +68,17 @@ const result = await inderun.run({
 > Browser apps must route OpenAI calls through a same-origin proxy that keeps the key server-side — never ship
 > provider credentials to the browser.
 
+For on-device execution with a developer-supplied ONNX model, pass `onnx` as well (or instead) and
+register the Web ONNX Runtime provider — see the
+[`@independo/inderun-web` README](packages/inderun-web/README.md#on-device-models-onnx-runtime-web)
+and the [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md). The
+provider ships from the `@independo/inderun-web/onnx` subpath.
+
 ### iOS / macOS (Swift)
 
 **Requirements:**
 
-- SDK: iOS 15+ / macOS 12+, Swift 5.9+ (Swift Package Manager).
+- SDK: iOS 16+ / macOS 14+, Swift 5.9+ (Swift Package Manager).
 - On-device provider (Apple Foundation Models): an Apple Intelligence–capable device running a FoundationModels-supported
   OS (iOS 26+ / macOS 26+). Availability is checked at runtime; IndeRun falls back to the cloud provider when it is
   unavailable. **No special Info.plist entitlement is required** for on-device execution.
@@ -155,16 +161,15 @@ val result = indeRun.run(
 
 ### Capacitor (hybrid apps)
 
-A thin Capacitor bridge (`@independo/capacitor-inderun`) delegates to the native iOS and Android SDKs. It is not yet
-published to a registry — it will move to a dedicated, SwiftPM-only repository. Until then it lives in this monorepo
-under `packages/capacitor-inderun`.
+A thin Capacitor bridge is used internally to integrate the native iOS and Android SDKs into hybrid applications. It
+is not currently published as a public package or repository.
 
 ## Minimum system requirements
 
 | Platform     | SDK minimum                                    | On-device local model                                  |
 | ------------ | ---------------------------------------------- | ------------------------------------------------------ |
 | Web          | Node 24+ / modern browser (ES2022 + WASM)      | — (cloud provider only)                                |
-| iOS / macOS  | iOS 15+ / macOS 12+, Swift 5.9+                | Apple Intelligence device, iOS 26+ / macOS 26+         |
+| iOS / macOS  | iOS 16+ / macOS 14+, Swift 5.9+                | Apple Intelligence device, iOS 26+ / macOS 26+         |
 | Android      | Android 8.0+ (API 26), JDK 17                  | Device with AICore / Gemini Nano support               |
 
 The OpenAI-compatible cloud provider is available on every platform. On-device execution additionally requires the
@@ -190,6 +195,7 @@ Never place raw API keys in a `TaskRequest`. Providers resolve credentials from 
 - [Project brief](docs/architecture/technical-brief.md)
 - [Architecture overview](docs/architecture/architecture.md)
 - [Provider model](docs/architecture/providers.md)
+- [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
 - [CI behavior](docs/ci.md)
 - [Releases & publishing](docs/release.md)
 - [Contributor workflow and build commands](CONTRIBUTING.md)
@@ -203,3 +209,5 @@ MIT. See `LICENSE`.
 
 This project is sponsored by [netidee](https://www.netidee.at/inderun) and developed
 by [Independo GmbH](https://www.independo.app).
+
+Explore more [open-source tools and research from Independo](https://www.independo.app/open-source).

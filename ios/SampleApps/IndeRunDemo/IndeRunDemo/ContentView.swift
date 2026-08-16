@@ -8,17 +8,21 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     introSection
-                    executionSection
-                    availabilitySection
                     cloudSettingsSection
+                    onnxSettingsSection
+                    privacySection
                     promptSection
                     actionSection
+                    availabilitySection
                     resultSection
+                    routingDecisionSection
+                    limitationsSection
                 }
                 .padding(20)
             }
             .navigationTitle("IndeRun Demo")
             .task {
+                await viewModel.ensureSelectedOnnxModelDownloaded()
                 await viewModel.refreshAvailability()
             }
         }
@@ -26,36 +30,24 @@ struct ContentView: View {
 
     private var introSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Run the same text request through either Apple Foundation Models on-device or a cloud endpoint exposed through the demo proxy.")
+            Text("Run the same text request through IndeRun's capability-based provider routing: Apple Foundation Models on-device, an ONNX Runtime local provider, or a cloud endpoint exposed through the demo proxy.")
                 .font(.body)
-            Text("Routing is explicit in this demo. It does not automatically fall back between providers.")
+            Text("IndeRun picks the provider automatically from your privacy preference and each provider's reported capabilities.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
     }
 
-    private var executionSection: some View {
+    private var privacySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Execution Mode")
+            Text("Privacy Preference")
                 .font(.headline)
-            Picker("Execution Mode", selection: $viewModel.executionMode) {
-                ForEach(DemoViewModel.ExecutionMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+            Picker("Privacy Preference", selection: $viewModel.privacy) {
+                ForEach(DemoViewModel.PrivacyPreference.allCases) { preference in
+                    Text(preference.title).tag(preference)
                 }
             }
             .pickerStyle(.segmented)
-            Text(viewModel.executionModeDescription)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var availabilitySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Availability")
-                .font(.headline)
-            availabilityCard(title: DemoViewModel.ExecutionMode.onDevice.title, state: viewModel.onDeviceStatus)
-            availabilityCard(title: DemoViewModel.ExecutionMode.cloud.title, state: viewModel.cloudStatus)
         }
     }
 
@@ -75,6 +67,27 @@ struct ContentView: View {
                 .autocorrectionDisabled()
 
             Text(viewModel.cloudSettingsHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var onnxSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("ONNX Local Settings")
+                .font(.headline)
+            Picker("ONNX Model", selection: $viewModel.onnxModelSelection) {
+                ForEach(DemoOnnxModelSelection.allCases) { selection in
+                    Text(selection.title).tag(selection)
+                }
+            }
+            .pickerStyle(.menu)
+
+            if case .downloading(let progress) = viewModel.onnxDownloadState {
+                ProgressView(value: progress)
+            }
+
+            Text(viewModel.onnxSettingsHint)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -117,12 +130,34 @@ struct ContentView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
-                    Text(viewModel.runButtonTitle)
+                    Text("Run")
                         .frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.borderedProminent)
             .disabled(!viewModel.canRun)
+        }
+    }
+
+    private var availabilitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Provider Availability")
+                .font(.headline)
+
+            switch viewModel.capabilitiesState {
+            case .loading:
+                Text("Checking provider availability...")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            case .failed:
+                Text("Unable to check provider availability.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            case .ready(let badges):
+                ForEach(badges) { badge in
+                    availabilityCard(badge: badge)
+                }
+            }
         }
     }
 
@@ -149,16 +184,64 @@ struct ContentView: View {
         }
     }
 
-    private func availabilityCard(title: String, state: DemoViewModel.AvailabilityState) -> some View {
+    private var routingDecisionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Routing Decision")
+                .font(.headline)
+
+            if let decision = viewModel.lastRouteDecision {
+                VStack(alignment: .leading, spacing: 8) {
+                    metadataRow(label: "Selected", value: decision.selectedProviderId ?? "none")
+                    metadataRow(label: "Explanation", value: decision.explanation.isEmpty ? "n/a" : decision.explanation)
+                    if !decision.rejectedProviderIds.isEmpty {
+                        metadataRow(label: "Rejected", value: decision.rejectedProviderIds.joined(separator: ", "))
+                    }
+                    if !decision.fallbackProviderIds.isEmpty {
+                        metadataRow(label: "Fallbacks", value: decision.fallbackProviderIds.joined(separator: ", "))
+                    }
+                }
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemBackground))
+                )
+            } else {
+                Text("No run yet. The routing decision appears after the first attempt.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var limitationsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
+            Text("Known Limitations")
+                .font(.headline)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("• The ONNX Local provider runs against a deterministic fixture runtime by default. Point it at a real bundled/app-managed ModelPackage to exercise actual on-device inference.")
+                Text("• Apple availability depends on device class, OS version, locale, Apple Intelligence state, and model readiness.")
+                Text("• The app never embeds cloud credentials. The demo proxy resolves upstream endpoint and auth server-side.")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func availabilityCard(badge: DemoViewModel.ProviderBadge) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(badge.label)
                 .font(.subheadline.weight(.semibold))
-            Text(state.title)
+            Text(badge.available ? "Available" : "Unavailable")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(state.color)
-            Text(state.message)
-                .font(.footnote)
+                .foregroundStyle(badge.available ? .green : .red)
+            Text(badge.id)
+                .font(.footnote.monospaced())
                 .foregroundStyle(.secondary)
+            if let reason = badge.reason, !badge.available {
+                Text(reason)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)

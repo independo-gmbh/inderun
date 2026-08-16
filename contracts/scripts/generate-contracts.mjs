@@ -82,6 +82,11 @@ const schemas = [
     input: "route-plan.schema.json",
     typeOutput: "route-plan.ts",
     constName: "routePlanSchema"
+  },
+  {
+    input: "model-package.schema.json",
+    typeOutput: "model-package.ts",
+    constName: "modelPackageSchema"
   }
 ];
 
@@ -288,8 +293,7 @@ async function generateKotlinContracts(tempDir) {
     "kotlin",
     "--src-lang",
     "schema",
-    "--framework",
-    "just-types",
+    "--just-types",
     "--acronym-style",
     "original",
     "--package",

@@ -10,4 +10,4 @@ export {
   OpenAIResponsesProvider,
   type OpenAIProviderOptions,
   DEFAULT_OPENAI_RESPONSES_ENDPOINT
-} from "./openai-provider.js";
+} from "./providers/openai/provider.js";

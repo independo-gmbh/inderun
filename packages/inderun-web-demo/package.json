@@ -6,18 +6,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/verify-wasm-route-planner-bundled.mjs",
     "preview": "vite preview",
     "test": "vitest run"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@independo/inderun-contracts": "workspace:^",
     "@independo/inderun-web": "workspace:^"
   },
   "devDependencies": {
-    "happy-dom": "^20.10.6",
+    "happy-dom": "^20.11.2",
     "typescript": "^6.0.3",
-    "vite": "^7.3.6",
-    "vitest": "^3.2.6"
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
   }
 }

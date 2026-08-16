@@ -9,11 +9,14 @@
 //   let telemetryEvent = try TelemetryEvent(json)
 //   let routePlannerInput = try RoutePlannerInput(json)
 //   let routePlan = try RoutePlan(json)
+//   let modelPackage = try ModelPackage(json)
 
 import Foundation
 
-/// The standard request payload for initiating a text-to-text execution task within the
-/// IndeRun framework.
+/// The request payload for a Mode 1 (request/response) text-to-text execution. At least one
+/// of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be
+/// present together, though callers should typically supply just one;
+/// `constraints`/`preferences` steer routing but never select a provider directly.
 // MARK: - TaskRequest
 public struct TaskRequest: Codable, Sendable {
     /// A unique identifier used to retrieve credentials from a secure local storage. Raw
@@ -38,6 +41,19 @@ public struct TaskRequest: Codable, Sendable {
     public var task: TaskRequestTask
     /// Execution preferences for tracking usage and performance metrics.
     public var telemetry: TaskRequestTelemetry?
+
+    public enum CodingKeys: String, CodingKey {
+        case authContextRef = "authContextRef"
+        case constraints = "constraints"
+        case generation = "generation"
+        case messages = "messages"
+        case preferences = "preferences"
+        case prompt = "prompt"
+        case requestId = "requestId"
+        case schemaVersion = "schemaVersion"
+        case task = "task"
+        case telemetry = "telemetry"
+    }
 
     public init(authContextRef: String?, constraints: TaskRequestConstraints?, generation: Generation?, messages: [Message]?, preferences: TaskRequestPreferences?, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
         self.authContextRef = authContextRef
@@ -116,6 +132,12 @@ public struct TaskRequestConstraints: Codable, Sendable {
     /// Optional routing timeout budget in milliseconds.
     public var timeoutMs: Int?
 
+    public enum CodingKeys: String, CodingKey {
+        case cloud = "cloud"
+        case privacy = "privacy"
+        case timeoutMs = "timeoutMs"
+    }
+
     public init(cloud: Cloud?, privacy: PrivacyEnum?, timeoutMs: Int?) {
         self.cloud = cloud
         self.privacy = privacy
@@ -192,6 +214,14 @@ public struct Generation: Codable, Sendable {
     /// Nucleus sampling parameter for controlling diversity vs focus in the output.
     public var topP: Double?
 
+    public enum CodingKeys: String, CodingKey {
+        case maxOutputTokens = "maxOutputTokens"
+        case seed = "seed"
+        case stop = "stop"
+        case temperature = "temperature"
+        case topP = "topP"
+    }
+
     public init(maxOutputTokens: Int?, seed: Int?, stop: [String]?, temperature: Double?, topP: Double?) {
         self.maxOutputTokens = maxOutputTokens
         self.seed = seed
@@ -252,6 +282,11 @@ public struct Message: Codable, Sendable {
     /// The role of the author (e.g., 'user', 'assistant').
     public var role: Role
 
+    public enum CodingKeys: String, CodingKey {
+        case content = "content"
+        case role = "role"
+    }
+
     public init(content: String, role: Role) {
         self.content = content
         self.role = role
@@ -307,6 +342,10 @@ public enum Role: String, Codable, Sendable {
 public struct TaskRequestPreferences: Codable, Sendable {
     /// Primary optimization goal when multiple providers remain eligible.
     public var optimizeFor: OptimizeFor?
+
+    public enum CodingKeys: String, CodingKey {
+        case optimizeFor = "optimizeFor"
+    }
 
     public init(optimizeFor: OptimizeFor?) {
         self.optimizeFor = optimizeFor
@@ -368,6 +407,10 @@ public struct TaskRequestTask: Codable, Sendable {
     /// interactions.
     public var kind: Kind
 
+    public enum CodingKeys: String, CodingKey {
+        case kind = "kind"
+    }
+
     public init(kind: Kind) {
         self.kind = kind
     }
@@ -422,6 +465,12 @@ public struct TaskRequestTelemetry: Codable, Sendable {
     /// Optional key-value pairs for correlating telemetry data with specific features or users.
     public var tags: [String: String]?
 
+    public enum CodingKeys: String, CodingKey {
+        case consent = "consent"
+        case level = "level"
+        case tags = "tags"
+    }
+
     public init(consent: Bool?, level: Level?, tags: [String: String]?) {
         self.consent = consent
         self.level = level
@@ -475,12 +524,17 @@ public enum Level: String, Codable, Sendable {
     case off = "off"
 }
 
-/// The standard response payload for completed text-to-text execution within the IndeRun
-/// framework.
+/// The response payload for a completed text-to-text execution. A full execution failure
+/// (validation, routing, or every attempted provider failing) is surfaced by run() throwing
+/// an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
+/// are reserved for a provider reporting a non-fatal, degraded outcome on an
+/// otherwise-successful result (not currently produced by any provider in this codebase).
 // MARK: - TaskResult
 public struct TaskResult: Codable, Sendable {
-    /// Standardized reason describing how generation concluded (e.g., 'stop', 'length',
-    /// 'cancelled', or 'error').
+    /// How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+    /// 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+    /// otherwise-returned result — no provider in this codebase currently produces it, since a
+    /// full execution failure is instead surfaced by run() throwing an IndeRunError.
     public var finishReason: FinishReason
     /// The normalized content returned from the selected provider.
     public var output: Output
@@ -492,6 +546,15 @@ public struct TaskResult: Codable, Sendable {
     public var telemetry: TaskResultTelemetry
     /// Optional metadata regarding the quantity of tokens processed by the provider.
     public var usage: Usage?
+
+    public enum CodingKeys: String, CodingKey {
+        case finishReason = "finishReason"
+        case output = "output"
+        case runId = "runId"
+        case schemaVersion = "schemaVersion"
+        case telemetry = "telemetry"
+        case usage = "usage"
+    }
 
     public init(finishReason: FinishReason, output: Output, runId: String, schemaVersion: SchemaVersion, telemetry: TaskResultTelemetry, usage: Usage?) {
         self.finishReason = finishReason
@@ -548,8 +611,10 @@ public extension TaskResult {
     }
 }
 
-/// Standardized reason describing how generation concluded (e.g., 'stop', 'length',
-/// 'cancelled', or 'error').
+/// How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+/// 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+/// otherwise-returned result — no provider in this codebase currently produces it, since a
+/// full execution failure is instead surfaced by run() throwing an IndeRunError.
 public enum FinishReason: String, Codable, Sendable {
     case cancelled = "cancelled"
     case error = "error"
@@ -564,6 +629,11 @@ public struct Output: Codable, Sendable {
     public var text: String
     /// Output payload category (e.g., 'text' for Mode 1 text-to-text).
     public var type: OutputType
+
+    public enum CodingKeys: String, CodingKey {
+        case text = "text"
+        case type = "type"
+    }
 
     public init(text: String, type: OutputType) {
         self.text = text
@@ -615,8 +685,9 @@ public enum OutputType: String, Codable, Sendable {
 /// Required metadata providing an overview of the execution result and performance metrics.
 // MARK: - TaskResultTelemetry
 public struct TaskResultTelemetry: Codable, Sendable {
-    /// Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
-    /// 'Unavailable').
+    /// Present only if a provider reports a degraded outcome on an otherwise-successful result;
+    /// no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+    /// IndeRunError never produces a TaskResult at all.
     public var errorClass: ErrorClass?
     /// The identifier for the specific provider that handled the request (e.g.,
     /// 'openai_compatible_cloud').
@@ -624,6 +695,12 @@ public struct TaskResultTelemetry: Codable, Sendable {
     /// Measured execution duration in milliseconds, including route selection and result
     /// processing.
     public var totalMs: Double
+
+    public enum CodingKeys: String, CodingKey {
+        case errorClass = "errorClass"
+        case providerUsed = "providerUsed"
+        case totalMs = "totalMs"
+    }
 
     public init(errorClass: ErrorClass?, providerUsed: String, totalMs: Double) {
         self.errorClass = errorClass
@@ -671,10 +748,15 @@ public extension TaskResultTelemetry {
     }
 }
 
-/// Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
-/// 'Unavailable').
+/// Present only if a provider reports a degraded outcome on an otherwise-successful result;
+/// no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+/// IndeRunError never produces a TaskResult at all.
 ///
-/// Normalized error taxonomy class.
+/// Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+/// CapabilityMismatch (request needs something no eligible provider supports),
+/// Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+/// failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+/// execution budget), Internal (unexpected engine-side failure).
 public enum ErrorClass: String, Codable, Sendable {
     case AuthError = "AuthError"
     case CapabilityMismatch = "CapabilityMismatch"
@@ -694,6 +776,12 @@ public struct Usage: Codable, Sendable {
     public var outputTokens: Int?
     /// Aggregated token count for this request, as reported by the provider.
     public var totalTokens: Int?
+
+    public enum CodingKeys: String, CodingKey {
+        case inputTokens = "inputTokens"
+        case outputTokens = "outputTokens"
+        case totalTokens = "totalTokens"
+    }
 
     public init(inputTokens: Int?, outputTokens: Int?, totalTokens: Int?) {
         self.inputTokens = inputTokens
@@ -741,12 +829,18 @@ public extension Usage {
     }
 }
 
-/// Normalized Milestone-1 error contract.
+/// The error shape thrown by run() (wrapped in an IndeRunException) when execution fails —
+/// via validation, routing (no eligible provider), or every attempted provider failing.
+/// Never returned as part of a successful TaskResult.
 // MARK: - IndeRunError
 public struct IndeRunError: Codable, Sendable {
     /// Optional structured diagnostic details. It must not contain raw secrets.
     public var details: [String: JSONAny]?
-    /// Normalized error taxonomy class.
+    /// Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+    /// CapabilityMismatch (request needs something no eligible provider supports),
+    /// Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+    /// failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+    /// execution budget), Internal (unexpected engine-side failure).
     public var errorClass: ErrorClass
     /// Human-readable error message suitable for logs and developer diagnostics.
     public var message: String
@@ -760,6 +854,17 @@ public struct IndeRunError: Codable, Sendable {
     public var runId: String?
     /// Contract schema version used to interpret the error payload.
     public var schemaVersion: SchemaVersion
+
+    public enum CodingKeys: String, CodingKey {
+        case details = "details"
+        case errorClass = "errorClass"
+        case message = "message"
+        case providerId = "providerId"
+        case retryable = "retryable"
+        case retryAfterMs = "retryAfterMs"
+        case runId = "runId"
+        case schemaVersion = "schemaVersion"
+    }
 
     public init(details: [String: JSONAny]?, errorClass: ErrorClass, message: String, providerId: String?, retryable: Bool?, retryAfterMs: Int?, runId: String?, schemaVersion: SchemaVersion) {
         self.details = details
@@ -837,6 +942,14 @@ public struct HttpRequest: Codable, Sendable {
     /// Absolute target URL for the provider transport request.
     public var url: String
 
+    public enum CodingKeys: String, CodingKey {
+        case body = "body"
+        case headers = "headers"
+        case method = "method"
+        case timeoutMs = "timeoutMs"
+        case url = "url"
+    }
+
     public init(body: String?, headers: [String: String]?, method: Method, timeoutMs: Int?, url: String) {
         self.body = body
         self.headers = headers
@@ -910,6 +1023,13 @@ public struct HttpResponse: Codable, Sendable {
     /// HTTP status text returned by the provider transport.
     public var statusText: String
 
+    public enum CodingKeys: String, CodingKey {
+        case body = "body"
+        case headers = "headers"
+        case status = "status"
+        case statusText = "statusText"
+    }
+
     public init(body: String, headers: [String: String], status: Int, statusText: String) {
         self.body = body
         self.headers = headers
@@ -970,6 +1090,13 @@ public struct TelemetryEvent: Codable, Sendable {
     public var timestamp: Double
     /// Telemetry event kind emitted by the orchestrator or provider integration.
     public var type: TelemetryEventType
+
+    public enum CodingKeys: String, CodingKey {
+        case payload = "payload"
+        case runId = "runId"
+        case timestamp = "timestamp"
+        case type = "type"
+    }
 
     public init(payload: [String: JSONAny], runId: String, timestamp: Double, type: TelemetryEventType) {
         self.payload = payload
@@ -1039,6 +1166,13 @@ public struct RoutePlannerInput: Codable, Sendable {
     /// Minimal task descriptor for provider task matching.
     public var task: RoutePlannerInputTask
 
+    public enum CodingKeys: String, CodingKey {
+        case constraints = "constraints"
+        case preferences = "preferences"
+        case providers = "providers"
+        case task = "task"
+    }
+
     public init(constraints: RoutePlannerInputConstraints, preferences: RoutePlannerInputPreferences, providers: [Provider], task: RoutePlannerInputTask) {
         self.constraints = constraints
         self.preferences = preferences
@@ -1098,6 +1232,12 @@ public struct RoutePlannerInputConstraints: Codable, Sendable {
     /// Privacy requirement or preference for execution placement.
     public var privacy: PrivacyEnum?
 
+    public enum CodingKeys: String, CodingKey {
+        case cloud = "cloud"
+        case networkOnline = "networkOnline"
+        case privacy = "privacy"
+    }
+
     public init(cloud: Cloud?, networkOnline: Bool?, privacy: PrivacyEnum?) {
         self.cloud = cloud
         self.networkOnline = networkOnline
@@ -1150,6 +1290,10 @@ public struct RoutePlannerInputPreferences: Codable, Sendable {
     /// Primary optimization goal when multiple providers remain eligible.
     public var optimizeFor: OptimizeFor?
 
+    public enum CodingKeys: String, CodingKey {
+        case optimizeFor = "optimizeFor"
+    }
+
     public init(optimizeFor: OptimizeFor?) {
         self.optimizeFor = optimizeFor
     }
@@ -1194,6 +1338,11 @@ public extension RoutePlannerInputPreferences {
 public struct Provider: Codable, Sendable {
     public var capabilities: Capabilities
     public var descriptor: Descriptor
+
+    public enum CodingKeys: String, CodingKey {
+        case capabilities = "capabilities"
+        case descriptor = "descriptor"
+    }
 
     public init(capabilities: Capabilities, descriptor: Descriptor) {
         self.capabilities = capabilities
@@ -1242,6 +1391,11 @@ public extension Provider {
 public struct Capabilities: Codable, Sendable {
     public var available: Bool
     public var reason: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case available = "available"
+        case reason = "reason"
+    }
 
     public init(available: Bool, reason: String?) {
         self.available = available
@@ -1294,6 +1448,14 @@ public struct Descriptor: Codable, Sendable {
     public var supports: Supports
     public var tasks: [String]
     public var type: DescriptorType
+
+    public enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case privacy = "privacy"
+        case supports = "supports"
+        case tasks = "tasks"
+        case type = "type"
+    }
 
     public init(id: String, privacy: PrivacyClass?, supports: Supports, tasks: [String], type: DescriptorType) {
         self.id = id
@@ -1353,6 +1515,11 @@ public struct PrivacyClass: Codable, Sendable {
     public var dataLeavesDevice: Bool
     public var regions: [String]?
 
+    public enum CodingKeys: String, CodingKey {
+        case dataLeavesDevice = "dataLeavesDevice"
+        case regions = "regions"
+    }
+
     public init(dataLeavesDevice: Bool, regions: [String]?) {
         self.dataLeavesDevice = dataLeavesDevice
         self.regions = regions
@@ -1399,6 +1566,10 @@ public extension PrivacyClass {
 // MARK: - Supports
 public struct Supports: Codable, Sendable {
     public var run: Bool
+
+    public enum CodingKeys: String, CodingKey {
+        case run = "run"
+    }
 
     public init(run: Bool) {
         self.run = run
@@ -1450,6 +1621,10 @@ public enum DescriptorType: String, Codable, Sendable {
 // MARK: - RoutePlannerInputTask
 public struct RoutePlannerInputTask: Codable, Sendable {
     public var kind: String
+
+    public enum CodingKeys: String, CodingKey {
+        case kind = "kind"
+    }
 
     public init(kind: String) {
         self.kind = kind
@@ -1506,6 +1681,15 @@ public struct RoutePlan: Codable, Sendable {
     public var rejectedProviders: [RejectedProvider]
     /// Chosen primary provider ID, if any.
     public var selectedProviderId: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case candidates = "candidates"
+        case explanation = "explanation"
+        case failureCode = "failureCode"
+        case fallbackProviderIds = "fallbackProviderIds"
+        case rejectedProviders = "rejectedProviders"
+        case selectedProviderId = "selectedProviderId"
+    }
 
     public init(candidates: [Candidate], explanation: Explanation, failureCode: FailureCode?, fallbackProviderIds: [String], rejectedProviders: [RejectedProvider], selectedProviderId: String?) {
         self.candidates = candidates
@@ -1567,6 +1751,11 @@ public struct Candidate: Codable, Sendable {
     public var order: Int
     public var providerId: String
 
+    public enum CodingKeys: String, CodingKey {
+        case order = "order"
+        case providerId = "providerId"
+    }
+
     public init(order: Int, providerId: String) {
         self.order = order
         self.providerId = providerId
@@ -1615,6 +1804,11 @@ public extension Candidate {
 public struct Explanation: Codable, Sendable {
     public var selectedProviderId: String?
     public var summary: String
+
+    public enum CodingKeys: String, CodingKey {
+        case selectedProviderId = "selectedProviderId"
+        case summary = "summary"
+    }
 
     public init(selectedProviderId: String?, summary: String) {
         self.selectedProviderId = selectedProviderId
@@ -1671,6 +1865,11 @@ public struct RejectedProvider: Codable, Sendable {
     public var providerId: String
     public var reasons: [Reason]
 
+    public enum CodingKeys: String, CodingKey {
+        case providerId = "providerId"
+        case reasons = "reasons"
+    }
+
     public init(providerId: String, reasons: [Reason]) {
         self.providerId = providerId
         self.reasons = reasons
@@ -1718,6 +1917,11 @@ public extension RejectedProvider {
 public struct Reason: Codable, Sendable {
     public var code: Code
     public var message: String
+
+    public enum CodingKeys: String, CodingKey {
+        case code = "code"
+        case message = "message"
+    }
 
     public init(code: Code, message: String) {
         self.code = code
@@ -1771,6 +1975,510 @@ public enum Code: String, Codable, Sendable {
     case taskNotSupported = "task_not_supported"
 }
 
+/// Provider-neutral descriptor for a developer-supplied/custom local model made available to
+/// an IndeRun local-model provider family (for example, the ONNX Runtime family). It
+/// describes model identity, format, task support, source, files, integrity, licensing, and
+/// resource expectations. It is bootstrap/configuration metadata resolved before execution;
+/// it is not part of the public TaskRequest/TaskResult surface, and it must not carry raw
+/// secrets.
+// MARK: - ModelPackage
+public struct ModelPackage: Codable, Sendable {
+    /// Files that make up the model package, expressed as source-relative names/paths. The
+    /// provider adapter and model source resolve these to concrete bytes per platform.
+    public var files: Files?
+    /// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+    /// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+    /// model package.
+    public var format: Format
+    /// Stable application-scoped identifier for the model package.
+    public var id: String
+    /// Optional integrity metadata used to validate resolved files before load.
+    public var integrity: Integrity?
+    /// Optional license/source metadata for the model, for developer transparency. Free-form.
+    public var license: License?
+    /// Optional known resource expectations, used by capability checks to reject on constrained
+    /// devices before load.
+    public var limits: Limits?
+    /// Optional runtime compatibility expectations. Fields are advisory hints for capability
+    /// checks; the provider adapter owns exact enforcement.
+    public var runtime: Runtime?
+    /// Where the model files are obtained from. Availability of each source type is
+    /// platform-dependent; see the ONNX Runtime provider-family specification for the
+    /// per-platform support matrix.
+    public var source: Source?
+    /// IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by
+    /// dynamic capability checks and route matching.
+    public var tasks: [String]?
+    /// Optional application-defined version for the model package, used for cache invalidation
+    /// and compatibility checks.
+    public var version: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case files = "files"
+        case format = "format"
+        case id = "id"
+        case integrity = "integrity"
+        case license = "license"
+        case limits = "limits"
+        case runtime = "runtime"
+        case source = "source"
+        case tasks = "tasks"
+        case version = "version"
+    }
+
+    public init(files: Files?, format: Format, id: String, integrity: Integrity?, license: License?, limits: Limits?, runtime: Runtime?, source: Source?, tasks: [String]?, version: String?) {
+        self.files = files
+        self.format = format
+        self.id = id
+        self.integrity = integrity
+        self.license = license
+        self.limits = limits
+        self.runtime = runtime
+        self.source = source
+        self.tasks = tasks
+        self.version = version
+    }
+}
+
+// MARK: ModelPackage convenience initializers and mutators
+
+public extension ModelPackage {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ModelPackage.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        files: Files?? = nil,
+        format: Format? = nil,
+        id: String? = nil,
+        integrity: Integrity?? = nil,
+        license: License?? = nil,
+        limits: Limits?? = nil,
+        runtime: Runtime?? = nil,
+        source: Source?? = nil,
+        tasks: [String]?? = nil,
+        version: String?? = nil
+    ) -> ModelPackage {
+        return ModelPackage(
+            files: files ?? self.files,
+            format: format ?? self.format,
+            id: id ?? self.id,
+            integrity: integrity ?? self.integrity,
+            license: license ?? self.license,
+            limits: limits ?? self.limits,
+            runtime: runtime ?? self.runtime,
+            source: source ?? self.source,
+            tasks: tasks ?? self.tasks,
+            version: version ?? self.version
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Files that make up the model package, expressed as source-relative names/paths. The
+/// provider adapter and model source resolve these to concrete bytes per platform.
+// MARK: - Files
+public struct Files: Codable, Sendable {
+    /// Optional model/generation config file, where the model requires one.
+    public var config: String?
+    /// Optional external data files referenced by the model graph (for example ONNX external
+    /// weights).
+    public var external: [String]?
+    /// Files that must be present for the package to load (for example the model graph).
+    public var filesRequired: [String]?
+    /// Optional tokenizer file, where the model requires one.
+    public var tokenizer: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case config = "config"
+        case external = "external"
+        case filesRequired = "required"
+        case tokenizer = "tokenizer"
+    }
+
+    public init(config: String?, external: [String]?, filesRequired: [String]?, tokenizer: String?) {
+        self.config = config
+        self.external = external
+        self.filesRequired = filesRequired
+        self.tokenizer = tokenizer
+    }
+}
+
+// MARK: Files convenience initializers and mutators
+
+public extension Files {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Files.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        config: String?? = nil,
+        external: [String]?? = nil,
+        filesRequired: [String]?? = nil,
+        tokenizer: String?? = nil
+    ) -> Files {
+        return Files(
+            config: config ?? self.config,
+            external: external ?? self.external,
+            filesRequired: filesRequired ?? self.filesRequired,
+            tokenizer: tokenizer ?? self.tokenizer
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+/// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+/// model package.
+public enum Format: String, Codable, Sendable {
+    case genai = "genai"
+    case onnx = "onnx"
+    case ort = "ort"
+}
+
+/// Optional integrity metadata used to validate resolved files before load.
+// MARK: - Integrity
+public struct Integrity: Codable, Sendable {
+    /// Map of file name to expected checksum (for example 'sha256:...'). Absence means integrity
+    /// is not verified by IndeRun.
+    public var checksums: [String: String]?
+
+    public enum CodingKeys: String, CodingKey {
+        case checksums = "checksums"
+    }
+
+    public init(checksums: [String: String]?) {
+        self.checksums = checksums
+    }
+}
+
+// MARK: Integrity convenience initializers and mutators
+
+public extension Integrity {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Integrity.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        checksums: [String: String]?? = nil
+    ) -> Integrity {
+        return Integrity(
+            checksums: checksums ?? self.checksums
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional license/source metadata for the model, for developer transparency. Free-form.
+// MARK: - License
+public struct License: Codable, Sendable {
+    /// SPDX license identifier where known (for example 'Apache-2.0').
+    public var spdx: String?
+    /// License or model card URL where available.
+    public var url: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case spdx = "spdx"
+        case url = "url"
+    }
+
+    public init(spdx: String?, url: String?) {
+        self.spdx = spdx
+        self.url = url
+    }
+}
+
+// MARK: License convenience initializers and mutators
+
+public extension License {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(License.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        spdx: String?? = nil,
+        url: String?? = nil
+    ) -> License {
+        return License(
+            spdx: spdx ?? self.spdx,
+            url: url ?? self.url
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional known resource expectations, used by capability checks to reject on constrained
+/// devices before load.
+// MARK: - Limits
+public struct Limits: Codable, Sendable {
+    /// Approximate on-disk size of the resolved package, where known.
+    public var diskBytes: Int?
+    /// Approximate peak memory required to run the model, where known.
+    public var memBytes: Int?
+
+    public enum CodingKeys: String, CodingKey {
+        case diskBytes = "diskBytes"
+        case memBytes = "memBytes"
+    }
+
+    public init(diskBytes: Int?, memBytes: Int?) {
+        self.diskBytes = diskBytes
+        self.memBytes = memBytes
+    }
+}
+
+// MARK: Limits convenience initializers and mutators
+
+public extension Limits {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Limits.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        diskBytes: Int?? = nil,
+        memBytes: Int?? = nil
+    ) -> Limits {
+        return Limits(
+            diskBytes: diskBytes ?? self.diskBytes,
+            memBytes: memBytes ?? self.memBytes
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional runtime compatibility expectations. Fields are advisory hints for capability
+/// checks; the provider adapter owns exact enforcement.
+// MARK: - Runtime
+public struct Runtime: Codable, Sendable {
+    /// Minimum ONNX opset version the model requires, where known.
+    public var minOpset: Int?
+    /// Minimum runtime package version required to load the model, where known.
+    public var minRuntimeVersion: String?
+    /// Platforms the package is expected to run on (for example 'web', 'android', 'apple').
+    /// Absence means unconstrained.
+    public var platforms: [String]?
+
+    public enum CodingKeys: String, CodingKey {
+        case minOpset = "minOpset"
+        case minRuntimeVersion = "minRuntimeVersion"
+        case platforms = "platforms"
+    }
+
+    public init(minOpset: Int?, minRuntimeVersion: String?, platforms: [String]?) {
+        self.minOpset = minOpset
+        self.minRuntimeVersion = minRuntimeVersion
+        self.platforms = platforms
+    }
+}
+
+// MARK: Runtime convenience initializers and mutators
+
+public extension Runtime {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Runtime.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        minOpset: Int?? = nil,
+        minRuntimeVersion: String?? = nil,
+        platforms: [String]?? = nil
+    ) -> Runtime {
+        return Runtime(
+            minOpset: minOpset ?? self.minOpset,
+            minRuntimeVersion: minRuntimeVersion ?? self.minRuntimeVersion,
+            platforms: platforms ?? self.platforms
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Where the model files are obtained from. Availability of each source type is
+/// platform-dependent; see the ONNX Runtime provider-family specification for the
+/// per-platform support matrix.
+// MARK: - Source
+public struct Source: Codable, Sendable {
+    /// Optional source-specific reference (for example a registry repo id or a bundled asset
+    /// base path). Interpretation depends on 'sourceType'. Must not contain credentials: URL
+    /// userinfo (for example 'https://user:pass@host/...') is rejected, and credentials must be
+    /// supplied via authContextRef instead.
+    public var ref: String?
+    /// Discriminator for how the host makes model files available. 'registry' is a web
+    /// repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+    /// app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+    /// is a local path where the platform allows it, 'app_managed' is an app-managed
+    /// cache/storage location, 'remote' is a host-managed download.
+    public var sourceType: SourceType
+
+    public enum CodingKeys: String, CodingKey {
+        case ref = "ref"
+        case sourceType = "sourceType"
+    }
+
+    public init(ref: String?, sourceType: SourceType) {
+        self.ref = ref
+        self.sourceType = sourceType
+    }
+}
+
+// MARK: Source convenience initializers and mutators
+
+public extension Source {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(Source.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        ref: String?? = nil,
+        sourceType: SourceType? = nil
+    ) -> Source {
+        return Source(
+            ref: ref ?? self.ref,
+            sourceType: sourceType ?? self.sourceType
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Discriminator for how the host makes model files available. 'registry' is a web
+/// repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+/// app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+/// is a local path where the platform allows it, 'app_managed' is an app-managed
+/// cache/storage location, 'remote' is a host-managed download.
+public enum SourceType: String, Codable, Sendable {
+    case appManaged = "app_managed"
+    case bundled = "bundled"
+    case filesystem = "filesystem"
+    case programmatic = "programmatic"
+    case registry = "registry"
+    case remote = "remote"
+}
+
 // MARK: - Helper functions for creating encoders and decoders
 
 func newJSONDecoder() -> JSONDecoder {
@@ -1794,25 +2502,29 @@ func newJSONEncoder() -> JSONEncoder {
 public class JSONNull: Codable, Hashable {
 
     public static func == (lhs: JSONNull, rhs: JSONNull) -> Bool {
-            return true
+        return true
+    }
+
+    public var hashValue: Int {
+        return 0
     }
 
     public func hash(into hasher: inout Hasher) {
-            hasher.combine(0)
+        // No-op
     }
 
     public init() {}
 
     public required init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            if !container.decodeNil() {
-                    throw DecodingError.typeMismatch(JSONNull.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Wrong type for JSONNull"))
-            }
+        let container = try decoder.singleValueContainer()
+        if !container.decodeNil() {
+            throw DecodingError.typeMismatch(JSONNull.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Wrong type for JSONNull"))
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
-            var container = encoder.singleValueContainer()
-            try container.encodeNil()
+        var container = encoder.singleValueContainer()
+        try container.encodeNil()
     }
 }
 
@@ -1820,19 +2532,19 @@ class JSONCodingKey: CodingKey {
     let key: String
 
     required init?(intValue: Int) {
-            return nil
+        return nil
     }
 
     required init?(stringValue: String) {
-            key = stringValue
+        key = stringValue
     }
 
     var intValue: Int? {
-            return nil
+        return nil
     }
 
     var stringValue: String {
-            return key
+        return key
     }
 }
 
@@ -1845,192 +2557,192 @@ public class JSONAny: Codable {
     }
 
     static func decodingError(forCodingPath codingPath: [CodingKey]) -> DecodingError {
-            let context = DecodingError.Context(codingPath: codingPath, debugDescription: "Cannot decode JSONAny")
-            return DecodingError.typeMismatch(JSONAny.self, context)
+        let context = DecodingError.Context(codingPath: codingPath, debugDescription: "Cannot decode JSONAny")
+        return DecodingError.typeMismatch(JSONAny.self, context)
     }
 
     static func encodingError(forValue value: Any, codingPath: [CodingKey]) -> EncodingError {
-            let context = EncodingError.Context(codingPath: codingPath, debugDescription: "Cannot encode JSONAny")
-            return EncodingError.invalidValue(value, context)
+        let context = EncodingError.Context(codingPath: codingPath, debugDescription: "Cannot encode JSONAny")
+        return EncodingError.invalidValue(value, context)
     }
 
     static func decode(from container: SingleValueDecodingContainer) throws -> Any {
-            if let value = try? container.decode(Bool.self) {
-                    return value
-            }
-            if let value = try? container.decode(Int64.self) {
-                    return value
-            }
-            if let value = try? container.decode(Double.self) {
-                    return value
-            }
-            if let value = try? container.decode(String.self) {
-                    return value
-            }
-            if container.decodeNil() {
-                    return JSONNull()
-            }
-            throw decodingError(forCodingPath: container.codingPath)
+        if let value = try? container.decode(Bool.self) {
+            return value
+        }
+        if let value = try? container.decode(Int64.self) {
+            return value
+        }
+        if let value = try? container.decode(Double.self) {
+            return value
+        }
+        if let value = try? container.decode(String.self) {
+            return value
+        }
+        if container.decodeNil() {
+            return JSONNull()
+        }
+        throw decodingError(forCodingPath: container.codingPath)
     }
 
     static func decode(from container: inout UnkeyedDecodingContainer) throws -> Any {
-            if let value = try? container.decode(Bool.self) {
-                    return value
+        if let value = try? container.decode(Bool.self) {
+            return value
+        }
+        if let value = try? container.decode(Int64.self) {
+            return value
+        }
+        if let value = try? container.decode(Double.self) {
+            return value
+        }
+        if let value = try? container.decode(String.self) {
+            return value
+        }
+        if let value = try? container.decodeNil() {
+            if value {
+                return JSONNull()
             }
-            if let value = try? container.decode(Int64.self) {
-                    return value
-            }
-            if let value = try? container.decode(Double.self) {
-                    return value
-            }
-            if let value = try? container.decode(String.self) {
-                    return value
-            }
-            if let value = try? container.decodeNil() {
-                    if value {
-                            return JSONNull()
-                    }
-            }
-            if var container = try? container.nestedUnkeyedContainer() {
-                    return try decodeArray(from: &container)
-            }
-            if var container = try? container.nestedContainer(keyedBy: JSONCodingKey.self) {
-                    return try decodeDictionary(from: &container)
-            }
-            throw decodingError(forCodingPath: container.codingPath)
+        }
+        if var container = try? container.nestedUnkeyedContainer() {
+            return try decodeArray(from: &container)
+        }
+        if var container = try? container.nestedContainer(keyedBy: JSONCodingKey.self) {
+            return try decodeDictionary(from: &container)
+        }
+        throw decodingError(forCodingPath: container.codingPath)
     }
 
     static func decode(from container: inout KeyedDecodingContainer<JSONCodingKey>, forKey key: JSONCodingKey) throws -> Any {
-            if let value = try? container.decode(Bool.self, forKey: key) {
-                    return value
+        if let value = try? container.decode(Bool.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decode(Int64.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decode(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decode(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeNil(forKey: key) {
+            if value {
+                return JSONNull()
             }
-            if let value = try? container.decode(Int64.self, forKey: key) {
-                    return value
-            }
-            if let value = try? container.decode(Double.self, forKey: key) {
-                    return value
-            }
-            if let value = try? container.decode(String.self, forKey: key) {
-                    return value
-            }
-            if let value = try? container.decodeNil(forKey: key) {
-                    if value {
-                            return JSONNull()
-                    }
-            }
-            if var container = try? container.nestedUnkeyedContainer(forKey: key) {
-                    return try decodeArray(from: &container)
-            }
-            if var container = try? container.nestedContainer(keyedBy: JSONCodingKey.self, forKey: key) {
-                    return try decodeDictionary(from: &container)
-            }
-            throw decodingError(forCodingPath: container.codingPath)
+        }
+        if var container = try? container.nestedUnkeyedContainer(forKey: key) {
+            return try decodeArray(from: &container)
+        }
+        if var container = try? container.nestedContainer(keyedBy: JSONCodingKey.self, forKey: key) {
+            return try decodeDictionary(from: &container)
+        }
+        throw decodingError(forCodingPath: container.codingPath)
     }
 
     static func decodeArray(from container: inout UnkeyedDecodingContainer) throws -> [Any] {
-            var arr: [Any] = []
-            while !container.isAtEnd {
-                    let value = try decode(from: &container)
-                    arr.append(value)
-            }
-            return arr
+        var arr: [Any] = []
+        while !container.isAtEnd {
+            let value = try decode(from: &container)
+            arr.append(value)
+        }
+        return arr
     }
 
     static func decodeDictionary(from container: inout KeyedDecodingContainer<JSONCodingKey>) throws -> [String: Any] {
-            var dict = [String: Any]()
-            for key in container.allKeys {
-                    let value = try decode(from: &container, forKey: key)
-                    dict[key.stringValue] = value
-            }
-            return dict
+        var dict = [String: Any]()
+        for key in container.allKeys {
+            let value = try decode(from: &container, forKey: key)
+            dict[key.stringValue] = value
+        }
+        return dict
     }
 
     static func encode(to container: inout UnkeyedEncodingContainer, array: [Any]) throws {
-            for value in array {
-                    if let value = value as? Bool {
-                            try container.encode(value)
-                    } else if let value = value as? Int64 {
-                            try container.encode(value)
-                    } else if let value = value as? Double {
-                            try container.encode(value)
-                    } else if let value = value as? String {
-                            try container.encode(value)
-                    } else if value is JSONNull {
-                            try container.encodeNil()
-                    } else if let value = value as? [Any] {
-                            var container = container.nestedUnkeyedContainer()
-                            try encode(to: &container, array: value)
-                    } else if let value = value as? [String: Any] {
-                            var container = container.nestedContainer(keyedBy: JSONCodingKey.self)
-                            try encode(to: &container, dictionary: value)
-                    } else {
-                            throw encodingError(forValue: value, codingPath: container.codingPath)
-                    }
+        for value in array {
+            if let value = value as? Bool {
+                try container.encode(value)
+            } else if let value = value as? Int64 {
+                try container.encode(value)
+            } else if let value = value as? Double {
+                try container.encode(value)
+            } else if let value = value as? String {
+                try container.encode(value)
+            } else if value is JSONNull {
+                try container.encodeNil()
+            } else if let value = value as? [Any] {
+                var container = container.nestedUnkeyedContainer()
+                try encode(to: &container, array: value)
+            } else if let value = value as? [String: Any] {
+                var container = container.nestedContainer(keyedBy: JSONCodingKey.self)
+                try encode(to: &container, dictionary: value)
+            } else {
+                throw encodingError(forValue: value, codingPath: container.codingPath)
             }
+        }
     }
 
     static func encode(to container: inout KeyedEncodingContainer<JSONCodingKey>, dictionary: [String: Any]) throws {
-            for (key, value) in dictionary {
-                    let key = JSONCodingKey(stringValue: key)!
-                    if let value = value as? Bool {
-                            try container.encode(value, forKey: key)
-                    } else if let value = value as? Int64 {
-                            try container.encode(value, forKey: key)
-                    } else if let value = value as? Double {
-                            try container.encode(value, forKey: key)
-                    } else if let value = value as? String {
-                            try container.encode(value, forKey: key)
-                    } else if value is JSONNull {
-                            try container.encodeNil(forKey: key)
-                    } else if let value = value as? [Any] {
-                            var container = container.nestedUnkeyedContainer(forKey: key)
-                            try encode(to: &container, array: value)
-                    } else if let value = value as? [String: Any] {
-                            var container = container.nestedContainer(keyedBy: JSONCodingKey.self, forKey: key)
-                            try encode(to: &container, dictionary: value)
-                    } else {
-                            throw encodingError(forValue: value, codingPath: container.codingPath)
-                    }
+        for (key, value) in dictionary {
+            let key = JSONCodingKey(stringValue: key)!
+            if let value = value as? Bool {
+                try container.encode(value, forKey: key)
+            } else if let value = value as? Int64 {
+                try container.encode(value, forKey: key)
+            } else if let value = value as? Double {
+                try container.encode(value, forKey: key)
+            } else if let value = value as? String {
+                try container.encode(value, forKey: key)
+            } else if value is JSONNull {
+                try container.encodeNil(forKey: key)
+            } else if let value = value as? [Any] {
+                var container = container.nestedUnkeyedContainer(forKey: key)
+                try encode(to: &container, array: value)
+            } else if let value = value as? [String: Any] {
+                var container = container.nestedContainer(keyedBy: JSONCodingKey.self, forKey: key)
+                try encode(to: &container, dictionary: value)
+            } else {
+                throw encodingError(forValue: value, codingPath: container.codingPath)
             }
+        }
     }
 
     static func encode(to container: inout SingleValueEncodingContainer, value: Any) throws {
-            if let value = value as? Bool {
-                    try container.encode(value)
-            } else if let value = value as? Int64 {
-                    try container.encode(value)
-            } else if let value = value as? Double {
-                    try container.encode(value)
-            } else if let value = value as? String {
-                    try container.encode(value)
-            } else if value is JSONNull {
-                    try container.encodeNil()
-            } else {
-                    throw encodingError(forValue: value, codingPath: container.codingPath)
-            }
+        if let value = value as? Bool {
+            try container.encode(value)
+        } else if let value = value as? Int64 {
+            try container.encode(value)
+        } else if let value = value as? Double {
+            try container.encode(value)
+        } else if let value = value as? String {
+            try container.encode(value)
+        } else if value is JSONNull {
+            try container.encodeNil()
+        } else {
+            throw encodingError(forValue: value, codingPath: container.codingPath)
+        }
     }
 
     public required init(from decoder: Decoder) throws {
-            if var arrayContainer = try? decoder.unkeyedContainer() {
-                    self.value = try JSONAny.decodeArray(from: &arrayContainer)
-            } else if var container = try? decoder.container(keyedBy: JSONCodingKey.self) {
-                    self.value = try JSONAny.decodeDictionary(from: &container)
-            } else {
-                    let container = try decoder.singleValueContainer()
-                    self.value = try JSONAny.decode(from: container)
-            }
+        if var arrayContainer = try? decoder.unkeyedContainer() {
+            self.value = try JSONAny.decodeArray(from: &arrayContainer)
+        } else if var container = try? decoder.container(keyedBy: JSONCodingKey.self) {
+            self.value = try JSONAny.decodeDictionary(from: &container)
+        } else {
+            let container = try decoder.singleValueContainer()
+            self.value = try JSONAny.decode(from: container)
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
-            if let arr = self.value as? [Any] {
-                    var container = encoder.unkeyedContainer()
-                    try JSONAny.encode(to: &container, array: arr)
-            } else if let dict = self.value as? [String: Any] {
-                    var container = encoder.container(keyedBy: JSONCodingKey.self)
-                    try JSONAny.encode(to: &container, dictionary: dict)
-            } else {
-                    var container = encoder.singleValueContainer()
-                    try JSONAny.encode(to: &container, value: self.value)
-            }
+        if let arr = self.value as? [Any] {
+            var container = encoder.unkeyedContainer()
+            try JSONAny.encode(to: &container, array: arr)
+        } else if let dict = self.value as? [String: Any] {
+            var container = encoder.container(keyedBy: JSONCodingKey.self)
+            try JSONAny.encode(to: &container, dictionary: dict)
+        } else {
+            var container = encoder.singleValueContainer()
+            try JSONAny.encode(to: &container, value: self.value)
+        }
     }
 }

@@ -1,14 +1,19 @@
 import {
   createBrowserHostServices,
   type CreateBrowserHostServicesOptions
-} from "./browser-host.js";
-import { IndeRun } from "./engine.js";
+} from "./core/browser-host.js";
+import { IndeRun } from "./core/engine.js";
+import { OnnxRuntimeWebProvider, type OnnxProviderOptions } from "./providers/onnx/provider.js";
 import {
   DEFAULT_OPENAI_RESPONSES_ENDPOINT,
   OpenAIResponsesProvider,
   type OpenAIProviderOptions
-} from "./openai-provider.js";
-import { ProviderRegistry } from "./registry.js";
+} from "./providers/openai/provider.js";
+import { ProviderRegistry } from "./core/registry.js";
+import {
+  SystemModelWebProvider,
+  type SystemModelProviderOptions
+} from "./providers/system-model/provider.js";
 
 /**
  * Configuration for the default Web SDK factory.
@@ -17,7 +22,18 @@ export interface CreateIndeRunWebOptions {
   /**
    * OpenAI Responses provider configuration registered by the factory.
    */
-  openAI: OpenAIProviderOptions;
+  openAI?: OpenAIProviderOptions;
+  /**
+   * Web ONNX Runtime provider configuration registered by the factory, for developer-supplied
+   * local models. Registering it is what makes `constraints.privacy = "local_required"` routable.
+   */
+  onnx?: OnnxProviderOptions;
+  /**
+   * Web system-model provider configuration registered by the factory, for browser-managed
+   * on-device models (for example Chrome's Prompt API). Unlike `onnx`, this provider takes no
+   * developer-supplied model: the browser owns model availability, download, and execution.
+   */
+  systemModel?: SystemModelProviderOptions;
   /**
    * Optional browser host service overrides.
    */
@@ -33,29 +49,52 @@ export interface CreateIndeRunWebOptions {
 }
 
 /**
- * Creates a Web SDK instance with the OpenAI Responses provider registered.
+ * Creates a Web SDK instance with the configured providers registered.
+ *
+ * Pass `openAI` for cloud execution, `onnx` for developer-supplied local models, `systemModel` for
+ * browser-managed on-device models, or any combination to let routing choose between them; at
+ * least one is required.
  *
  * Use `openAI.auth = "none"` with a proxy endpoint for production browser apps so the OpenAI API key never ships
  * to the client. Direct OpenAI calls require `allowDirectOpenAIEndpoint` and should resolve credentials through
  * `authContextRef` and `SecureStorageService`.
  *
- * @param options - OpenAI provider configuration and optional host service overrides.
+ * @param options - Provider configuration and optional host service overrides.
  */
 export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
-  assertSafeOpenAIEndpoint(options);
+  if (!options.openAI && !options.onnx && !options.systemModel) {
+    throw new Error(
+      "createIndeRunWeb requires at least one provider configuration (openAI, onnx, and/or systemModel)."
+    );
+  }
 
   const registry = new ProviderRegistry();
-  registry.register(new OpenAIResponsesProvider(options.openAI));
+
+  if (options.openAI) {
+    assertSafeOpenAIEndpoint(options.openAI, options.allowDirectOpenAIEndpoint);
+    registry.register(new OpenAIResponsesProvider(options.openAI));
+  }
+
+  if (options.onnx) {
+    registry.register(new OnnxRuntimeWebProvider(options.onnx));
+  }
+
+  if (options.systemModel) {
+    registry.register(new SystemModelWebProvider(options.systemModel));
+  }
 
   return new IndeRun(registry, createBrowserHostServices(options.hostServices));
 }
 
-function assertSafeOpenAIEndpoint(options: CreateIndeRunWebOptions): void {
-  const endpointUrl = options.openAI.endpointUrl ?? DEFAULT_OPENAI_RESPONSES_ENDPOINT;
-  const auth = options.openAI.auth ?? "authContextRef";
+function assertSafeOpenAIEndpoint(
+  openAI: OpenAIProviderOptions,
+  allowDirectOpenAIEndpoint?: boolean
+): void {
+  const endpointUrl = openAI.endpointUrl ?? DEFAULT_OPENAI_RESPONSES_ENDPOINT;
+  const auth = openAI.auth ?? "authContextRef";
   const isDirectOpenAIEndpoint = isOpenAIResponsesEndpoint(endpointUrl);
 
-  if (isDirectOpenAIEndpoint && auth !== "none" && !options.allowDirectOpenAIEndpoint) {
+  if (isDirectOpenAIEndpoint && auth !== "none" && !allowDirectOpenAIEndpoint) {
     throw new Error(
       'createIndeRunWeb is proxy-first for browser safety. Configure openAI.endpointUrl to a server-side proxy with auth: "none", or set allowDirectOpenAIEndpoint: true for controlled direct OpenAI calls.'
     );

@@ -7,51 +7,51 @@ import java.util.Locale
 internal object DemoDefaults {
     const val DEFAULT_CLOUD_ENDPOINT_URL = "http://10.0.2.2:8787/api/inderun/openai-responses"
     const val DEFAULT_CLOUD_MODEL = "gpt-5.2"
-    const val DEFAULT_PROMPT = "Summarize when on-device AI is preferable to cloud AI in two short sentences."
+
+    // A declarative sentence fragment, not an instruction: the default ONNX Local model
+    // (DistilGPT-2, a non-instruction-tuned base model with no chat template) continues plain
+    // text far more reliably than it follows a task instruction, which it often responds to by
+    // immediately predicting the end-of-sequence token -- i.e. empty output.
+    const val DEFAULT_PROMPT = "On-device AI is useful because"
+
+    val DEFAULT_ONNX_MODEL_SELECTION = DemoOnnxModelSelection.Distilgpt2Quantized
 }
 
-internal enum class DemoExecutionMode(
-    val title: String,
-    val requestConstraints: TaskRequestConstraints,
-    val providerFallback: String,
-) {
-    OnDevice(
-        title = "On Device",
-        requestConstraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
-        providerFallback = "on_device",
-    ),
-    Cloud(
-        title = "Cloud",
-        requestConstraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
-        providerFallback = "cloud",
-    ),
+/**
+ * A 4-way privacy preference IndeRun's capability-based routing selects a provider from,
+ * mirroring the web demo's `Privacy` selector and the iOS demo's `PrivacyPreference`.
+ */
+internal enum class PrivacyPreference(val title: String, val constraints: TaskRequestConstraints) {
+    LocalRequired(title = "Local Only", constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)),
+    LocalPreferred(title = "Prefer Local", constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalPreferred)),
+    CloudAllowed(title = "Cloud Allowed", constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudAllowed)),
+    CloudRequired(title = "Cloud Only", constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)),
 }
 
-internal enum class DemoAvailabilityKind {
-    Checking,
-    Available,
-    Downloadable,
-    Downloading,
-    Unavailable,
+internal data class ProviderBadge(
+    val id: String,
+    val label: String,
+    val available: Boolean,
+    val reason: String?,
+)
+
+internal sealed interface CapabilitiesState {
+    data object Loading : CapabilitiesState
+    data class Ready(val badges: List<ProviderBadge>) : CapabilitiesState
+    data object Failed : CapabilitiesState
 }
 
-internal data class DemoAvailabilityState(
-    val badgeTitle: String,
-    val kind: DemoAvailabilityKind,
-    val message: String,
-) {
-    companion object {
-        fun checking(message: String) = DemoAvailabilityState("Checking", DemoAvailabilityKind.Checking, message)
-        fun available(message: String) = DemoAvailabilityState("Available", DemoAvailabilityKind.Available, message)
-        fun downloadable(message: String) = DemoAvailabilityState("Downloadable", DemoAvailabilityKind.Downloadable, message)
-        fun downloading(message: String) = DemoAvailabilityState("Downloading", DemoAvailabilityKind.Downloading, message)
-        fun unavailable(message: String) = DemoAvailabilityState("Unavailable", DemoAvailabilityKind.Unavailable, message)
-    }
-}
+internal data class RouteDecision(
+    val selectedProviderId: String?,
+    val explanation: String,
+    val rejectedProviderIds: List<String>,
+    val fallbackProviderIds: List<String>,
+)
 
 internal data class DemoSettings(
     val endpointUrl: String,
     val model: String,
+    val onnxModelSelection: DemoOnnxModelSelection,
 )
 
 internal data class AttemptMetadata(
@@ -76,11 +76,6 @@ internal data class DemoErrorState(
     val metadata: AttemptMetadata?,
 )
 
-internal data class DemoAvailabilitySnapshot(
-    val onDevice: DemoAvailabilityState,
-    val cloud: DemoAvailabilityState,
-)
-
 internal sealed interface DemoExecutionOutcome {
     data class Success(
         val outputText: String,
@@ -89,56 +84,49 @@ internal sealed interface DemoExecutionOutcome {
 
     data class Failure(
         val error: DemoErrorState,
-        val onDeviceStatusOverride: DemoAvailabilityState? = null,
-        val cloudStatusOverride: DemoAvailabilityState? = null,
     ) : DemoExecutionOutcome
 }
 
 internal data class DemoUiState(
     val prompt: String = DemoDefaults.DEFAULT_PROMPT,
-    val executionMode: DemoExecutionMode = DemoExecutionMode.OnDevice,
+    val privacy: PrivacyPreference = PrivacyPreference.CloudAllowed,
     val cloudEndpointUrl: String = DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL,
     val cloudModel: String = DemoDefaults.DEFAULT_CLOUD_MODEL,
-    val onDeviceStatus: DemoAvailabilityState = DemoAvailabilityState.checking(
-        "Checking whether Android ML Kit GenAI is usable right now.",
-    ),
-    val cloudStatus: DemoAvailabilityState = DemoAvailabilityState.checking(
-        "Checking cloud configuration and endpoint reachability.",
-    ),
+    val onnxModelSelection: DemoOnnxModelSelection = DemoDefaults.DEFAULT_ONNX_MODEL_SELECTION,
+    val onnxDownloadState: DemoOnnxDownloadState = DemoOnnxDownloadState.Idle,
+    val capabilitiesState: CapabilitiesState = CapabilitiesState.Loading,
     val result: DemoResultState? = null,
     val error: DemoErrorState? = null,
+    val lastRouteDecision: RouteDecision? = null,
     val isRunning: Boolean = false,
 ) {
-    val executionModeDescription: String
-        get() = when (executionMode) {
-            DemoExecutionMode.OnDevice ->
-                "Use Android ML Kit GenAI through the IndeRun Android provider. This depends on Gemini Nano, AI Core, and device support."
-
-            DemoExecutionMode.Cloud ->
-                "Use the IndeRun OpenAI-compatible provider against the configured endpoint. For emulator testing, point this at the standalone demo proxy."
-        }
-
     val cloudSettingsHint: String
         get() = "The default emulator endpoint targets the local demo proxy through 10.0.2.2:8787. Physical devices need a LAN IP or remote server URL instead."
 
-    val runButtonTitle: String
-        get() = when (executionMode) {
-            DemoExecutionMode.OnDevice -> "Run On Device"
-            DemoExecutionMode.Cloud -> "Run Through Cloud"
+    val onnxSettingsHint: String
+        get() = when (val state = onnxDownloadState) {
+            DemoOnnxDownloadState.Idle ->
+                if (onnxModelSelection.modelOption == null) {
+                    "The fixture runtime echoes the prompt back instead of generating text."
+                } else {
+                    "Downloads automatically on first use and is cached afterward. Wi-Fi recommended."
+                }
+
+            is DemoOnnxDownloadState.Downloading ->
+                "Downloading model... ${(state.progress * 100).toInt()}%. The fixture runtime is used until this completes."
+
+            DemoOnnxDownloadState.Ready -> "Model downloaded and ready for on-device inference."
+
+            is DemoOnnxDownloadState.Failed ->
+                "Download failed: ${state.message}. Falls back to the fixture runtime until this succeeds; pick the model again to retry."
         }
 
     val canRun: Boolean
-        get() {
-            if (isRunning || prompt.trim().isEmpty()) {
-                return false
-            }
+        get() = !isRunning && prompt.trim().isNotEmpty()
 
-            if (executionMode == DemoExecutionMode.OnDevice) {
-                return true
-            }
-
-            return cloudModel.trim().isNotEmpty() &&
-                cloudEndpointUrl.trim().isNotEmpty() &&
-                isValidEndpointUrl(cloudEndpointUrl.trim())
-        }
+    fun toSettings(): DemoSettings = DemoSettings(
+        endpointUrl = cloudEndpointUrl,
+        model = cloudModel,
+        onnxModelSelection = onnxModelSelection,
+    )
 }

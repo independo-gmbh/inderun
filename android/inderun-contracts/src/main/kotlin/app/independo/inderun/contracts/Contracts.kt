@@ -3,8 +3,10 @@
 package app.independo.inderun.contracts
 
 /**
- * The standard request payload for initiating a text-to-text execution task within the
- * IndeRun framework.
+ * The request payload for a Mode 1 (request/response) text-to-text execution. At least one
+ * of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be
+ * present together, though callers should typically supply just one;
+ * `constraints`/`preferences` steer routing but never select a provider directly.
  */
 data class TaskRequest(
     /**
@@ -224,13 +226,18 @@ enum class TelemetryLevel(val rawValue: String) {
 }
 
 /**
- * The standard response payload for completed text-to-text execution within the IndeRun
- * framework.
+ * The response payload for a completed text-to-text execution. A full execution failure
+ * (validation, routing, or every attempted provider failing) is surfaced by run() throwing
+ * an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
+ * are reserved for a provider reporting a non-fatal, degraded outcome on an
+ * otherwise-successful result (not currently produced by any provider in this codebase).
  */
 data class TaskResult(
     /**
-     * Standardized reason describing how generation concluded (e.g., 'stop', 'length',
-     * 'cancelled', or 'error').
+     * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+     * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+     * otherwise-returned result — no provider in this codebase currently produces it, since a
+     * full execution failure is instead surfaced by run() throwing an IndeRunError.
      */
     val finishReason: FinishReason,
 
@@ -261,8 +268,10 @@ data class TaskResult(
 )
 
 /**
- * Standardized reason describing how generation concluded (e.g., 'stop', 'length',
- * 'cancelled', or 'error').
+ * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
+ * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
+ * otherwise-returned result — no provider in this codebase currently produces it, since a
+ * full execution failure is instead surfaced by run() throwing an IndeRunError.
  */
 enum class FinishReason(val rawValue: String) {
     CANCELLED("cancelled"),
@@ -295,8 +304,9 @@ enum class OutputType(val rawValue: String) {
  */
 data class TaskResultTelemetry(
     /**
-     * Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
-     * 'Unavailable').
+     * Present only if a provider reports a degraded outcome on an otherwise-successful result;
+     * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+     * IndeRunError never produces a TaskResult at all.
      */
     val errorClass: IndeRunErrorClass? = null,
 
@@ -314,10 +324,15 @@ data class TaskResultTelemetry(
 )
 
 /**
- * Included if the request resulted in a provider-level error (e.g., 'CapabilityMismatch' or
- * 'Unavailable').
+ * Present only if a provider reports a degraded outcome on an otherwise-successful result;
+ * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+ * IndeRunError never produces a TaskResult at all.
  *
- * Normalized error taxonomy class.
+ * Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+ * CapabilityMismatch (request needs something no eligible provider supports),
+ * Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+ * failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+ * execution budget), Internal (unexpected engine-side failure).
  */
 enum class IndeRunErrorClass(val rawValue: String) {
     AuthError("AuthError"),
@@ -350,7 +365,9 @@ data class Usage(
 )
 
 /**
- * Normalized Milestone-1 error contract.
+ * The error shape thrown by run() (wrapped in an IndeRunException) when execution fails —
+ * via validation, routing (no eligible provider), or every attempted provider failing.
+ * Never returned as part of a successful TaskResult.
  */
 data class IndeRunError(
     /**
@@ -359,7 +376,11 @@ data class IndeRunError(
     val details: Map<String, Any?>? = null,
 
     /**
-     * Normalized error taxonomy class.
+     * Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+     * CapabilityMismatch (request needs something no eligible provider supports),
+     * Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+     * failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+     * execution budget), Internal (unexpected engine-side failure).
      */
     val errorClass: IndeRunErrorClass,
 
@@ -672,4 +693,215 @@ enum class Code {
     PrivacyConstraint,
     RunNotSupported,
     TaskNotSupported,
+}
+
+/**
+ * Provider-neutral descriptor for a developer-supplied/custom local model made available to
+ * an IndeRun local-model provider family (for example, the ONNX Runtime family). It
+ * describes model identity, format, task support, source, files, integrity, licensing, and
+ * resource expectations. It is bootstrap/configuration metadata resolved before execution;
+ * it is not part of the public TaskRequest/TaskResult surface, and it must not carry raw
+ * secrets.
+ */
+data class ModelPackage(
+    /**
+     * Files that make up the model package, expressed as source-relative names/paths. The
+     * provider adapter and model source resolve these to concrete bytes per platform.
+     */
+    val files: Files? = null,
+
+    /**
+     * Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+     * graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+     * model package.
+     */
+    val format: Format,
+
+    /**
+     * Stable application-scoped identifier for the model package.
+     */
+    val id: String,
+
+    /**
+     * Optional integrity metadata used to validate resolved files before load.
+     */
+    val integrity: Integrity? = null,
+
+    /**
+     * Optional license/source metadata for the model, for developer transparency. Free-form.
+     */
+    val license: License? = null,
+
+    /**
+     * Optional known resource expectations, used by capability checks to reject on constrained
+     * devices before load.
+     */
+    val limits: Limits? = null,
+
+    /**
+     * Optional runtime compatibility expectations. Fields are advisory hints for capability
+     * checks; the provider adapter owns exact enforcement.
+     */
+    val runtime: Runtime? = null,
+
+    /**
+     * Where the model files are obtained from. Availability of each source type is
+     * platform-dependent; see the ONNX Runtime provider-family specification for the
+     * per-platform support matrix.
+     */
+    val source: Source? = null,
+
+    /**
+     * IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by
+     * dynamic capability checks and route matching.
+     */
+    val tasks: List<String>? = null,
+
+    /**
+     * Optional application-defined version for the model package, used for cache invalidation
+     * and compatibility checks.
+     */
+    val version: String? = null,
+)
+
+/**
+ * Files that make up the model package, expressed as source-relative names/paths. The
+ * provider adapter and model source resolve these to concrete bytes per platform.
+ */
+data class Files(
+    /**
+     * Optional model/generation config file, where the model requires one.
+     */
+    val config: String? = null,
+
+    /**
+     * Optional external data files referenced by the model graph (for example ONNX external
+     * weights).
+     */
+    val external: List<String>? = null,
+
+    /**
+     * Files that must be present for the package to load (for example the model graph).
+     */
+    val required: List<String>? = null,
+
+    /**
+     * Optional tokenizer file, where the model requires one.
+     */
+    val tokenizer: String? = null,
+)
+
+/**
+ * Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
+ * graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
+ * model package.
+ */
+enum class Format {
+    Genai,
+    Onnx,
+    Ort,
+}
+
+/**
+ * Optional integrity metadata used to validate resolved files before load.
+ */
+data class Integrity(
+    /**
+     * Map of file name to expected checksum (for example 'sha256:...'). Absence means integrity
+     * is not verified by IndeRun.
+     */
+    val checksums: Map<String, String>? = null,
+)
+
+/**
+ * Optional license/source metadata for the model, for developer transparency. Free-form.
+ */
+data class License(
+    /**
+     * SPDX license identifier where known (for example 'Apache-2.0').
+     */
+    val spdx: String? = null,
+
+    /**
+     * License or model card URL where available.
+     */
+    val url: String? = null,
+)
+
+/**
+ * Optional known resource expectations, used by capability checks to reject on constrained
+ * devices before load.
+ */
+data class Limits(
+    /**
+     * Approximate on-disk size of the resolved package, where known.
+     */
+    val diskBytes: Long? = null,
+
+    /**
+     * Approximate peak memory required to run the model, where known.
+     */
+    val memBytes: Long? = null,
+)
+
+/**
+ * Optional runtime compatibility expectations. Fields are advisory hints for capability
+ * checks; the provider adapter owns exact enforcement.
+ */
+data class Runtime(
+    /**
+     * Minimum ONNX opset version the model requires, where known.
+     */
+    val minOpset: Long? = null,
+
+    /**
+     * Minimum runtime package version required to load the model, where known.
+     */
+    val minRuntimeVersion: String? = null,
+
+    /**
+     * Platforms the package is expected to run on (for example 'web', 'android', 'apple').
+     * Absence means unconstrained.
+     */
+    val platforms: List<String>? = null,
+)
+
+/**
+ * Where the model files are obtained from. Availability of each source type is
+ * platform-dependent; see the ONNX Runtime provider-family specification for the
+ * per-platform support matrix.
+ */
+data class Source(
+    /**
+     * Optional source-specific reference (for example a registry repo id or a bundled asset
+     * base path). Interpretation depends on 'sourceType'. Must not contain credentials: URL
+     * userinfo (for example 'https://user:pass@host/...') is rejected, and credentials must be
+     * supplied via authContextRef instead.
+     */
+    val ref: String? = null,
+
+    /**
+     * Discriminator for how the host makes model files available. 'registry' is a web
+     * repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+     * app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+     * is a local path where the platform allows it, 'app_managed' is an app-managed
+     * cache/storage location, 'remote' is a host-managed download.
+     */
+    val sourceType: SourceType,
+)
+
+/**
+ * Discriminator for how the host makes model files available. 'registry' is a web
+ * repository/registry reference (for example a Hugging Face-style repo), 'bundled' is an
+ * app asset/resource, 'programmatic' is supplied directly by application code, 'filesystem'
+ * is a local path where the platform allows it, 'app_managed' is an app-managed
+ * cache/storage location, 'remote' is a host-managed download.
+ */
+enum class SourceType {
+    AppManaged,
+    Bundled,
+    Filesystem,
+    Programmatic,
+    Registry,
+    Remote,
 }

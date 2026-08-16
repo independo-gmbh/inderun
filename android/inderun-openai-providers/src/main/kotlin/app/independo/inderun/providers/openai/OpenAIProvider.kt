@@ -9,7 +9,9 @@ import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.contracts.Usage
+import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.HostServices
+import app.independo.inderun.core.HttpClientService
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ProviderAdapter
 import app.independo.inderun.core.ProviderDescriptor
@@ -29,6 +31,9 @@ import java.util.Date
 
 const val DEFAULT_OPENAI_RESPONSES_ENDPOINT: String = "https://api.openai.com/v1/responses"
 
+private const val DEFAULT_HEALTH_CHECK_TIMEOUT_MS: Long = 3000L
+private const val DEFAULT_HEALTH_CHECK_CACHE_MS: Long = 5000L
+
 enum class OpenAIAuthMode {
     authContextRef,
     none,
@@ -41,11 +46,24 @@ data class OpenAIProviderOptions(
     val auth: OpenAIAuthMode = OpenAIAuthMode.authContextRef,
     val authContextRef: String? = null,
     val timeoutMs: Long? = null,
+    /**
+     * Timeout for the endpoint reachability probe issued from [OpenAIProvider.capabilities].
+     * Defaults to 3000ms. The OpenAI API has no dedicated health endpoint, so this is a cheap
+     * unauthenticated GET against the configured endpoint.
+     */
+    val healthCheckTimeoutMs: Long? = null,
+    /**
+     * How long a reachability probe result is cached before [OpenAIProvider.capabilities]
+     * re-probes. Defaults to 5000ms.
+     */
+    val healthCheckCacheMs: Long? = null,
 )
 
 class OpenAIProvider(
     private val options: OpenAIProviderOptions,
 ) : ProviderAdapter {
+    @Volatile
+    private var cachedHealth: Pair<ProviderDynamicCapabilities, Long>? = null
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = options.id,
         type = ProviderDescriptor.ProviderType.cloud,
@@ -64,15 +82,63 @@ class OpenAIProvider(
         privacy = ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice = true),
     )
 
+    /**
+     * Reports dynamic provider availability for the current host.
+     *
+     * After the static host-service check passes, this probes endpoint reachability with a
+     * cheap unauthenticated GET against the configured endpoint (the OpenAI API has no
+     * dedicated health endpoint). The result is cached for [OpenAIProviderOptions.healthCheckCacheMs]
+     * so routing decisions and repeated UI capability checks don't re-probe on every call.
+     */
     override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities {
-        if (host.httpClient == null) {
-            return ProviderDynamicCapabilities(
+        val httpClient = host.httpClient
+            ?: return ProviderDynamicCapabilities(
                 available = false,
                 reason = "OpenAI Responses provider requires an HttpClientService.",
             )
+
+        return checkEndpointReachable(httpClient, host.clock)
+    }
+
+    private suspend fun checkEndpointReachable(
+        httpClient: HttpClientService,
+        clock: ClockService,
+    ): ProviderDynamicCapabilities {
+        val now = clock.elapsedRealtimeMillis()
+        val cacheMs = options.healthCheckCacheMs ?: DEFAULT_HEALTH_CHECK_CACHE_MS
+        cachedHealth?.let { (result, checkedAt) ->
+            if (now - checkedAt < cacheMs) {
+                return result
+            }
         }
 
-        return ProviderDynamicCapabilities(available = true)
+        val result = try {
+            val response = httpClient.send(
+                HttpRequest(
+                    method = Method.Get,
+                    url = options.endpointUrl,
+                    timeoutMs = options.healthCheckTimeoutMs ?: DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+                ),
+            )
+            if (response.status >= 500) {
+                ProviderDynamicCapabilities(
+                    available = false,
+                    reason = "OpenAI Responses endpoint returned HTTP ${response.status}.",
+                )
+            } else {
+                ProviderDynamicCapabilities(available = true)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            ProviderDynamicCapabilities(
+                available = false,
+                reason = "OpenAI Responses endpoint is unreachable.",
+            )
+        }
+
+        cachedHealth = result to now
+        return result
     }
 
     override suspend fun run(request: TaskRequest, context: RunContext): TaskResult {

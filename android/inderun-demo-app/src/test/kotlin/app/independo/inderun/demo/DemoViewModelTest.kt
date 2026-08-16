@@ -1,5 +1,8 @@
 package app.independo.inderun.demo
 
+import app.independo.inderun.core.ProviderCapabilitySnapshot
+import app.independo.inderun.core.ProviderDescriptor
+import app.independo.inderun.core.ProviderDynamicCapabilities
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -16,56 +19,46 @@ class DemoViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun init_loadsPersistedSettingsAndAvailability() = runTest {
+    fun init_loadsPersistedSettingsAndCapabilities() = runTest {
         val settingsStore = FakeSettingsStore(
             DemoSettings(
                 endpointUrl = "http://example.com/v1/responses",
                 model = "gemma4:latest",
+                onnxModelSelection = DemoOnnxModelSelection.Fixture,
             ),
         )
         val runtime = FakeRuntime(
-            availabilitySnapshot = DemoAvailabilitySnapshot(
-                onDevice = DemoAvailabilityState.available("On-device ready."),
-                cloud = DemoAvailabilityState.available("Cloud ready."),
-            ),
+            snapshots = listOf(fakeSnapshot("android_mlkit_genai", available = true)),
         )
 
-        val viewModel = DemoViewModel(settingsStore, runtime, mainDispatcherRule.dispatcher)
+        val viewModel = DemoViewModel(settingsStore, runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertEquals("http://example.com/v1/responses", state.cloudEndpointUrl)
         assertEquals("gemma4:latest", state.cloudModel)
-        assertEquals("Cloud ready.", state.cloudStatus.message)
-        assertEquals("On-device ready.", state.onDeviceStatus.message)
+        assertEquals(DemoOnnxModelSelection.Fixture, state.onnxModelSelection)
+        val capabilitiesState = state.capabilitiesState
+        assertTrue(capabilitiesState is CapabilitiesState.Ready)
+        assertEquals(1, (capabilitiesState as CapabilitiesState.Ready).badges.size)
     }
 
     @Test
-    fun canRun_requiresValidCloudConfiguration() = runTest {
-        val viewModel = DemoViewModel(
-            FakeSettingsStore(),
-            FakeRuntime(),
-            mainDispatcherRule.dispatcher,
-        )
+    fun canRun_requiresNonBlankPrompt() = runTest {
+        val viewModel = DemoViewModel(FakeSettingsStore(), FakeRuntime(), FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
         advanceUntilIdle()
 
-        viewModel.updateExecutionMode(DemoExecutionMode.Cloud)
-        viewModel.updateCloudEndpointUrl("not-a-url")
+        viewModel.updatePrompt("   ")
         advanceUntilIdle()
         assertFalse(viewModel.uiState.value.canRun)
 
-        viewModel.updateCloudEndpointUrl(DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL)
-        viewModel.updateCloudModel("")
-        advanceUntilIdle()
-        assertFalse(viewModel.uiState.value.canRun)
-
-        viewModel.updateCloudModel("gpt-5.2")
+        viewModel.updatePrompt("Tell me a story.")
         advanceUntilIdle()
         assertTrue(viewModel.uiState.value.canRun)
     }
 
     @Test
-    fun runPrompt_mapsSuccessMetadataIntoUiState() = runTest {
+    fun runPrompt_mapsSuccessMetadataAndRouteDecisionIntoUiState() = runTest {
         val runtime = FakeRuntime(
             runOutcome = DemoExecutionOutcome.Success(
                 outputText = "Generated answer",
@@ -77,11 +70,17 @@ class DemoViewModelTest {
                     retryAfterMs = null,
                 ),
             ),
+            routeDecision = RouteDecision(
+                selectedProviderId = "openai_compatible_cloud",
+                explanation = "cloud allowed",
+                rejectedProviderIds = emptyList(),
+                fallbackProviderIds = emptyList(),
+            ),
         )
-        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, mainDispatcherRule.dispatcher)
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
         advanceUntilIdle()
 
-        viewModel.updateExecutionMode(DemoExecutionMode.Cloud)
+        viewModel.updatePrivacy(PrivacyPreference.CloudRequired)
         viewModel.runPrompt()
         advanceUntilIdle()
 
@@ -89,11 +88,11 @@ class DemoViewModelTest {
         assertNotNull(result)
         assertEquals("Generated answer", result?.outputText)
         assertEquals("run_123", result?.metadata?.runId)
-        assertEquals("The configured cloud route completed the last request successfully.", viewModel.uiState.value.cloudStatus.message)
+        assertEquals("openai_compatible_cloud", viewModel.uiState.value.lastRouteDecision?.selectedProviderId)
     }
 
     @Test
-    fun runPrompt_mapsFailureAndAvailabilityOverride() = runTest {
+    fun runPrompt_mapsFailureIntoUiState() = runTest {
         val runtime = FakeRuntime(
             runOutcome = DemoExecutionOutcome.Failure(
                 error = DemoErrorState(
@@ -107,24 +106,43 @@ class DemoViewModelTest {
                         retryAfterMs = null,
                     ),
                 ),
-                cloudStatusOverride = DemoAvailabilityState.unavailable("Could not reach the local demo proxy."),
             ),
         )
-        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, mainDispatcherRule.dispatcher)
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
         advanceUntilIdle()
 
-        viewModel.updateExecutionMode(DemoExecutionMode.Cloud)
         viewModel.runPrompt()
         advanceUntilIdle()
 
         assertEquals("Normalized Error", viewModel.uiState.value.error?.title)
-        assertEquals("Could not reach the local demo proxy.", viewModel.uiState.value.cloudStatus.message)
     }
+
+    private fun fakeSnapshot(providerId: String, available: Boolean): ProviderCapabilitySnapshot = ProviderCapabilitySnapshot(
+        providerId = providerId,
+        descriptor = ProviderDescriptor(
+            id = providerId,
+            type = ProviderDescriptor.ProviderType.local,
+            transport = ProviderDescriptor.TransportType.system_service,
+            supports = ProviderDescriptor.SupportsCapabilities(
+                run = true,
+                streaming = false,
+                realtime = false,
+                tools = false,
+                reasoningEvents = false,
+                structuredOutput = false,
+                multimodal = false,
+            ),
+            cancel = ProviderDescriptor.CancelSemantics.none,
+            tasks = listOf("text_to_text"),
+        ),
+        capabilities = ProviderDynamicCapabilities(available = available),
+    )
 
     private class FakeSettingsStore(
         private var settings: DemoSettings = DemoSettings(
             endpointUrl = DemoDefaults.DEFAULT_CLOUD_ENDPOINT_URL,
             model = DemoDefaults.DEFAULT_CLOUD_MODEL,
+            onnxModelSelection = DemoDefaults.DEFAULT_ONNX_MODEL_SELECTION,
         ),
     ) : DemoSettingsStore {
         override fun load(): DemoSettings = settings
@@ -134,11 +152,14 @@ class DemoViewModelTest {
         }
     }
 
+    private class FakeOnnxDownloader : DemoOnnxDownloader {
+        override fun relativeRef(model: DemoOnnxModelOption): String = "fake/${model.id}"
+        override fun isDownloaded(model: DemoOnnxModelOption): Boolean = false
+        override suspend fun download(model: DemoOnnxModelOption, onProgress: (Float) -> Unit) = Unit
+    }
+
     private class FakeRuntime(
-        private val availabilitySnapshot: DemoAvailabilitySnapshot = DemoAvailabilitySnapshot(
-            onDevice = DemoAvailabilityState.available("On-device available."),
-            cloud = DemoAvailabilityState.available("Cloud available."),
-        ),
+        private val snapshots: List<ProviderCapabilitySnapshot> = emptyList(),
         private val runOutcome: DemoExecutionOutcome = DemoExecutionOutcome.Success(
             outputText = "Default response",
             metadata = AttemptMetadata(
@@ -149,13 +170,16 @@ class DemoViewModelTest {
                 retryAfterMs = null,
             ),
         ),
+        private val routeDecision: RouteDecision? = null,
     ) : DemoRuntime {
-        override suspend fun refreshAvailability(settings: DemoSettings): DemoAvailabilitySnapshot = availabilitySnapshot
+        override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = snapshots
 
         override suspend fun run(
             prompt: String,
-            executionMode: DemoExecutionMode,
+            privacy: PrivacyPreference,
             settings: DemoSettings,
         ): DemoExecutionOutcome = runOutcome
+
+        override fun lastRouteDecision(): RouteDecision? = routeDecision
     }
 }

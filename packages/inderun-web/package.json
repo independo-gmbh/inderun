@@ -40,6 +40,14 @@
     "./openai": {
       "types": "./dist/openai.d.ts",
       "default": "./dist/openai.js"
+    },
+    "./onnx": {
+      "types": "./dist/onnx.d.ts",
+      "default": "./dist/onnx.js"
+    },
+    "./system-model": {
+      "types": "./dist/system-model.d.ts",
+      "default": "./dist/system-model.js"
     }
   },
   "files": [
@@ -55,9 +63,17 @@
     "@independo/inderun-contracts": "workspace:^",
     "@independo/inderun-route-core-wasm": "workspace:^"
   },
+  "peerDependencies": {
+    "@huggingface/transformers": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "@types/node": "^24.13.2",
+    "@types/node": "^26.2.0",
     "typescript": "^6.0.3",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.10"
   }
 }
