@@ -65,7 +65,7 @@ jobs:
       # must be present -- android-actions/setup-android doesn't install them by default.
       - name: Cache Android NDK and CMake
         if: matrix.language == 'java-kotlin'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
@@ -100,7 +100,7 @@ jobs:
       # re-fetched/re-built on every run.
       - name: Cache SwiftPM dependencies
         if: matrix.language == 'swift'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
