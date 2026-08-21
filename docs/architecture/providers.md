@@ -36,9 +36,15 @@ factories), not in prose.
 The error model does not fork for streaming: `StreamTerminalOutcome`'s
 `error` branch (`contracts/schemas/stream-terminal-outcome.schema.json`)
 reuses the same `errorClass` taxonomy as `IndeRunError` rather than
-introducing a stream-specific error vocabulary. This is a design seam only —
-see [Streaming Contracts (Mode 2, Design Seam)](./architecture.md#streaming-contracts-mode-2-design-seam)
-for the schemas.
+introducing a stream-specific error vocabulary. See
+[Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2)
+for the schemas and the orchestrator that now consumes them.
+
+`ProviderDescriptor.cancel` (`hard` / `soft` / `none`) now has concrete,
+tested engine-level semantics rather than being purely descriptive metadata:
+the Mode 2 orchestrator normalizes all three into one caller-facing
+guarantee — exactly one terminal outcome, idempotent cancellation. See
+[Cancellation And Fallback](./architecture.md#cancellation-and-fallback).
 
 ## Provider Matrix
 
@@ -50,7 +56,7 @@ for the schemas.
 | ONNX Runtime (`local.onnx.genai.*`) | Shipped (`@independo/inderun-web/onnx`) | Shipped (`IndeRunOnnxProviders` SwiftPM, iOS 16+/macOS 14+) | Shipped (`inderun-onnx-providers` Gradle module) | Custom/developer-supplied local | `text_to_text` | `run` (Mode 1) | Static + dynamic host capability check per platform | Developer supplies model + tokenizer files; no Hub network/download APIs called today | Android requires `libc++_shared.so` packaged by the consumer app; see [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md) |
 | Web system-model (`local.system-model.web`) | Shipped (`@independo/inderun-web/system-model`, Chrome Prompt API `LanguageModel`) | Not applicable | Not applicable | Browser-local | `text_to_text` | `run` (Mode 1) | Runtime feature-detection against the browser API | None — browser-managed model/download | Desktop Chrome 138+ only; degrades honestly (`capability_unavailable`) elsewhere; see [web-system-model-provider-family.md](web-system-model-provider-family.md) |
 
-Streaming (`stream`) and realtime sessions (`openSession`) are not implemented by any provider today — see `CONTEXT.md` §3 for current Mode 1/2/3 status. Do not read this table as implying streaming support. The canonical event/outcome shapes streaming will eventually use already exist as schema-only contracts; see [Streaming Contracts (Mode 2, Design Seam)](./architecture.md#streaming-contracts-mode-2-design-seam).
+Streaming (`stream`) is not implemented by any shipped provider today — every row above still declares `supports.streaming: false`. Do not read this table as implying streaming support. The Mode 2 *orchestrator* (route selection, Event Gate, cancellation) is implemented in the TypeScript Engine core and proven end-to-end against a deterministic test-only provider; real provider streaming (e.g. OpenAI SSE) is blocked on a host-services chunked/SSE HTTP capability that does not exist yet. Realtime sessions (`openSession`, Mode 3) remain fully unimplemented. See [Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2).
 
 ### Demos & Tests per Family
 
@@ -99,7 +105,7 @@ Implementation nuance not captured by the matrix above:
 
 To add a new provider:
 
-1. Define the static descriptor (`describe`) — provider id, supported task kinds, supported interaction modes (`run` only today; `stream`/`openSession` are descriptor seams, not implementable yet), and declared cancellation behavior (`hard` / `soft` / `none`).
+1. Define the static descriptor (`describe`) — provider id, supported task kinds, supported interaction modes (`run` is implemented by all shipped providers; `stream` is implementable via the optional `ProviderAdapter.stream()` method and the Mode 2 orchestrator, though no shipped provider does so yet — see the Provider Matrix note above; `openSession`/Mode 3 remains a descriptor seam only), and declared cancellation behavior (`hard` / `soft` / `none`, now enforced by the Mode 2 orchestrator for streaming providers).
 2. Implement the dynamic capability check (`capabilities(host)`) against the current host — static/OS checks first, then any runtime probe (network reachability, browser feature-detection, etc.), matching the pattern used by the existing providers in the matrix above.
 3. Implement `run()` against the normalized `IndeRunApi` request/response shapes. Do not leak provider-specific request/response fields through the public API.
 4. Map provider-specific failures onto the shared `errorClass` taxonomy (`IndeRunException` / `IndeRunError`, see [Error Model](#error-model)) in the adapter — do not invent a parallel error shape.

@@ -9,7 +9,17 @@
   "properties": {
     "type": {
       "description": "Telemetry event kind emitted by the orchestrator or provider integration.",
-      "enum": ["route_decided", "attempt_succeeded", "attempt_failed"]
+      "enum": [
+        "route_decided",
+        "attempt_succeeded",
+        "attempt_failed",
+        "stream_attempt_started",
+        "stream_attempt_succeeded",
+        "stream_attempt_failed",
+        "stream_completed",
+        "stream_failed",
+        "stream_cancelled"
+      ]
     },
     "runId": {
       "description": "Opaque run identifier associated with this execution event.",

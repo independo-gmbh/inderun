@@ -26,4 +26,4 @@ export type TelemetryEvent = {
 /**
  * Telemetry event kind emitted by the orchestrator or provider integration.
  */
-export type Type = "route_decided" | "attempt_succeeded" | "attempt_failed";
+export type Type = "route_decided" | "attempt_succeeded" | "attempt_failed" | "stream_attempt_started" | "stream_attempt_succeeded" | "stream_attempt_failed" | "stream_completed" | "stream_failed" | "stream_cancelled";
