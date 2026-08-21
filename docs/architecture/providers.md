@@ -33,6 +33,13 @@ intentional:
 The class-to-cause mapping lives in code (provider adapters and the error
 factories), not in prose.
 
+The error model does not fork for streaming: `StreamTerminalOutcome`'s
+`error` branch (`contracts/schemas/stream-terminal-outcome.schema.json`)
+reuses the same `errorClass` taxonomy as `IndeRunError` rather than
+introducing a stream-specific error vocabulary. This is a design seam only —
+see [Streaming Contracts (Mode 2, Design Seam)](./architecture.md#streaming-contracts-mode-2-design-seam)
+for the schemas.
+
 ## Provider Matrix
 
 | Provider family | Web | iOS/macOS | Android | Classification | Task support | Interaction modes | Capability check | Credentials / model loading | Key limitations |
@@ -43,7 +50,7 @@ factories), not in prose.
 | ONNX Runtime (`local.onnx.genai.*`) | Shipped (`@independo/inderun-web/onnx`) | Shipped (`IndeRunOnnxProviders` SwiftPM, iOS 16+/macOS 14+) | Shipped (`inderun-onnx-providers` Gradle module) | Custom/developer-supplied local | `text_to_text` | `run` (Mode 1) | Static + dynamic host capability check per platform | Developer supplies model + tokenizer files; no Hub network/download APIs called today | Android requires `libc++_shared.so` packaged by the consumer app; see [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md) |
 | Web system-model (`local.system-model.web`) | Shipped (`@independo/inderun-web/system-model`, Chrome Prompt API `LanguageModel`) | Not applicable | Not applicable | Browser-local | `text_to_text` | `run` (Mode 1) | Runtime feature-detection against the browser API | None — browser-managed model/download | Desktop Chrome 138+ only; degrades honestly (`capability_unavailable`) elsewhere; see [web-system-model-provider-family.md](web-system-model-provider-family.md) |
 
-Streaming (`stream`) and realtime sessions (`openSession`) are not implemented by any provider today — see `CONTEXT.md` §3 for current Mode 1/2/3 status. Do not read this table as implying streaming support.
+Streaming (`stream`) and realtime sessions (`openSession`) are not implemented by any provider today — see `CONTEXT.md` §3 for current Mode 1/2/3 status. Do not read this table as implying streaming support. The canonical event/outcome shapes streaming will eventually use already exist as schema-only contracts; see [Streaming Contracts (Mode 2, Design Seam)](./architecture.md#streaming-contracts-mode-2-design-seam).
 
 ### Demos & Tests per Family
 

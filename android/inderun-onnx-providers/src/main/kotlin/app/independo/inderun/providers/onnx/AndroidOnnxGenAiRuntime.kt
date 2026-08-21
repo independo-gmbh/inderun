@@ -4,7 +4,7 @@ import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Generation
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.ModelPackage
-import app.independo.inderun.contracts.Usage
+import app.independo.inderun.contracts.TaskResultUsage
 
 /**
  * Availability snapshot reported by an ONNX text generation runtime.
@@ -36,7 +36,7 @@ data class AndroidOnnxGenerationInput(
 data class AndroidOnnxGenerationOutput(
     val text: String,
     val finishReason: FinishReason? = null,
-    val usage: Usage? = null,
+    val usage: TaskResultUsage? = null,
 )
 
 /**

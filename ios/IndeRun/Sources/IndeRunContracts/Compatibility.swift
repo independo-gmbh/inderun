@@ -3,7 +3,7 @@ import Foundation
 public typealias TaskDescriptor = TaskRequestTask
 public typealias GenerationHints = Generation
 public typealias TelemetryPreferences = TaskRequestTelemetry
-public typealias UsageInfo = Usage
+public typealias UsageInfo = TaskResultUsage
 public typealias TelemetryInfo = TaskResultTelemetry
 public typealias IndeRunErrorClass = ErrorClass
 public typealias TelemetryValue = JSONAny
