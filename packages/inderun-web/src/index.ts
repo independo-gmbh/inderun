@@ -15,8 +15,12 @@ export {
   type ProviderDynamicCapabilities,
   type ProviderCapabilitySnapshot,
   type RunContext,
-  type ProviderAdapter
+  type ProviderAdapter,
+  type ProviderStreamContext,
+  type ProviderStreamEvent
 } from "./core/provider.js";
+
+export { EventGate } from "./core/event-gate.js";
 
 export { ProviderRegistry } from "./core/registry.js";
 
@@ -43,7 +47,7 @@ export {
   toIndeRunException
 } from "./core/errors.js";
 
-export { IndeRun } from "./core/engine.js";
+export { IndeRun, type StreamHandleResult } from "./core/engine.js";
 export type { IndeRunApi } from "./core/generated/inderun-api.js";
 
 export {

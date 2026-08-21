@@ -520,6 +520,12 @@ enum class TelemetryEventType {
     AttemptFailed,
     AttemptSucceeded,
     RouteDecided,
+    StreamAttemptFailed,
+    StreamAttemptStarted,
+    StreamAttemptSucceeded,
+    StreamCancelled,
+    StreamCompleted,
+    StreamFailed,
 }
 
 /**

@@ -129,6 +129,35 @@ export interface RunContext {
 }
 
 /**
+ * Execution context passed to provider stream commands. Extends RunContext with the
+ * caller-driven cancellation signal; the Engine core owns the AbortController and
+ * threads its signal here, so providers never need to construct their own.
+ */
+export interface ProviderStreamContext extends RunContext {
+  /**
+   * Signals caller-driven cancellation of this stream. Providers with `cancel: "hard"`
+   * should tear down their connection immediately on abort; `cancel: "soft"` providers
+   * may stop relaying events without interrupting underlying local work; `cancel:
+   * "none"` providers may ignore it entirely; the engine enforces the caller-visible
+   * cancellation guarantee at the consumer loop regardless of what the provider does.
+   */
+  signal: AbortSignal;
+}
+
+/**
+ * A raw, provider-shaped streaming event yielded by ProviderAdapter.stream(). This is
+ * intentionally distinct from the canonical StreamEvent contract: providers emit
+ * provider-shaped deltas here, and the Engine core's Event Gate normalizes these into
+ * StreamEvent/StreamTerminalOutcome, keeping provider-specific mechanics from leaking
+ * through the public API.
+ */
+export type ProviderStreamEvent =
+  | { kind: "delta"; text: string }
+  | { kind: "snapshot"; text: string }
+  | { kind: "done"; finalText: string; usage?: TaskResult["usage"] }
+  | { kind: "error"; error: unknown };
+
+/**
  * Pluggable execution adapter contract that wraps a specific model runtime
  * (system frameworks, local runtimes, or cloud APIs) and exposes normalized APIs.
  */
@@ -145,4 +174,9 @@ export interface ProviderAdapter {
    * Executes a task request in Mode 1 (request/response).
    */
   run(req: TaskRequest, ctx: RunContext): Promise<TaskResult>;
+  /**
+   * Executes a task request in Mode 2 (streaming). Optional: only providers declaring
+   * `describe().supports.streaming === true` are expected to implement this.
+   */
+  stream?(req: TaskRequest, ctx: ProviderStreamContext): AsyncIterable<ProviderStreamEvent>;
 }

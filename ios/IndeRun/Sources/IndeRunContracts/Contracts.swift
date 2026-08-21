@@ -1161,6 +1161,12 @@ public enum TelemetryEventType: String, Codable, Sendable {
     case attemptFailed = "attempt_failed"
     case attemptSucceeded = "attempt_succeeded"
     case routeDecided = "route_decided"
+    case streamAttemptFailed = "stream_attempt_failed"
+    case streamAttemptStarted = "stream_attempt_started"
+    case streamAttemptSucceeded = "stream_attempt_succeeded"
+    case streamCancelled = "stream_cancelled"
+    case streamCompleted = "stream_completed"
+    case streamFailed = "stream_failed"
 }
 
 /// Pure data input contract for deterministic shared-core Mode-1 route planning.

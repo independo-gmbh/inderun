@@ -469,7 +469,13 @@ export const telemetryEventSchema = {
       "enum": [
         "route_decided",
         "attempt_succeeded",
-        "attempt_failed"
+        "attempt_failed",
+        "stream_attempt_started",
+        "stream_attempt_succeeded",
+        "stream_attempt_failed",
+        "stream_completed",
+        "stream_failed",
+        "stream_cancelled"
       ]
     },
     "runId": {

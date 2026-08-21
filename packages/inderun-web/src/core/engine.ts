@@ -1,15 +1,36 @@
 import {
   getTaskRequestValidationIssues,
+  type StreamEvent,
+  type StreamRunHandle,
+  type StreamTerminalOutcome,
   type TaskRequest,
   type TaskResult
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
-import type { ProviderCapabilitySnapshot } from "./provider.js";
+import type { ProviderAdapter, ProviderCapabilitySnapshot } from "./provider.js";
 import type { IndeRunApi } from "./generated/inderun-api.js";
 import { ProviderRegistry } from "./registry.js";
 import { Router } from "./router.js";
-import { createInternal, toIndeRunException } from "./errors.js";
+import {
+  createCapabilityMismatch,
+  createInternal,
+  createUnavailable,
+  toIndeRunException
+} from "./errors.js";
 import { type TelemetryEvent, type TelemetryService, NoOpTelemetryService } from "./telemetry.js";
+import { EventGate } from "./event-gate.js";
+
+/**
+ * Handle returned by IndeRun.stream(). `events` is the canonical StreamEvent
+ * sequence for this run, terminating in exactly one terminal StreamEvent per the
+ * Event Gate's guarantee. `cancel()` is idempotent: repeated or concurrent calls
+ * produce exactly one `cancelled` terminal outcome.
+ */
+export interface StreamHandleResult {
+  handle: StreamRunHandle;
+  events: AsyncIterable<StreamEvent>;
+  cancel(reason?: string): void;
+}
 
 /**
  * Main orchestrator SDK entrypoint class.
@@ -214,6 +235,281 @@ export class IndeRun implements IndeRunApi {
 
       throw exception;
     }
+  }
+
+  /**
+   * Orchestrates a Mode 2 streaming execution of a TaskRequest.
+   *
+   * Reuses the same route selection as run(), restricted to providers that declare
+   * `supports.streaming` and implement `stream()`. Fallback to the next provider is
+   * allowed only before the first content event has been admitted for the run; once
+   * one has been delivered, the run is committed to that provider and any later
+   * provider failure becomes a terminal error outcome rather than a silent provider
+   * swap. Cancellation always forecloses fallback, regardless of commit state, and
+   * is idempotent.
+   * @param request - The canonical task request containing prompts, tasks, and constraints.
+   * @throws {IndeRunException} If validation fails or no eligible streaming provider exists.
+   */
+  async stream(request: TaskRequest): Promise<StreamHandleResult> {
+    const startTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
+    const now = () => (this.hostServices.clock ? this.hostServices.clock.now() : Date.now());
+    const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
+
+    const validationIssues = getTaskRequestValidationIssues(request);
+    if (validationIssues.length > 0) {
+      const message = `Validation failed for TaskRequest: ${validationIssues
+        .map((i) => `${i.path} - ${i.message}`)
+        .join("; ")}`;
+      throw createInternal(message, { runId, details: { validationIssues } });
+    }
+
+    const routeSelection = await this.router.selectRoute(request, this.hostServices);
+    const allProviders = [routeSelection.provider, ...routeSelection.fallbackProviders];
+    const providers = allProviders.filter(
+      (p) => p.describe().supports.streaming && typeof p.stream === "function"
+    );
+
+    this.safeEmit({
+      type: "route_decided",
+      runId,
+      timestamp: now(),
+      payload: {
+        selectedProviderId: routeSelection.routePlan.selectedProviderId,
+        fallbackProviderIds: routeSelection.routePlan.fallbackProviderIds,
+        rejectedProviders: routeSelection.routePlan.rejectedProviders,
+        fallbackAvailable: providers.length > 1,
+        taskKind: request.task.kind,
+        explanation: routeSelection.explanation,
+        constraints: request.constraints ?? null,
+        preferences: request.preferences ?? null,
+        plannerSource: routeSelection.plannerSource,
+        plannerUnavailableReason: routeSelection.plannerUnavailableReason ?? null
+      }
+    });
+
+    if (providers.length === 0) {
+      throw createCapabilityMismatch("No eligible provider supports streaming for this request.", {
+        runId,
+        details: { taskKind: request.task.kind }
+      });
+    }
+
+    const controller = new AbortController();
+    const gate = new EventGate(runId);
+    const hostServices = this.hostServices;
+    const safeEmit = this.safeEmit.bind(this);
+    const getStableMessage = this.getStableMessage.bind(this);
+
+    const handle: StreamRunHandle = {
+      runId,
+      schemaVersion: "1.0",
+      startedAt: startTime,
+      providerId: providers[0]!.describe().id
+    };
+
+    async function* run(): AsyncGenerator<StreamEvent> {
+      const attemptedProviderIds: string[] = [];
+      let committed = false;
+
+      const cancelledOutcome = (partialText: string): StreamTerminalOutcome => {
+        const reason =
+          typeof controller.signal.reason === "string" ? controller.signal.reason : undefined;
+        return {
+          outcome: "cancelled",
+          runId,
+          schemaVersion: "1.0",
+          partialText,
+          ...(reason !== undefined ? { reason } : {})
+        };
+      };
+
+      for (const [index, provider] of providers.entries()) {
+        if (controller.signal.aborted) {
+          break;
+        }
+
+        const providerId = provider.describe().id;
+        attemptedProviderIds.push(providerId);
+        safeEmit({
+          type: "stream_attempt_started",
+          runId,
+          timestamp: now(),
+          payload: { providerId, fallbackOccurred: index > 0 }
+        });
+
+        let partialText = "";
+        try {
+          const iterable = (provider as Required<Pick<ProviderAdapter, "stream">>).stream(request, {
+            runId,
+            hostServices: hostServices,
+            signal: controller.signal
+          });
+
+          let terminatedInLoop = false;
+          for await (const ev of iterable) {
+            if (controller.signal.aborted) {
+              break;
+            }
+
+            if (ev.kind === "error") {
+              throw ev.error;
+            }
+
+            if (ev.kind === "delta" || ev.kind === "snapshot") {
+              partialText = ev.kind === "delta" ? partialText + ev.text : ev.text;
+              if (!committed) {
+                committed = true;
+                safeEmit({
+                  type: "stream_attempt_succeeded",
+                  runId,
+                  timestamp: now(),
+                  payload: { providerId, attemptedProviderIds }
+                });
+              }
+              const streamEvent = gate.admit({
+                timestamp: now(),
+                type: ev.kind === "delta" ? "content_delta" : "content_snapshot",
+                payload: { text: ev.text }
+              });
+              if (streamEvent) yield streamEvent;
+              continue;
+            }
+
+            // ev.kind === "done"
+            const outcome: StreamTerminalOutcome = {
+              outcome: "completed",
+              runId,
+              schemaVersion: "1.0",
+              finalText: ev.finalText,
+              telemetry: { providerUsed: providerId, totalMs: now() - startTime },
+              ...(ev.usage !== undefined ? { usage: ev.usage } : {})
+            };
+            const terminal = gate.terminate(outcome, now());
+            safeEmit({
+              type: "stream_completed",
+              runId,
+              timestamp: now(),
+              payload: { providerId, durationMs: now() - startTime, attemptedProviderIds }
+            });
+            terminatedInLoop = true;
+            if (terminal) yield terminal;
+            return;
+          }
+
+          if (terminatedInLoop) {
+            return;
+          }
+
+          if (controller.signal.aborted) {
+            const terminal = gate.terminate(cancelledOutcome(partialText), now());
+            safeEmit({
+              type: "stream_cancelled",
+              runId,
+              timestamp: now(),
+              payload: { providerId, attemptedProviderIds }
+            });
+            if (terminal) yield terminal;
+            return;
+          }
+
+          // Provider's iterable ended without a terminal "done"/"error" event.
+          throw new Error(`Provider '${providerId}' stream ended without a terminal event.`);
+        } catch (err) {
+          if (controller.signal.aborted) {
+            const terminal = gate.terminate(cancelledOutcome(partialText), now());
+            safeEmit({
+              type: "stream_cancelled",
+              runId,
+              timestamp: now(),
+              payload: { providerId, attemptedProviderIds }
+            });
+            if (terminal) yield terminal;
+            return;
+          }
+
+          const exception = toIndeRunException(err, {
+            providerId,
+            runId,
+            details: { attemptedProviderIds }
+          });
+
+          if (!committed) {
+            safeEmit({
+              type: "stream_attempt_failed",
+              runId,
+              timestamp: now(),
+              payload: {
+                providerId,
+                errorClass: exception.errorClass,
+                message: getStableMessage(exception.errorClass)
+              }
+            });
+            continue;
+          }
+
+          const outcome: StreamTerminalOutcome = {
+            outcome: "error",
+            runId,
+            schemaVersion: "1.0",
+            error: exception.toContractError(),
+            partialText
+          };
+          const terminal = gate.terminate(outcome, now());
+          safeEmit({
+            type: "stream_failed",
+            runId,
+            timestamp: now(),
+            payload: {
+              providerId,
+              errorClass: exception.errorClass,
+              message: getStableMessage(exception.errorClass),
+              attemptedProviderIds
+            }
+          });
+          if (terminal) yield terminal;
+          return;
+        }
+      }
+
+      // Every provider failed pre-commit, or cancellation landed before any attempt started.
+      if (controller.signal.aborted) {
+        const terminal = gate.terminate(cancelledOutcome(""), now());
+        safeEmit({
+          type: "stream_cancelled",
+          runId,
+          timestamp: now(),
+          payload: { attemptedProviderIds }
+        });
+        if (terminal) yield terminal;
+        return;
+      }
+
+      const exception = createUnavailable("All eligible streaming providers failed.", {
+        runId,
+        details: { attemptedProviderIds }
+      });
+      const outcome: StreamTerminalOutcome = {
+        outcome: "error",
+        runId,
+        schemaVersion: "1.0",
+        error: exception.toContractError(),
+        partialText: ""
+      };
+      const terminal = gate.terminate(outcome, now());
+      safeEmit({
+        type: "stream_failed",
+        runId,
+        timestamp: now(),
+        payload: {
+          errorClass: exception.errorClass,
+          message: getStableMessage(exception.errorClass),
+          attemptedProviderIds
+        }
+      });
+      if (terminal) yield terminal;
+    }
+
+    return { handle, events: run(), cancel: (reason?: string) => controller.abort(reason) };
   }
 
   /**

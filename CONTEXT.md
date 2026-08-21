@@ -32,9 +32,12 @@ there for what's currently in scope before starting work — do not infer scope
 from this document or assume it is up to date.
 
 As of this writing, Mode 1 `run()` is implemented and stable, and provider
-breadth (ONNX Runtime, web system-model) has landed. Mode 2 `stream()` +
-cancellation semantics and Mode 3 `openSession()` / realtime sessions remain
-unimplemented.
+breadth (ONNX Runtime, web system-model) has landed. The Mode 2 `stream()`
+orchestrator, Event Gate, and cancellation semantics are implemented in the
+TypeScript Engine core (`packages/inderun-web/src/core/`), proven against a
+deterministic test-only provider — no shipped provider streams for real yet,
+since that needs a host-services chunked/SSE HTTP capability that doesn't
+exist. Mode 3 `openSession()` / realtime sessions remain unimplemented.
 
 Out of scope now:
 
