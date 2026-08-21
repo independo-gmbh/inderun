@@ -17,7 +17,7 @@ The core problem it solves is provider fragmentation: apps should not need separ
 
 ## Current Focus
 
-The current product scope is Mode 1 `run()` execution. Streaming and realtime sessions are part of the architecture, but they are not the main shipped surface for the current phase.
+The current product scope is Mode 1 `run()` execution. Streaming and realtime sessions are part of the architecture, but they are not the main shipped surface for the current phase. The canonical streaming event/outcome contracts now exist in schema form (see `docs/architecture/architecture.md`), but no engine or provider implements them yet.
 
 ## Source Of Truth
 

@@ -264,7 +264,7 @@ data class TaskResult(
     /**
      * Optional metadata regarding the quantity of tokens processed by the provider.
      */
-    val usage: Usage? = null,
+    val usage: TaskResultUsage? = null,
 )
 
 /**
@@ -333,6 +333,12 @@ data class TaskResultTelemetry(
  * Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
  * failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
  * execution budget), Internal (unexpected engine-side failure).
+ *
+ * Normalized error taxonomy, identical to IndeRunError.errorClass: CapabilityMismatch
+ * (request needs something no eligible provider supports), Offline/Unavailable (provider
+ * unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider
+ * throttled the request), Timeout (provider exceeded its execution budget), Internal
+ * (unexpected engine-side failure).
  */
 enum class IndeRunErrorClass(val rawValue: String) {
     AuthError("AuthError"),
@@ -347,7 +353,7 @@ enum class IndeRunErrorClass(val rawValue: String) {
 /**
  * Optional metadata regarding the quantity of tokens processed by the provider.
  */
-data class Usage(
+data class TaskResultUsage(
     /**
      * Number of input tokens consumed, as reported by the provider.
      */
@@ -905,3 +911,357 @@ enum class SourceType {
     Registry,
     Remote,
 }
+
+/**
+ * The serializable acknowledgment returned when a Mode 2 stream is opened, before any
+ * StreamEvent has arrived. This is the identity/correlation contract only: the live,
+ * consumable stream itself is a platform-idiomatic construct (an AsyncIterable<StreamEvent>
+ * in TypeScript, a Flow<StreamEvent> in Kotlin, an AsyncThrowingStream<StreamEvent, Error>
+ * in Swift) that is never serialized and is out of scope for this schema. Design seam only;
+ * no engine or provider implementation exists yet (see docs/architecture/architecture.md).
+ */
+data class StreamRunHandle(
+    /**
+     * Identifier of the provider selected to service this stream, if routing has completed by
+     * the time the handle is returned. Absent while route selection is still pending.
+     */
+    val providerId: String? = null,
+
+    /**
+     * A unique, opaque identifier assigned by the engine for this stream run. Every StreamEvent
+     * and the terminal StreamTerminalOutcome for this run carry the same runId, matching the
+     * identity convention used by TaskResult.runId and IndeRunError.runId.
+     */
+    val runId: String,
+
+    /**
+     * Contract schema version used to interpret this handle payload.
+     */
+    val schemaVersion: SchemaVersion,
+
+    /**
+     * Wall-clock time the stream run was opened, in Unix epoch milliseconds.
+     */
+    val startedAt: Double,
+)
+
+/**
+ * The canonical Mode 2 streaming event union, discriminated by 'type'. Every variant shares
+ * an envelope of schemaVersion, runId, sequence, timestamp, and type. 'sequence' is the
+ * ordering authority for events within a run (a monotonically increasing integer starting
+ * at 0 per runId) — consumers must order by 'sequence', not by arrival order, since a
+ * bridge hop (e.g. a future Capacitor bridge) could reorder delivery. Known event types are
+ * split into user-visible content ('content_delta', 'content_snapshot') and
+ * mechanical/diagnostic types ('lifecycle', 'diagnostic', 'terminal') so SDKs can
+ * distinguish what belongs in a chat UI from what is orchestration detail. Forward
+ * compatibility: this union closes with an open 'unknown_event' branch so a consumer built
+ * against an older revision of this schema does not hard-fail when a newer, additive minor
+ * revision introduces a new known type; per contracts/README.md's schema evolution policy,
+ * SDKs must treat an unrecognized 'type' as ignore-or-pass-through-for-diagnostics, never
+ * as a hard error. Design seam only; no engine or provider implementation exists yet (see
+ * docs/architecture/architecture.md).
+ */
+data class StreamEvent(
+    /**
+     * Event-specific diagnostic metadata. It must not contain prompt payloads or raw secrets,
+     * matching the same guardrail as TelemetryEvent.payload.
+     *
+     * Structurally identical to StreamTerminalOutcome
+     * (contracts/schemas/stream-terminal-outcome.schema.json), duplicated by value here rather
+     * than by $ref, matching this repo's schema convention of no cross-file references. Keep
+     * both shapes in sync; a cross-check test asserts a shared fixture validates against both
+     * schemas.
+     *
+     * Optional event-specific payload for the unrecognized type. It must not contain prompt
+     * payloads or raw secrets.
+     */
+    val payload: Payload? = null,
+
+    /**
+     * Opaque run identifier this event belongs to, matching StreamRunHandle.runId.
+     */
+    val runId: String,
+
+    /**
+     * Contract schema version used to interpret this event payload.
+     */
+    val schemaVersion: SchemaVersion,
+
+    /**
+     * Zero-based, monotonically increasing event index within this run. The ordering authority;
+     * do not rely on delivery/arrival order.
+     *
+     * Zero-based, monotonically increasing event index within this run. This is always the
+     * highest sequence number for the run: the terminal event.
+     */
+    val sequence: Long,
+
+    /**
+     * Wall-clock event timestamp in Unix epoch milliseconds.
+     */
+    val timestamp: Double,
+
+    /**
+     * User-visible content: an incremental text increment since the previous content_delta or
+     * content_snapshot event. Mirrors ProviderDescriptor.streamingStyle 'tokens'/'chunks'
+     * (packages/inderun-web/src/core/provider.ts) — providers reporting either style normalize
+     * to content_delta.
+     *
+     * User-visible content: the full cumulative text produced so far. Mirrors
+     * ProviderDescriptor.streamingStyle 'snapshots' (packages/inderun-web/src/core/provider.ts)
+     * — providers reporting that style normalize to content_snapshot rather than
+     * content_delta.
+     *
+     * Mechanical/diagnostic: a run lifecycle transition (e.g. provider selection, execution
+     * start). Not user-visible content; not part of the generated text.
+     *
+     * Mechanical/diagnostic: free-form orchestration or provider diagnostic detail. Not
+     * user-visible content.
+     *
+     * Terminal: the last event of the run, carrying the mutually-exclusive
+     * completion/error/cancellation outcome. No further StreamEvent is delivered for this runId
+     * after this event.
+     *
+     * Forward-compatibility catch-all: any event type not among the known constants above.
+     * Exists so a consumer validating against this revision of the schema does not hard-fail
+     * when a future additive revision introduces a new known event type; SDKs must ignore or
+     * pass through such events for diagnostics rather than treating them as an error.
+     */
+    val type: String,
+)
+
+/**
+ * Event-specific diagnostic metadata. It must not contain prompt payloads or raw secrets,
+ * matching the same guardrail as TelemetryEvent.payload.
+ *
+ * Optional event-specific payload for the unrecognized type. It must not contain prompt
+ * payloads or raw secrets.
+ */
+data class Payload(
+    /**
+     * The incremental text produced since the previous content event.
+     *
+     * The full cumulative text produced by the run so far.
+     */
+    val text: String? = null,
+
+    /**
+     * The lifecycle phase reached.
+     */
+    val phase: Phase? = null,
+
+    val finalText: String? = null,
+    val outcome: Outcome? = null,
+    val runId: String? = null,
+    val schemaVersion: SchemaVersion? = null,
+    val telemetry: PayloadTelemetry? = null,
+    val usage: PayloadUsage? = null,
+    val error: PayloadError? = null,
+    val partialText: String? = null,
+    val reason: String? = null,
+)
+
+data class PayloadError(
+    val details: Map<String, Any?>? = null,
+    val errorClass: IndeRunErrorClass,
+    val message: String,
+    val providerId: String? = null,
+    val retryable: Boolean? = null,
+    val retryAfterMs: Long? = null,
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+)
+
+enum class Outcome {
+    Cancelled,
+    Completed,
+    Error,
+}
+
+/**
+ * The lifecycle phase reached.
+ */
+enum class Phase {
+    ProviderSelected,
+    Started,
+}
+
+data class PayloadTelemetry(
+    val providerUsed: String,
+    val totalMs: Double,
+)
+
+data class PayloadUsage(
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val totalTokens: Long? = null,
+)
+
+/**
+ * How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive
+ * terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by
+ * 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal
+ * outcome is a fixed architectural guarantee, not something new outcome kinds get added
+ * to). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is
+ * delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback').
+ * This shape is also embedded by value as the payload of the terminal StreamEvent
+ * (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a
+ * completion future/promise a stream handle resolves independently of consuming the full
+ * event sequence; the two copies must stay structurally identical. Note on
+ * additionalProperties: per this repo's forward-compatible convention every branch permits
+ * unknown extra fields, so mutual exclusivity is enforced via the required 'outcome'
+ * discriminator plus each branch's own required peer field (finalText/error/partialText)
+ * being present, not by forbidding a payload from also carrying an unrelated stray field
+ * from another branch's vocabulary.
+ */
+data class StreamTerminalOutcome(
+    /**
+     * The full, cumulative text produced by the run. Equivalent in role to
+     * TaskResult.output.text for Mode 1.
+     */
+    val finalText: String? = null,
+
+    /**
+     * The stream completed normally: every provider-generated event was delivered before this
+     * outcome was produced.
+     *
+     * The stream ended in failure: validation, routing (no eligible provider), or every
+     * attempted provider failing.
+     *
+     * The stream was cancelled. No further StreamEvent is delivered after this outcome, and no
+     * further fallback attempt is made, per the engine's cancellation guarantee.
+     */
+    val outcome: Outcome,
+
+    /**
+     * The stream run this outcome terminates, matching StreamRunHandle.runId and every
+     * StreamEvent.runId for the run.
+     */
+    val runId: String,
+
+    /**
+     * Contract schema version used to interpret this outcome payload.
+     */
+    val schemaVersion: SchemaVersion,
+
+    /**
+     * Required metadata providing an overview of the execution result and performance metrics.
+     * Same shape as TaskResult.telemetry.
+     */
+    val telemetry: StreamTerminalOutcomeTelemetry? = null,
+
+    /**
+     * Optional metadata regarding the quantity of tokens processed by the provider. Same shape
+     * as TaskResult.usage.
+     */
+    val usage: StreamTerminalOutcomeUsage? = null,
+
+    /**
+     * The normalized error for this failure. Structurally identical to IndeRunError
+     * (contracts/schemas/inderun-error.schema.json), duplicated by value here rather than by
+     * $ref, matching this repo's schema convention of no cross-file references. Keep both
+     * shapes in sync; a cross-check test asserts a shared fixture validates against both
+     * schemas.
+     */
+    val error: StreamTerminalOutcomeError? = null,
+
+    /**
+     * Whatever cumulative text had already been delivered via content_delta/content_snapshot
+     * StreamEvents before the cancellation point. May be empty if cancellation occurred before
+     * any content was produced.
+     */
+    val partialText: String? = null,
+
+    /**
+     * Optional human-readable reason the run was cancelled (e.g. caller-initiated abort). Not a
+     * machine-taxonomy field; use errorClass on the 'error' outcome branch for failure
+     * classification.
+     */
+    val reason: String? = null,
+)
+
+/**
+ * The normalized error for this failure. Structurally identical to IndeRunError
+ * (contracts/schemas/inderun-error.schema.json), duplicated by value here rather than by
+ * $ref, matching this repo's schema convention of no cross-file references. Keep both
+ * shapes in sync; a cross-check test asserts a shared fixture validates against both
+ * schemas.
+ */
+data class StreamTerminalOutcomeError(
+    /**
+     * Optional structured diagnostic details. It must not contain raw secrets.
+     */
+    val details: Map<String, Any?>? = null,
+
+    /**
+     * Normalized error taxonomy, identical to IndeRunError.errorClass: CapabilityMismatch
+     * (request needs something no eligible provider supports), Offline/Unavailable (provider
+     * unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider
+     * throttled the request), Timeout (provider exceeded its execution budget), Internal
+     * (unexpected engine-side failure).
+     */
+    val errorClass: IndeRunErrorClass,
+
+    /**
+     * Human-readable error message suitable for logs and developer diagnostics.
+     */
+    val message: String,
+
+    /**
+     * Identifier of the provider associated with the failure, if execution reached a provider.
+     */
+    val providerId: String? = null,
+
+    /**
+     * Whether retrying the same request may succeed.
+     */
+    val retryable: Boolean? = null,
+
+    /**
+     * Optional suggested delay before retrying, in milliseconds.
+     */
+    val retryAfterMs: Long? = null,
+
+    /**
+     * Contract schema version used to interpret the error payload.
+     */
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+)
+
+/**
+ * Required metadata providing an overview of the execution result and performance metrics.
+ * Same shape as TaskResult.telemetry.
+ */
+data class StreamTerminalOutcomeTelemetry(
+    /**
+     * The identifier for the specific provider that handled the request (e.g.,
+     * 'openai_compatible_cloud').
+     */
+    val providerUsed: String,
+
+    /**
+     * Measured execution duration in milliseconds, including route selection and result
+     * processing.
+     */
+    val totalMs: Double,
+)
+
+/**
+ * Optional metadata regarding the quantity of tokens processed by the provider. Same shape
+ * as TaskResult.usage.
+ */
+data class StreamTerminalOutcomeUsage(
+    /**
+     * Number of input tokens consumed, as reported by the provider.
+     */
+    val inputTokens: Long? = null,
+
+    /**
+     * Number of output tokens generated, as reported by the provider.
+     */
+    val outputTokens: Long? = null,
+
+    /**
+     * Aggregated token count for this request, as reported by the provider.
+     */
+    val totalTokens: Long? = null,
+)

@@ -30,6 +30,12 @@ Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introsp
 
 `IndeRun`'s method-signature surface (`run`/`checkCapabilities`) across TypeScript, Swift, and Kotlin is now generated from a versioned spec and CI-enforced — each platform's hand-written `IndeRun` class implements/conforms to the generated `IndeRunApi` interface/protocol, and CI fails on regeneration drift. `ProviderAdapter` parity is still kept in sync by convention and review, not generation. See [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and current status.
 
+### Streaming Contracts (Mode 2, Design Seam)
+
+The canonical data shapes for Mode 2 streaming — `StreamRunHandle`, `StreamEvent`, and `StreamTerminalOutcome` — exist as versioned JSON Schema contracts with generated TypeScript, Swift, and Kotlin types (`contracts/schemas/stream-run.schema.json`, `stream-event.schema.json`, `stream-terminal-outcome.schema.json`). This is schema-only today: no engine orchestration, provider implementation, or generated `stream()` operation exists yet (see `docs/architecture/providers.md` for the current per-provider status).
+
+`StreamEvent` distinguishes user-visible content (`content_delta`, `content_snapshot`) from mechanical/diagnostic events (`lifecycle`, `diagnostic`, `terminal`), and every event carries a `sequence` number that is the ordering authority for a run — consumers must order by `sequence`, not by delivery order, since a bridge hop could reorder events. `StreamTerminalOutcome` expresses completion, error, and cancellation as a closed set of mutually exclusive outcomes, always the last thing produced for a run, consistent with the cancellation guarantee below. Unlike the terminal outcome, `StreamEvent.type` is an open set: schemas tolerate an unrecognized event type via a catch-all branch, and SDKs must treat one as ignore-or-pass-through-for-diagnostics rather than an error, so future additive event types don't break existing consumers. See `contracts/README.md` for the full schema evolution and compatibility policy.
+
 ## Cancellation And Fallback
 
 Cancellation should produce a terminal cancellation outcome and no further user-visible events after the cancel point.

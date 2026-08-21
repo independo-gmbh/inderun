@@ -9,4 +9,7 @@ export type { TelemetryEvent } from "./telemetry-event.js";
 export type { RoutePlannerInput } from "./route-planner-input.js";
 export type { RoutePlan } from "./route-plan.js";
 export type { ModelPackage } from "./model-package.js";
+export type { StreamRunHandle } from "./stream-run.js";
+export type { StreamEvent } from "./stream-event.js";
+export type { StreamTerminalOutcome } from "./stream-terminal-outcome.js";
 export * from "./schemas.js";

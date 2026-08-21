@@ -55,9 +55,9 @@ public struct OnnxGenerationOutput: Sendable {
     /// Optional normalized finish reason; the provider defaults to `.stop`.
     public let finishReason: FinishReason?
     /// Optional token accounting, when the runtime reports it.
-    public let usage: Usage?
+    public let usage: TaskResultUsage?
 
-    public init(text: String, finishReason: FinishReason? = nil, usage: Usage? = nil) {
+    public init(text: String, finishReason: FinishReason? = nil, usage: TaskResultUsage? = nil) {
         self.text = text
         self.finishReason = finishReason
         self.usage = usage

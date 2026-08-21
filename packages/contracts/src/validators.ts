@@ -14,10 +14,16 @@ import {
   modelPackageSchema,
   routePlanSchema,
   routePlannerInputSchema,
+  streamEventSchema,
+  streamRunSchema,
+  streamTerminalOutcomeSchema,
   taskRequestSchema,
   taskResultSchema,
   telemetryEventSchema
 } from "./generated/index.js";
+import type { StreamEvent } from "./generated/stream-event.js";
+import type { StreamRunHandle } from "./generated/stream-run.js";
+import type { StreamTerminalOutcome } from "./generated/stream-terminal-outcome.js";
 import type { TaskRequest } from "./generated/task-request.js";
 import type { TaskResult } from "./generated/task-result.js";
 import type { TelemetryEvent } from "./generated/telemetry-event.js";
@@ -48,6 +54,9 @@ const validateTelemetryEventSchema = ajv.compile(telemetryEventSchema);
 const validateRoutePlannerInputSchema = ajv.compile(routePlannerInputSchema);
 const validateRoutePlanSchema = ajv.compile(routePlanSchema);
 const validateModelPackageSchema = ajv.compile(modelPackageSchema);
+const validateStreamRunHandleSchema = ajv.compile(streamRunSchema);
+const validateStreamEventSchema = ajv.compile(streamEventSchema);
+const validateStreamTerminalOutcomeSchema = ajv.compile(streamTerminalOutcomeSchema);
 
 export function validateTaskRequest(value: unknown): value is TaskRequest {
   return getTaskRequestValidationIssues(value).length === 0;
@@ -83,6 +92,18 @@ export function validateRoutePlan(value: unknown): value is RoutePlan {
 
 export function validateModelPackage(value: unknown): value is ModelPackage {
   return getModelPackageValidationIssues(value).length === 0;
+}
+
+export function validateStreamRunHandle(value: unknown): value is StreamRunHandle {
+  return getStreamRunHandleValidationIssues(value).length === 0;
+}
+
+export function validateStreamEvent(value: unknown): value is StreamEvent {
+  return getStreamEventValidationIssues(value).length === 0;
+}
+
+export function validateStreamTerminalOutcome(value: unknown): value is StreamTerminalOutcome {
+  return getStreamTerminalOutcomeValidationIssues(value).length === 0;
 }
 
 export function getTaskRequestValidationIssues(value: unknown): ValidationIssue[] {
@@ -130,6 +151,22 @@ export function getRoutePlanValidationIssues(value: unknown): ValidationIssue[] 
 
 export function getModelPackageValidationIssues(value: unknown): ValidationIssue[] {
   return getValidationIssues(validateModelPackageSchema, value, {
+    forbidInlineSecrets: true
+  });
+}
+
+export function getStreamRunHandleValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateStreamRunHandleSchema, value);
+}
+
+export function getStreamEventValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateStreamEventSchema, value, {
+    forbidInlineSecrets: true
+  });
+}
+
+export function getStreamTerminalOutcomeValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateStreamTerminalOutcomeSchema, value, {
     forbidInlineSecrets: true
   });
 }

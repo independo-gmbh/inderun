@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/stream-terminal-outcome.schema.json",
+  "title": "StreamTerminalOutcome",
+  "description": "How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal outcome is a fixed architectural guarantee, not something new outcome kinds get added to). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback'). This shape is also embedded by value as the payload of the terminal StreamEvent (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a completion future/promise a stream handle resolves independently of consuming the full event sequence; the two copies must stay structurally identical. Note on additionalProperties: per this repo's forward-compatible convention every branch permits unknown extra fields, so mutual exclusivity is enforced via the required 'outcome' discriminator plus each branch's own required peer field (finalText/error/partialText) being present, not by forbidding a payload from also carrying an unrelated stray field from another branch's vocabulary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "outcome", "finalText"],
+      "properties": {
+        "schemaVersion": {
+          "description": "Contract schema version used to interpret this outcome payload.",
+          "const": "1.0"
+        },
+        "runId": {
+          "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "description": "The stream completed normally: every provider-generated event was delivered before this outcome was produced.",
+          "const": "completed"
+        },
+        "finalText": {
+          "description": "The full, cumulative text produced by the run. Equivalent in role to TaskResult.output.text for Mode 1.",
+          "type": "string"
+        },
+        "usage": {
+          "description": "Optional metadata regarding the quantity of tokens processed by the provider. Same shape as TaskResult.usage.",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "inputTokens": {
+              "description": "Number of input tokens consumed, as reported by the provider.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "outputTokens": {
+              "description": "Number of output tokens generated, as reported by the provider.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "totalTokens": {
+              "description": "Aggregated token count for this request, as reported by the provider.",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "telemetry": {
+          "description": "Required metadata providing an overview of the execution result and performance metrics. Same shape as TaskResult.telemetry.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["providerUsed", "totalMs"],
+          "properties": {
+            "providerUsed": {
+              "description": "The identifier for the specific provider that handled the request (e.g., 'openai_compatible_cloud').",
+              "type": "string",
+              "minLength": 1
+            },
+            "totalMs": {
+              "description": "Measured execution duration in milliseconds, including route selection and result processing.",
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "outcome", "error"],
+      "properties": {
+        "schemaVersion": {
+          "description": "Contract schema version used to interpret this outcome payload.",
+          "const": "1.0"
+        },
+        "runId": {
+          "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "description": "The stream ended in failure: validation, routing (no eligible provider), or every attempted provider failing.",
+          "const": "error"
+        },
+        "error": {
+          "description": "The normalized error for this failure. Structurally identical to IndeRunError (contracts/schemas/inderun-error.schema.json), duplicated by value here rather than by $ref, matching this repo's schema convention of no cross-file references. Keep both shapes in sync; a cross-check test asserts a shared fixture validates against both schemas.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["schemaVersion", "errorClass", "message"],
+          "properties": {
+            "schemaVersion": {
+              "description": "Contract schema version used to interpret the error payload.",
+              "const": "1.0"
+            },
+            "errorClass": {
+              "description": "Normalized error taxonomy, identical to IndeRunError.errorClass: CapabilityMismatch (request needs something no eligible provider supports), Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider throttled the request), Timeout (provider exceeded its execution budget), Internal (unexpected engine-side failure).",
+              "enum": [
+                "CapabilityMismatch",
+                "Offline",
+                "AuthError",
+                "RateLimited",
+                "Timeout",
+                "Unavailable",
+                "Internal"
+              ]
+            },
+            "message": {
+              "description": "Human-readable error message suitable for logs and developer diagnostics.",
+              "type": "string",
+              "minLength": 1
+            },
+            "providerId": {
+              "description": "Identifier of the provider associated with the failure, if execution reached a provider.",
+              "type": "string",
+              "minLength": 1
+            },
+            "retryable": {
+              "description": "Whether retrying the same request may succeed.",
+              "type": "boolean"
+            },
+            "retryAfterMs": {
+              "description": "Optional suggested delay before retrying, in milliseconds.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "details": {
+              "description": "Optional structured diagnostic details. It must not contain raw secrets.",
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "outcome", "partialText"],
+      "properties": {
+        "schemaVersion": {
+          "description": "Contract schema version used to interpret this outcome payload.",
+          "const": "1.0"
+        },
+        "runId": {
+          "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "description": "The stream was cancelled. No further StreamEvent is delivered after this outcome, and no further fallback attempt is made, per the engine's cancellation guarantee.",
+          "const": "cancelled"
+        },
+        "partialText": {
+          "description": "Whatever cumulative text had already been delivered via content_delta/content_snapshot StreamEvents before the cancellation point. May be empty if cancellation occurred before any content was produced.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Optional human-readable reason the run was cancelled (e.g. caller-initiated abort). Not a machine-taxonomy field; use errorClass on the 'error' outcome branch for failure classification.",
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

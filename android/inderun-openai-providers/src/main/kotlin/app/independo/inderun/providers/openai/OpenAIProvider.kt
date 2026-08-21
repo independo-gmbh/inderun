@@ -8,7 +8,7 @@ import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
-import app.independo.inderun.contracts.Usage
+import app.independo.inderun.contracts.TaskResultUsage
 import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HttpClientService
@@ -222,7 +222,7 @@ class OpenAIProvider(
             val outputTokens = usageJson.optLongOrNull("output_tokens")
             val totalTokens = usageJson.optLongOrNull("total_tokens")
             if (inputTokens != null || outputTokens != null || totalTokens != null) {
-                Usage(
+                TaskResultUsage(
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
                     totalTokens = totalTokens,

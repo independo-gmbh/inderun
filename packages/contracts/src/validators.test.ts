@@ -5,12 +5,17 @@ import {
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
   getModelPackageValidationIssues,
+  getStreamEventValidationIssues,
+  getStreamRunHandleValidationIssues,
   getTaskRequestValidationIssues,
   getTelemetryEventValidationIssues,
   validateHttpRequest,
   validateHttpResponse,
   validateIndeRunError,
   validateModelPackage,
+  validateStreamEvent,
+  validateStreamRunHandle,
+  validateStreamTerminalOutcome,
   validateTaskRequest,
   validateTaskResult,
   validateTelemetryEvent
@@ -315,6 +320,249 @@ describe("Host-adjacent data validation", () => {
         timestamp: 123,
         payload: {}
       }).some((issue) => issue.path === "/type")
+    ).toBe(true);
+  });
+});
+
+describe("StreamRunHandle validation", () => {
+  it("accepts a minimal handle", () => {
+    expect(
+      validateStreamRunHandle({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        startedAt: 1000
+      })
+    ).toBe(true);
+  });
+
+  it("accepts a handle with a resolved providerId", () => {
+    expect(
+      validateStreamRunHandle({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        startedAt: 1000,
+        providerId: "openai_compatible_cloud"
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a handle missing runId", () => {
+    expect(
+      getStreamRunHandleValidationIssues({
+        schemaVersion: "1.0",
+        startedAt: 1000
+      }).some((issue) => issue.path === "/" && issue.keyword === "required")
+    ).toBe(true);
+  });
+});
+
+describe("StreamEvent validation", () => {
+  it("accepts a minimal content_delta event", () => {
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 0,
+        timestamp: 1000,
+        type: "content_delta",
+        payload: { text: "Hel" }
+      })
+    ).toBe(true);
+  });
+
+  it("accepts a content_snapshot event", () => {
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 1,
+        timestamp: 1001,
+        type: "content_snapshot",
+        payload: { text: "Hello" }
+      })
+    ).toBe(true);
+  });
+
+  it("accepts a lifecycle event", () => {
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 0,
+        timestamp: 999,
+        type: "lifecycle",
+        payload: { phase: "provider_selected" }
+      })
+    ).toBe(true);
+  });
+
+  it("accepts a terminal event with a completed outcome", () => {
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 2,
+        timestamp: 1002,
+        type: "terminal",
+        payload: {
+          schemaVersion: "1.0",
+          runId: "run_123",
+          outcome: "completed",
+          finalText: "Hello",
+          telemetry: { providerUsed: "openai", totalMs: 42 }
+        }
+      })
+    ).toBe(true);
+  });
+
+  it("accepts an event with an unrecognized type (forward-compatible)", () => {
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 3,
+        timestamp: 1003,
+        type: "some_future_event",
+        payload: { anything: true }
+      })
+    ).toBe(true);
+  });
+
+  it("rejects an event missing sequence, runId, or schemaVersion", () => {
+    expect(
+      getStreamEventValidationIssues({
+        timestamp: 1000,
+        type: "content_delta",
+        payload: { text: "Hi" }
+      }).some((issue) => issue.path === "/" && issue.keyword === "required")
+    ).toBe(true);
+  });
+
+  it("rejects a content_delta event missing the required payload.text field", () => {
+    expect(
+      getStreamEventValidationIssues({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 0,
+        timestamp: 1000,
+        type: "content_delta",
+        payload: {}
+      }).length
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe("StreamTerminalOutcome validation", () => {
+  it("accepts a completed outcome", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "completed",
+        finalText: "Hello",
+        usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+        telemetry: { providerUsed: "openai", totalMs: 42 }
+      })
+    ).toBe(true);
+  });
+
+  it("accepts an error outcome", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "error",
+        error: {
+          schemaVersion: "1.0",
+          errorClass: "Timeout",
+          message: "Provider timed out"
+        }
+      })
+    ).toBe(true);
+  });
+
+  it("accepts a cancelled outcome", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "cancelled",
+        partialText: "Hel",
+        reason: "caller aborted"
+      })
+    ).toBe(true);
+  });
+
+  it("accepts a cancelled outcome with empty partialText", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "cancelled",
+        partialText: ""
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a completed outcome missing finalText", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "completed",
+        telemetry: { providerUsed: "openai", totalMs: 42 }
+      })
+    ).toBe(false);
+  });
+
+  it("rejects an error outcome missing the required error field", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "error"
+      })
+    ).toBe(false);
+  });
+
+  it("rejects a cancelled outcome missing the required partialText field", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "cancelled"
+      })
+    ).toBe(false);
+  });
+
+  it("rejects an unrecognized outcome value", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "partial_success",
+        finalText: "Hello"
+      })
+    ).toBe(false);
+  });
+
+  it("keeps the error branch structurally identical to IndeRunError (cross-check)", () => {
+    const errorFixture = {
+      schemaVersion: "1.0" as const,
+      errorClass: "RateLimited" as const,
+      message: "Too many requests",
+      retryable: true,
+      retryAfterMs: 500
+    };
+
+    expect(validateIndeRunError(errorFixture)).toBe(true);
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "error",
+        error: errorFixture
+      })
     ).toBe(true);
   });
 });

@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/stream-event.schema.json",
+  "title": "StreamEvent",
+  "description": "The canonical Mode 2 streaming event union, discriminated by 'type'. Every variant shares an envelope of schemaVersion, runId, sequence, timestamp, and type. 'sequence' is the ordering authority for events within a run (a monotonically increasing integer starting at 0 per runId) — consumers must order by 'sequence', not by arrival order, since a bridge hop (e.g. a future Capacitor bridge) could reorder delivery. Known event types are split into user-visible content ('content_delta', 'content_snapshot') and mechanical/diagnostic types ('lifecycle', 'diagnostic', 'terminal') so SDKs can distinguish what belongs in a chat UI from what is orchestration detail. Forward compatibility: this union closes with an open 'unknown_event' branch so a consumer built against an older revision of this schema does not hard-fail when a newer, additive minor revision introduces a new known type; per contracts/README.md's schema evolution policy, SDKs must treat an unrecognized 'type' as ignore-or-pass-through-for-diagnostics, never as a hard error. Design seam only; no engine or provider implementation exists yet (see docs/architecture/architecture.md).",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "sequence", "timestamp", "type", "payload"],
+      "properties": {
+        "schemaVersion": { "description": "Contract schema version used to interpret this event payload.", "const": "1.0" },
+        "runId": { "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.", "type": "string", "minLength": 1 },
+        "sequence": { "description": "Zero-based, monotonically increasing event index within this run. The ordering authority; do not rely on delivery/arrival order.", "type": "integer", "minimum": 0 },
+        "timestamp": { "description": "Wall-clock event timestamp in Unix epoch milliseconds.", "type": "number", "minimum": 0 },
+        "type": {
+          "description": "User-visible content: an incremental text increment since the previous content_delta or content_snapshot event. Mirrors ProviderDescriptor.streamingStyle 'tokens'/'chunks' (packages/inderun-web/src/core/provider.ts) — providers reporting either style normalize to content_delta.",
+          "const": "content_delta"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["text"],
+          "properties": {
+            "text": { "description": "The incremental text produced since the previous content event.", "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "sequence", "timestamp", "type", "payload"],
+      "properties": {
+        "schemaVersion": { "description": "Contract schema version used to interpret this event payload.", "const": "1.0" },
+        "runId": { "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.", "type": "string", "minLength": 1 },
+        "sequence": { "description": "Zero-based, monotonically increasing event index within this run. The ordering authority; do not rely on delivery/arrival order.", "type": "integer", "minimum": 0 },
+        "timestamp": { "description": "Wall-clock event timestamp in Unix epoch milliseconds.", "type": "number", "minimum": 0 },
+        "type": {
+          "description": "User-visible content: the full cumulative text produced so far. Mirrors ProviderDescriptor.streamingStyle 'snapshots' (packages/inderun-web/src/core/provider.ts) — providers reporting that style normalize to content_snapshot rather than content_delta.",
+          "const": "content_snapshot"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["text"],
+          "properties": {
+            "text": { "description": "The full cumulative text produced by the run so far.", "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "sequence", "timestamp", "type", "payload"],
+      "properties": {
+        "schemaVersion": { "description": "Contract schema version used to interpret this event payload.", "const": "1.0" },
+        "runId": { "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.", "type": "string", "minLength": 1 },
+        "sequence": { "description": "Zero-based, monotonically increasing event index within this run. The ordering authority; do not rely on delivery/arrival order.", "type": "integer", "minimum": 0 },
+        "timestamp": { "description": "Wall-clock event timestamp in Unix epoch milliseconds.", "type": "number", "minimum": 0 },
+        "type": {
+          "description": "Mechanical/diagnostic: a run lifecycle transition (e.g. provider selection, execution start). Not user-visible content; not part of the generated text.",
+          "const": "lifecycle"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["phase"],
+          "properties": {
+            "phase": { "description": "The lifecycle phase reached.", "enum": ["provider_selected", "started"] }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "sequence", "timestamp", "type", "payload"],
+      "properties": {
+        "schemaVersion": { "description": "Contract schema version used to interpret this event payload.", "const": "1.0" },
+        "runId": { "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.", "type": "string", "minLength": 1 },
+        "sequence": { "description": "Zero-based, monotonically increasing event index within this run. The ordering authority; do not rely on delivery/arrival order.", "type": "integer", "minimum": 0 },
+        "timestamp": { "description": "Wall-clock event timestamp in Unix epoch milliseconds.", "type": "number", "minimum": 0 },
+        "type": {
+          "description": "Mechanical/diagnostic: free-form orchestration or provider diagnostic detail. Not user-visible content.",
+          "const": "diagnostic"
+        },
+        "payload": {
+          "description": "Event-specific diagnostic metadata. It must not contain prompt payloads or raw secrets, matching the same guardrail as TelemetryEvent.payload.",
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "sequence", "timestamp", "type", "payload"],
+      "properties": {
+        "schemaVersion": { "description": "Contract schema version used to interpret this event payload.", "const": "1.0" },
+        "runId": { "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.", "type": "string", "minLength": 1 },
+        "sequence": { "description": "Zero-based, monotonically increasing event index within this run. This is always the highest sequence number for the run: the terminal event.", "type": "integer", "minimum": 0 },
+        "timestamp": { "description": "Wall-clock event timestamp in Unix epoch milliseconds.", "type": "number", "minimum": 0 },
+        "type": {
+          "description": "Terminal: the last event of the run, carrying the mutually-exclusive completion/error/cancellation outcome. No further StreamEvent is delivered for this runId after this event.",
+          "const": "terminal"
+        },
+        "payload": {
+          "description": "Structurally identical to StreamTerminalOutcome (contracts/schemas/stream-terminal-outcome.schema.json), duplicated by value here rather than by $ref, matching this repo's schema convention of no cross-file references. Keep both shapes in sync; a cross-check test asserts a shared fixture validates against both schemas.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["schemaVersion", "runId", "outcome", "finalText"],
+              "properties": {
+                "schemaVersion": { "const": "1.0" },
+                "runId": { "type": "string", "minLength": 1 },
+                "outcome": { "const": "completed" },
+                "finalText": { "type": "string" },
+                "usage": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "inputTokens": { "type": "integer", "minimum": 0 },
+                    "outputTokens": { "type": "integer", "minimum": 0 },
+                    "totalTokens": { "type": "integer", "minimum": 0 }
+                  }
+                },
+                "telemetry": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": ["providerUsed", "totalMs"],
+                  "properties": {
+                    "providerUsed": { "type": "string", "minLength": 1 },
+                    "totalMs": { "type": "number", "minimum": 0 }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["schemaVersion", "runId", "outcome", "error"],
+              "properties": {
+                "schemaVersion": { "const": "1.0" },
+                "runId": { "type": "string", "minLength": 1 },
+                "outcome": { "const": "error" },
+                "error": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": ["schemaVersion", "errorClass", "message"],
+                  "properties": {
+                    "schemaVersion": { "const": "1.0" },
+                    "errorClass": {
+                      "enum": [
+                        "CapabilityMismatch",
+                        "Offline",
+                        "AuthError",
+                        "RateLimited",
+                        "Timeout",
+                        "Unavailable",
+                        "Internal"
+                      ]
+                    },
+                    "message": { "type": "string", "minLength": 1 },
+                    "providerId": { "type": "string", "minLength": 1 },
+                    "retryable": { "type": "boolean" },
+                    "retryAfterMs": { "type": "integer", "minimum": 0 },
+                    "details": { "type": "object", "additionalProperties": true }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["schemaVersion", "runId", "outcome", "partialText"],
+              "properties": {
+                "schemaVersion": { "const": "1.0" },
+                "runId": { "type": "string", "minLength": 1 },
+                "outcome": { "const": "cancelled" },
+                "partialText": { "type": "string" },
+                "reason": { "type": "string" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "runId", "sequence", "timestamp", "type"],
+      "properties": {
+        "schemaVersion": { "description": "Contract schema version used to interpret this event payload.", "const": "1.0" },
+        "runId": { "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.", "type": "string", "minLength": 1 },
+        "sequence": { "description": "Zero-based, monotonically increasing event index within this run. The ordering authority; do not rely on delivery/arrival order.", "type": "integer", "minimum": 0 },
+        "timestamp": { "description": "Wall-clock event timestamp in Unix epoch milliseconds.", "type": "number", "minimum": 0 },
+        "type": {
+          "description": "Forward-compatibility catch-all: any event type not among the known constants above. Exists so a consumer validating against this revision of the schema does not hard-fail when a future additive revision introduces a new known event type; SDKs must ignore or pass through such events for diagnostics rather than treating them as an error.",
+          "type": "string",
+          "not": {
+            "enum": ["content_delta", "content_snapshot", "lifecycle", "diagnostic", "terminal"]
+          }
+        },
+        "payload": {
+          "description": "Optional event-specific payload for the unrecognized type. It must not contain prompt payloads or raw secrets.",
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  ]
+}

@@ -87,6 +87,21 @@ const schemas = [
     input: "model-package.schema.json",
     typeOutput: "model-package.ts",
     constName: "modelPackageSchema"
+  },
+  {
+    input: "stream-run.schema.json",
+    typeOutput: "stream-run.ts",
+    constName: "streamRunSchema"
+  },
+  {
+    input: "stream-event.schema.json",
+    typeOutput: "stream-event.ts",
+    constName: "streamEventSchema"
+  },
+  {
+    input: "stream-terminal-outcome.schema.json",
+    typeOutput: "stream-terminal-outcome.ts",
+    constName: "streamTerminalOutcomeSchema"
   }
 ];
 
@@ -175,7 +190,7 @@ function replaceExactly(source, replacements) {
     if (!output.includes(from)) {
       throw new Error(`Expected Kotlin normalization pattern not found:\n${from}`);
     }
-    output = output.replace(from, to);
+    output = output.replaceAll(from, to);
   }
   return output;
 }

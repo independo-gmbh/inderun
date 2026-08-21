@@ -409,10 +409,10 @@ public final class OpenAIProvider: ProviderAdapter, @unchecked Sendable {
         return .stop
     }
 
-    private func usage(responseBody: OpenAIResponseBody) -> Usage? {
+    private func usage(responseBody: OpenAIResponseBody) -> TaskResultUsage? {
         let hasUsage = responseBody.inputTokens != nil || responseBody.outputTokens != nil || responseBody.totalTokens != nil
         guard hasUsage else { return nil }
-        return Usage(
+        return TaskResultUsage(
             inputTokens: responseBody.inputTokens,
             outputTokens: responseBody.outputTokens,
             totalTokens: responseBody.totalTokens

@@ -140,6 +140,15 @@ declarations, until that work is actually scoped. The spec format should not nee
 reworking when that happens — `async: true` already generalizes to a `stream: true`
 variant later — but nothing streaming-shaped gets generated today.
 
+The `Event` in that idiom mapping is now a concrete, versioned contract:
+`StreamEvent` (`contracts/schemas/stream-event.schema.json`), with `StreamRunHandle`
+and `StreamTerminalOutcome` as its companion shapes (issue #145). A future `stream: true`
+operation would return `AsyncIterable<StreamEvent>` / `Flow<StreamEvent>` /
+`AsyncThrowingStream<StreamEvent, IndeRunException>` after synchronously producing a
+`StreamRunHandle`, terminating in a `StreamTerminalOutcome`. This is still just the
+target shape for #148 (the orchestrator) to implement against — no operation is added
+to `contracts/api/inderun-api.json` by this issue.
+
 ### Option B — reuse JSON Schema via a non-standard `x-methods` extension
 
 Piggyback on the existing schema files and mental model by adding a vendor
@@ -253,3 +262,6 @@ Remaining, explicitly deferred (not yet built, per CLAUDE.md §3 scope):
 - Streaming/session operations (`stream`/`openSession`) — the spec format is
   expected to extend to a `stream: true` variant without rework, but no
   streaming declarations are generated until that work is actually scoped.
+  The data shapes such an operation would return already exist:
+  `StreamEvent`, `StreamRunHandle`, and `StreamTerminalOutcome`
+  (`contracts/schemas/stream-*.schema.json`, issue #145).
