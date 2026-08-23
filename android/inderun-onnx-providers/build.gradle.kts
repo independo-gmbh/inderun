@@ -43,7 +43,7 @@ dependencies {
     implementation(project(":inderun-contracts"))
     implementation(project(":inderun-core"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.29.0")
     implementation("ai.djl.huggingface:tokenizers:0.36.0")
     implementation("ai.djl.android:tokenizer-native:0.33.0")
     implementation("org.json:json:20260719")
