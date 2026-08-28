@@ -1371,3 +1371,382 @@ final class SseParserConformanceTests: XCTestCase {
         XCTAssertEqual(received, [SseEvent(event: "a", data: "one"), SseEvent(data: "two")])
     }
 }
+
+// MARK: - Mode 2 Streaming
+
+/// Scripted streaming provider mirroring `createFakeStreamProvider` in the Web
+/// SDK's engine.stream tests, so both platforms are held to the same scenarios.
+final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
+    struct Step {
+        let event: ProviderStreamEvent
+        let delayMs: UInt64
+
+        init(_ event: ProviderStreamEvent, delayMs: UInt64 = 0) {
+            self.event = event
+            self.delayMs = delayMs
+        }
+    }
+
+    let id: String
+    let script: [Step]
+    let throwAfterScript: Error?
+    let declaresStreaming: Bool
+    private let lock = NSLock()
+    private var attempts = 0
+
+    init(id: String, script: [Step], throwAfterScript: Error? = nil, declaresStreaming: Bool = true) {
+        self.id = id
+        self.script = script
+        self.throwAfterScript = throwAfterScript
+        self.declaresStreaming = declaresStreaming
+    }
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return attempts
+    }
+
+    func describe() -> ProviderDescriptor {
+        ProviderDescriptor(
+            id: id,
+            type: .local,
+            transport: .inProcess,
+            supports: ProviderDescriptor.SupportsCapabilities(
+                run: true,
+                streaming: declaresStreaming,
+                realtime: false,
+                tools: false,
+                reasoningEvents: false,
+                structuredOutput: false,
+                multimodal: false
+            ),
+            cancel: .soft,
+            tasks: ["text_to_text"]
+        )
+    }
+
+    func capabilities(host: HostServices) async -> ProviderDynamicCapabilities {
+        ProviderDynamicCapabilities(available: true)
+    }
+
+    func run(request: TaskRequest, context: RunContext) async throws -> TaskResult {
+        TaskResult(
+            runId: context.runId,
+            output: Output(text: "unused"),
+            finishReason: FinishReason.stop,
+            telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
+        )
+    }
+
+    func stream(
+        request: TaskRequest,
+        context: ProviderStreamContext
+    ) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        lock.lock()
+        attempts += 1
+        lock.unlock()
+
+        return AsyncThrowingStream { continuation in
+            Task { [script, throwAfterScript] in
+                for step in script {
+                    if step.delayMs > 0 {
+                        try? await Task.sleep(nanoseconds: step.delayMs * 1_000_000)
+                    }
+                    if context.cancellation.isCancelled {
+                        continuation.finish()
+                        return
+                    }
+                    continuation.yield(step.event)
+                }
+                if let throwAfterScript {
+                    continuation.finish(throwing: throwAfterScript)
+                    return
+                }
+                continuation.finish()
+            }
+        }
+    }
+}
+
+/// Declares Mode 2 support in its descriptor but does not conform to
+/// `StreamingProviderAdapter`, which is the mismatch the router must catch.
+final class DeclaredOnlyStreamProvider: ProviderAdapter, @unchecked Sendable {
+    let id: String
+
+    init(id: String) {
+        self.id = id
+    }
+
+    func describe() -> ProviderDescriptor {
+        ProviderDescriptor(
+            id: id,
+            type: .local,
+            transport: .inProcess,
+            supports: ProviderDescriptor.SupportsCapabilities(
+                run: true,
+                streaming: true,
+                realtime: false,
+                tools: false,
+                reasoningEvents: false,
+                structuredOutput: false,
+                multimodal: false
+            ),
+            cancel: .soft,
+            tasks: ["text_to_text"]
+        )
+    }
+
+    func capabilities(host: HostServices) async -> ProviderDynamicCapabilities {
+        ProviderDynamicCapabilities(available: true)
+    }
+
+    func run(request: TaskRequest, context: RunContext) async throws -> TaskResult {
+        TaskResult(
+            runId: context.runId,
+            output: Output(text: "unused"),
+            finishReason: FinishReason.stop,
+            telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
+        )
+    }
+}
+
+final class StreamOrchestrationTests: XCTestCase {
+    private func makeHost() -> HostServices {
+        HostServices(
+            connectivity: MockConnectivityService(),
+            clock: MockClockService()
+        )
+    }
+
+    private func makeRequest(requestId: String? = nil) -> TaskRequest {
+        TaskRequest(
+            requestId: requestId,
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello"
+        )
+    }
+
+    private func drain(_ run: StreamRun) async throws -> [StreamEvent] {
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+        }
+        return events
+    }
+
+    func testDeliversContentDeltasAndACompletedTerminal() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "Hello")),
+            .init(.delta(text: " world")),
+            .init(.done(finalText: "Hello world"))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine.stream(request: makeRequest())
+        let events = try await drain(run)
+
+        XCTAssertEqual(events.map { $0.type }, ["content_delta", "content_delta", "terminal"])
+        XCTAssertEqual(events.map { $0.sequence }, [0, 1, 2])
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "Hello world")
+    }
+
+    func testCarriesFinishReasonAndUsageOnCompletion() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "trunc")),
+            .init(.done(
+                finalText: "trunc",
+                finishReason: .length,
+                usage: TaskResultUsage(inputTokens: 2, outputTokens: 1, totalTokens: 3)
+            ))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.finishReason, .length)
+        XCTAssertEqual(events.last?.payload?.usage?.totalTokens, 3)
+    }
+
+    func testRejectsWhenNoRegisteredProviderCanStream() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockProvider(id: "p_run_only", type: .local))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        do {
+            _ = try await engine.stream(request: makeRequest(requestId: "req-42"))
+            XCTFail("Expected the stream to be refused")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .CapabilityMismatch)
+            XCTAssertEqual(error.runId, "req-42")
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testRejectsAProviderThatDeclaresStreamingWithoutImplementingIt() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(DeclaredOnlyStreamProvider(id: "p_declared"))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        do {
+            _ = try await engine.stream(request: makeRequest())
+            XCTFail("Expected the stream to be refused")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .CapabilityMismatch)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testFallsBackBeforeAnyContentIsDelivered() async throws {
+        let registry = ProviderRegistry()
+        let failing = MockStreamProvider(
+            id: "p1_failing",
+            script: [],
+            throwAfterScript: createUnavailable(message: "boom")
+        )
+        let healthy = MockStreamProvider(id: "p2_healthy", script: [
+            .init(.delta(text: "second")),
+            .init(.done(finalText: "second"))
+        ])
+        try registry.register(failing)
+        try registry.register(healthy)
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "second")
+        XCTAssertEqual(failing.callCount, 1)
+        XCTAssertEqual(healthy.callCount, 1)
+    }
+
+    func testDoesNotFallBackOnceContentHasBeenDelivered() async throws {
+        let registry = ProviderRegistry()
+        let committing = MockStreamProvider(
+            id: "p1_committing",
+            script: [.init(.delta(text: "partial"))],
+            throwAfterScript: createUnavailable(message: "died mid-stream")
+        )
+        let other = MockStreamProvider(id: "p2_other", script: [.init(.done(finalText: "unused"))])
+        try registry.register(committing)
+        try registry.register(other)
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.map { $0.type }, ["content_delta", "terminal"])
+        XCTAssertEqual(events.last?.payload?.outcome, .error)
+        XCTAssertEqual(events.last?.payload?.partialText, "partial")
+        // Splicing a second provider's text onto the first provider's partial
+        // output would be undetectable to the caller, so it must not happen.
+        XCTAssertEqual(other.callCount, 0)
+    }
+
+    func testProducesExactlyOneCancelledTerminalAndStopsDeltas() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "one"), delayMs: 5),
+            .init(.delta(text: "two"), delayMs: 60),
+            .init(.done(finalText: "one two"), delayMs: 5)
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine.stream(request: makeRequest())
+
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+            if event.type == "content_delta" {
+                run.cancel(reason: "user stopped")
+                // Repeated and concurrent cancels must stay idempotent.
+                run.cancel(reason: "ignored")
+            }
+        }
+
+        XCTAssertEqual(events.filter { $0.type == "terminal" }.count, 1)
+        XCTAssertEqual(events.last?.payload?.outcome, .cancelled)
+        XCTAssertEqual(events.last?.payload?.partialText, "one")
+        XCTAssertEqual(events.last?.payload?.reason, "user stopped")
+    }
+
+    func testCancellationBeforeTheFirstAttemptForeclosesEveryProvider() async throws {
+        let registry = ProviderRegistry()
+        let provider = MockStreamProvider(id: "p1", script: [
+            .init(.done(finalText: "never"), delayMs: 40)
+        ])
+        try registry.register(provider)
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine.stream(request: makeRequest())
+        run.cancel(reason: "immediate")
+        let events = try await drain(run)
+
+        XCTAssertEqual(events.last?.payload?.outcome, .cancelled)
+        XCTAssertEqual(events.last?.payload?.partialText, "")
+    }
+
+    func testReportsAnErrorWhenEveryProviderFailsBeforeCommitting() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(
+            id: "p1", script: [], throwAfterScript: createUnavailable(message: "boom")
+        ))
+        try registry.register(MockStreamProvider(
+            id: "p2", script: [], throwAfterScript: createUnavailable(message: "boom")
+        ))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.last?.payload?.outcome, .error)
+        XCTAssertEqual(events.last?.payload?.error?.errorClass, .Unavailable)
+    }
+
+    func testTreatsAStreamThatEndsWithoutATerminalEventAsAProviderFault() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [.init(.delta(text: "a"))]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.outcome, .error)
+        XCTAssertEqual(events.last?.payload?.partialText, "a")
+    }
+
+    func testAProviderReportedFailureEventBehavesLikeAThrow() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.failure(error: createRateLimited(message: "slow down")))
+        ]))
+        try registry.register(MockStreamProvider(id: "p2", script: [
+            .init(.done(finalText: "recovered"))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "recovered")
+    }
+
+    func testRunAndStreamMayResolveToDifferentProviderChains() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockProvider(id: "a_run_only", type: .local))
+        try registry.register(MockStreamProvider(id: "b_streaming", script: [
+            .init(.done(finalText: "streamed"))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+
+        let result = try await engine.run(request: makeRequest())
+        XCTAssertEqual(result.telemetry.providerUsed, "a_run_only")
+
+        let run = try await engine.stream(request: makeRequest())
+        XCTAssertEqual(run.handle.providerId, "b_streaming")
+    }
+}
