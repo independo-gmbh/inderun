@@ -14,9 +14,11 @@ provider-neutral `ModelPackage` used by local-model provider families; see
 
 It also includes the canonical Mode 2 streaming contracts — `stream-run.schema.json`
 (`StreamRunHandle`), `stream-event.schema.json` (`StreamEvent`), and
-`stream-terminal-outcome.schema.json` (`StreamTerminalOutcome`). These are a schema-only design
-seam today: no engine or provider implements streaming yet (see
-`docs/architecture/architecture.md#streaming-contracts-mode-2-design-seam`).
+`stream-terminal-outcome.schema.json` (`StreamTerminalOutcome`). The TypeScript Engine core
+implements the Mode 2 orchestrator against these, and `route-planner-input.schema.json` carries
+the requested `interactionMode` plus the static/dynamic streaming capability fields the planner
+needs to route it. No shipped provider implements `stream()` yet (see
+`docs/architecture/architecture.md#streaming-contracts-and-orchestration-mode-2`).
 
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
