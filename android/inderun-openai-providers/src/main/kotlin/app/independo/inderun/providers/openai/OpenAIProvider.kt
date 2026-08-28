@@ -13,17 +13,25 @@ import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HttpClientService
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderAdapter
 import app.independo.inderun.core.ProviderDescriptor
 import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderRegistry
+import app.independo.inderun.core.ProviderStreamContext
+import app.independo.inderun.core.ProviderStreamEvent
 import app.independo.inderun.core.RunContext
+import app.independo.inderun.core.SseEvent
+import app.independo.inderun.core.SseParser
+import app.independo.inderun.core.StreamingProviderAdapter
 import app.independo.inderun.core.createAuthError
 import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.createRateLimited
 import app.independo.inderun.core.createTimeout
 import app.independo.inderun.core.createUnavailable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.takeWhile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -59,18 +67,26 @@ data class OpenAIProviderOptions(
     val healthCheckCacheMs: Long? = null,
 )
 
+/**
+ * Unwinds the collection loop once a terminal event has been produced. Kotlin
+ * flows have no `break`, and abandoning the collector by throwing is the
+ * documented way to stop consuming one early.
+ */
+private object StreamTerminated : Throwable(null, null, false, false)
+
 class OpenAIProvider(
     private val options: OpenAIProviderOptions,
-) : ProviderAdapter {
+) : StreamingProviderAdapter {
     @Volatile
     private var cachedHealth: Pair<ProviderDynamicCapabilities, Long>? = null
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = options.id,
         type = ProviderDescriptor.ProviderType.cloud,
         transport = ProviderDescriptor.TransportType.http,
+        streamingStyle = ProviderDescriptor.StreamingStyle.tokens,
         supports = ProviderDescriptor.SupportsCapabilities(
             run = true,
-            streaming = false,
+            streaming = true,
             realtime = false,
             tools = false,
             reasoningEvents = false,
@@ -97,7 +113,19 @@ class OpenAIProvider(
                 reason = "OpenAI Responses provider requires an HttpClientService.",
             )
 
-        return checkEndpointReachable(httpClient, host.clock)
+        val reachability = checkEndpointReachable(httpClient, host.clock)
+        if (host.streamingHttpClient != null) {
+            return reachability
+        }
+
+        // Mode 1 still works without it; only streaming is taken away, and the
+        // planner turns this into an inspectable `streaming_unavailable`
+        // rejection rather than an unexplained routing failure.
+        return reachability.copy(
+            streamingAvailable = false,
+            streamingUnavailableReason =
+            "Host does not provide an HttpStreamingClientService, which OpenAI streaming requires.",
+        )
     }
 
     private suspend fun checkEndpointReachable(
@@ -150,28 +178,7 @@ class OpenAIProvider(
                 providerId = options.id,
             )
 
-        val headers = linkedMapOf("Content-Type" to "application/json")
-        if (options.auth == OpenAIAuthMode.authContextRef) {
-            val slotId = request.authContextRef ?: options.authContextRef
-            if (slotId.isNullOrBlank()) {
-                throw createAuthError(
-                    message = "OpenAI Responses provider requires authContextRef.",
-                    runId = context.runId,
-                    providerId = options.id,
-                )
-            }
-
-            val secret = context.hostServices.secureStorage.get(slotId)
-            if (secret.isNullOrBlank()) {
-                throw createAuthError(
-                    message = "No OpenAI credential found for authContextRef '$slotId'.",
-                    runId = context.runId,
-                    providerId = options.id,
-                )
-            }
-
-            headers["Authorization"] = "Bearer $secret"
-        }
+        val headers = resolveHeaders(request, context.hostServices, context.runId)
 
         val httpRequest = HttpRequest(
             method = Method.Post,
@@ -217,20 +224,7 @@ class OpenAIProvider(
                 providerId = options.id,
             )
 
-        val usage = json.optJSONObject("usage")?.let { usageJson ->
-            val inputTokens = usageJson.optLongOrNull("input_tokens")
-            val outputTokens = usageJson.optLongOrNull("output_tokens")
-            val totalTokens = usageJson.optLongOrNull("total_tokens")
-            if (inputTokens != null || outputTokens != null || totalTokens != null) {
-                TaskResultUsage(
-                    inputTokens = inputTokens,
-                    outputTokens = outputTokens,
-                    totalTokens = totalTokens,
-                )
-            } else {
-                null
-            }
-        }
+        val usage = usage(json)
 
         val totalMs = context.hostServices.clock.elapsedRealtimeMillis().toDouble() - startTimeMs
         return TaskResult(
@@ -243,10 +237,247 @@ class OpenAIProvider(
         )
     }
 
-    private fun createRequestBody(request: TaskRequest): JSONObject {
+    /**
+     * Executes a normalized text-to-text task in Mode 2 against the OpenAI
+     * Responses API's server-sent event stream.
+     *
+     * The request is the Mode 1 body plus `"stream": true`, so both modes stay a
+     * single code path up to the transport. The response head is classified
+     * before the body is read: a non-2xx is drained to text and run through the
+     * same [mapHttpError] as Mode 1, because a 429 must surface as RateLimited
+     * rather than as a malformed event stream.
+     *
+     * Event mapping, from the Responses API's typed SSE events to the canonical
+     * provider vocabulary:
+     *
+     * - `response.output_text.delta` becomes a delta;
+     * - `response.completed` and `response.incomplete` become the terminal done,
+     *   with `finalText`, `usage` and `finishReason` read off the embedded
+     *   response object by the same helpers Mode 1 uses — it has the same shape;
+     * - `response.failed` and `error` become a terminal failure;
+     * - every other event type is ignored, since the set is open and additive.
+     */
+    override fun stream(
+        request: TaskRequest,
+        context: ProviderStreamContext,
+    ): Flow<ProviderStreamEvent> = flow {
+        val streamingClient = context.hostServices.streamingHttpClient
+            ?: throw createUnavailable(
+                message = "OpenAI Responses streaming requires an HttpStreamingClientService.",
+                runId = context.runId,
+                providerId = options.id,
+            )
+
+        val headers = resolveHeaders(request, context.hostServices, context.runId)
+        headers["Accept"] = "text/event-stream"
+
+        val httpRequest = HttpRequest(
+            method = Method.Post,
+            url = options.endpointUrl,
+            headers = headers,
+            body = createRequestBody(request, stream = true).toString(),
+            timeoutMs = options.timeoutMs,
+        )
+
+        val response = try {
+            streamingClient.stream(httpRequest)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw createUnavailable(
+                message = "OpenAI Responses stream failed before a response was received.",
+                runId = context.runId,
+                providerId = options.id,
+                details = mapOf(
+                    "originalError" to mapOf(
+                        "name" to error::class.simpleName,
+                        "message" to (error.message ?: error.toString()),
+                    ),
+                ),
+            )
+        }
+
+        if (response.status < 200 || response.status >= 300) {
+            val errorBody = StringBuilder()
+            response.body.collect { chunk -> errorBody.append(String(chunk, Charsets.UTF_8)) }
+            throw mapHttpError(
+                status = response.status.toInt(),
+                statusText = response.statusText,
+                headers = response.headers,
+                body = errorBody.toString(),
+                runId = context.runId,
+            )
+        }
+
+        val parser = SseParser()
+        var terminated = false
+        try {
+            response.body.takeWhile { !context.cancellation.isCancelled }.collect { chunk ->
+                for (sseEvent in parser.consume(chunk)) {
+                    if (emitStreamEvent(sseEvent, context)) {
+                        terminated = true
+                        throw StreamTerminated
+                    }
+                }
+            }
+            if (!context.cancellation.isCancelled) {
+                for (sseEvent in parser.finish()) {
+                    if (emitStreamEvent(sseEvent, context)) {
+                        terminated = true
+                        break
+                    }
+                }
+            }
+        } catch (signal: StreamTerminated) {
+            check(terminated) { "StreamTerminated raised without a terminal event." }
+        }
+
+        // Falling through without a terminal event means the stream ended early.
+        // The engine reports that as a provider fault; inventing a completion
+        // from whatever deltas happened to arrive would hide a truncated
+        // response.
+    }
+
+    /**
+     * Maps one framed SSE event onto the provider vocabulary. Returns true when
+     * the event was terminal and the stream should stop being read.
+     */
+    private suspend fun FlowCollector<ProviderStreamEvent>.emitStreamEvent(
+        sseEvent: SseEvent,
+        context: ProviderStreamContext,
+    ): Boolean {
+        if (sseEvent.data == "[DONE]") return false
+
+        val json = parseJsonObject(sseEvent.data)
+        // The `event:` line and the payload's own `type` carry the same value;
+        // prefer the payload so a proxy that drops event names still works.
+        val type = json.optStringOrNull("type") ?: sseEvent.event
+
+        when (type) {
+            "response.output_text.delta" -> {
+                json.optStringOrNull("delta")?.let { emit(ProviderStreamEvent.Delta(it)) }
+                return false
+            }
+
+            "response.completed", "response.incomplete" -> {
+                val body = json.optJSONObject("response") ?: JSONObject()
+                emit(
+                    ProviderStreamEvent.Done(
+                        finalText = extractOutputText(body).orEmpty(),
+                        finishReason = finishReason(body),
+                        usage = usage(body),
+                    ),
+                )
+                return true
+            }
+
+            "response.failed", "error" -> {
+                emit(ProviderStreamEvent.Failure(mapStreamError(json, context.runId)))
+                return true
+            }
+
+            else -> return false
+        }
+    }
+
+    /**
+     * Maps a `response.failed` / `error` stream event onto the error taxonomy.
+     * These arrive over an HTTP 200 body, so there is no status code to classify
+     * from; OpenAI reports rate limiting and auth failures here with the same
+     * `code` values it uses in unary error bodies.
+     */
+    private fun mapStreamError(json: JSONObject, runId: String): Throwable {
+        val error = json.optJSONObject("error")
+            ?: json.optJSONObject("response")?.optJSONObject("error")
+            ?: JSONObject()
+        val message = error.optStringOrNull("message")
+            ?: "OpenAI Responses stream reported a failure."
+        val details = mapOf(
+            "errorType" to error.optStringOrNull("type"),
+            "errorCode" to error.optStringOrNull("code"),
+        )
+
+        return when (error.optStringOrNull("code")) {
+            "rate_limit_exceeded" -> createRateLimited(
+                message = message,
+                runId = runId,
+                providerId = options.id,
+                retryable = true,
+                details = details,
+            )
+            "invalid_api_key", "authentication_error" -> createAuthError(
+                message = message,
+                runId = runId,
+                providerId = options.id,
+                details = details,
+            )
+            else -> createUnavailable(
+                message = message,
+                runId = runId,
+                providerId = options.id,
+                retryable = true,
+                details = details,
+            )
+        }
+    }
+
+    /**
+     * Resolves the request headers, including the bearer token behind
+     * `authContextRef`. Shared by [run] and [stream]: the credential never
+     * travels in the request payload, only the slot id does, so both modes must
+     * resolve it the same way.
+     */
+    private fun resolveHeaders(
+        request: TaskRequest,
+        hostServices: HostServices,
+        runId: String,
+    ): LinkedHashMap<String, String> {
+        val headers = linkedMapOf("Content-Type" to "application/json")
+        if (options.auth != OpenAIAuthMode.authContextRef) return headers
+
+        val slotId = request.authContextRef ?: options.authContextRef
+        if (slotId.isNullOrBlank()) {
+            throw createAuthError(
+                message = "OpenAI Responses provider requires authContextRef.",
+                runId = runId,
+                providerId = options.id,
+            )
+        }
+
+        val secret = hostServices.secureStorage.get(slotId)
+        if (secret.isNullOrBlank()) {
+            throw createAuthError(
+                message = "No OpenAI credential found for authContextRef '$slotId'.",
+                runId = runId,
+                providerId = options.id,
+            )
+        }
+
+        headers["Authorization"] = "Bearer $secret"
+        return headers
+    }
+
+    /** Reads the token counts off a response body, shared by both modes. */
+    private fun usage(json: JSONObject): TaskResultUsage? {
+        val usageJson = json.optJSONObject("usage") ?: return null
+        val inputTokens = usageJson.optLongOrNull("input_tokens")
+        val outputTokens = usageJson.optLongOrNull("output_tokens")
+        val totalTokens = usageJson.optLongOrNull("total_tokens")
+        if (inputTokens == null && outputTokens == null && totalTokens == null) return null
+
+        return TaskResultUsage(
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            totalTokens = totalTokens,
+        )
+    }
+
+    private fun createRequestBody(request: TaskRequest, stream: Boolean = false): JSONObject {
         val body = JSONObject()
             .put("model", options.model)
             .put("input", createInput(request))
+
+        if (stream) body.put("stream", true)
 
         request.generation?.maxOutputTokens?.let { body.put("max_output_tokens", it) }
         request.generation?.temperature?.let { body.put("temperature", it) }
