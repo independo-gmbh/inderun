@@ -1,4 +1,5 @@
 export {
+  type AbortSignalLike,
   type ConnectivityService,
   type DeviceConstraintsService,
   type SecureStorageService,
@@ -6,6 +7,8 @@ export {
   type HttpClientService,
   type HttpRequest,
   type HttpResponse,
+  type HttpStreamResponse,
+  type HttpStreamingClientService,
   type HostServices,
   type ThermalState
 } from "./core/host.js";
@@ -60,6 +63,7 @@ export {
 export {
   BrowserConnectivityService,
   FetchHttpClient,
+  FetchStreamingHttpClient,
   SystemClockService,
   createBrowserHostServices,
   type CreateBrowserHostServicesOptions,

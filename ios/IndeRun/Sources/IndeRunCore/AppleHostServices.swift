@@ -130,6 +130,86 @@ public final class URLSessionHttpClientService: HttpClientService, Sendable {
     }
 }
 
+/// Streaming HTTP client backed by `URLSession.bytes(for:)`.
+///
+/// `URLSession.AsyncBytes` yields individual bytes, so bytes are re-accumulated
+/// into `Data` chunks here and flushed on newline (or once the buffer grows past
+/// ``maxBufferBytes``). Chunk boundaries carry no meaning by contract; flushing
+/// at newlines simply avoids withholding data that has already arrived, which
+/// would stall any line-oriented protocol carried over the stream.
+public final class URLSessionStreamingHttpClientService: HttpStreamingClientService, Sendable {
+    private static let maxBufferBytes = 16 * 1024
+    private static let newline: UInt8 = 0x0A
+
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    public func stream(request: HttpRequest) async throws -> HttpStreamResponse {
+        guard let url = URL(string: request.url) else {
+            throw createInternal(message: "Invalid HTTP request URL.")
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = request.method.rawValue
+        if let timeoutMs = request.timeoutMs {
+            // Bounds the wait for the response head only: URLSession applies
+            // timeoutInterval to the time between data arriving, and an
+            // established stream keeps resetting it.
+            urlRequest.timeoutInterval = Double(timeoutMs) / 1000.0
+        }
+        request.headers?.forEach { key, value in
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+        if let body = request.body {
+            urlRequest.httpBody = Data(body.utf8)
+        }
+
+        let (bytes, response) = try await session.bytes(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw createInternal(message: "HTTP transport returned a non-HTTP response.")
+        }
+
+        // Lower-cased so header lookups are case-insensitive at the call site.
+        let headers = httpResponse.allHeaderFields.reduce(into: [String: String]()) { result, pair in
+            if let key = pair.key as? String {
+                result[key.lowercased()] = String(describing: pair.value)
+            }
+        }
+
+        let body = AsyncThrowingStream<Data, Error> { continuation in
+            let task = Task {
+                var buffer = Data()
+                do {
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        if byte == Self.newline || buffer.count >= Self.maxBufferBytes {
+                            continuation.yield(buffer)
+                            buffer.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+
+        return HttpStreamResponse(
+            status: httpResponse.statusCode,
+            statusText: HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode),
+            headers: headers,
+            body: body
+        )
+    }
+}
+
 public enum DefaultHostServices {
     public static func make(
         connectivity: ConnectivityService = NetworkConnectivityService(),
@@ -137,6 +217,7 @@ public enum DefaultHostServices {
         secureStorage: SecureStorageService = KeychainSecureStorageService(),
         clock: ClockService = SystemClockService(),
         httpClient: HttpClientService = URLSessionHttpClientService(),
+        streamingHttpClient: HttpStreamingClientService = URLSessionStreamingHttpClientService(),
         telemetry: TelemetryService? = nil
     ) -> HostServices {
         HostServices(
@@ -145,6 +226,7 @@ public enum DefaultHostServices {
             secureStorage: secureStorage,
             clock: clock,
             httpClient: httpClient,
+            streamingHttpClient: streamingHttpClient,
             telemetry: telemetry
         )
     }

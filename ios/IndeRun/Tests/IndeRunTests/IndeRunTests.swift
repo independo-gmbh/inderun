@@ -1110,3 +1110,183 @@ final class IndeRunTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Streaming HTTP Host Service
+
+/// Feeds a scripted response through `URLSession` so the streaming client can be
+/// exercised without a network. Each script entry is delivered as its own
+/// `URLProtocol` data callback, which is what makes "bytes arrive before the
+/// response completes" observable.
+final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
+    struct Script: @unchecked Sendable {
+        var status: Int
+        var headers: [String: String]
+        var chunks: [String]
+        var chunkDelay: TimeInterval
+    }
+
+    private static let lock = NSLock()
+    private static var scriptStorage = Script(status: 200, headers: [:], chunks: [], chunkDelay: 0)
+    private static var stoppedStorage = false
+
+    static var script: Script {
+        get { lock.lock(); defer { lock.unlock() }; return scriptStorage }
+        set { lock.lock(); scriptStorage = newValue; stoppedStorage = false; lock.unlock() }
+    }
+
+    static var stopped: Bool {
+        lock.lock(); defer { lock.unlock() }; return stoppedStorage
+    }
+
+    static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScriptedStreamingURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let script = Self.script
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: script.status,
+            httpVersion: "HTTP/1.1",
+            headerFields: script.headers
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            for chunk in script.chunks {
+                if Self.stopped { return }
+                if script.chunkDelay > 0 {
+                    Thread.sleep(forTimeInterval: script.chunkDelay)
+                }
+                if Self.stopped { return }
+                self.client?.urlProtocol(self, didLoad: Data(chunk.utf8))
+            }
+            if Self.stopped { return }
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {
+        Self.lock.lock()
+        Self.stoppedStorage = true
+        Self.lock.unlock()
+    }
+}
+
+final class URLSessionStreamingHttpClientServiceTests: XCTestCase {
+    private func makeRequest(timeoutMs: Int? = 5000) -> HttpRequest {
+        HttpRequest(
+            body: nil,
+            headers: nil,
+            method: .get,
+            timeoutMs: timeoutMs,
+            url: "https://example.test/stream"
+        )
+    }
+
+    private func collect(_ body: AsyncThrowingStream<Data, Error>) async throws -> [String] {
+        var out: [String] = []
+        for try await chunk in body {
+            out.append(String(decoding: chunk, as: UTF8.self))
+        }
+        return out
+    }
+
+    func testResolvesHeadWithLowerCasedHeadersBeforeBody() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["data: a\n\n"],
+            chunkDelay: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(response.headers["content-type"], "text/event-stream")
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "data: a\n\n")
+    }
+
+    func testSurfacesBytesBeforeTheResponseCompletes() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["data: one\n\n", "data: two\n\n", "data: three\n\n"],
+            chunkDelay: 0.05
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        // The first chunk must be observable well before the last one is sent;
+        // a buffering client could not satisfy this.
+        var iterator = response.body.makeAsyncIterator()
+        let started = Date()
+        let first = try await iterator.next()
+        // Chunk boundaries are arbitrary by contract — this client flushes at
+        // newlines — so the assertion is on content arriving early, not shape.
+        XCTAssertEqual(String(decoding: first ?? Data(), as: UTF8.self), "data: one\n")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.14)
+    }
+
+    func testExposesNonSuccessHeadAndErrorBody() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 429,
+            headers: ["Retry-After": "3", "Content-Type": "application/json"],
+            chunks: ["{\"error\":{\"message\":\"slow down\"}}"],
+            chunkDelay: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        XCTAssertEqual(response.status, 429)
+        XCTAssertEqual(response.headers["retry-after"], "3")
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "{\"error\":{\"message\":\"slow down\"}}")
+    }
+
+    func testCancellingTheConsumingTaskTearsDownTheConnection() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: Array(repeating: "data: x\n\n", count: 200),
+            chunkDelay: 0.02
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        let task = Task { () -> Int in
+            var count = 0
+            for try await _ in response.body {
+                count += 1
+            }
+            return count
+        }
+
+        try await Task.sleep(nanoseconds: 60_000_000)
+        task.cancel()
+        _ = try? await task.value
+
+        // stopLoading() is how URLSession reports that the transfer was torn
+        // down rather than left running in the background.
+        var stopped = false
+        for _ in 0 ..< 50 where !stopped {
+            if ScriptedStreamingURLProtocol.stopped {
+                stopped = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(stopped)
+    }
+}

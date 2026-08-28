@@ -4,7 +4,9 @@ import type {
   HostServices,
   HttpClientService,
   HttpRequest,
-  HttpResponse
+  HttpResponse,
+  HttpStreamResponse,
+  HttpStreamingClientService
 } from "./host.js";
 
 /**
@@ -127,11 +129,167 @@ export class FetchHttpClient implements HttpClientService {
 }
 
 /**
+ * Streaming HTTP client service that adapts `fetch` to IndeRun's incremental
+ * HTTP contract by handing back `Response.body` rather than buffering it.
+ *
+ * Two abort sources are merged onto one controller: `timeoutMs`, which bounds
+ * only the wait for the response head, and the caller's `signal`, which stays
+ * live for the whole body. The timeout timer is therefore cleared as soon as
+ * the head resolves — a stream that legitimately stays open for minutes must
+ * not be killed by a time-to-first-byte budget.
+ */
+export class FetchStreamingHttpClient implements HttpStreamingClientService {
+  private readonly fetchFn: typeof fetch;
+
+  /**
+   * Creates a fetch-backed streaming HTTP client.
+   * @param options - Optional fetch implementation override.
+   * @throws Error when no fetch implementation is available.
+   */
+  constructor(options: FetchHttpClientOptions = {}) {
+    const fetchFn = options.fetchFn ?? globalThis.fetch?.bind(globalThis);
+    if (!fetchFn) {
+      throw new Error("FetchStreamingHttpClient requires a fetch implementation.");
+    }
+
+    this.fetchFn = fetchFn;
+  }
+
+  /**
+   * Sends a normalized HTTP request and resolves once the response head is available.
+   * @param request - Normalized HTTP request payload.
+   * @param signal - Optional caller-driven cancellation covering the whole response.
+   * @returns Response head plus a lazily-consumed body chunk sequence.
+   */
+  async stream(request: HttpRequest, signal?: AbortSignal): Promise<HttpStreamResponse> {
+    const controller = typeof AbortController === "undefined" ? undefined : new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+
+    if (controller) {
+      if (request.timeoutMs !== undefined) {
+        timeoutId = setTimeout(() => controller.abort(), request.timeoutMs);
+      }
+      if (signal) {
+        if (signal.aborted) {
+          controller.abort();
+        } else {
+          onAbort = () => controller.abort();
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      }
+    }
+
+    const clearTimeoutTimer = () => {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+    };
+    const releaseAbortListener = () => {
+      if (signal && onAbort) {
+        signal.removeEventListener("abort", onAbort);
+        onAbort = undefined;
+      }
+    };
+
+    let response: Response;
+    try {
+      const init: RequestInit = { method: request.method };
+      if (request.headers) {
+        init.headers = request.headers;
+      }
+      if (request.body !== undefined) {
+        init.body = request.body;
+      }
+      if (controller) {
+        init.signal = controller.signal;
+      }
+
+      response = await this.fetchFn(request.url, init);
+    } catch (error) {
+      clearTimeoutTimer();
+      releaseAbortListener();
+      throw error;
+    }
+
+    clearTimeoutTimer();
+
+    const headers: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      headers[key.toLowerCase()] = value;
+    });
+
+    const stream = response.body;
+
+    async function* iterate(): AsyncGenerator<Uint8Array> {
+      try {
+        if (!stream) {
+          // A bodyless response (204, HEAD) or a fetch polyfill without stream
+          // support: fall back to the buffered text so callers still terminate.
+          const text = await response.text();
+          if (text.length > 0) {
+            yield new TextEncoder().encode(text);
+          }
+          return;
+        }
+
+        const reader = stream.getReader();
+        // The body is also raced against `signal` directly, not just against the
+        // fetch-level abort: a fetch implementation is free not to error an
+        // in-flight body when its request signal fires, and the caller's
+        // cancellation guarantee must not depend on that.
+        let onBodyAbort: (() => void) | undefined;
+        const aborted = new Promise<never>((_resolve, reject) => {
+          if (!signal) return;
+          onBodyAbort = () =>
+            reject(Object.assign(new Error("The stream was aborted."), { name: "AbortError" }));
+          if (signal.aborted) {
+            onBodyAbort();
+          } else {
+            signal.addEventListener("abort", onBodyAbort, { once: true });
+          }
+        });
+        // Keeps an abort that arrives after the body finished from surfacing as
+        // an unhandled rejection; the race below still observes it.
+        void aborted.catch(() => undefined);
+
+        try {
+          for (;;) {
+            const { done, value } = await Promise.race([reader.read(), aborted]);
+            if (done) return;
+            if (value) yield value;
+          }
+        } catch (error) {
+          await reader.cancel().catch(() => undefined);
+          throw error;
+        } finally {
+          if (signal && onBodyAbort) {
+            signal.removeEventListener("abort", onBodyAbort);
+          }
+          reader.releaseLock();
+        }
+      } finally {
+        releaseAbortListener();
+      }
+    }
+
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+      body: iterate()
+    };
+  }
+}
+
+/**
  * Options for constructing default browser host services.
  */
 export interface CreateBrowserHostServicesOptions extends Partial<HostServices> {
   /**
-   * Optional fetch implementation used when `httpClient` is not supplied.
+   * Optional fetch implementation used when `httpClient`/`streamingHttpClient`
+   * are not supplied.
    */
   fetchFn?: typeof fetch;
 }
@@ -155,6 +313,14 @@ export function createBrowserHostServices(
     hostServices.httpClient = new FetchHttpClient({ fetchFn: options.fetchFn });
   } else {
     hostServices.httpClient = new FetchHttpClient();
+  }
+
+  if (options.streamingHttpClient) {
+    hostServices.streamingHttpClient = options.streamingHttpClient;
+  } else if (options.fetchFn) {
+    hostServices.streamingHttpClient = new FetchStreamingHttpClient({ fetchFn: options.fetchFn });
+  } else {
+    hostServices.streamingHttpClient = new FetchStreamingHttpClient();
   }
 
   if (options.deviceConstraints) {
