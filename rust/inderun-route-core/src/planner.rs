@@ -3,12 +3,29 @@
 //! [`plan_route`] sorts the candidate providers by placement and preference
 //! rank, filters out any that violate the request constraints, and produces a
 //! [`RoutePlan`] with a stable selection plus an inspectable explanation.
+//!
+//! Invariants worth preserving:
+//!
+//! - The requested interaction mode filters providers; it never reorders them.
+//!   The stream-mode candidate list is therefore always a subsequence of the
+//!   run-mode one for the same input, which is what keeps Mode 1 stable while
+//!   Mode 2 evolves.
+//! - Absent capability flags mean "not capable". A descriptor written before
+//!   `supports.streaming` existed cannot be assumed to stream.
+//! - A static rejection wins over a dynamic one: a provider that never declared
+//!   streaming is reported as `streaming_not_supported`, and only a provider
+//!   that did declare it can be reported as `streaming_unavailable`. Emitting
+//!   both would make the two codes useless for telling static from dynamic.
+//! - `infer_failure_code` keeps `offline` ahead of `capability_mismatch`: an
+//!   offline host is the more actionable diagnostic even when the surviving
+//!   providers also failed a mode check.
 
 use std::cmp::Ordering;
 
 use crate::model::*;
 
 pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
+    let wants_stream = wants_stream(&input);
     let mut providers = input.providers.clone();
     providers
         .sort_by(|left, right| compare_inputs(left, right, &input.preferences, &input.constraints));
@@ -47,10 +64,17 @@ pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
             rejected_providers,
             failure_code: None,
             explanation: Explanation {
-                summary: format!(
-                    "Selected provider '{}' deterministically from {} eligible candidate(s).",
-                    selected_provider_id, candidate_count
-                ),
+                summary: if wants_stream {
+                    format!(
+                        "Selected streaming provider '{}' deterministically from {} eligible candidate(s).",
+                        selected_provider_id, candidate_count
+                    )
+                } else {
+                    format!(
+                        "Selected provider '{}' deterministically from {} eligible candidate(s).",
+                        selected_provider_id, candidate_count
+                    )
+                },
                 selected_provider_id: Some(selected_provider_id),
             },
         };
@@ -58,6 +82,10 @@ pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
 
     let failure_code = infer_failure_code(&input.constraints, &rejected_providers);
     let summary = match failure_code {
+        FailureCode::CapabilityMismatch if wants_stream => format!(
+            "No provider capable of streaming was found for task '{}'.",
+            input.task.kind
+        ),
         FailureCode::CapabilityMismatch => format!(
             "No eligible local provider found for task '{}'.",
             input.task.kind
@@ -178,9 +206,14 @@ fn is_data_private(descriptor: &Descriptor) -> bool {
         .unwrap_or(descriptor.descriptor_type != Type::Cloud)
 }
 
+fn wants_stream(input: &RoutePlannerInput) -> bool {
+    matches!(input.interaction_mode, Some(InteractionMode::Stream))
+}
+
 fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reason> {
     let descriptor = &provider.descriptor;
     let capabilities = &provider.capabilities;
+    let wants_stream = wants_stream(input);
     let mut reasons = Vec::new();
 
     if !descriptor.tasks.iter().any(|task| task == &input.task.kind) {
@@ -193,11 +226,36 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
         });
     }
 
-    if !descriptor.supports.run {
+    if !wants_stream && !descriptor.supports.run {
         reasons.push(Reason {
             code: Code::RunNotSupported,
             message: format!("Provider '{}' does not support run().", descriptor.id),
         });
+    }
+
+    if wants_stream {
+        if !descriptor.supports.streaming.unwrap_or(false) {
+            reasons.push(Reason {
+                code: Code::StreamingNotSupported,
+                message: format!(
+                    "Provider '{}' does not support streaming (Mode 2).",
+                    descriptor.id
+                ),
+            });
+        } else if matches!(capabilities.streaming_available, Some(false)) {
+            reasons.push(Reason {
+                code: Code::StreamingUnavailable,
+                message: capabilities
+                    .streaming_unavailable_reason
+                    .clone()
+                    .unwrap_or_else(|| {
+                        format!(
+                            "Provider '{}' cannot stream in the current host environment.",
+                            descriptor.id
+                        )
+                    }),
+            });
+        }
     }
 
     if matches!(input.constraints.privacy, Some(PrivacyEnum::LocalRequired))
