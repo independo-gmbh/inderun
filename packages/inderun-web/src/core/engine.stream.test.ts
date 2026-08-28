@@ -148,11 +148,115 @@ describe("IndeRun.stream()", () => {
     host = createMockHostServices();
   });
 
-  it("throws CapabilityMismatch when no eligible provider supports streaming", async () => {
+  it("throws CapabilityMismatch when no provider is registered at all", async () => {
     const engine = new IndeRun(registry, host);
     await expect(engine.stream(createRequest())).rejects.toMatchObject({
       errorClass: "CapabilityMismatch"
     });
+  });
+
+  it("carries the run id on a route-selection failure", async () => {
+    const engine = new IndeRun(registry, host);
+    await expect(engine.stream(createRequest({ requestId: "req-42" }))).rejects.toMatchObject({
+      errorClass: "CapabilityMismatch",
+      runId: "req-42"
+    });
+  });
+
+  it("reports why a registered non-streaming provider was rejected", async () => {
+    const provider = createFakeStreamProvider("p1", { script: [] });
+    const describeStreaming = provider.describe.bind(provider);
+    provider.describe = () => {
+      const descriptor = describeStreaming();
+      return { ...descriptor, supports: { ...descriptor.supports, streaming: false } };
+    };
+    registry.register(provider);
+
+    const engine = new IndeRun(registry, host);
+    await expect(engine.stream(createRequest())).rejects.toMatchObject({
+      errorClass: "CapabilityMismatch",
+      details: {
+        rejectedProviders: [
+          {
+            providerId: "p1",
+            reasons: [{ code: "streaming_not_supported" }]
+          }
+        ]
+      }
+    });
+    expect(provider.callCount()).toBe(0);
+  });
+
+  it("reports a provider that declares streaming but does not implement stream()", async () => {
+    const provider = createFakeStreamProvider("p1", { script: [] });
+    delete provider.stream;
+    registry.register(provider);
+
+    const engine = new IndeRun(registry, host);
+    await expect(engine.stream(createRequest())).rejects.toMatchObject({
+      errorClass: "CapabilityMismatch",
+      details: {
+        rejectedProviders: [
+          {
+            providerId: "p1",
+            reasons: [{ code: "streaming_unavailable" }]
+          }
+        ]
+      }
+    });
+  });
+
+  it("reports a provider that revokes streaming through its capability check", async () => {
+    const provider = createFakeStreamProvider("p1", { script: [] });
+    provider.capabilities = async () => ({
+      available: true,
+      streamingAvailable: false,
+      streamingUnavailableReason: "Host has no chunked HTTP capability."
+    });
+    registry.register(provider);
+
+    const engine = new IndeRun(registry, host);
+    await expect(engine.stream(createRequest())).rejects.toMatchObject({
+      errorClass: "CapabilityMismatch",
+      details: {
+        rejectedProviders: [
+          {
+            providerId: "p1",
+            reasons: [
+              {
+                code: "streaming_unavailable",
+                message: "Host has no chunked HTTP capability."
+              }
+            ]
+          }
+        ]
+      }
+    });
+  });
+
+  it("routes a stream past a non-streaming provider that a run would have selected", async () => {
+    const nonStreaming = createFakeStreamProvider("p1_non_streaming", { script: [] });
+    const describeNonStreaming = nonStreaming.describe.bind(nonStreaming);
+    nonStreaming.describe = () => {
+      const descriptor = describeNonStreaming();
+      return { ...descriptor, supports: { ...descriptor.supports, streaming: false } };
+    };
+    const streaming = createFakeStreamProvider("p2_streaming", {
+      script: [{ event: { kind: "done", finalText: "streamed" } }]
+    });
+    registry.register(nonStreaming);
+    registry.register(streaming);
+
+    const engine = new IndeRun(registry, host);
+    const { handle, events } = await engine.stream(createRequest());
+    const received = await drain(events);
+
+    expect(handle.providerId).toBe("p2_streaming");
+    expect(received[received.length - 1]!.payload).toMatchObject({
+      outcome: "completed",
+      finalText: "streamed"
+    });
+    expect(nonStreaming.callCount()).toBe(0);
   });
 
   it("delivers content_delta events and a completed terminal outcome", async () => {
@@ -355,5 +459,38 @@ describe("IndeRun.stream()", () => {
 
     const cancelledTelemetry = telemetry.events.find((e) => e.type === "stream_cancelled");
     expect(cancelledTelemetry).toBeDefined();
+  });
+  it("cancel during a pre-commit attempt forecloses the next route attempt", async () => {
+    const fallback = createFakeStreamProvider("p2", {
+      script: [{ event: { kind: "done", finalText: "should not run" } }]
+    });
+    const failing = createFakeStreamProvider("p1", { script: [] });
+    const failingState = { callCount: 0 };
+    // eslint-disable-next-line require-yield -- the point of this provider is to fail without emitting
+    failing.stream = async function* (
+      _req: TaskRequest,
+      ctx: ProviderStreamContext
+    ): AsyncGenerator<ProviderStreamEvent> {
+      failingState.callCount++;
+      // Fails only after the caller has had a chance to cancel, and without ever
+      // emitting content — so the run is still pre-commit when the failure lands.
+      await delay(20, ctx.signal);
+      throw new Error("boom before any content");
+    };
+    failing.callCount = () => failingState.callCount;
+    registry.register(failing);
+    registry.register(fallback);
+
+    const engine = new IndeRun(registry, host);
+    const { events, cancel } = await engine.stream(createRequest());
+    const collector = drain(events);
+    cancel("mid-attempt");
+    const received = await collector;
+
+    expect(failing.callCount()).toBe(1);
+    expect(fallback.callCount()).toBe(0);
+    const terminals = received.filter((e) => e.type === "terminal");
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]!.payload).toMatchObject({ outcome: "cancelled" });
   });
 });

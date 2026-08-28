@@ -209,6 +209,10 @@ private func buildSharedPlannerInput(
             networkOnline: online,
             privacy: constraints?.privacy
         ),
+        // The Swift SDK only exposes Mode 1 today. Mode 2 streaming requests become possible
+        // once `ProviderAdapter.stream` lands (see issues #152/#153); until then the planner is
+        // always asked for a `run` route.
+        interactionMode: .run,
         preferences: SharedPlannerPreferences(
             optimizeFor: preferences?.optimizeFor
         ),
@@ -216,9 +220,13 @@ private func buildSharedPlannerInput(
             SharedPlannerProviderInput(
                 capabilities: SharedPlannerCapabilities(
                     available: snapshot.capabilities.available,
-                    reason: nil
+                    cancellationAvailable: snapshot.capabilities.cancellationAvailable,
+                    reason: snapshot.capabilities.reason,
+                    streamingAvailable: snapshot.capabilities.streamingAvailable,
+                    streamingUnavailableReason: snapshot.capabilities.streamingUnavailableReason
                 ),
                 descriptor: SharedPlannerProviderDescriptor(
+                    cancel: cancelSemantics(from: snapshot.descriptor.cancel),
                     id: snapshot.descriptor.id,
                     privacy: snapshot.descriptor.privacy.map { privacy in
                         PrivacyClass(
@@ -226,7 +234,10 @@ private func buildSharedPlannerInput(
                             regions: privacy.regions
                         )
                     },
-                    supports: SharedPlannerProviderSupports(run: snapshot.descriptor.supports.run),
+                    supports: SharedPlannerProviderSupports(
+                        run: snapshot.descriptor.supports.run,
+                        streaming: snapshot.descriptor.supports.streaming
+                    ),
                     tasks: snapshot.descriptor.tasks,
                     type: descriptorType(from: snapshot.descriptor.type)
                 )
@@ -240,6 +251,17 @@ private struct ProviderSnapshot: Sendable {
     let provider: any ProviderAdapter
     let descriptor: ProviderDescriptor
     let capabilities: ProviderDynamicCapabilities
+}
+
+private func cancelSemantics(from value: ProviderDescriptor.CancelSemantics) -> Cancel {
+    switch value {
+    case .hard:
+        return .hard
+    case .soft:
+        return .soft
+    case .none:
+        return .none
+    }
 }
 
 private func descriptorType(from value: ProviderDescriptor.ProviderType) -> DescriptorType {

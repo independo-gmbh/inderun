@@ -11,6 +11,7 @@ import {
 import {
   buildSharedPlannerInput,
   collectProviderRuntimeSnapshots,
+  type InteractionMode,
   type ProviderRuntimeSnapshot,
   type RoutePlanner,
   type SharedPlannerInput,
@@ -71,19 +72,33 @@ export class Router {
    *  - `CapabilityMismatch` when `execution === 'on_device'` but no local provider is registered or available.
    *  - `Offline` when `execution === 'cloud'` but the device lacks internet connectivity.
    *  - `Unavailable` when `execution === 'cloud'` but no cloud provider is registered or functional.
+   *
+   * The requested `interactionMode` is a planning input, not a post-filter: the
+   * shared planner rejects providers that cannot satisfy it and says why, so the
+   * whole returned chain is mode-compatible.
    */
-  async selectRoute(request: TaskRequest, hostServices: HostServices): Promise<RouteSelection> {
+  async selectRoute(
+    request: TaskRequest,
+    hostServices: HostServices,
+    interactionMode: InteractionMode = "run"
+  ): Promise<RouteSelection> {
     const online = await hostServices.connectivity.isOnline();
     const snapshots = await collectProviderRuntimeSnapshots(this.registry.list(), hostServices);
 
-    const planInput = buildSharedPlannerInput(request, snapshots, online);
+    const planInput = buildSharedPlannerInput(request, snapshots, online, interactionMode);
     const outcome = await this.planner.planRoute(planInput);
 
     if (outcome.routePlan) {
       return this.selectFromSharedPlan(snapshots, outcome.routePlan);
     }
 
-    return this.selectFallbackRoute(request, snapshots, online, outcome.unavailableReason);
+    return this.selectFallbackRoute(
+      request,
+      snapshots,
+      online,
+      interactionMode,
+      outcome.unavailableReason
+    );
   }
 
   private selectFromSharedPlan(
@@ -101,9 +116,10 @@ export class Router {
     request: TaskRequest,
     snapshots: ProviderRuntimeSnapshot[],
     online: boolean,
+    interactionMode: InteractionMode,
     plannerUnavailableReason?: WasmUnavailableReason
   ): RouteSelection {
-    const plan = this.createFallbackPlan(request, snapshots, online);
+    const plan = this.createFallbackPlan(request, snapshots, online, interactionMode);
     if (!plan.selectedProviderId) {
       throw this.routePlanFailure(plan);
     }
@@ -138,15 +154,25 @@ export class Router {
     };
   }
 
+  /**
+   * Hand-written mirror of the shared Rust planner (`rust/inderun-route-core/src/planner.rs`),
+   * used when the WASM core cannot be loaded. It reproduces the same rejection
+   * codes and messages so route explanations stay comparable across both paths.
+   *
+   * Known, deliberate divergence: this mirror keeps the id-sorted snapshot order
+   * instead of reproducing the Rust placement/preference ranks, so `optimizeFor`
+   * does not influence ordering here.
+   */
   private createFallbackPlan(
     request: TaskRequest,
     snapshots: ProviderRuntimeSnapshot[],
-    online: boolean
+    online: boolean,
+    interactionMode: InteractionMode
   ): SharedPlannerRoutePlan {
-    const planInput = buildSharedPlannerInput(request, snapshots, online);
-    const eligible = snapshots
-      .filter((candidate) => candidate.descriptor.tasks.includes(planInput.task.kind))
-      .filter((candidate) => candidate.descriptor.supports.run);
+    const planInput = buildSharedPlannerInput(request, snapshots, online, interactionMode);
+    const eligible = snapshots.filter((candidate) =>
+      candidate.descriptor.tasks.includes(planInput.task.kind)
+    );
 
     const localCandidates = eligible.filter((candidate) => candidate.descriptor.type !== "cloud");
     const cloudCandidates = eligible.filter((candidate) => candidate.descriptor.type === "cloud");
@@ -154,56 +180,33 @@ export class Router {
     // Constraint filtering must apply to the whole candidate list, not just the selected provider:
     // the remainder becomes the engine's fallback chain, and a fallback that violates the request
     // constraints would let a `local_required` run be retried against a cloud provider.
-    const admissible = eligible.filter((candidate) => {
-      const descriptor = candidate.descriptor;
-      const constraints = planInput.constraints;
-      // Mirrors `is_data_private` in the shared Rust planner: a provider is private when it
-      // declares that data does not leave the device, defaulting to non-cloud providers.
-      const isDataPrivate = descriptor.privacy
-        ? !descriptor.privacy.dataLeavesDevice
-        : descriptor.type !== "cloud";
+    const admissible: ProviderRuntimeSnapshot[] = [];
+    const rejectedProviders: SharedPlannerRoutePlan["rejectedProviders"] = [];
 
-      if (constraints.cloud === "forbidden" && descriptor.type === "cloud") {
-        return false;
+    for (const candidate of snapshots) {
+      const reasons = this.evaluateFallbackCandidate(candidate, planInput, interactionMode);
+      if (reasons.length === 0) {
+        admissible.push(candidate);
+      } else {
+        rejectedProviders.push({ providerId: candidate.descriptor.id, reasons });
       }
-
-      if (constraints.cloud === "required" && descriptor.type !== "cloud") {
-        return false;
-      }
-
-      if (constraints.privacy === "local_required" && !isDataPrivate) {
-        return false;
-      }
-
-      if (constraints.privacy === "cloud_required" && descriptor.type !== "cloud") {
-        return false;
-      }
-
-      if (!online && descriptor.type === "cloud") {
-        return false;
-      }
-
-      return candidate.capabilities.available;
-    });
+    }
 
     if (admissible.length === 0) {
       const failureSummary = this.buildFallbackFailureSummary({
         online,
+        interactionMode,
+        taskKind: planInput.task.kind,
         constraints: planInput.constraints,
         localCandidates,
         cloudCandidates
       });
-      const failureCode = !online
-        ? "offline"
-        : planInput.constraints.cloud === "required" ||
-            planInput.constraints.privacy === "cloud_required"
-          ? "unavailable"
-          : "capability_mismatch";
+      const failureCode = this.inferFallbackFailureCode(planInput, rejectedProviders);
 
       return {
         fallbackProviderIds: [],
         candidates: [],
-        rejectedProviders: [],
+        rejectedProviders,
         failureCode,
         explanation: {
           summary: failureSummary
@@ -212,6 +215,10 @@ export class Router {
     }
 
     const selectedProviderId = admissible[0]?.descriptor.id;
+    const summary =
+      interactionMode === "stream"
+        ? `Selected streaming provider '${selectedProviderId}' deterministically from ${admissible.length} eligible candidate(s).`
+        : `Selected provider '${selectedProviderId}' deterministically from ${admissible.length} eligible candidate(s).`;
 
     return {
       selectedProviderId,
@@ -220,16 +227,146 @@ export class Router {
         providerId: candidate.descriptor.id,
         order: index
       })),
-      rejectedProviders: [],
+      rejectedProviders,
       explanation: {
-        summary: `Selected provider '${selectedProviderId}' deterministically from ${admissible.length} eligible candidate(s).`,
+        summary,
         selectedProviderId
       }
     };
   }
 
+  /**
+   * Mirrors `infer_failure_code` in the shared Rust planner. The offline class is
+   * derived from the rejection reasons rather than from the connectivity flag
+   * alone: an offline host whose only provider is local and non-streaming failed
+   * on capability, not on connectivity, and reporting `Offline` there would
+   * contradict the explanation shipped alongside it.
+   */
+  private inferFallbackFailureCode(
+    planInput: SharedPlannerInput,
+    rejectedProviders: SharedPlannerRoutePlan["rejectedProviders"]
+  ): NonNullable<SharedPlannerRoutePlan["failureCode"]> {
+    if (
+      rejectedProviders.some((rejected) =>
+        rejected.reasons.some((reason) => reason.code === "offline")
+      )
+    ) {
+      return "offline";
+    }
+
+    if (
+      planInput.constraints.cloud === "required" ||
+      planInput.constraints.privacy === "cloud_required"
+    ) {
+      return "unavailable";
+    }
+
+    return "capability_mismatch";
+  }
+
+  /**
+   * Mirrors `evaluate_provider` in the shared Rust planner: it accumulates every
+   * violated rule rather than short-circuiting, so a rejected provider carries a
+   * complete explanation. The streaming checks are ordered static-before-dynamic
+   * for the same reason as in Rust — a provider that never declared streaming
+   * must not also be reported as dynamically unavailable.
+   */
+  private evaluateFallbackCandidate(
+    candidate: ProviderRuntimeSnapshot,
+    planInput: SharedPlannerInput,
+    interactionMode: InteractionMode
+  ): SharedPlannerRoutePlan["rejectedProviders"][number]["reasons"] {
+    const descriptor = candidate.descriptor;
+    const capabilities = candidate.capabilities;
+    const constraints = planInput.constraints;
+    const wantsStream = interactionMode === "stream";
+    const reasons: SharedPlannerRoutePlan["rejectedProviders"][number]["reasons"] = [];
+
+    // Mirrors `is_data_private` in the shared Rust planner: a provider is private when it
+    // declares that data does not leave the device, defaulting to non-cloud providers.
+    const isDataPrivate = descriptor.privacy
+      ? !descriptor.privacy.dataLeavesDevice
+      : descriptor.type !== "cloud";
+
+    if (!descriptor.tasks.includes(planInput.task.kind)) {
+      reasons.push({
+        code: "task_not_supported",
+        message: `Provider '${descriptor.id}' does not support task '${planInput.task.kind}'.`
+      });
+    }
+
+    if (!wantsStream && !descriptor.supports.run) {
+      reasons.push({
+        code: "run_not_supported",
+        message: `Provider '${descriptor.id}' does not support run().`
+      });
+    }
+
+    if (wantsStream) {
+      if (!descriptor.supports.streaming) {
+        reasons.push({
+          code: "streaming_not_supported",
+          message: `Provider '${descriptor.id}' does not support streaming (Mode 2).`
+        });
+      } else if (capabilities.streamingAvailable === false) {
+        reasons.push({
+          code: "streaming_unavailable",
+          message:
+            capabilities.streamingUnavailableReason ??
+            `Provider '${descriptor.id}' cannot stream in the current host environment.`
+        });
+      }
+    }
+
+    if (constraints.privacy === "local_required" && !isDataPrivate) {
+      reasons.push({
+        code: "privacy_constraint",
+        message: `Provider '${descriptor.id}' does not satisfy local-required privacy.`
+      });
+    }
+
+    if (constraints.privacy === "cloud_required" && descriptor.type !== "cloud") {
+      reasons.push({
+        code: "privacy_constraint",
+        message: `Provider '${descriptor.id}' does not satisfy cloud-required privacy.`
+      });
+    }
+
+    if (constraints.cloud === "forbidden" && descriptor.type === "cloud") {
+      reasons.push({
+        code: "cloud_constraint",
+        message: `Provider '${descriptor.id}' is cloud-based but cloud execution is forbidden.`
+      });
+    }
+
+    if (constraints.cloud === "required" && descriptor.type !== "cloud") {
+      reasons.push({
+        code: "cloud_constraint",
+        message: `Provider '${descriptor.id}' is not cloud-based but cloud execution is required.`
+      });
+    }
+
+    if (constraints.networkOnline === false && descriptor.type === "cloud") {
+      reasons.push({
+        code: "offline",
+        message: `Provider '${descriptor.id}' requires cloud connectivity, but the host is offline.`
+      });
+    }
+
+    if (!capabilities.available) {
+      reasons.push({
+        code: "capability_unavailable",
+        message: capabilities.reason ?? `Provider '${descriptor.id}' is currently unavailable.`
+      });
+    }
+
+    return reasons;
+  }
+
   private buildFallbackFailureSummary(input: {
     online: boolean;
+    interactionMode: InteractionMode;
+    taskKind: string;
     constraints: SharedPlannerInput["constraints"];
     localCandidates: ProviderRuntimeSnapshot[];
     cloudCandidates: ProviderRuntimeSnapshot[];
@@ -258,19 +395,36 @@ export class Router {
       return "No on-device provider is currently available.";
     }
 
+    if (input.interactionMode === "stream") {
+      // Kept verbatim in sync with the shared Rust planner's stream-mode failure
+      // summary so the message a caller sees does not depend on which planner ran.
+      return `No provider capable of streaming was found for task '${input.taskKind}'.`;
+    }
+
     return "No eligible provider found for the current routing constraints.";
   }
 
+  /**
+   * Routing failure throws before any `route_decided` telemetry is emitted, so the
+   * plan's diagnostics are attached to the exception — that is the only channel
+   * through which a caller learns *why* each provider was rejected.
+   */
   private routePlanFailure(routePlan: SharedPlannerRoutePlan): never {
     const message = routePlan.explanation.summary;
+    const details = {
+      details: {
+        failureCode: routePlan.failureCode,
+        rejectedProviders: routePlan.rejectedProviders
+      }
+    };
     switch (routePlan.failureCode) {
       case "offline":
-        throw createOffline(message);
+        throw createOffline(message, details);
       case "unavailable":
-        throw createUnavailable(message);
+        throw createUnavailable(message, details);
       case "capability_mismatch":
       default:
-        throw createCapabilityMismatch(message);
+        throw createCapabilityMismatch(message, details);
     }
   }
 }

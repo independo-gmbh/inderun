@@ -66,6 +66,24 @@ data class ProviderDescriptor(
 data class ProviderDynamicCapabilities(
     val available: Boolean,
     val reason: String? = null,
+    /**
+     * Whether the provider can stream (Mode 2) right now on this host. Leave null
+     * to inherit the static `descriptor.supports.streaming` value — only set it
+     * when the runtime environment can take streaming away from a provider that
+     * otherwise declares it.
+     */
+    val streamingAvailable: Boolean? = null,
+    /**
+     * Detail message used when [streamingAvailable] is false. Leave null to let
+     * the route planner synthesize a generic message.
+     */
+    val streamingUnavailableReason: String? = null,
+    /**
+     * Whether cancellation is honored right now on this host. Leave null to
+     * inherit the static `descriptor.cancel` value (anything other than `none`
+     * means available).
+     */
+    val cancellationAvailable: Boolean? = null,
 )
 
 /**

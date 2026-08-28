@@ -1,5 +1,6 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.Cancel
 import app.independo.inderun.contracts.Candidate
 import app.independo.inderun.contracts.Capabilities
 import app.independo.inderun.contracts.Code
@@ -7,6 +8,7 @@ import app.independo.inderun.contracts.Descriptor
 import app.independo.inderun.contracts.DescriptorType
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FailureCode
+import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.Provider
 import app.independo.inderun.contracts.Reason
 import app.independo.inderun.contracts.RejectedProvider
@@ -86,6 +88,10 @@ internal fun buildSharedPlannerInput(
     val constraints = request.constraints
     val preferences = request.preferences
     return SharedPlannerInput(
+        // The Kotlin SDK only exposes Mode 1 today. Mode 2 streaming requests become
+        // possible once ProviderAdapter.stream lands (see issues #152/#153); until then
+        // the planner is always asked for a `run` route.
+        interactionMode = InteractionMode.Run,
         constraints = SharedPlannerConstraints(
             privacy = constraints?.privacy,
             cloud = constraints?.cloud,
@@ -98,7 +104,15 @@ internal fun buildSharedPlannerInput(
             SharedPlannerProviderInput(
                 descriptor = SharedPlannerProviderDescriptor(
                     id = snapshot.descriptor.id,
-                    supports = SharedPlannerProviderSupports(run = snapshot.descriptor.supports.run),
+                    supports = SharedPlannerProviderSupports(
+                        run = snapshot.descriptor.supports.run,
+                        streaming = snapshot.descriptor.supports.streaming,
+                    ),
+                    cancel = when (snapshot.descriptor.cancel) {
+                        ProviderDescriptor.CancelSemantics.hard -> Cancel.Hard
+                        ProviderDescriptor.CancelSemantics.soft -> Cancel.Soft
+                        ProviderDescriptor.CancelSemantics.none -> Cancel.None
+                    },
                     tasks = snapshot.descriptor.tasks,
                     type = when (snapshot.descriptor.type) {
                         ProviderDescriptor.ProviderType.local -> DescriptorType.Local
@@ -115,6 +129,9 @@ internal fun buildSharedPlannerInput(
                 capabilities = SharedPlannerCapabilities(
                     available = snapshot.capabilities.available,
                     reason = snapshot.capabilities.reason,
+                    streamingAvailable = snapshot.capabilities.streamingAvailable,
+                    streamingUnavailableReason = snapshot.capabilities.streamingUnavailableReason,
+                    cancellationAvailable = snapshot.capabilities.cancellationAvailable,
                 ),
             )
         },
@@ -122,8 +139,15 @@ internal fun buildSharedPlannerInput(
     )
 }
 
-private fun SharedPlannerInput.toJson(): String = JSONObject()
+/**
+ * Hand-written serializer for the planner input. It is NOT regenerated with the
+ * contracts, so every field added to `route-planner-input.schema.json` has to be
+ * mirrored here — a field missing from this object is silently dropped on the way
+ * into the shared core and forks this platform's routing from the others.
+ */
+internal fun SharedPlannerInput.toJson(): String = JSONObject()
     .put("task", JSONObject().put("kind", task.kind))
+    .put("interactionMode", interactionMode?.let(::interactionModeValue))
     .put(
         "constraints",
         JSONObject()
@@ -145,6 +169,7 @@ private fun SharedPlannerInput.toJson(): String = JSONObject()
                         JSONObject()
                             .put("id", provider.descriptor.id)
                             .put("type", descriptorTypeValue(provider.descriptor.type))
+                            .put("cancel", provider.descriptor.cancel?.let(::cancelValue))
                             .put(
                                 "privacy",
                                 provider.descriptor.privacy?.let { privacy ->
@@ -158,7 +183,9 @@ private fun SharedPlannerInput.toJson(): String = JSONObject()
                             )
                             .put(
                                 "supports",
-                                JSONObject().put("run", provider.descriptor.supports.run),
+                                JSONObject()
+                                    .put("run", provider.descriptor.supports.run)
+                                    .put("streaming", provider.descriptor.supports.streaming),
                             )
                             .put("tasks", JSONArray(provider.descriptor.tasks)),
                     )
@@ -166,14 +193,23 @@ private fun SharedPlannerInput.toJson(): String = JSONObject()
                         "capabilities",
                         JSONObject()
                             .put("available", provider.capabilities.available)
-                            .put("reason", provider.capabilities.reason),
+                            .put("reason", provider.capabilities.reason)
+                            .put("streamingAvailable", provider.capabilities.streamingAvailable)
+                            .put(
+                                "streamingUnavailableReason",
+                                provider.capabilities.streamingUnavailableReason,
+                            )
+                            .put(
+                                "cancellationAvailable",
+                                provider.capabilities.cancellationAvailable,
+                            ),
                     )
             },
         ),
     )
     .toString()
 
-private fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
+internal fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
     val root = JSONObject(json)
     val explanation = root.getJSONObject("explanation")
     return SharedPlannerRoutePlan(
@@ -189,11 +225,25 @@ private fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
     )
 }
 
+/**
+ * An unknown failure code from a newer native route core is folded into [FailureCode.Unavailable]
+ * rather than thrown: the plan did fail, and the specific class is only a diagnostic refinement.
+ */
 private fun parseFailureCode(value: String): FailureCode = when (value) {
     "capability_mismatch" -> FailureCode.CapabilityMismatch
     "offline" -> FailureCode.Offline
-    "unavailable" -> FailureCode.Unavailable
-    else -> throw IllegalArgumentException("Unknown FailureCode: $value")
+    else -> FailureCode.Unavailable
+}
+
+private fun interactionModeValue(value: InteractionMode): String = when (value) {
+    InteractionMode.Run -> "run"
+    InteractionMode.Stream -> "stream"
+}
+
+private fun cancelValue(value: Cancel): String = when (value) {
+    Cancel.Hard -> "hard"
+    Cancel.Soft -> "soft"
+    Cancel.None -> "none"
 }
 
 private fun descriptorTypeValue(value: DescriptorType): String = when (value) {
@@ -249,20 +299,30 @@ private fun JSONArray?.toRejectedProviders(): List<SharedPlannerRejectedProvider
     }
 }
 
-private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> = List(length()) { index ->
-    val reason = getJSONObject(index)
-    SharedPlannerRejectedReason(
-        code = parseReasonCode(reason.getString("code")),
-        message = reason.getString("message"),
-    )
-}
+/**
+ * Reasons carrying a code this build does not know are dropped rather than fatal: the native
+ * route core can be newer than the Kotlin core it is paired with, and an unrecognized diagnostic
+ * must never turn a successful plan into a crash.
+ */
+private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> = (0 until length())
+    .mapNotNull { index ->
+        val reason = getJSONObject(index)
+        parseReasonCode(reason.getString("code"))?.let { code ->
+            SharedPlannerRejectedReason(
+                code = code,
+                message = reason.getString("message"),
+            )
+        }
+    }
 
-private fun parseReasonCode(value: String): SharedPlannerReasonCode = when (value) {
+private fun parseReasonCode(value: String): SharedPlannerReasonCode? = when (value) {
     "capability_unavailable" -> SharedPlannerReasonCode.CapabilityUnavailable
     "cloud_constraint" -> SharedPlannerReasonCode.CloudConstraint
     "offline" -> SharedPlannerReasonCode.Offline
     "privacy_constraint" -> SharedPlannerReasonCode.PrivacyConstraint
     "run_not_supported" -> SharedPlannerReasonCode.RunNotSupported
+    "streaming_not_supported" -> SharedPlannerReasonCode.StreamingNotSupported
+    "streaming_unavailable" -> SharedPlannerReasonCode.StreamingUnavailable
     "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
-    else -> throw IllegalArgumentException("Unknown ReasonCode: $value")
+    else -> null
 }

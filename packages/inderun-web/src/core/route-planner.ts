@@ -13,6 +13,12 @@ import type {
 export type { SharedPlannerInput, SharedPlannerRoutePlan };
 
 /**
+ * Interaction mode the caller is requesting a route for. Passed to the shared
+ * planner, which rejects providers that cannot satisfy it.
+ */
+export type InteractionMode = NonNullable<SharedPlannerInput["interactionMode"]>;
+
+/**
  * Minimal shape of the shared route-core module (the WASM wrapper), used to
  * plan routes via JSON in/JSON out. `initSharedCore` initializes the WASM
  * bindings when present.
@@ -157,7 +163,7 @@ export async function collectProviderRuntimeSnapshots(
       return {
         provider,
         descriptor: toSharedPlannerDescriptor(descriptor),
-        capabilities: toSharedPlannerCapabilities(capabilities)
+        capabilities: toSharedPlannerCapabilities(capabilities, descriptor, provider)
       };
     })
   );
@@ -173,7 +179,8 @@ export async function collectProviderRuntimeSnapshots(
 export function buildSharedPlannerInput(
   request: TaskRequest,
   snapshots: ProviderRuntimeSnapshot[],
-  networkOnline: boolean
+  networkOnline: boolean,
+  interactionMode: InteractionMode = "run"
 ): SharedPlannerInput {
   const constraints = request.constraints ?? {};
   const preferences = request.preferences ?? {};
@@ -182,6 +189,7 @@ export function buildSharedPlannerInput(
     task: {
       kind: request.task.kind
     },
+    interactionMode,
     constraints: {
       privacy: constraints.privacy ?? "cloud_allowed",
       cloud: constraints.cloud ?? "allowed",
@@ -205,8 +213,10 @@ function toSharedPlannerDescriptor(
     id: descriptor.id,
     type: descriptor.type,
     supports: {
-      run: descriptor.supports.run
+      run: descriptor.supports.run,
+      streaming: descriptor.supports.streaming
     },
+    cancel: descriptor.cancel,
     tasks: descriptor.tasks,
     ...(descriptor.privacy
       ? {
@@ -219,11 +229,36 @@ function toSharedPlannerDescriptor(
   };
 }
 
+/**
+ * Projects the dynamic capability snapshot for the planner.
+ *
+ * `stream()` being absent from the adapter is folded in here rather than
+ * filtered out downstream: an adapter that declares `supports.streaming` but
+ * never implemented the method is not streaming-capable, and saying so as a
+ * planner-visible reason is what lets the route explanation name the provider
+ * instead of silently dropping it.
+ */
 function toSharedPlannerCapabilities(
-  capabilities: ProviderDynamicCapabilities
+  capabilities: ProviderDynamicCapabilities,
+  descriptor: ProviderDescriptor,
+  provider: ProviderAdapter
 ): SharedPlannerInput["providers"][number]["capabilities"] {
+  const declaresStreaming = capabilities.streamingAvailable ?? descriptor.supports.streaming;
+  const implementsStream = typeof provider.stream === "function";
+  const streamingAvailable = declaresStreaming && implementsStream;
+  const streamingUnavailableReason =
+    capabilities.streamingUnavailableReason ??
+    (declaresStreaming && !implementsStream
+      ? `Provider '${descriptor.id}' declares streaming but does not implement stream().`
+      : undefined);
+
   return {
     available: capabilities.available,
-    ...(capabilities.reason ? { reason: capabilities.reason } : {})
+    ...(capabilities.reason ? { reason: capabilities.reason } : {}),
+    streamingAvailable,
+    ...(!streamingAvailable && streamingUnavailableReason ? { streamingUnavailableReason } : {}),
+    ...(capabilities.cancellationAvailable !== undefined
+      ? { cancellationAvailable: capabilities.cancellationAvailable }
+      : {})
   };
 }
