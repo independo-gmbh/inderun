@@ -58,9 +58,21 @@ export type RejectedProvider = {
 }
 
 export type Reason = {
+    /**
+     * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+     * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+     * but the dynamic capability snapshot reports it cannot stream in the current host
+     * environment.
+     */
     code:    Code;
     message: string;
     [property: string]: unknown;
 }
 
-export type Code = "task_not_supported" | "run_not_supported" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable";
+/**
+ * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+ * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+ * but the dynamic capability snapshot reports it cannot stream in the current host
+ * environment.
+ */
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable";

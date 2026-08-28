@@ -1169,11 +1169,15 @@ public enum TelemetryEventType: String, Codable, Sendable {
     case streamFailed = "stream_failed"
 }
 
-/// Pure data input contract for deterministic shared-core Mode-1 route planning.
+/// Pure data input contract for deterministic shared-core route planning.
 // MARK: - RoutePlannerInput
 public struct RoutePlannerInput: Codable, Sendable {
     /// Hard routing constraints evaluated before provider selection.
     public var constraints: RoutePlannerInputConstraints
+    /// Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+    /// produced before this field existed keep their exact Mode-1 semantics. The mode filters
+    /// eligible providers; it never changes candidate ordering.
+    public var interactionMode: InteractionMode?
     /// Soft route ordering preferences applied after hard filtering.
     public var preferences: RoutePlannerInputPreferences
     /// Static descriptors plus dynamic capability snapshots for planning.
@@ -1183,13 +1187,15 @@ public struct RoutePlannerInput: Codable, Sendable {
 
     public enum CodingKeys: String, CodingKey {
         case constraints = "constraints"
+        case interactionMode = "interactionMode"
         case preferences = "preferences"
         case providers = "providers"
         case task = "task"
     }
 
-    public init(constraints: RoutePlannerInputConstraints, preferences: RoutePlannerInputPreferences, providers: [Provider], task: RoutePlannerInputTask) {
+    public init(constraints: RoutePlannerInputConstraints, interactionMode: InteractionMode?, preferences: RoutePlannerInputPreferences, providers: [Provider], task: RoutePlannerInputTask) {
         self.constraints = constraints
+        self.interactionMode = interactionMode
         self.preferences = preferences
         self.providers = providers
         self.task = task
@@ -1216,12 +1222,14 @@ public extension RoutePlannerInput {
 
     func with(
         constraints: RoutePlannerInputConstraints? = nil,
+        interactionMode: InteractionMode?? = nil,
         preferences: RoutePlannerInputPreferences? = nil,
         providers: [Provider]? = nil,
         task: RoutePlannerInputTask? = nil
     ) -> RoutePlannerInput {
         return RoutePlannerInput(
             constraints: constraints ?? self.constraints,
+            interactionMode: interactionMode ?? self.interactionMode,
             preferences: preferences ?? self.preferences,
             providers: providers ?? self.providers,
             task: task ?? self.task
@@ -1297,6 +1305,14 @@ public extension RoutePlannerInputConstraints {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
+}
+
+/// Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+/// produced before this field existed keep their exact Mode-1 semantics. The mode filters
+/// eligible providers; it never changes candidate ordering.
+public enum InteractionMode: String, Codable, Sendable {
+    case run = "run"
+    case stream = "stream"
 }
 
 /// Soft route ordering preferences applied after hard filtering.
@@ -1405,16 +1421,31 @@ public extension Provider {
 // MARK: - Capabilities
 public struct Capabilities: Codable, Sendable {
     public var available: Bool
+    /// Whether cancellation is honored right now in this host environment. Absent inherits the
+    /// static descriptor.cancel value (any value other than 'none' means available).
+    public var cancellationAvailable: Bool?
     public var reason: String?
+    /// Whether the provider can stream right now in this host environment. Absent inherits the
+    /// static descriptor.supports.streaming value.
+    public var streamingAvailable: Bool?
+    /// Human-readable explanation used when streamingAvailable is false. Absent lets the planner
+    /// synthesize a default message.
+    public var streamingUnavailableReason: String?
 
     public enum CodingKeys: String, CodingKey {
         case available = "available"
+        case cancellationAvailable = "cancellationAvailable"
         case reason = "reason"
+        case streamingAvailable = "streamingAvailable"
+        case streamingUnavailableReason = "streamingUnavailableReason"
     }
 
-    public init(available: Bool, reason: String?) {
+    public init(available: Bool, cancellationAvailable: Bool?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?) {
         self.available = available
+        self.cancellationAvailable = cancellationAvailable
         self.reason = reason
+        self.streamingAvailable = streamingAvailable
+        self.streamingUnavailableReason = streamingUnavailableReason
     }
 }
 
@@ -1438,11 +1469,17 @@ public extension Capabilities {
 
     func with(
         available: Bool? = nil,
-        reason: String?? = nil
+        cancellationAvailable: Bool?? = nil,
+        reason: String?? = nil,
+        streamingAvailable: Bool?? = nil,
+        streamingUnavailableReason: String?? = nil
     ) -> Capabilities {
         return Capabilities(
             available: available ?? self.available,
-            reason: reason ?? self.reason
+            cancellationAvailable: cancellationAvailable ?? self.cancellationAvailable,
+            reason: reason ?? self.reason,
+            streamingAvailable: streamingAvailable ?? self.streamingAvailable,
+            streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason
         )
     }
 
@@ -1457,6 +1494,9 @@ public extension Capabilities {
 
 // MARK: - Descriptor
 public struct Descriptor: Codable, Sendable {
+    /// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+    /// the planner does not filter on it.
+    public var cancel: Cancel?
     public var id: String
     /// Descriptor privacy metadata used to enforce local/cloud routing rules.
     public var privacy: PrivacyClass?
@@ -1465,6 +1505,7 @@ public struct Descriptor: Codable, Sendable {
     public var type: DescriptorType
 
     public enum CodingKeys: String, CodingKey {
+        case cancel = "cancel"
         case id = "id"
         case privacy = "privacy"
         case supports = "supports"
@@ -1472,7 +1513,8 @@ public struct Descriptor: Codable, Sendable {
         case type = "type"
     }
 
-    public init(id: String, privacy: PrivacyClass?, supports: Supports, tasks: [String], type: DescriptorType) {
+    public init(cancel: Cancel?, id: String, privacy: PrivacyClass?, supports: Supports, tasks: [String], type: DescriptorType) {
+        self.cancel = cancel
         self.id = id
         self.privacy = privacy
         self.supports = supports
@@ -1500,6 +1542,7 @@ public extension Descriptor {
     }
 
     func with(
+        cancel: Cancel?? = nil,
         id: String? = nil,
         privacy: PrivacyClass?? = nil,
         supports: Supports? = nil,
@@ -1507,6 +1550,7 @@ public extension Descriptor {
         type: DescriptorType? = nil
     ) -> Descriptor {
         return Descriptor(
+            cancel: cancel ?? self.cancel,
             id: id ?? self.id,
             privacy: privacy ?? self.privacy,
             supports: supports ?? self.supports,
@@ -1522,6 +1566,14 @@ public extension Descriptor {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
+}
+
+/// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+/// the planner does not filter on it.
+public enum Cancel: String, Codable, Sendable {
+    case hard = "hard"
+    case none = "none"
+    case soft = "soft"
 }
 
 /// Descriptor privacy metadata used to enforce local/cloud routing rules.
@@ -1581,13 +1633,18 @@ public extension PrivacyClass {
 // MARK: - Supports
 public struct Supports: Codable, Sendable {
     public var run: Bool
+    /// Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
+    /// descriptor that predates this field cannot be assumed to stream.
+    public var streaming: Bool?
 
     public enum CodingKeys: String, CodingKey {
         case run = "run"
+        case streaming = "streaming"
     }
 
-    public init(run: Bool) {
+    public init(run: Bool, streaming: Bool?) {
         self.run = run
+        self.streaming = streaming
     }
 }
 
@@ -1610,10 +1667,12 @@ public extension Supports {
     }
 
     func with(
-        run: Bool? = nil
+        run: Bool? = nil,
+        streaming: Bool?? = nil
     ) -> Supports {
         return Supports(
-            run: run ?? self.run
+            run: run ?? self.run,
+            streaming: streaming ?? self.streaming
         )
     }
 
@@ -1930,6 +1989,10 @@ public extension RejectedProvider {
 
 // MARK: - Reason
 public struct Reason: Codable, Sendable {
+    /// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+    /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+    /// but the dynamic capability snapshot reports it cannot stream in the current host
+    /// environment.
     public var code: Code
     public var message: String
 
@@ -1981,12 +2044,18 @@ public extension Reason {
     }
 }
 
+/// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+/// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+/// but the dynamic capability snapshot reports it cannot stream in the current host
+/// environment.
 public enum Code: String, Codable, Sendable {
     case capabilityUnavailable = "capability_unavailable"
     case cloudConstraint = "cloud_constraint"
     case offline = "offline"
     case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"
+    case streamingNotSupported = "streaming_not_supported"
+    case streamingUnavailable = "streaming_unavailable"
     case taskNotSupported = "task_not_supported"
 }
 

@@ -189,11 +189,14 @@ private fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
     )
 }
 
+/**
+ * An unknown failure code from a newer native route core is folded into [FailureCode.Unavailable]
+ * rather than thrown: the plan did fail, and the specific class is only a diagnostic refinement.
+ */
 private fun parseFailureCode(value: String): FailureCode = when (value) {
     "capability_mismatch" -> FailureCode.CapabilityMismatch
     "offline" -> FailureCode.Offline
-    "unavailable" -> FailureCode.Unavailable
-    else -> throw IllegalArgumentException("Unknown FailureCode: $value")
+    else -> FailureCode.Unavailable
 }
 
 private fun descriptorTypeValue(value: DescriptorType): String = when (value) {
@@ -249,20 +252,30 @@ private fun JSONArray?.toRejectedProviders(): List<SharedPlannerRejectedProvider
     }
 }
 
-private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> = List(length()) { index ->
-    val reason = getJSONObject(index)
-    SharedPlannerRejectedReason(
-        code = parseReasonCode(reason.getString("code")),
-        message = reason.getString("message"),
-    )
-}
+/**
+ * Reasons carrying a code this build does not know are dropped rather than fatal: the native
+ * route core can be newer than the Kotlin core it is paired with, and an unrecognized diagnostic
+ * must never turn a successful plan into a crash.
+ */
+private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> = (0 until length())
+    .mapNotNull { index ->
+        val reason = getJSONObject(index)
+        parseReasonCode(reason.getString("code"))?.let { code ->
+            SharedPlannerRejectedReason(
+                code = code,
+                message = reason.getString("message"),
+            )
+        }
+    }
 
-private fun parseReasonCode(value: String): SharedPlannerReasonCode = when (value) {
+private fun parseReasonCode(value: String): SharedPlannerReasonCode? = when (value) {
     "capability_unavailable" -> SharedPlannerReasonCode.CapabilityUnavailable
     "cloud_constraint" -> SharedPlannerReasonCode.CloudConstraint
     "offline" -> SharedPlannerReasonCode.Offline
     "privacy_constraint" -> SharedPlannerReasonCode.PrivacyConstraint
     "run_not_supported" -> SharedPlannerReasonCode.RunNotSupported
+    "streaming_not_supported" -> SharedPlannerReasonCode.StreamingNotSupported
+    "streaming_unavailable" -> SharedPlannerReasonCode.StreamingUnavailable
     "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
-    else -> throw IllegalArgumentException("Unknown ReasonCode: $value")
+    else -> null
 }

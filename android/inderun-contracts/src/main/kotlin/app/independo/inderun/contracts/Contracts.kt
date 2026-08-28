@@ -529,13 +529,20 @@ enum class TelemetryEventType {
 }
 
 /**
- * Pure data input contract for deterministic shared-core Mode-1 route planning.
+ * Pure data input contract for deterministic shared-core route planning.
  */
 data class RoutePlannerInput(
     /**
      * Hard routing constraints evaluated before provider selection.
      */
     val constraints: RoutePlannerInputConstraints,
+
+    /**
+     * Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+     * produced before this field existed keep their exact Mode-1 semantics. The mode filters
+     * eligible providers; it never changes candidate ordering.
+     */
+    val interactionMode: InteractionMode? = null,
 
     /**
      * Soft route ordering preferences applied after hard filtering.
@@ -574,6 +581,16 @@ data class RoutePlannerInputConstraints(
 )
 
 /**
+ * Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+ * produced before this field existed keep their exact Mode-1 semantics. The mode filters
+ * eligible providers; it never changes candidate ordering.
+ */
+enum class InteractionMode {
+    Run,
+    Stream,
+}
+
+/**
  * Soft route ordering preferences applied after hard filtering.
  */
 data class RoutePlannerInputPreferences(
@@ -590,10 +607,35 @@ data class Provider(
 
 data class Capabilities(
     val available: Boolean,
+
+    /**
+     * Whether cancellation is honored right now in this host environment. Absent inherits the
+     * static descriptor.cancel value (any value other than 'none' means available).
+     */
+    val cancellationAvailable: Boolean? = null,
+
     val reason: String? = null,
+
+    /**
+     * Whether the provider can stream right now in this host environment. Absent inherits the
+     * static descriptor.supports.streaming value.
+     */
+    val streamingAvailable: Boolean? = null,
+
+    /**
+     * Human-readable explanation used when streamingAvailable is false. Absent lets the planner
+     * synthesize a default message.
+     */
+    val streamingUnavailableReason: String? = null,
 )
 
 data class Descriptor(
+    /**
+     * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+     * the planner does not filter on it.
+     */
+    val cancel: Cancel? = null,
+
     val id: String,
 
     /**
@@ -607,6 +649,16 @@ data class Descriptor(
 )
 
 /**
+ * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+ * the planner does not filter on it.
+ */
+enum class Cancel {
+    Hard,
+    None,
+    Soft,
+}
+
+/**
  * Descriptor privacy metadata used to enforce local/cloud routing rules.
  */
 data class PrivacyClass(
@@ -616,6 +668,12 @@ data class PrivacyClass(
 
 data class Supports(
     val run: Boolean,
+
+    /**
+     * Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
+     * descriptor that predates this field cannot be assumed to stream.
+     */
+    val streaming: Boolean? = null,
 )
 
 enum class DescriptorType {
@@ -694,16 +752,31 @@ data class RejectedProvider(
 )
 
 data class Reason(
+    /**
+     * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+     * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+     * but the dynamic capability snapshot reports it cannot stream in the current host
+     * environment.
+     */
     val code: Code,
+
     val message: String,
 )
 
+/**
+ * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+ * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+ * but the dynamic capability snapshot reports it cannot stream in the current host
+ * environment.
+ */
 enum class Code {
     CapabilityUnavailable,
     CloudConstraint,
     Offline,
     PrivacyConstraint,
     RunNotSupported,
+    StreamingNotSupported,
+    StreamingUnavailable,
     TaskNotSupported,
 }
 
