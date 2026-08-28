@@ -140,11 +140,42 @@ public final class URLSessionHttpClientService: HttpClientService, Sendable {
 public final class URLSessionStreamingHttpClientService: HttpStreamingClientService, Sendable {
     private static let maxBufferBytes = 16 * 1024
     private static let newline: UInt8 = 0x0A
+    /// Seven days. A stand-in for "no deadline": an established stream ends when
+    /// the server closes it or the caller cancels, not on a timer.
+    private static let noIdleDeadline: TimeInterval = 7 * 24 * 60 * 60
 
     private let session: URLSession
 
     public init(session: URLSession = .shared) {
         self.session = session
+    }
+
+    /// Opens the connection, failing with a normalized timeout if the response
+    /// head does not arrive within `timeoutMs`.
+    private func openStream(
+        _ urlRequest: URLRequest,
+        timeoutMs: Int?
+    ) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        guard let timeoutMs else {
+            return try await session.bytes(for: urlRequest)
+        }
+
+        return try await withThrowingTaskGroup(
+            of: (URLSession.AsyncBytes, URLResponse).self
+        ) { group in
+            let session = self.session
+            group.addTask { try await session.bytes(for: urlRequest) }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(0, timeoutMs)) * 1_000_000)
+                throw createTimeout(message: "HTTP transport timed out waiting for the response head.")
+            }
+
+            guard let result = try await group.next() else {
+                throw createInternal(message: "HTTP transport produced no response.")
+            }
+            group.cancelAll()
+            return result
+        }
     }
 
     public func stream(request: HttpRequest) async throws -> HttpStreamResponse {
@@ -154,12 +185,13 @@ public final class URLSessionStreamingHttpClientService: HttpStreamingClientServ
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue
-        if let timeoutMs = request.timeoutMs {
-            // Bounds the wait for the response head only: URLSession applies
-            // timeoutInterval to the time between data arriving, and an
-            // established stream keeps resetting it.
-            urlRequest.timeoutInterval = Double(timeoutMs) / 1000.0
-        }
+        // `timeoutMs` bounds the response head only, so it deliberately does not
+        // become `timeoutInterval`: URLSession treats that as a deadline between
+        // arriving packets and keeps resetting it, which would abort an idle but
+        // perfectly healthy event stream. The head is raced against an explicit
+        // sleep below instead, and `timeoutInterval` is pushed far out so
+        // URLSession imposes no idle deadline of its own.
+        urlRequest.timeoutInterval = Self.noIdleDeadline
         request.headers?.forEach { key, value in
             urlRequest.setValue(value, forHTTPHeaderField: key)
         }
@@ -167,7 +199,7 @@ public final class URLSessionStreamingHttpClientService: HttpStreamingClientServ
             urlRequest.httpBody = Data(body.utf8)
         }
 
-        let (bytes, response) = try await session.bytes(for: urlRequest)
+        let (bytes, response) = try await openStream(urlRequest, timeoutMs: request.timeoutMs)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw createInternal(message: "HTTP transport returned a non-HTTP response.")
         }

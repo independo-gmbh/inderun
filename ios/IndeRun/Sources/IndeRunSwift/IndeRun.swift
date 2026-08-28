@@ -296,8 +296,14 @@ public final class IndeRun: IndeRunApi {
             throw createInternal(message: "Stream continuation was not initialized.", runId: runId)
         }
 
-        Task { [weak self] in
-            await self?.driveStream(
+        // Retains the engine for the run's lifetime, deliberately. A caller may
+        // hold only the returned StreamRun — a stream created from a temporary
+        // IndeRun is a reasonable thing to write — and a weak capture there
+        // would let the run finish with no terminal event at all, breaking the
+        // exactly-one-terminal guarantee. There is no cycle: the engine does not
+        // retain this task.
+        Task {
+            await self.driveStream(
                 request: request,
                 runId: runId,
                 startTime: startTime,

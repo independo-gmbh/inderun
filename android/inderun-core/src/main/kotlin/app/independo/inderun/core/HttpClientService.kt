@@ -8,11 +8,12 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 
 /**
@@ -91,10 +92,12 @@ class URLConnectionStreamingHttpClientService : HttpStreamingClientService {
 
             request.timeoutMs?.let { timeoutMs ->
                 val timeout = timeoutMs.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
-                // Bounds the wait for the response head only: readTimeout
-                // applies per read, and an established stream keeps resetting
-                // it rather than accumulating toward a total budget.
                 connection.connectTimeout = timeout
+                // HttpURLConnection fixes the socket read deadline at connect
+                // time, so this one value has to serve two purposes: it bounds
+                // the wait for the response head, and it becomes the polling
+                // interval for the body, where a read that expires means "no
+                // data yet" rather than a failure (see [chunks]).
                 connection.readTimeout = timeout
             }
 
@@ -123,17 +126,21 @@ class URLConnectionStreamingHttpClientService : HttpStreamingClientService {
             Triple(status, statusText, headers)
         } catch (throwable: Throwable) {
             connection.disconnect()
+            if (throwable is SocketTimeoutException) {
+                throw createTimeout("HTTP transport timed out waiting for the response head.")
+            }
             throw throwable
         }
 
         val (status, statusText, headers) = head
+
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
 
         HttpStreamResponse(
             status = status,
             statusText = statusText,
             headers = headers,
-            body = stream.chunks().onCompletion { connection.disconnect() }.flowOn(Dispatchers.IO),
+            body = stream.chunks(connection).flowOn(Dispatchers.IO),
         )
     }
 
@@ -141,16 +148,54 @@ class URLConnectionStreamingHttpClientService : HttpStreamingClientService {
         const val CHUNK_BYTES = 8 * 1024
     }
 
-    private fun InputStream?.chunks(): Flow<ByteArray> = flow {
+    private fun InputStream?.chunks(connection: HttpURLConnection): Flow<ByteArray> = flow {
+        // ensureActive() alone cannot end a read that is already blocked waiting
+        // for the next chunk, which is the normal state of an idle SSE stream.
+        // Disconnecting from the canceller's thread closes the socket and makes
+        // that read throw, so cancellation is observed immediately rather than
+        // whenever the server next sends something.
+        currentCoroutineContext().job.invokeOnCompletion { connection.disconnect() }
+
         val source = this@chunks ?: return@flow
-        source.use { input ->
+        try {
+            val input = source
             val buffer = ByteArray(CHUNK_BYTES)
             while (true) {
                 currentCoroutineContext().ensureActive()
-                val read = input.read(buffer)
+                val read = try {
+                    input.read(buffer)
+                } catch (timeout: SocketTimeoutException) {
+                    // An expired read on an established stream means the server
+                    // has simply gone quiet, which is the normal state of a
+                    // long-lived event stream and not a failure. Looping here is
+                    // also what makes cancellation observable: a blocked socket
+                    // read cannot be interrupted from another thread reliably —
+                    // HttpURLConnection.disconnect() is documented as best
+                    // effort — so the read has to come back on its own before
+                    // ensureActive() can end the collection. Cancellation
+                    // latency is therefore bounded by timeoutMs; without one,
+                    // the read blocks until the server speaks again.
+                    continue
+                } catch (error: IOException) {
+                    // Tearing down the connection to release a cancelled
+                    // collection surfaces as an IO failure on the reading
+                    // thread. If this coroutine is already cancelled, that
+                    // failure *is* the cancellation, and reporting it as a
+                    // transport error would turn an orderly cancel into a
+                    // spurious stream failure.
+                    currentCoroutineContext().ensureActive()
+                    throw error
+                }
                 if (read == -1) break
                 if (read > 0) emit(buffer.copyOf(read))
             }
+        } finally {
+            // disconnect() rather than close(): closing a keep-alive stream that
+            // has not reached EOF makes HttpURLConnection drain the remainder so
+            // the socket can be reused, which blocks on exactly the stream the
+            // caller has just walked away from. Disconnecting releases it
+            // outright.
+            connection.disconnect()
         }
     }
 }

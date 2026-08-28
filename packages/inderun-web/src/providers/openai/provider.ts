@@ -27,6 +27,9 @@ interface OpenAIStreamEvent {
   delta?: string;
   response?: OpenAIResponseBody;
   error?: { message?: string; type?: string; code?: string };
+  /** Root-level failure fields, as carried by the standalone `error` event. */
+  message?: string;
+  code?: string;
 }
 
 /** Buffers a body stream to text, for error responses that are not event streams. */
@@ -457,14 +460,21 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
    * These arrive over an HTTP 200 body, so there is no status code to classify
    * from; OpenAI reports rate limiting and auth failures here with the same
    * `code` values it uses in unary error bodies.
+   *
+   * Two payload shapes exist and both are accepted: the standalone `error`
+   * event carries `code`/`message` at its root, while `response.failed` nests
+   * them under `response.error`. The root `type` is the event name rather than
+   * an error type, so it is never read as one.
    */
   private mapStreamError(event: OpenAIStreamEvent, context: ProviderStreamContext): unknown {
-    const error = event.error ?? event.response?.error;
-    const message = error?.message ?? "OpenAI Responses stream reported a failure.";
-    const details = { errorType: error?.type, errorCode: error?.code };
+    const nested = event.error ?? event.response?.error;
+    const message =
+      nested?.message ?? event.message ?? "OpenAI Responses stream reported a failure.";
+    const code = nested?.code ?? event.code;
+    const details = { errorType: nested?.type, errorCode: code };
     const params = { providerId: this.id, runId: context.runId, details };
 
-    switch (error?.code) {
+    switch (code) {
       case "rate_limit_exceeded":
         return createRateLimited(message, { ...params, retryable: true });
       case "invalid_api_key":

@@ -66,6 +66,34 @@ describe("handleProxyRequest", () => {
     await reader.cancel();
   });
 
+  it("forwards the caller's abort signal upstream", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" }
+      })
+    );
+    const controller = new AbortController();
+
+    await handleProxyRequest(
+      new Request("http://localhost/api/inderun/openai-responses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: "Hello", stream: true }),
+        signal: controller.signal
+      }),
+      { apiKey: "sk-test", fetchImpl }
+    );
+
+    // Without this, cancelling a stream leaves the upstream generation running
+    // and billable until it finishes on its own.
+    const forwarded = fetchImpl.mock.calls[0]![1].signal as AbortSignal;
+    expect(forwarded).toBeInstanceOf(AbortSignal);
+    expect(forwarded.aborted).toBe(false);
+    controller.abort();
+    expect(forwarded.aborted).toBe(true);
+  });
+
   it("passes through upstream failures while forcing the configured model for the default OpenAI endpoint", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ error: { message: "Rate limited." } }), {

@@ -3,7 +3,9 @@ package app.independo.inderun.core
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.Method
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -168,6 +170,53 @@ class HttpStreamingClientServiceTest {
 
         assertTrue(received.isNotEmpty())
         assertTrue(withTimeout(10_000) { serverSawDisconnect.await() })
+    }
+
+    @Test
+    fun `cancelling the collector ends a read that is blocked waiting for data`() = runBlocking {
+        // The normal state of an idle SSE stream: one chunk delivered, and the
+        // socket then silent. A cooperative cancellation check cannot end a read
+        // that is already blocked, so a hang here is the regression.
+        val url = serve { _, output ->
+            output.writeHead("200 OK", "text/event-stream")
+            output.writeHttpChunk("first")
+            Thread.sleep(60_000)
+        }
+
+        val response = URLConnectionStreamingHttpClientService()
+            .stream(HttpRequest(body = null, headers = null, method = Method.Get, timeoutMs = 500, url = url))
+
+        val firstChunk = CompletableDeferred<String>()
+        val collector = launch(Dispatchers.IO) {
+            response.body.collect { chunk -> firstChunk.complete(String(chunk, Charsets.UTF_8)) }
+        }
+
+        assertEquals("first", withTimeout(10_000) { firstChunk.await() })
+        collector.cancel()
+        withTimeout(10_000) { collector.join() }
+        assertTrue(collector.isCompleted)
+    }
+
+    @Test
+    fun `does not impose an idle deadline on an established stream`() = runBlocking {
+        // timeoutMs bounds the response head only. A gap longer than it must not
+        // abort a stream that is already established.
+        val url = serve { _, output ->
+            output.writeHead("200 OK", "text/event-stream")
+            output.writeHttpChunk("first")
+            Thread.sleep(600)
+            output.writeHttpChunk("second")
+            output.writeLastChunk()
+        }
+
+        val response = URLConnectionStreamingHttpClientService()
+            .stream(HttpRequest(body = null, headers = null, method = Method.Get, timeoutMs = 200, url = url))
+
+        val received = withTimeout(10_000) {
+            response.body.toList().joinToString("") { String(it, Charsets.UTF_8) }
+        }
+
+        assertEquals("firstsecond", received)
     }
 
     @Test

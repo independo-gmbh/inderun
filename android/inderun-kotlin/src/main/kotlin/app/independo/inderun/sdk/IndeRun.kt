@@ -40,18 +40,14 @@ import app.independo.inderun.core.toIndeRunException
 import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
 import app.independo.inderun.sdk.generated.IndeRunApi
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.FlowCollector
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ProducerScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-
-/**
- * Unwinds the collection loop once the run has produced its terminal event.
- * Kotlin flows have no `break`, and abandoning the collector by throwing is the
- * documented way to stop consuming one early.
- */
-private object StreamTerminated : Throwable(null, null, false, false)
 
 /**
  * The primary entry point for the IndeRun Android SDK.
@@ -244,7 +240,11 @@ class IndeRun(
      * @throws app.independo.inderun.core.IndeRunException on validation or routing failure.
      */
     override suspend fun stream(request: TaskRequest): StreamRun {
-        val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
+        // Two clocks, deliberately: durations must come from the monotonic
+        // elapsed-realtime clock, while StreamRunHandle.startedAt is contractually
+        // Unix epoch milliseconds and would otherwise serialize device uptime.
+        val startElapsedMs = hostServices.clock.elapsedRealtimeMillis().toDouble()
+        val startedAtEpochMs = System.currentTimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
 
         validateRequest(request, runId)
@@ -287,14 +287,17 @@ class IndeRun(
         val gate = EventGate(runId)
         val collected = AtomicBoolean(false)
 
-        val events = flow {
+        // channelFlow rather than flow: interrupting a provider that is blocked
+        // on a network read means cancelling a child coroutine, and a plain flow
+        // builder forbids emitting from a scope it does not own.
+        val events = channelFlow {
             check(collected.compareAndSet(false, true)) {
                 "StreamRun.events is single-use; collect it once."
             }
             driveStream(
                 request = request,
                 runId = runId,
-                startTime = startTime,
+                startTime = startElapsedMs,
                 providers = providers,
                 gate = gate,
                 cancellation = cancellation,
@@ -306,14 +309,14 @@ class IndeRun(
                 providerId = first.describe().id,
                 runId = runId,
                 schemaVersion = SchemaVersion.V1_0,
-                startedAt = startTime,
+                startedAt = startedAtEpochMs,
             ),
             events = events,
         ) { reason -> cancellation.cancel(reason) }
     }
 
     @Suppress("LongMethod", "CyclomaticComplexMethod", "LongParameterList")
-    private suspend fun FlowCollector<StreamEvent>.driveStream(
+    private suspend fun ProducerScope<StreamEvent>.driveStream(
         request: TaskRequest,
         runId: String,
         startTime: Double,
@@ -340,7 +343,7 @@ class IndeRun(
                     },
                 ),
             )
-            terminal?.let { emit(it) }
+            terminal?.let { send(it) }
         }
 
         suspend fun emitFailure(
@@ -379,7 +382,7 @@ class IndeRun(
                     },
                 ),
             )
-            terminal?.let { emit(it) }
+            terminal?.let { send(it) }
         }
 
         val attemptedProviderIds = mutableListOf<String>()
@@ -417,73 +420,95 @@ class IndeRun(
                     cancellation = cancellation,
                 )
 
-                streaming.stream(request, context).takeWhile { !cancellation.isCancelled }.collect { event ->
-                    when (event) {
-                        is ProviderStreamEvent.Failure -> throw event.error
+                val providerEvents = Channel<ProviderStreamEvent>(Channel.BUFFERED)
+                val producer = launch {
+                    try {
+                        streaming.stream(request, context).collect { providerEvents.send(it) }
+                        providerEvents.close()
+                    } catch (error: Throwable) {
+                        providerEvents.close(error)
+                    }
+                }
+                // Cancelling the producer is what actually ends a read that is
+                // already blocked waiting for the next chunk; observing the
+                // token between events would leave the caller waiting for the
+                // server to speak again before the cancelled outcome arrives.
+                cancellation.onCancel { producer.cancel() }
 
-                        is ProviderStreamEvent.Delta, is ProviderStreamEvent.Snapshot -> {
-                            val text = when (event) {
-                                is ProviderStreamEvent.Delta -> event.text
-                                is ProviderStreamEvent.Snapshot -> event.text
-                                else -> ""
+                try {
+                    for (event in providerEvents) {
+                        if (cancellation.isCancelled) break
+                        when (event) {
+                            is ProviderStreamEvent.Failure -> throw event.error
+
+                            is ProviderStreamEvent.Delta, is ProviderStreamEvent.Snapshot -> {
+                                val text = when (event) {
+                                    is ProviderStreamEvent.Delta -> event.text
+                                    is ProviderStreamEvent.Snapshot -> event.text
+                                    else -> ""
+                                }
+                                partialText = if (event is ProviderStreamEvent.Delta) partialText + text else text
+                                if (!committed) {
+                                    committed = true
+                                    safeEmit(
+                                        TelemetryEvent(
+                                            type = TelemetryEventType.StreamAttemptSucceeded,
+                                            runId = runId,
+                                            timestamp = now(),
+                                            payload = mapOf(
+                                                "providerId" to providerId,
+                                                "attemptedProviderIds" to attemptedProviderIds.toList(),
+                                            ),
+                                        ),
+                                    )
+                                }
+                                val type = if (event is ProviderStreamEvent.Delta) "content_delta" else "content_snapshot"
+                                gate.admit(now(), type, contentPayload(text))?.let { send(it) }
                             }
-                            partialText = if (event is ProviderStreamEvent.Delta) partialText + text else text
-                            if (!committed) {
-                                committed = true
+
+                            is ProviderStreamEvent.Done -> {
+                                val terminal = gate.terminate(
+                                    completedOutcome(
+                                        runId = runId,
+                                        finalText = event.finalText,
+                                        finishReason = event.finishReason,
+                                        usage = event.usage?.let {
+                                            StreamTerminalOutcomeUsage(
+                                                inputTokens = it.inputTokens,
+                                                outputTokens = it.outputTokens,
+                                                totalTokens = it.totalTokens,
+                                            )
+                                        },
+                                        telemetry = StreamTerminalOutcomeTelemetry(
+                                            providerUsed = providerId,
+                                            totalMs = elapsed(),
+                                        ),
+                                    ),
+                                    now(),
+                                )
                                 safeEmit(
                                     TelemetryEvent(
-                                        type = TelemetryEventType.StreamAttemptSucceeded,
+                                        type = TelemetryEventType.StreamCompleted,
                                         runId = runId,
                                         timestamp = now(),
                                         payload = mapOf(
                                             "providerId" to providerId,
+                                            "durationMs" to elapsed(),
                                             "attemptedProviderIds" to attemptedProviderIds.toList(),
                                         ),
                                     ),
                                 )
+                                terminated = true
+                                terminal?.let { send(it) }
                             }
-                            val type = if (event is ProviderStreamEvent.Delta) "content_delta" else "content_snapshot"
-                            gate.admit(now(), type, contentPayload(text))?.let { emit(it) }
                         }
-
-                        is ProviderStreamEvent.Done -> {
-                            val terminal = gate.terminate(
-                                completedOutcome(
-                                    runId = runId,
-                                    finalText = event.finalText,
-                                    finishReason = event.finishReason,
-                                    usage = event.usage?.let {
-                                        StreamTerminalOutcomeUsage(
-                                            inputTokens = it.inputTokens,
-                                            outputTokens = it.outputTokens,
-                                            totalTokens = it.totalTokens,
-                                        )
-                                    },
-                                    telemetry = StreamTerminalOutcomeTelemetry(
-                                        providerUsed = providerId,
-                                        totalMs = elapsed(),
-                                    ),
-                                ),
-                                now(),
-                            )
-                            safeEmit(
-                                TelemetryEvent(
-                                    type = TelemetryEventType.StreamCompleted,
-                                    runId = runId,
-                                    timestamp = now(),
-                                    payload = mapOf(
-                                        "providerId" to providerId,
-                                        "durationMs" to elapsed(),
-                                        "attemptedProviderIds" to attemptedProviderIds.toList(),
-                                    ),
-                                ),
-                            )
-                            terminated = true
-                            terminal?.let { emit(it) }
-                        }
+                        if (terminated) break
                     }
-                    if (terminated) throw StreamTerminated
+                } finally {
+                    producer.cancel()
                 }
+
+                if (terminated) return
 
                 if (cancellation.isCancelled) {
                     emitCancelled(partialText, providerId, attemptedProviderIds.toList())
@@ -495,9 +520,15 @@ class IndeRun(
                     runId = runId,
                     providerId = providerId,
                 )
-            } catch (terminatedSignal: StreamTerminated) {
-                return
             } catch (error: CancellationException) {
+                // Cancelling the producer surfaces here as a CancellationException
+                // too, so a caller-requested cancel is answered with the terminal
+                // outcome it is owed; only cancellation of the collector itself
+                // propagates.
+                if (cancellation.isCancelled && currentCoroutineContext().isActive) {
+                    emitCancelled(partialText, providerId, attemptedProviderIds.toList())
+                    return
+                }
                 throw error
             } catch (error: Throwable) {
                 if (cancellation.isCancelled) {

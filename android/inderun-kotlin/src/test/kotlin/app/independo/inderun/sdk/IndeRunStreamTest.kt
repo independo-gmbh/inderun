@@ -26,6 +26,8 @@ import app.independo.inderun.core.SecureStorageService
 import app.independo.inderun.core.StreamingProviderAdapter
 import app.independo.inderun.core.createRateLimited
 import app.independo.inderun.core.createUnavailable
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -227,6 +229,28 @@ class IndeRunStreamTest {
     }
 
     @Test
+    fun cancellationEndsAProviderThatIsBlockedWaitingForMoreOutput() = runTest {
+        // Models the normal state of an idle network stream: one chunk arrived,
+        // and the next read is blocked indefinitely. Observing the token only
+        // between events would leave this hanging until the server spoke again,
+        // so a hang here is the regression.
+        val provider = BlockingStreamProvider("p1")
+        val registry = ProviderRegistry().apply { register(provider) }
+
+        val run = IndeRun(registry, hostServices()).stream(request())
+        val events = mutableListOf<StreamEvent>()
+        run.events.collect { event ->
+            events += event
+            if (event.type == "content_delta") run.cancel("stop")
+        }
+
+        assertEquals(listOf("content_delta", "terminal"), events.map { it.type })
+        assertEquals(Outcome.Cancelled, events.last().payload?.outcome)
+        assertEquals("one", events.last().payload?.partialText)
+        assertTrue(provider.wasInterrupted)
+    }
+
+    @Test
     fun cancellationBeforeTheFirstAttemptForeclosesEveryProvider() = runTest {
         val provider = FakeStreamProvider("p1", listOf(Step(ProviderStreamEvent.Done("never"))))
         val registry = ProviderRegistry().apply { register(provider) }
@@ -297,6 +321,22 @@ class IndeRunStreamTest {
     }
 
     @Test
+    fun handleCarriesUnixEpochMillisNotDeviceUptime() = runTest {
+        val registry = ProviderRegistry().apply {
+            register(FakeStreamProvider("p1", listOf(Step(ProviderStreamEvent.Done("ok")))))
+        }
+
+        val before = System.currentTimeMillis()
+        val run = IndeRun(registry, hostServices()).stream(request())
+        val after = System.currentTimeMillis()
+
+        // The host clock here counts from 0, so an uptime-based startedAt would
+        // land far below wall-clock time.
+        assertTrue(run.handle.startedAt >= before.toDouble())
+        assertTrue(run.handle.startedAt <= after.toDouble())
+    }
+
+    @Test
     fun eventsAreSingleUse() = runTest {
         val registry = ProviderRegistry().apply {
             register(FakeStreamProvider("p1", listOf(Step(ProviderStreamEvent.Done("once")))))
@@ -340,6 +380,35 @@ private class FakeStreamProvider(
                 emit(step.event)
             }
             throwAfterScript?.let { throw it }
+        }
+    }
+}
+
+/** Emits one delta, then blocks forever unless its collection is cancelled. */
+private class BlockingStreamProvider(private val id: String) : StreamingProviderAdapter {
+    @Volatile
+    var wasInterrupted: Boolean = false
+        private set
+
+    override fun describe(): ProviderDescriptor = streamDescriptor(id, streaming = true)
+
+    override suspend fun capabilities(host: HostServices) = ProviderDynamicCapabilities(available = true)
+
+    override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
+        schemaVersion = SchemaVersion.V1_0,
+        runId = context.runId,
+        output = Output(text = "unused"),
+        finishReason = FinishReason.STOP,
+        telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
+    )
+
+    override fun stream(request: TaskRequest, context: ProviderStreamContext): Flow<ProviderStreamEvent> = flow {
+        emit(ProviderStreamEvent.Delta("one"))
+        try {
+            awaitCancellation()
+        } catch (cancellation: CancellationException) {
+            wasInterrupted = true
+            throw cancellation
         }
     }
 }

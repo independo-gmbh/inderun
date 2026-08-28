@@ -345,6 +345,10 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
             response = try await streamingClient.stream(request: httpRequest)
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as IndeRunException {
+            // The transport already classified this — a head timeout must stay a
+            // Timeout rather than being flattened into Unavailable here.
+            throw error
         } catch {
             throw createUnavailable(
                 message: "OpenAI Responses stream failed before a response was received.",
@@ -430,17 +434,25 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
     /// These arrive over an HTTP 200 body, so there is no status code to
     /// classify from; OpenAI reports rate limiting and auth failures here with
     /// the same `code` values it uses in unary error bodies.
+    ///
+    /// Two payload shapes exist and both are accepted: the standalone `error`
+    /// event carries `code`/`message` at its root, while `response.failed`
+    /// nests them under `response.error`. The root `type` is the event name
+    /// rather than an error type, so it is never read as one.
     private func mapStreamError(json: [String: Any], runId: String) -> Error {
-        let error = (json["error"] as? [String: Any])
+        let nested = (json["error"] as? [String: Any])
             ?? ((json["response"] as? [String: Any])?["error"] as? [String: Any])
             ?? [:]
-        let message = error["message"] as? String ?? "OpenAI Responses stream reported a failure."
+        let message = nested["message"] as? String
+            ?? json["message"] as? String
+            ?? "OpenAI Responses stream reported a failure."
+        let code = nested["code"] as? String ?? json["code"] as? String
         let details: [String: JSONAny] = [
-            "errorType": JSONAny(error["type"] as? String ?? JSONNull()),
-            "errorCode": JSONAny(error["code"] as? String ?? JSONNull())
+            "errorType": JSONAny(nested["type"] as? String ?? JSONNull()),
+            "errorCode": JSONAny(code ?? JSONNull())
         ]
 
-        switch error["code"] as? String {
+        switch code {
         case "rate_limit_exceeded":
             return createRateLimited(
                 message: message, runId: runId, providerId: options.id, retryable: true, details: details

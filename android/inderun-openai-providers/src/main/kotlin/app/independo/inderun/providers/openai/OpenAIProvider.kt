@@ -283,6 +283,10 @@ class OpenAIProvider(
             streamingClient.stream(httpRequest)
         } catch (error: CancellationException) {
             throw error
+        } catch (error: IndeRunException) {
+            // The transport already classified this — a head timeout must stay a
+            // Timeout rather than being flattened into Unavailable here.
+            throw error
         } catch (error: Throwable) {
             throw createUnavailable(
                 message = "OpenAI Responses stream failed before a response was received.",
@@ -385,19 +389,26 @@ class OpenAIProvider(
      * These arrive over an HTTP 200 body, so there is no status code to classify
      * from; OpenAI reports rate limiting and auth failures here with the same
      * `code` values it uses in unary error bodies.
+     *
+     * Two payload shapes exist and both are accepted: the standalone `error`
+     * event carries `code`/`message` at its root, while `response.failed` nests
+     * them under `response.error`. The root `type` is the event name rather than
+     * an error type, so it is never read as one.
      */
     private fun mapStreamError(json: JSONObject, runId: String): Throwable {
-        val error = json.optJSONObject("error")
+        val nested = json.optJSONObject("error")
             ?: json.optJSONObject("response")?.optJSONObject("error")
             ?: JSONObject()
-        val message = error.optStringOrNull("message")
+        val message = nested.optStringOrNull("message")
+            ?: json.optStringOrNull("message")
             ?: "OpenAI Responses stream reported a failure."
+        val code = nested.optStringOrNull("code") ?: json.optStringOrNull("code")
         val details = mapOf(
-            "errorType" to error.optStringOrNull("type"),
-            "errorCode" to error.optStringOrNull("code"),
+            "errorType" to nested.optStringOrNull("type"),
+            "errorCode" to code,
         )
 
-        return when (error.optStringOrNull("code")) {
+        return when (code) {
             "rate_limit_exceeded" -> createRateLimited(
                 message = message,
                 runId = runId,

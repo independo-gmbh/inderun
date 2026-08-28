@@ -68,10 +68,13 @@ export async function handleProxyRequest(
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
+  // Forwarding the incoming request's signal is what makes a cancelled stream
+  // stop the upstream generation rather than leaving it running and billable.
   const upstream = await fetchImpl(endpointUrl, {
     method: "POST",
     headers,
-    body: JSON.stringify(upstreamBody)
+    body: JSON.stringify(upstreamBody),
+    signal: request.signal
   });
 
   const upstreamContentType = upstream.headers.get("Content-Type") ?? "application/json";

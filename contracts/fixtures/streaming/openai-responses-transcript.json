@@ -72,13 +72,25 @@
     },
     {
       "name": "rate_limit_error_event",
-      "description": "A failure reported mid-stream over an HTTP 200 body maps onto the error taxonomy by code, since there is no status line to classify from.",
+      "description": "Some OpenAI-compatible endpoints nest the failure under an error object on the error event; both shapes are accepted.",
       "sse": "event: error\ndata: {\"type\": \"error\", \"error\": {\"message\": \"Rate limit reached\", \"type\": \"rate_limit_error\", \"code\": \"rate_limit_exceeded\"}}\n\n",
       "expected": [
         {
           "kind": "error",
           "errorClass": "RateLimited",
           "message": "Rate limit reached"
+        }
+      ]
+    },
+    {
+      "name": "root_level_error_event",
+      "description": "The standalone `error` event carries code and message at its root, not nested under an error object. This is the shape the OpenAI Responses streaming reference documents.",
+      "sse": "event: error\ndata: {\"type\": \"error\", \"code\": \"rate_limit_exceeded\", \"message\": \"Rate limit reached for gpt-5.2\", \"param\": null, \"sequence_number\": 1}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "RateLimited",
+          "message": "Rate limit reached for gpt-5.2"
         }
       ]
     },

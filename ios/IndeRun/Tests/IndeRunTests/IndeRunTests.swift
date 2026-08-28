@@ -1123,6 +1123,8 @@ final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
         var headers: [String: String]
         var chunks: [String]
         var chunkDelay: TimeInterval
+        /// Never sends the response head, so the caller's head deadline decides.
+        var withholdResponse: Bool = false
     }
 
     private static let lock = NSLock()
@@ -1149,6 +1151,7 @@ final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let script = Self.script
+        if script.withholdResponse { return }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: script.status,
@@ -1252,6 +1255,41 @@ final class URLSessionStreamingHttpClientServiceTests: XCTestCase {
         XCTAssertEqual(response.headers["retry-after"], "3")
         let body = try await collect(response.body).joined()
         XCTAssertEqual(body, "{\"error\":{\"message\":\"slow down\"}}")
+    }
+
+    func testTimesOutWaitingForTheResponseHead() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: [:],
+            chunks: [],
+            chunkDelay: 0,
+            withholdResponse: true
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        do {
+            _ = try await client.stream(request: makeRequest(timeoutMs: 50))
+            XCTFail("Expected a head timeout")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Timeout)
+        }
+    }
+
+    func testDoesNotImposeAnIdleDeadlineOnAnEstablishedStream() async throws {
+        // The head deadline must not survive into the body: a gap longer than
+        // timeoutMs on an established stream is normal, not a failure.
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["first\n", "second\n"],
+            chunkDelay: 0.3
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest(timeoutMs: 100))
+
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "first\nsecond\n")
     }
 
     func testCancellingTheConsumingTaskTearsDownTheConnection() async throws {
@@ -1732,6 +1770,28 @@ final class StreamOrchestrationTests: XCTestCase {
 
         XCTAssertEqual(events.last?.payload?.outcome, .completed)
         XCTAssertEqual(events.last?.payload?.finalText, "recovered")
+    }
+
+    func testStillTerminatesWhenTheEngineIsReleased() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "one"), delayMs: 10),
+            .init(.done(finalText: "one"), delayMs: 10)
+        ]))
+
+        // The caller keeps only the StreamRun; a stream created from a temporary
+        // engine must still produce its terminal event.
+        var engine: IndeRun? = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine!.stream(request: makeRequest())
+        weak var released = engine
+        engine = nil
+
+        let events = try await drain(run)
+
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "one")
+        // The run held the engine while it needed it, and let go afterwards.
+        XCTAssertNil(released)
     }
 
     func testRunAndStreamMayResolveToDifferentProviderChains() async throws {
