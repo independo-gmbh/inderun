@@ -89,6 +89,25 @@ export interface ProviderDynamicCapabilities {
    * Detail message if availability check fails.
    */
   reason?: string;
+  /**
+   * Whether the provider can stream (Mode 2) right now on this host. Leave
+   * undefined to inherit the static `descriptor.supports.streaming` value —
+   * only set it when the runtime environment can take streaming away from a
+   * provider that otherwise declares it (e.g. the host has no chunked HTTP
+   * capability).
+   */
+  streamingAvailable?: boolean;
+  /**
+   * Detail message used when `streamingAvailable` is false. Omit to let the
+   * route planner synthesize a generic message.
+   */
+  streamingUnavailableReason?: string;
+  /**
+   * Whether cancellation is honored right now on this host. Leave undefined to
+   * inherit the static `descriptor.cancel` value (anything other than `"none"`
+   * means available).
+   */
+  cancellationAvailable?: boolean;
 }
 
 /**

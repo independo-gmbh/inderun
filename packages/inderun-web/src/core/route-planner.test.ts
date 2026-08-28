@@ -1,5 +1,13 @@
+import type { TaskRequest, TaskResult } from "@independo/inderun-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SharedPlannerInput, SharedPlannerRoutePlan } from "./route-planner.js";
+import type { HostServices } from "./host.js";
+import type { ProviderAdapter, ProviderDescriptor, ProviderStreamEvent } from "./provider.js";
+import {
+  buildSharedPlannerInput,
+  collectProviderRuntimeSnapshots,
+  type SharedPlannerInput,
+  type SharedPlannerRoutePlan
+} from "./route-planner.js";
 
 const WASM_SPECIFIER = "@independo/inderun-route-core-wasm";
 
@@ -123,5 +131,151 @@ describe("WasmRoutePlanner", () => {
     await planner.planRoute(sampleInput);
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+function createHostServices(): HostServices {
+  return {
+    connectivity: {
+      async isOnline() {
+        return true;
+      }
+    },
+    clock: {
+      now() {
+        return 0;
+      }
+    }
+  };
+}
+
+interface FakeProviderOptions {
+  streaming: boolean;
+  implementsStream?: boolean;
+  cancel?: ProviderDescriptor["cancel"];
+  streamingAvailable?: boolean;
+  streamingUnavailableReason?: string;
+  cancellationAvailable?: boolean;
+}
+
+function createFakeProvider(id: string, opts: FakeProviderOptions): ProviderAdapter {
+  const provider: ProviderAdapter = {
+    describe() {
+      return {
+        id,
+        type: "local",
+        transport: "in_process",
+        supports: {
+          run: true,
+          streaming: opts.streaming,
+          realtime: false,
+          tools: false,
+          reasoningEvents: false,
+          structuredOutput: false,
+          multimodal: false
+        },
+        cancel: opts.cancel ?? "soft",
+        tasks: ["text_to_text"]
+      };
+    },
+    async capabilities() {
+      return {
+        available: true,
+        ...(opts.streamingAvailable !== undefined
+          ? { streamingAvailable: opts.streamingAvailable }
+          : {}),
+        ...(opts.streamingUnavailableReason !== undefined
+          ? { streamingUnavailableReason: opts.streamingUnavailableReason }
+          : {}),
+        ...(opts.cancellationAvailable !== undefined
+          ? { cancellationAvailable: opts.cancellationAvailable }
+          : {})
+      };
+    },
+    async run(request: TaskRequest): Promise<TaskResult> {
+      return {
+        schemaVersion: "1.0",
+        runId: request.requestId ?? "run-1",
+        output: { type: "text", text: "unused" },
+        finishReason: "stop",
+        telemetry: { providerUsed: id, totalMs: 0 }
+      };
+    }
+  };
+
+  if (opts.implementsStream ?? opts.streaming) {
+    // eslint-disable-next-line require-yield
+    provider.stream = async function* (): AsyncGenerator<ProviderStreamEvent> {
+      return;
+    };
+  }
+
+  return provider;
+}
+
+const request: TaskRequest = {
+  schemaVersion: "1.0",
+  task: { kind: "text_to_text" },
+  prompt: "test prompt"
+};
+
+describe("planner input projection", () => {
+  it("carries static streaming and cancellation declarations into the planner input", async () => {
+    const snapshots = await collectProviderRuntimeSnapshots(
+      [createFakeProvider("p1", { streaming: true, cancel: "hard" })],
+      createHostServices()
+    );
+
+    expect(snapshots[0]!.descriptor).toMatchObject({
+      id: "p1",
+      supports: { run: true, streaming: true },
+      cancel: "hard"
+    });
+    expect(snapshots[0]!.capabilities).toMatchObject({
+      available: true,
+      streamingAvailable: true
+    });
+  });
+
+  it("treats a declared-but-unimplemented stream() as streaming unavailable", async () => {
+    const snapshots = await collectProviderRuntimeSnapshots(
+      [createFakeProvider("p1", { streaming: true, implementsStream: false })],
+      createHostServices()
+    );
+
+    expect(snapshots[0]!.capabilities.streamingAvailable).toBe(false);
+    expect(snapshots[0]!.capabilities.streamingUnavailableReason).toContain(
+      "does not implement stream()"
+    );
+  });
+
+  it("lets a provider revoke streaming dynamically with its own reason", async () => {
+    const snapshots = await collectProviderRuntimeSnapshots(
+      [
+        createFakeProvider("p1", {
+          streaming: true,
+          streamingAvailable: false,
+          streamingUnavailableReason: "Host has no chunked HTTP capability."
+        })
+      ],
+      createHostServices()
+    );
+
+    expect(snapshots[0]!.capabilities.streamingAvailable).toBe(false);
+    expect(snapshots[0]!.capabilities.streamingUnavailableReason).toBe(
+      "Host has no chunked HTTP capability."
+    );
+  });
+
+  it("passes the requested interaction mode through, defaulting to run", async () => {
+    const snapshots = await collectProviderRuntimeSnapshots(
+      [createFakeProvider("p1", { streaming: false })],
+      createHostServices()
+    );
+
+    expect(buildSharedPlannerInput(request, snapshots, true).interactionMode).toBe("run");
+    expect(buildSharedPlannerInput(request, snapshots, true, "stream").interactionMode).toBe(
+      "stream"
+    );
   });
 });
