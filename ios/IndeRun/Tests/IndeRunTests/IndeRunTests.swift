@@ -1750,3 +1750,246 @@ final class StreamOrchestrationTests: XCTestCase {
         XCTAssertEqual(run.handle.providerId, "b_streaming")
     }
 }
+
+// MARK: - OpenAI Streaming
+
+/// Streaming HTTP host service that replays a scripted body, so the OpenAI
+/// adapter's event mapping can be exercised without a network.
+final class MockStreamingHttpClientService: HttpStreamingClientService, @unchecked Sendable {
+    struct Script: @unchecked Sendable {
+        var status: Int = 200
+        var statusText: String = "OK"
+        var headers: [String: String] = ["content-type": "text/event-stream"]
+        var chunks: [String] = []
+        var error: Error?
+    }
+
+    private let lock = NSLock()
+    private let script: Script
+    private var recorded: [HttpRequest] = []
+
+    init(script: Script) {
+        self.script = script
+    }
+
+    var requests: [HttpRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func stream(request: HttpRequest) async throws -> HttpStreamResponse {
+        lock.lock()
+        recorded.append(request)
+        lock.unlock()
+
+        if let error = script.error { throw error }
+
+        let chunks = script.chunks
+        return HttpStreamResponse(
+            status: script.status,
+            statusText: script.statusText,
+            headers: script.headers,
+            body: AsyncThrowingStream { continuation in
+                for chunk in chunks {
+                    continuation.yield(Data(chunk.utf8))
+                }
+                continuation.finish()
+            }
+        )
+    }
+}
+
+final class OpenAIStreamingTests: XCTestCase {
+    private struct TranscriptCase: Decodable {
+        let name: String
+        let description: String
+        let sse: String
+        let expected: [ExpectedEvent]
+    }
+
+    private struct ExpectedEvent: Decodable {
+        let kind: String
+        let text: String?
+        let finalText: String?
+        let finishReason: FinishReason?
+        let usage: ExpectedUsage?
+        let errorClass: ErrorClass?
+        let message: String?
+    }
+
+    private struct ExpectedUsage: Decodable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let totalTokens: Int?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [TranscriptCase]
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("contracts/fixtures/streaming/openai-responses-transcript.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    private func makeProvider() -> OpenAIProvider {
+        OpenAIProvider(options: OpenAIProviderOptions(
+            model: "gpt-5.2",
+            endpointURL: "https://proxy.test/v1/responses"
+        ))
+    }
+
+    private func makeHost(streaming: MockStreamingHttpClientService?) async -> HostServices {
+        let storage = MockSecureStorageService()
+        await storage.setSecret(slotId: "openai_default", secret: "sk-test")
+        return HostServices(
+            connectivity: MockConnectivityService(),
+            secureStorage: storage,
+            clock: MockClockService(),
+            // capabilities() probes endpoint reachability over the unary client
+            // before it reports anything about streaming.
+            httpClient: MockHttpClientService(responses: [
+                .success(HttpResponse(body: "{}", headers: [:], status: 200, statusText: "OK"))
+            ]),
+            streamingHttpClient: streaming
+        )
+    }
+
+    private func makeRequest() -> TaskRequest {
+        TaskRequest(
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello",
+            authContextRef: "openai_default"
+        )
+    }
+
+    private func collect(
+        provider: OpenAIProvider,
+        host: HostServices
+    ) async throws -> [ProviderStreamEvent] {
+        var events: [ProviderStreamEvent] = []
+        let context = ProviderStreamContext(
+            runId: "run-1",
+            hostServices: host,
+            cancellation: StreamCancellationToken()
+        )
+        for try await event in provider.stream(request: makeRequest(), context: context) {
+            events.append(event)
+        }
+        return events
+    }
+
+    func testDeclaresStreamingAndATokenStreamingStyle() {
+        let descriptor = makeProvider().describe()
+        XCTAssertTrue(descriptor.supports.streaming)
+        XCTAssertEqual(descriptor.streamingStyle, .tokens)
+        XCTAssertEqual(descriptor.cancel, .hard)
+    }
+
+    func testReportsStreamingUnavailableWhenTheHostCannotStream() async {
+        let host = await makeHost(streaming: nil)
+        let capabilities = await makeProvider().capabilities(host: host)
+
+        XCTAssertEqual(capabilities.streamingAvailable, false)
+        XCTAssertEqual(
+            capabilities.streamingUnavailableReason,
+            "Host does not provide an HttpStreamingClientService, which OpenAI streaming requires."
+        )
+    }
+
+    func testAsksTheEndpointToStreamAndAuthenticatesWithTheResolvedCredential() async throws {
+        let client = MockStreamingHttpClientService(script: .init(
+            chunks: ["data: {\"type\":\"response.completed\",\"response\":{\"output_text\":\"hi\"}}\n\n"]
+        ))
+        let host = await makeHost(streaming: client)
+        _ = try await collect(provider: makeProvider(), host: host)
+
+        let sent = try XCTUnwrap(client.requests.first)
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data((sent.body ?? "").utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(body["stream"] as? Bool, true)
+        XCTAssertEqual(body["model"] as? String, "gpt-5.2")
+        XCTAssertEqual(sent.headers?["Authorization"], "Bearer sk-test")
+        XCTAssertEqual(sent.headers?["Accept"], "text/event-stream")
+    }
+
+    func testMatchesTheSharedTranscriptVectors() async throws {
+        for transcript in try loadFixture().cases {
+            let host = await makeHost(
+                streaming: MockStreamingHttpClientService(script: .init(chunks: [transcript.sse]))
+            )
+            let events = try await collect(provider: makeProvider(), host: host)
+            let label = "\(transcript.name): \(transcript.description)"
+
+            XCTAssertEqual(events.count, transcript.expected.count, label)
+            for (event, expected) in zip(events, transcript.expected) {
+                switch (event, expected.kind) {
+                case let (.delta(text), "delta"):
+                    XCTAssertEqual(text, expected.text, label)
+
+                case let (.done(finalText, finishReason, usage), "done"):
+                    XCTAssertEqual(finalText, expected.finalText, label)
+                    XCTAssertEqual(finishReason, expected.finishReason, label)
+                    XCTAssertEqual(usage?.totalTokens, expected.usage?.totalTokens, label)
+
+                case let (.failure(error), "error"):
+                    let exception = try XCTUnwrap(error as? IndeRunException, label)
+                    XCTAssertEqual(exception.errorClass, expected.errorClass, label)
+                    XCTAssertEqual(exception.message, expected.message, label)
+
+                default:
+                    XCTFail("Unexpected event \(event) for expected kind \(expected.kind) in \(label)")
+                }
+            }
+        }
+    }
+
+    func testIsUnaffectedByHowTheEventStreamIsChunked() async throws {
+        let transcript = try loadFixture().cases[0]
+        let client = MockStreamingHttpClientService(
+            script: .init(chunks: transcript.sse.map { String($0) })
+        )
+        let host = await makeHost(streaming: client)
+
+        let events = try await collect(provider: makeProvider(), host: host)
+
+        XCTAssertEqual(events.count, transcript.expected.count)
+    }
+
+    func testClassifiesANonSuccessResponseBeforeReadingTheBodyAsAnEventStream() async throws {
+        let client = MockStreamingHttpClientService(script: .init(
+            status: 429,
+            statusText: "Too Many Requests",
+            headers: ["retry-after": "3"],
+            chunks: ["{\"error\":{\"message\":\"Rate limit reached\"}}"]
+        ))
+        let host = await makeHost(streaming: client)
+
+        do {
+            _ = try await collect(provider: makeProvider(), host: host)
+            XCTFail("Expected the stream to fail")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .RateLimited)
+            XCTAssertEqual(error.retryAfterMs, 3000)
+        }
+    }
+
+    func testRefusesToStreamWhenTheHostHasNoStreamingClient() async throws {
+        let host = await makeHost(streaming: nil)
+
+        do {
+            _ = try await collect(provider: makeProvider(), host: host)
+            XCTFail("Expected the stream to fail")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Unavailable)
+        }
+    }
+}
