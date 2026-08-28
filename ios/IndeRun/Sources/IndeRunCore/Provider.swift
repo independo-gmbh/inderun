@@ -124,10 +124,31 @@ public struct ProviderDynamicCapabilities: Codable, Sendable {
     public let available: Bool
     /// Detail message explaining why the provider is unavailable, when `available` is false.
     public let reason: String?
+    /// Whether the provider can stream (Mode 2) right now on this host. Leave `nil`
+    /// to inherit the static `descriptor.supports.streaming` value — only set it
+    /// when the runtime environment can take streaming away from a provider that
+    /// otherwise declares it.
+    public let streamingAvailable: Bool?
+    /// Detail message used when `streamingAvailable` is false. Leave `nil` to let
+    /// the route planner synthesize a generic message.
+    public let streamingUnavailableReason: String?
+    /// Whether cancellation is honored right now on this host. Leave `nil` to
+    /// inherit the static `descriptor.cancel` value (anything other than `none`
+    /// means available).
+    public let cancellationAvailable: Bool?
 
-    public init(available: Bool, reason: String? = nil) {
+    public init(
+        available: Bool,
+        reason: String? = nil,
+        streamingAvailable: Bool? = nil,
+        streamingUnavailableReason: String? = nil,
+        cancellationAvailable: Bool? = nil
+    ) {
         self.available = available
         self.reason = reason
+        self.streamingAvailable = streamingAvailable
+        self.streamingUnavailableReason = streamingUnavailableReason
+        self.cancellationAvailable = cancellationAvailable
     }
 }
 

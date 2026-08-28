@@ -220,10 +220,10 @@ private func buildSharedPlannerInput(
             SharedPlannerProviderInput(
                 capabilities: SharedPlannerCapabilities(
                     available: snapshot.capabilities.available,
-                    cancellationAvailable: nil,
-                    reason: nil,
-                    streamingAvailable: nil,
-                    streamingUnavailableReason: nil
+                    cancellationAvailable: snapshot.capabilities.cancellationAvailable,
+                    reason: snapshot.capabilities.reason,
+                    streamingAvailable: snapshot.capabilities.streamingAvailable,
+                    streamingUnavailableReason: snapshot.capabilities.streamingUnavailableReason
                 ),
                 descriptor: SharedPlannerProviderDescriptor(
                     cancel: cancelSemantics(from: snapshot.descriptor.cancel),

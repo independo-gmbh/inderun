@@ -134,6 +134,22 @@ struct MockRoutePlanner: RoutePlanning {
     }
 }
 
+/// Captures the planner input so tests can assert what the Swift host actually
+/// hands the shared route core.
+final class CapturingRoutePlanner: RoutePlanning, @unchecked Sendable {
+    let plan: SharedPlannerRoutePlan?
+    private(set) var capturedInput: SharedPlannerInput?
+
+    init(plan: SharedPlannerRoutePlan?) {
+        self.plan = plan
+    }
+
+    func planRoute(input: SharedPlannerInput) -> SharedPlannerRoutePlan? {
+        capturedInput = input
+        return plan
+    }
+}
+
 /// Test double for the Apple provider runtime seam.
 ///
 /// Keeps provider tests independent of the host OS, hardware eligibility, and
@@ -264,6 +280,65 @@ final class IndeRunTests: XCTestCase {
         XCTAssertTrue(selection.explanation.contains("shared Rust planner"))
     }
     
+    func testPlannerInputCarriesInteractionModeAndStreamingCapability() async throws {
+        let provider = MockProvider(id: "local_a", type: .local)
+        try registry.register(provider)
+
+        let planner = CapturingRoutePlanner(
+            plan: SharedPlannerRoutePlan(
+                candidates: [Candidate(order: 0, providerId: "local_a")],
+                explanation: SharedPlannerExplanation(
+                    selectedProviderId: "local_a",
+                    summary: "Selected provider 'local_a'."
+                ),
+                failureCode: nil,
+                fallbackProviderIds: [],
+                rejectedProviders: [],
+                selectedProviderId: "local_a"
+            )
+        )
+
+        _ = try await Router(registry: registry, planner: planner).selectRoute(
+            request: TaskRequest(prompt: "planner input"),
+            hostServices: hostServices
+        )
+
+        let input = try XCTUnwrap(planner.capturedInput)
+        // The Swift SDK is Mode 1 only until ProviderAdapter gains stream().
+        XCTAssertEqual(input.interactionMode, .run)
+        let descriptor = try XCTUnwrap(input.providers.first?.descriptor)
+        XCTAssertEqual(descriptor.supports.streaming, false)
+        XCTAssertEqual(descriptor.cancel, .soft)
+    }
+
+    func testRoutePlanDecodesStreamingRejectionReasons() throws {
+        let json = """
+        {
+          "candidates": [],
+          "fallbackProviderIds": [],
+          "failureCode": "capability_mismatch",
+          "explanation": { "summary": "No provider capable of streaming was found." },
+          "rejectedProviders": [
+            {
+              "providerId": "local_a",
+              "reasons": [
+                { "code": "streaming_not_supported", "message": "no streaming" },
+                { "code": "streaming_unavailable", "message": "cannot stream here" }
+              ]
+            }
+          ]
+        }
+        """
+
+        let plan = try SharedPlannerRoutePlan(json)
+
+        XCTAssertEqual(plan.failureCode, .capabilityMismatch)
+        XCTAssertEqual(
+            plan.rejectedProviders.first?.reasons.map(\.code),
+            [.streamingNotSupported, .streamingUnavailable]
+        )
+    }
+
     func testRoutingOnDeviceMismatch() async throws {
         let request = TaskRequest(
             prompt: "Test missing device",
