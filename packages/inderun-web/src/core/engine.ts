@@ -121,7 +121,7 @@ export class IndeRun implements IndeRunApi {
       }
 
       // 2. Select the route based on constraints and host capabilities
-      const routeSelection = await this.router.selectRoute(request, this.hostServices);
+      const routeSelection = await this.router.selectRoute(request, this.hostServices, "run");
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
       // Emit route_decided event
@@ -240,13 +240,18 @@ export class IndeRun implements IndeRunApi {
   /**
    * Orchestrates a Mode 2 streaming execution of a TaskRequest.
    *
-   * Reuses the same route selection as run(), restricted to providers that declare
-   * `supports.streaming` and implement `stream()`. Fallback to the next provider is
-   * allowed only before the first content event has been admitted for the run; once
-   * one has been delivered, the run is committed to that provider and any later
-   * provider failure becomes a terminal error outcome rather than a silent provider
-   * swap. Cancellation always forecloses fallback, regardless of commit state, and
-   * is idempotent.
+   * Routes through the same planner as run(), asking it for a `stream` route: the
+   * planner rejects providers that do not declare `supports.streaming` or whose
+   * dynamic capability snapshot says they cannot stream here, and reports why. The
+   * whole returned chain is therefore mode-compatible and subject to the same
+   * privacy, locality, availability, and policy constraints as a Mode 1 route.
+   *
+   * Fallback to the next provider is allowed only before the first content event
+   * has been admitted for the run; once one has been delivered, the run is
+   * committed to that provider and any later provider failure becomes a terminal
+   * error outcome rather than a silent provider swap — partial output spliced from
+   * two providers is undetectable to the caller. Cancellation always forecloses
+   * fallback, regardless of commit state, and is idempotent.
    * @param request - The canonical task request containing prompts, tasks, and constraints.
    * @throws {IndeRunException} If validation fails or no eligible streaming provider exists.
    */
@@ -263,11 +268,8 @@ export class IndeRun implements IndeRunApi {
       throw createInternal(message, { runId, details: { validationIssues } });
     }
 
-    const routeSelection = await this.router.selectRoute(request, this.hostServices);
-    const allProviders = [routeSelection.provider, ...routeSelection.fallbackProviders];
-    const providers = allProviders.filter(
-      (p) => p.describe().supports.streaming && typeof p.stream === "function"
-    );
+    const routeSelection = await this.router.selectRoute(request, this.hostServices, "stream");
+    const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
     this.safeEmit({
       type: "route_decided",
@@ -287,6 +289,9 @@ export class IndeRun implements IndeRunApi {
       }
     });
 
+    // Defensive only: streaming eligibility is decided by the route planner, which
+    // throws with its own rejection reasons when nothing can stream. Reaching here
+    // means a planned provider was unregistered between planning and selection.
     if (providers.length === 0) {
       throw createCapabilityMismatch("No eligible provider supports streaming for this request.", {
         runId,
