@@ -23,6 +23,49 @@ describe("handleProxyRequest", () => {
     });
   });
 
+  it("relays an event stream as it arrives instead of buffering it", async () => {
+    let closed = false;
+    const upstream = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"type":"a"}\n\n'));
+        },
+        pull(controller) {
+          // Withheld until the caller has already read the first chunk, so a
+          // buffering proxy would deadlock rather than pass this.
+          if (!firstChunkRead) return new Promise(() => undefined);
+          controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+          controller.close();
+          closed = true;
+        }
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } }
+    );
+    let firstChunkRead = false;
+    const fetchImpl = vi.fn().mockResolvedValue(upstream);
+
+    const response = await handleProxyRequest(
+      new Request("http://localhost/api/inderun/openai-responses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: "Hello", stream: true })
+      }),
+      { apiKey: "sk-test", fetchImpl }
+    );
+
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+    expect(response.headers.get("Cache-Control")).toBe("no-cache");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1].body))).toMatchObject({ stream: true });
+
+    const decoder = new TextDecoder();
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    firstChunkRead = true;
+    expect(decoder.decode(first.value)).toBe('data: {"type":"a"}\n\n');
+    expect(closed).toBe(false);
+    await reader.cancel();
+  });
+
   it("passes through upstream failures while forcing the configured model for the default OpenAI endpoint", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ error: { message: "Rate limited." } }), {

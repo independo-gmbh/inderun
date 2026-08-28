@@ -100,8 +100,24 @@ async function writeNodeResponse(
 
   writeCorsHeaders(res, config);
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  res.end(buffer);
+  // Relay a streamed body chunk by chunk; buffering it into an ArrayBuffer here
+  // would undo the streaming pass-through in the handler.
+  if (response.body) {
+    const reader = response.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) res.write(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    res.end();
+    return;
+  }
+
+  res.end();
 }
 
 function writeCorsHeaders(res: ServerResponse, config: DemoProxyConfig): void {

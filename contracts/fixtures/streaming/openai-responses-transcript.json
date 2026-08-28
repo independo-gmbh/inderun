@@ -1,0 +1,102 @@
+{
+  "$comment": "Cross-SDK conformance vectors for mapping the OpenAI Responses API's server-sent events onto IndeRun's canonical provider stream events. The Web, Swift, and Kotlin OpenAI adapters each implement this mapping separately, so they are held to one set of vectors rather than three hand-written suites that could drift. 'sse' is the raw response body as the streaming HTTP host capability would deliver it; 'expected' is the provider-shaped event sequence the adapter must produce, which the engine then normalizes into canonical StreamEvents. An expected entry of kind 'error' names the mapped IndeRun error class and message rather than a provider payload, since that mapping is the point of the case.",
+  "cases": [
+    {
+      "name": "deltas_then_completed",
+      "description": "The common path: text deltas, then a completed response carrying the final text and usage.",
+      "sse": "event: response.created\ndata: {\"type\": \"response.created\", \"response\": {\"status\": \"in_progress\"}}\n\nevent: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \"Hello\"}\n\nevent: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \" world\"}\n\nevent: response.completed\ndata: {\"type\": \"response.completed\", \"response\": {\"status\": \"completed\", \"output_text\": \"Hello world\", \"usage\": {\"input_tokens\": 4, \"output_tokens\": 2, \"total_tokens\": 6}}}\n\ndata: [DONE]\n\n",
+      "expected": [
+        {
+          "kind": "delta",
+          "text": "Hello"
+        },
+        {
+          "kind": "delta",
+          "text": " world"
+        },
+        {
+          "kind": "done",
+          "finalText": "Hello world",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 4,
+            "outputTokens": 2,
+            "totalTokens": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "incomplete_maps_to_length",
+      "description": "A run truncated by max_output_tokens completes with finishReason 'length', matching what Mode 1 reports for the same response.",
+      "sse": "event: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \"trunc\"}\n\nevent: response.incomplete\ndata: {\"type\": \"response.incomplete\", \"response\": {\"status\": \"incomplete\", \"output_text\": \"trunc\", \"incomplete_details\": {\"reason\": \"max_output_tokens\"}}}\n\n",
+      "expected": [
+        {
+          "kind": "delta",
+          "text": "trunc"
+        },
+        {
+          "kind": "done",
+          "finalText": "trunc",
+          "finishReason": "length"
+        }
+      ]
+    },
+    {
+      "name": "unknown_event_types_are_ignored",
+      "description": "The Responses event set is open and additive, so unrecognized types must not fail the run.",
+      "sse": "event: response.in_progress\ndata: {\"type\": \"response.in_progress\"}\n\nevent: response.output_item.added\ndata: {\"type\": \"response.output_item.added\", \"item\": {\"type\": \"message\"}}\n\nevent: response.reasoning_summary.delta\ndata: {\"type\": \"response.reasoning_summary.delta\", \"delta\": \"thinking\"}\n\nevent: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \"ok\"}\n\nevent: response.completed\ndata: {\"type\": \"response.completed\", \"response\": {\"status\": \"completed\", \"output_text\": \"ok\"}}\n\n",
+      "expected": [
+        {
+          "kind": "delta",
+          "text": "ok"
+        },
+        {
+          "kind": "done",
+          "finalText": "ok",
+          "finishReason": "stop"
+        }
+      ]
+    },
+    {
+      "name": "output_array_shape_is_walked",
+      "description": "A completed response that carries its text in the output array rather than output_text resolves the same way.",
+      "sse": "event: response.completed\ndata: {\"type\": \"response.completed\", \"response\": {\"status\": \"completed\", \"output\": [{\"type\": \"message\", \"content\": [{\"type\": \"output_text\", \"text\": \"from array\"}]}]}}\n\n",
+      "expected": [
+        {
+          "kind": "done",
+          "finalText": "from array",
+          "finishReason": "stop"
+        }
+      ]
+    },
+    {
+      "name": "rate_limit_error_event",
+      "description": "A failure reported mid-stream over an HTTP 200 body maps onto the error taxonomy by code, since there is no status line to classify from.",
+      "sse": "event: error\ndata: {\"type\": \"error\", \"error\": {\"message\": \"Rate limit reached\", \"type\": \"rate_limit_error\", \"code\": \"rate_limit_exceeded\"}}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "RateLimited",
+          "message": "Rate limit reached"
+        }
+      ]
+    },
+    {
+      "name": "response_failed_event",
+      "description": "response.failed carries its error nested under the response object.",
+      "sse": "event: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \"partial\"}\n\nevent: response.failed\ndata: {\"type\": \"response.failed\", \"response\": {\"status\": \"failed\", \"error\": {\"message\": \"The model failed to generate a response.\", \"type\": \"server_error\", \"code\": \"server_error\"}}}\n\n",
+      "expected": [
+        {
+          "kind": "delta",
+          "text": "partial"
+        },
+        {
+          "kind": "error",
+          "errorClass": "Unavailable",
+          "message": "The model failed to generate a response."
+        }
+      ]
+    }
+  ]
+}

@@ -66,7 +66,16 @@ function createHost(
         return 1000;
       }
     },
-    httpClient
+    httpClient,
+    // These tests cover Mode 1; a host that can stream is the realistic default,
+    // and it keeps capability assertions free of the streaming-restriction
+    // fields that a non-streaming host would add. Streaming behavior itself is
+    // covered in stream.test.ts.
+    streamingHttpClient: {
+      async stream() {
+        throw new Error("Streaming is not exercised by these tests.");
+      }
+    }
   };
 
   if (secureStorage) {
