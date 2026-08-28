@@ -196,6 +196,45 @@ describe("Router streaming-aware selection", () => {
     );
   });
 
+  it("reports capability_mismatch, not offline, when an offline host has only local providers", async () => {
+    registry.register(createProvider("p_local", { streaming: false }));
+    const router = new Router(registry);
+
+    await expect(
+      router.selectRoute(request, createHostServices(false), "stream")
+    ).rejects.toMatchObject({
+      errorClass: "CapabilityMismatch",
+      details: {
+        failureCode: "capability_mismatch",
+        rejectedProviders: [
+          {
+            providerId: "p_local",
+            reasons: [{ code: "streaming_not_supported" }]
+          }
+        ]
+      }
+    });
+  });
+
+  it("still reports offline when a cloud provider was rejected for connectivity", async () => {
+    const cloudProvider = createProvider("p_cloud", { streaming: true });
+    const describeCloud = cloudProvider.describe.bind(cloudProvider);
+    cloudProvider.describe = () => ({
+      ...describeCloud(),
+      type: "cloud",
+      privacy: { dataLeavesDevice: true }
+    });
+    registry.register(cloudProvider);
+    const router = new Router(registry);
+
+    await expect(
+      router.selectRoute(request, createHostServices(false), "stream")
+    ).rejects.toMatchObject({
+      errorClass: "Offline",
+      details: { failureCode: "offline" }
+    });
+  });
+
   it("keeps privacy constraints in force for streaming routes", async () => {
     const cloudProvider = createProvider("p_cloud", { streaming: true });
     const describeCloud = cloudProvider.describe.bind(cloudProvider);

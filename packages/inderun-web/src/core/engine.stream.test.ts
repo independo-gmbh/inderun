@@ -155,6 +155,14 @@ describe("IndeRun.stream()", () => {
     });
   });
 
+  it("carries the run id on a route-selection failure", async () => {
+    const engine = new IndeRun(registry, host);
+    await expect(engine.stream(createRequest({ requestId: "req-42" }))).rejects.toMatchObject({
+      errorClass: "CapabilityMismatch",
+      runId: "req-42"
+    });
+  });
+
   it("reports why a registered non-streaming provider was rejected", async () => {
     const provider = createFakeStreamProvider("p1", { script: [] });
     const describeStreaming = provider.describe.bind(provider);

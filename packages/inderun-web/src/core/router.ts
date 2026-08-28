@@ -201,12 +201,7 @@ export class Router {
         localCandidates,
         cloudCandidates
       });
-      const failureCode = !online
-        ? "offline"
-        : planInput.constraints.cloud === "required" ||
-            planInput.constraints.privacy === "cloud_required"
-          ? "unavailable"
-          : "capability_mismatch";
+      const failureCode = this.inferFallbackFailureCode(planInput, rejectedProviders);
 
       return {
         fallbackProviderIds: [],
@@ -238,6 +233,35 @@ export class Router {
         selectedProviderId
       }
     };
+  }
+
+  /**
+   * Mirrors `infer_failure_code` in the shared Rust planner. The offline class is
+   * derived from the rejection reasons rather than from the connectivity flag
+   * alone: an offline host whose only provider is local and non-streaming failed
+   * on capability, not on connectivity, and reporting `Offline` there would
+   * contradict the explanation shipped alongside it.
+   */
+  private inferFallbackFailureCode(
+    planInput: SharedPlannerInput,
+    rejectedProviders: SharedPlannerRoutePlan["rejectedProviders"]
+  ): NonNullable<SharedPlannerRoutePlan["failureCode"]> {
+    if (
+      rejectedProviders.some((rejected) =>
+        rejected.reasons.some((reason) => reason.code === "offline")
+      )
+    ) {
+      return "offline";
+    }
+
+    if (
+      planInput.constraints.cloud === "required" ||
+      planInput.constraints.privacy === "cloud_required"
+    ) {
+      return "unavailable";
+    }
+
+    return "capability_mismatch";
   }
 
   /**

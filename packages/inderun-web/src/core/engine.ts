@@ -10,7 +10,7 @@ import type { HostServices } from "./host.js";
 import type { ProviderAdapter, ProviderCapabilitySnapshot } from "./provider.js";
 import type { IndeRunApi } from "./generated/inderun-api.js";
 import { ProviderRegistry } from "./registry.js";
-import { Router } from "./router.js";
+import { type RouteSelection, Router } from "./router.js";
 import {
   createCapabilityMismatch,
   createInternal,
@@ -268,7 +268,15 @@ export class IndeRun implements IndeRunApi {
       throw createInternal(message, { runId, details: { validationIssues } });
     }
 
-    const routeSelection = await this.router.selectRoute(request, this.hostServices, "stream");
+    // Route selection failures are the one class of stream error that surfaces as a
+    // rejected promise instead of a terminal event, so they must still carry the
+    // runId — there is no handle for the caller to correlate them with otherwise.
+    let routeSelection: RouteSelection;
+    try {
+      routeSelection = await this.router.selectRoute(request, this.hostServices, "stream");
+    } catch (error) {
+      throw toIndeRunException(error, { runId });
+    }
     const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
     this.safeEmit({
