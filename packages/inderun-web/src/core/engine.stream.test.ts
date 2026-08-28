@@ -458,6 +458,7 @@ describe("IndeRun.stream()", () => {
     });
     const failing = createFakeStreamProvider("p1", { script: [] });
     const failingState = { callCount: 0 };
+    // eslint-disable-next-line require-yield -- the point of this provider is to fail without emitting
     failing.stream = async function* (
       _req: TaskRequest,
       ctx: ProviderStreamContext
