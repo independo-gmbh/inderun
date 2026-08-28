@@ -618,6 +618,12 @@ public extension TaskResult {
 /// 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
 /// otherwise-returned result — no provider in this codebase currently produces it, since a
 /// full execution failure is instead surfaced by run() throwing an IndeRunError.
+///
+/// How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
+/// 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
+/// otherwise completed run). 'cancelled' is included so this enum stays identical to
+/// TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal
+/// outcome branch. Optional: providers that do not report a finish reason omit it.
 public enum FinishReason: String, Codable, Sendable {
     case cancelled = "cancelled"
     case error = "error"
@@ -2783,6 +2789,7 @@ public struct Payload: Codable, Sendable {
     /// The lifecycle phase reached.
     public var phase: Phase?
     public var finalText: String?
+    public var finishReason: FinishReason?
     public var outcome: Outcome?
     public var runId: String?
     public var schemaVersion: SchemaVersion?
@@ -2796,6 +2803,7 @@ public struct Payload: Codable, Sendable {
         case text = "text"
         case phase = "phase"
         case finalText = "finalText"
+        case finishReason = "finishReason"
         case outcome = "outcome"
         case runId = "runId"
         case schemaVersion = "schemaVersion"
@@ -2806,10 +2814,11 @@ public struct Payload: Codable, Sendable {
         case reason = "reason"
     }
 
-    public init(text: String?, phase: Phase?, finalText: String?, outcome: Outcome?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
+    public init(text: String?, phase: Phase?, finalText: String?, finishReason: FinishReason?, outcome: Outcome?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
         self.text = text
         self.phase = phase
         self.finalText = finalText
+        self.finishReason = finishReason
         self.outcome = outcome
         self.runId = runId
         self.schemaVersion = schemaVersion
@@ -2843,6 +2852,7 @@ public extension Payload {
         text: String?? = nil,
         phase: Phase?? = nil,
         finalText: String?? = nil,
+        finishReason: FinishReason?? = nil,
         outcome: Outcome?? = nil,
         runId: String?? = nil,
         schemaVersion: SchemaVersion?? = nil,
@@ -2856,6 +2866,7 @@ public extension Payload {
             text: text ?? self.text,
             phase: phase ?? self.phase,
             finalText: finalText ?? self.finalText,
+            finishReason: finishReason ?? self.finishReason,
             outcome: outcome ?? self.outcome,
             runId: runId ?? self.runId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
@@ -3097,6 +3108,12 @@ public struct StreamTerminalOutcome: Codable, Sendable {
     /// The full, cumulative text produced by the run. Equivalent in role to
     /// TaskResult.output.text for Mode 1.
     public var finalText: String?
+    /// How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
+    /// 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
+    /// otherwise completed run). 'cancelled' is included so this enum stays identical to
+    /// TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal
+    /// outcome branch. Optional: providers that do not report a finish reason omit it.
+    public var finishReason: FinishReason?
     /// The stream completed normally: every provider-generated event was delivered before this
     /// outcome was produced.
     ///
@@ -3134,6 +3151,7 @@ public struct StreamTerminalOutcome: Codable, Sendable {
 
     public enum CodingKeys: String, CodingKey {
         case finalText = "finalText"
+        case finishReason = "finishReason"
         case outcome = "outcome"
         case runId = "runId"
         case schemaVersion = "schemaVersion"
@@ -3144,8 +3162,9 @@ public struct StreamTerminalOutcome: Codable, Sendable {
         case reason = "reason"
     }
 
-    public init(finalText: String?, outcome: Outcome, runId: String, schemaVersion: SchemaVersion, telemetry: StreamTerminalOutcomeTelemetry?, usage: StreamTerminalOutcomeUsage?, error: StreamTerminalOutcomeError?, partialText: String?, reason: String?) {
+    public init(finalText: String?, finishReason: FinishReason?, outcome: Outcome, runId: String, schemaVersion: SchemaVersion, telemetry: StreamTerminalOutcomeTelemetry?, usage: StreamTerminalOutcomeUsage?, error: StreamTerminalOutcomeError?, partialText: String?, reason: String?) {
         self.finalText = finalText
+        self.finishReason = finishReason
         self.outcome = outcome
         self.runId = runId
         self.schemaVersion = schemaVersion
@@ -3177,6 +3196,7 @@ public extension StreamTerminalOutcome {
 
     func with(
         finalText: String?? = nil,
+        finishReason: FinishReason?? = nil,
         outcome: Outcome? = nil,
         runId: String? = nil,
         schemaVersion: SchemaVersion? = nil,
@@ -3188,6 +3208,7 @@ public extension StreamTerminalOutcome {
     ) -> StreamTerminalOutcome {
         return StreamTerminalOutcome(
             finalText: finalText ?? self.finalText,
+            finishReason: finishReason ?? self.finishReason,
             outcome: outcome ?? self.outcome,
             runId: runId ?? self.runId,
             schemaVersion: schemaVersion ?? self.schemaVersion,

@@ -415,6 +415,26 @@ describe("StreamEvent validation", () => {
     ).toBe(true);
   });
 
+  it("accepts a terminal event whose completed payload carries finishReason", () => {
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 2,
+        timestamp: 1002,
+        type: "terminal",
+        payload: {
+          schemaVersion: "1.0",
+          runId: "run_123",
+          outcome: "completed",
+          finalText: "Hello",
+          finishReason: "stop",
+          telemetry: { providerUsed: "openai", totalMs: 42 }
+        }
+      })
+    ).toBe(true);
+  });
+
   it("accepts an event with an unrecognized type (forward-compatible)", () => {
     expect(
       validateStreamEvent({
@@ -464,6 +484,32 @@ describe("StreamTerminalOutcome validation", () => {
         telemetry: { providerUsed: "openai", totalMs: 42 }
       })
     ).toBe(true);
+  });
+
+  it("accepts a completed outcome carrying finishReason", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "completed",
+        finalText: "Hello",
+        finishReason: "length",
+        telemetry: { providerUsed: "openai", totalMs: 42 }
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a completed outcome with an unknown finishReason", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "completed",
+        finalText: "Hello",
+        finishReason: "truncated",
+        telemetry: { providerUsed: "openai", totalMs: 42 }
+      })
+    ).toBe(false);
   });
 
   it("accepts an error outcome", () => {

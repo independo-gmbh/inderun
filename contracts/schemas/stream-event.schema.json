@@ -118,6 +118,7 @@
                 "runId": { "type": "string", "minLength": 1 },
                 "outcome": { "const": "completed" },
                 "finalText": { "type": "string" },
+                "finishReason": { "enum": ["stop", "length", "cancelled", "error"] },
                 "usage": {
                   "type": "object",
                   "additionalProperties": true,

@@ -173,7 +173,17 @@ export interface ProviderStreamContext extends RunContext {
 export type ProviderStreamEvent =
   | { kind: "delta"; text: string }
   | { kind: "snapshot"; text: string }
-  | { kind: "done"; finalText: string; usage?: TaskResult["usage"] }
+  | {
+      kind: "done";
+      finalText: string;
+      /**
+       * How generation ended, when the provider reports it. Mirrors
+       * `TaskResult.finishReason` for Mode 1 and surfaces on the `completed`
+       * terminal outcome; omit when the provider gives no signal.
+       */
+      finishReason?: TaskResult["finishReason"];
+      usage?: TaskResult["usage"];
+    }
   | { kind: "error"; error: unknown };
 
 /**

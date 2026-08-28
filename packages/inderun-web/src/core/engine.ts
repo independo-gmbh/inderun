@@ -395,6 +395,7 @@ export class IndeRun implements IndeRunApi {
               schemaVersion: "1.0",
               finalText: ev.finalText,
               telemetry: { providerUsed: providerId, totalMs: now() - startTime },
+              ...(ev.finishReason !== undefined ? { finishReason: ev.finishReason } : {}),
               ...(ev.usage !== undefined ? { usage: ev.usage } : {})
             };
             const terminal = gate.terminate(outcome, now());

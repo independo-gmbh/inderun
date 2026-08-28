@@ -26,6 +26,10 @@
           "description": "The full, cumulative text produced by the run. Equivalent in role to TaskResult.output.text for Mode 1.",
           "type": "string"
         },
+        "finishReason": {
+          "description": "How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end), 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an otherwise completed run). 'cancelled' is included so this enum stays identical to TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal outcome branch. Optional: providers that do not report a finish reason omit it.",
+          "enum": ["stop", "length", "cancelled", "error"]
+        },
         "usage": {
           "description": "Optional metadata regarding the quantity of tokens processed by the provider. Same shape as TaskResult.usage.",
           "type": "object",
