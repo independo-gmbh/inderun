@@ -1110,3 +1110,946 @@ final class IndeRunTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Streaming HTTP Host Service
+
+/// Feeds a scripted response through `URLSession` so the streaming client can be
+/// exercised without a network. Each script entry is delivered as its own
+/// `URLProtocol` data callback, which is what makes "bytes arrive before the
+/// response completes" observable.
+final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
+    struct Script: @unchecked Sendable {
+        var status: Int
+        var headers: [String: String]
+        var chunks: [String]
+        var chunkDelay: TimeInterval
+        /// Never sends the response head, so the caller's head deadline decides.
+        var withholdResponse: Bool = false
+    }
+
+    private static let lock = NSLock()
+    private static var scriptStorage = Script(status: 200, headers: [:], chunks: [], chunkDelay: 0)
+    private static var stoppedStorage = false
+
+    static var script: Script {
+        get { lock.lock(); defer { lock.unlock() }; return scriptStorage }
+        set { lock.lock(); scriptStorage = newValue; stoppedStorage = false; lock.unlock() }
+    }
+
+    static var stopped: Bool {
+        lock.lock(); defer { lock.unlock() }; return stoppedStorage
+    }
+
+    static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScriptedStreamingURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let script = Self.script
+        if script.withholdResponse { return }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: script.status,
+            httpVersion: "HTTP/1.1",
+            headerFields: script.headers
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            for chunk in script.chunks {
+                if Self.stopped { return }
+                if script.chunkDelay > 0 {
+                    Thread.sleep(forTimeInterval: script.chunkDelay)
+                }
+                if Self.stopped { return }
+                self.client?.urlProtocol(self, didLoad: Data(chunk.utf8))
+            }
+            if Self.stopped { return }
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {
+        Self.lock.lock()
+        Self.stoppedStorage = true
+        Self.lock.unlock()
+    }
+}
+
+final class URLSessionStreamingHttpClientServiceTests: XCTestCase {
+    private func makeRequest(timeoutMs: Int? = 5000) -> HttpRequest {
+        HttpRequest(
+            body: nil,
+            headers: nil,
+            method: .get,
+            timeoutMs: timeoutMs,
+            url: "https://example.test/stream"
+        )
+    }
+
+    private func collect(_ body: AsyncThrowingStream<Data, Error>) async throws -> [String] {
+        var out: [String] = []
+        for try await chunk in body {
+            out.append(String(decoding: chunk, as: UTF8.self))
+        }
+        return out
+    }
+
+    func testResolvesHeadWithLowerCasedHeadersBeforeBody() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["data: a\n\n"],
+            chunkDelay: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(response.headers["content-type"], "text/event-stream")
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "data: a\n\n")
+    }
+
+    func testSurfacesBytesBeforeTheResponseCompletes() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["data: one\n\n", "data: two\n\n", "data: three\n\n"],
+            chunkDelay: 0.05
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        // The first chunk must be observable well before the last one is sent;
+        // a buffering client could not satisfy this.
+        var iterator = response.body.makeAsyncIterator()
+        let started = Date()
+        let first = try await iterator.next()
+        // Chunk boundaries are arbitrary by contract — this client flushes at
+        // newlines — so the assertion is on content arriving early, not shape.
+        XCTAssertEqual(String(decoding: first ?? Data(), as: UTF8.self), "data: one\n")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.14)
+    }
+
+    func testExposesNonSuccessHeadAndErrorBody() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 429,
+            headers: ["Retry-After": "3", "Content-Type": "application/json"],
+            chunks: ["{\"error\":{\"message\":\"slow down\"}}"],
+            chunkDelay: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        XCTAssertEqual(response.status, 429)
+        XCTAssertEqual(response.headers["retry-after"], "3")
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "{\"error\":{\"message\":\"slow down\"}}")
+    }
+
+    func testTimesOutWaitingForTheResponseHead() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: [:],
+            chunks: [],
+            chunkDelay: 0,
+            withholdResponse: true
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        do {
+            _ = try await client.stream(request: makeRequest(timeoutMs: 50))
+            XCTFail("Expected a head timeout")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Timeout)
+        }
+    }
+
+    func testDoesNotImposeAnIdleDeadlineOnAnEstablishedStream() async throws {
+        // The head deadline must not survive into the body: a gap longer than
+        // timeoutMs on an established stream is normal, not a failure.
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["first\n", "second\n"],
+            chunkDelay: 0.3
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest(timeoutMs: 100))
+
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "first\nsecond\n")
+    }
+
+    func testCancellingTheConsumingTaskTearsDownTheConnection() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: Array(repeating: "data: x\n\n", count: 200),
+            chunkDelay: 0.02
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        let task = Task { () -> Int in
+            var count = 0
+            for try await _ in response.body {
+                count += 1
+            }
+            return count
+        }
+
+        try await Task.sleep(nanoseconds: 60_000_000)
+        task.cancel()
+        _ = try? await task.value
+
+        // stopLoading() is how URLSession reports that the transfer was torn
+        // down rather than left running in the background.
+        var stopped = false
+        for _ in 0 ..< 50 where !stopped {
+            if ScriptedStreamingURLProtocol.stopped {
+                stopped = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(stopped)
+    }
+}
+
+// MARK: - SSE Framing
+
+/// Drives `SseParser` from the shared cross-SDK vectors so the three
+/// implementations of the protocol cannot drift apart.
+final class SseParserConformanceTests: XCTestCase {
+    private struct FramingCase: Decodable {
+        let name: String
+        let description: String
+        let chunksHex: [String]
+        let expected: [ExpectedEvent]
+    }
+
+    private struct ExpectedEvent: Decodable {
+        let event: String?
+        let data: String
+        let id: String?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [FramingCase]
+    }
+
+    private static func repositoryRoot() -> URL {
+        // .../ios/IndeRun/Tests/IndeRunTests/IndeRunTests.swift -> repository root
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = Self.repositoryRoot()
+            .appendingPathComponent("contracts/fixtures/streaming/sse-framing.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    private func bytes(fromHex hex: String) -> Data {
+        var data = Data()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            data.append(UInt8(hex[index ..< next], radix: 16)!)
+            index = next
+        }
+        return data
+    }
+
+    func testMatchesSharedFramingVectors() throws {
+        let fixture = try loadFixture()
+        XCTAssertFalse(fixture.cases.isEmpty)
+
+        for framingCase in fixture.cases {
+            var parser = SseParser()
+            var received: [SseEvent] = []
+            for hex in framingCase.chunksHex {
+                received.append(contentsOf: parser.consume(bytes(fromHex: hex)))
+            }
+            received.append(contentsOf: parser.finish())
+
+            let expected = framingCase.expected.map {
+                SseEvent(event: $0.event, data: $0.data, id: $0.id)
+            }
+            XCTAssertEqual(received, expected, "\(framingCase.name): \(framingCase.description)")
+        }
+    }
+
+    func testIsUnaffectedByChunking() {
+        let raw = Array("event: a\ndata: one\n\ndata: two\n\n".utf8)
+        var parser = SseParser()
+        var received: [SseEvent] = []
+        for byte in raw {
+            received.append(contentsOf: parser.consume(Data([byte])))
+        }
+        received.append(contentsOf: parser.finish())
+
+        XCTAssertEqual(received, [SseEvent(event: "a", data: "one"), SseEvent(data: "two")])
+    }
+}
+
+// MARK: - Mode 2 Streaming
+
+/// Scripted streaming provider mirroring `createFakeStreamProvider` in the Web
+/// SDK's engine.stream tests, so both platforms are held to the same scenarios.
+final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
+    struct Step {
+        let event: ProviderStreamEvent
+        let delayMs: UInt64
+
+        init(_ event: ProviderStreamEvent, delayMs: UInt64 = 0) {
+            self.event = event
+            self.delayMs = delayMs
+        }
+    }
+
+    let id: String
+    let script: [Step]
+    let throwAfterScript: Error?
+    let declaresStreaming: Bool
+    private let lock = NSLock()
+    private var attempts = 0
+
+    init(id: String, script: [Step], throwAfterScript: Error? = nil, declaresStreaming: Bool = true) {
+        self.id = id
+        self.script = script
+        self.throwAfterScript = throwAfterScript
+        self.declaresStreaming = declaresStreaming
+    }
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return attempts
+    }
+
+    func describe() -> ProviderDescriptor {
+        ProviderDescriptor(
+            id: id,
+            type: .local,
+            transport: .inProcess,
+            supports: ProviderDescriptor.SupportsCapabilities(
+                run: true,
+                streaming: declaresStreaming,
+                realtime: false,
+                tools: false,
+                reasoningEvents: false,
+                structuredOutput: false,
+                multimodal: false
+            ),
+            cancel: .soft,
+            tasks: ["text_to_text"]
+        )
+    }
+
+    func capabilities(host: HostServices) async -> ProviderDynamicCapabilities {
+        ProviderDynamicCapabilities(available: true)
+    }
+
+    func run(request: TaskRequest, context: RunContext) async throws -> TaskResult {
+        TaskResult(
+            runId: context.runId,
+            output: Output(text: "unused"),
+            finishReason: FinishReason.stop,
+            telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
+        )
+    }
+
+    func stream(
+        request: TaskRequest,
+        context: ProviderStreamContext
+    ) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        lock.lock()
+        attempts += 1
+        lock.unlock()
+
+        return AsyncThrowingStream { continuation in
+            Task { [script, throwAfterScript] in
+                for step in script {
+                    if step.delayMs > 0 {
+                        try? await Task.sleep(nanoseconds: step.delayMs * 1_000_000)
+                    }
+                    if context.cancellation.isCancelled {
+                        continuation.finish()
+                        return
+                    }
+                    continuation.yield(step.event)
+                }
+                if let throwAfterScript {
+                    continuation.finish(throwing: throwAfterScript)
+                    return
+                }
+                continuation.finish()
+            }
+        }
+    }
+}
+
+/// Declares Mode 2 support in its descriptor but does not conform to
+/// `StreamingProviderAdapter`, which is the mismatch the router must catch.
+final class DeclaredOnlyStreamProvider: ProviderAdapter, @unchecked Sendable {
+    let id: String
+
+    init(id: String) {
+        self.id = id
+    }
+
+    func describe() -> ProviderDescriptor {
+        ProviderDescriptor(
+            id: id,
+            type: .local,
+            transport: .inProcess,
+            supports: ProviderDescriptor.SupportsCapabilities(
+                run: true,
+                streaming: true,
+                realtime: false,
+                tools: false,
+                reasoningEvents: false,
+                structuredOutput: false,
+                multimodal: false
+            ),
+            cancel: .soft,
+            tasks: ["text_to_text"]
+        )
+    }
+
+    func capabilities(host: HostServices) async -> ProviderDynamicCapabilities {
+        ProviderDynamicCapabilities(available: true)
+    }
+
+    func run(request: TaskRequest, context: RunContext) async throws -> TaskResult {
+        TaskResult(
+            runId: context.runId,
+            output: Output(text: "unused"),
+            finishReason: FinishReason.stop,
+            telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
+        )
+    }
+}
+
+final class StreamOrchestrationTests: XCTestCase {
+    private func makeHost() -> HostServices {
+        HostServices(
+            connectivity: MockConnectivityService(),
+            clock: MockClockService()
+        )
+    }
+
+    private func makeRequest(requestId: String? = nil) -> TaskRequest {
+        TaskRequest(
+            requestId: requestId,
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello"
+        )
+    }
+
+    private func drain(_ run: StreamRun) async throws -> [StreamEvent] {
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+        }
+        return events
+    }
+
+    func testDeliversContentDeltasAndACompletedTerminal() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "Hello")),
+            .init(.delta(text: " world")),
+            .init(.done(finalText: "Hello world"))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine.stream(request: makeRequest())
+        let events = try await drain(run)
+
+        XCTAssertEqual(events.map { $0.type }, ["content_delta", "content_delta", "terminal"])
+        XCTAssertEqual(events.map { $0.sequence }, [0, 1, 2])
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "Hello world")
+    }
+
+    func testCarriesFinishReasonAndUsageOnCompletion() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "trunc")),
+            .init(.done(
+                finalText: "trunc",
+                finishReason: .length,
+                usage: TaskResultUsage(inputTokens: 2, outputTokens: 1, totalTokens: 3)
+            ))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.finishReason, .length)
+        XCTAssertEqual(events.last?.payload?.usage?.totalTokens, 3)
+    }
+
+    func testRejectsWhenNoRegisteredProviderCanStream() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockProvider(id: "p_run_only", type: .local))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        do {
+            _ = try await engine.stream(request: makeRequest(requestId: "req-42"))
+            XCTFail("Expected the stream to be refused")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .CapabilityMismatch)
+            XCTAssertEqual(error.runId, "req-42")
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testRejectsAProviderThatDeclaresStreamingWithoutImplementingIt() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(DeclaredOnlyStreamProvider(id: "p_declared"))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        do {
+            _ = try await engine.stream(request: makeRequest())
+            XCTFail("Expected the stream to be refused")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .CapabilityMismatch)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testFallsBackBeforeAnyContentIsDelivered() async throws {
+        let registry = ProviderRegistry()
+        let failing = MockStreamProvider(
+            id: "p1_failing",
+            script: [],
+            throwAfterScript: createUnavailable(message: "boom")
+        )
+        let healthy = MockStreamProvider(id: "p2_healthy", script: [
+            .init(.delta(text: "second")),
+            .init(.done(finalText: "second"))
+        ])
+        try registry.register(failing)
+        try registry.register(healthy)
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "second")
+        XCTAssertEqual(failing.callCount, 1)
+        XCTAssertEqual(healthy.callCount, 1)
+    }
+
+    func testDoesNotFallBackOnceContentHasBeenDelivered() async throws {
+        let registry = ProviderRegistry()
+        let committing = MockStreamProvider(
+            id: "p1_committing",
+            script: [.init(.delta(text: "partial"))],
+            throwAfterScript: createUnavailable(message: "died mid-stream")
+        )
+        let other = MockStreamProvider(id: "p2_other", script: [.init(.done(finalText: "unused"))])
+        try registry.register(committing)
+        try registry.register(other)
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.map { $0.type }, ["content_delta", "terminal"])
+        XCTAssertEqual(events.last?.payload?.outcome, .error)
+        XCTAssertEqual(events.last?.payload?.partialText, "partial")
+        // Splicing a second provider's text onto the first provider's partial
+        // output would be undetectable to the caller, so it must not happen.
+        XCTAssertEqual(other.callCount, 0)
+    }
+
+    func testProducesExactlyOneCancelledTerminalAndStopsDeltas() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "one"), delayMs: 5),
+            .init(.delta(text: "two"), delayMs: 60),
+            .init(.done(finalText: "one two"), delayMs: 5)
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine.stream(request: makeRequest())
+
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+            if event.type == "content_delta" {
+                run.cancel(reason: "user stopped")
+                // Repeated and concurrent cancels must stay idempotent.
+                run.cancel(reason: "ignored")
+            }
+        }
+
+        XCTAssertEqual(events.filter { $0.type == "terminal" }.count, 1)
+        XCTAssertEqual(events.last?.payload?.outcome, .cancelled)
+        XCTAssertEqual(events.last?.payload?.partialText, "one")
+        XCTAssertEqual(events.last?.payload?.reason, "user stopped")
+    }
+
+    func testCancellationBeforeTheFirstAttemptForeclosesEveryProvider() async throws {
+        let registry = ProviderRegistry()
+        let provider = MockStreamProvider(id: "p1", script: [
+            .init(.done(finalText: "never"), delayMs: 40)
+        ])
+        try registry.register(provider)
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine.stream(request: makeRequest())
+        run.cancel(reason: "immediate")
+        let events = try await drain(run)
+
+        XCTAssertEqual(events.last?.payload?.outcome, .cancelled)
+        XCTAssertEqual(events.last?.payload?.partialText, "")
+    }
+
+    func testReportsAnErrorWhenEveryProviderFailsBeforeCommitting() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(
+            id: "p1", script: [], throwAfterScript: createUnavailable(message: "boom")
+        ))
+        try registry.register(MockStreamProvider(
+            id: "p2", script: [], throwAfterScript: createUnavailable(message: "boom")
+        ))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.last?.payload?.outcome, .error)
+        XCTAssertEqual(events.last?.payload?.error?.errorClass, .Unavailable)
+    }
+
+    func testTreatsAStreamThatEndsWithoutATerminalEventAsAProviderFault() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [.init(.delta(text: "a"))]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.outcome, .error)
+        XCTAssertEqual(events.last?.payload?.partialText, "a")
+    }
+
+    func testAProviderReportedFailureEventBehavesLikeAThrow() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.failure(error: createRateLimited(message: "slow down")))
+        ]))
+        try registry.register(MockStreamProvider(id: "p2", script: [
+            .init(.done(finalText: "recovered"))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+        let events = try await drain(try await engine.stream(request: makeRequest()))
+
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "recovered")
+    }
+
+    func testStillTerminatesWhenTheEngineIsReleased() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "one"), delayMs: 10),
+            .init(.done(finalText: "one"), delayMs: 10)
+        ]))
+
+        // The caller keeps only the StreamRun; a stream created from a temporary
+        // engine must still produce its terminal event.
+        var engine: IndeRun? = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine!.stream(request: makeRequest())
+        weak var released = engine
+        engine = nil
+
+        let events = try await drain(run)
+
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "one")
+        // The run held the engine while it needed it, and let go afterwards.
+        XCTAssertNil(released)
+    }
+
+    func testRunAndStreamMayResolveToDifferentProviderChains() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockProvider(id: "a_run_only", type: .local))
+        try registry.register(MockStreamProvider(id: "b_streaming", script: [
+            .init(.done(finalText: "streamed"))
+        ]))
+
+        let engine = IndeRun(registry: registry, hostServices: makeHost())
+
+        let result = try await engine.run(request: makeRequest())
+        XCTAssertEqual(result.telemetry.providerUsed, "a_run_only")
+
+        let run = try await engine.stream(request: makeRequest())
+        XCTAssertEqual(run.handle.providerId, "b_streaming")
+    }
+}
+
+// MARK: - OpenAI Streaming
+
+/// Streaming HTTP host service that replays a scripted body, so the OpenAI
+/// adapter's event mapping can be exercised without a network.
+final class MockStreamingHttpClientService: HttpStreamingClientService, @unchecked Sendable {
+    struct Script: @unchecked Sendable {
+        var status: Int = 200
+        var statusText: String = "OK"
+        var headers: [String: String] = ["content-type": "text/event-stream"]
+        var chunks: [String] = []
+        var error: Error?
+    }
+
+    private let lock = NSLock()
+    private let script: Script
+    private var recorded: [HttpRequest] = []
+
+    init(script: Script) {
+        self.script = script
+    }
+
+    var requests: [HttpRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func stream(request: HttpRequest) async throws -> HttpStreamResponse {
+        lock.lock()
+        recorded.append(request)
+        lock.unlock()
+
+        if let error = script.error { throw error }
+
+        let chunks = script.chunks
+        return HttpStreamResponse(
+            status: script.status,
+            statusText: script.statusText,
+            headers: script.headers,
+            body: AsyncThrowingStream { continuation in
+                for chunk in chunks {
+                    continuation.yield(Data(chunk.utf8))
+                }
+                continuation.finish()
+            }
+        )
+    }
+}
+
+final class OpenAIStreamingTests: XCTestCase {
+    private struct TranscriptCase: Decodable {
+        let name: String
+        let description: String
+        let sse: String
+        let expected: [ExpectedEvent]
+    }
+
+    private struct ExpectedEvent: Decodable {
+        let kind: String
+        let text: String?
+        let finalText: String?
+        let finishReason: FinishReason?
+        let usage: ExpectedUsage?
+        let errorClass: ErrorClass?
+        let message: String?
+    }
+
+    private struct ExpectedUsage: Decodable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let totalTokens: Int?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [TranscriptCase]
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("contracts/fixtures/streaming/openai-responses-transcript.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    private func makeProvider() -> OpenAIProvider {
+        OpenAIProvider(options: OpenAIProviderOptions(
+            model: "gpt-5.2",
+            endpointURL: "https://proxy.test/v1/responses"
+        ))
+    }
+
+    private func makeHost(streaming: MockStreamingHttpClientService?) async -> HostServices {
+        let storage = MockSecureStorageService()
+        await storage.setSecret(slotId: "openai_default", secret: "sk-test")
+        return HostServices(
+            connectivity: MockConnectivityService(),
+            secureStorage: storage,
+            clock: MockClockService(),
+            // capabilities() probes endpoint reachability over the unary client
+            // before it reports anything about streaming.
+            httpClient: MockHttpClientService(responses: [
+                .success(HttpResponse(body: "{}", headers: [:], status: 200, statusText: "OK"))
+            ]),
+            streamingHttpClient: streaming
+        )
+    }
+
+    private func makeRequest() -> TaskRequest {
+        TaskRequest(
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello",
+            authContextRef: "openai_default"
+        )
+    }
+
+    private func collect(
+        provider: OpenAIProvider,
+        host: HostServices
+    ) async throws -> [ProviderStreamEvent] {
+        var events: [ProviderStreamEvent] = []
+        let context = ProviderStreamContext(
+            runId: "run-1",
+            hostServices: host,
+            cancellation: StreamCancellationToken()
+        )
+        for try await event in provider.stream(request: makeRequest(), context: context) {
+            events.append(event)
+        }
+        return events
+    }
+
+    func testDeclaresStreamingAndATokenStreamingStyle() {
+        let descriptor = makeProvider().describe()
+        XCTAssertTrue(descriptor.supports.streaming)
+        XCTAssertEqual(descriptor.streamingStyle, .tokens)
+        XCTAssertEqual(descriptor.cancel, .hard)
+    }
+
+    func testReportsStreamingUnavailableWhenTheHostCannotStream() async {
+        let host = await makeHost(streaming: nil)
+        let capabilities = await makeProvider().capabilities(host: host)
+
+        XCTAssertEqual(capabilities.streamingAvailable, false)
+        XCTAssertEqual(
+            capabilities.streamingUnavailableReason,
+            "Host does not provide an HttpStreamingClientService, which OpenAI streaming requires."
+        )
+    }
+
+    func testAsksTheEndpointToStreamAndAuthenticatesWithTheResolvedCredential() async throws {
+        let client = MockStreamingHttpClientService(script: .init(
+            chunks: ["data: {\"type\":\"response.completed\",\"response\":{\"output_text\":\"hi\"}}\n\n"]
+        ))
+        let host = await makeHost(streaming: client)
+        _ = try await collect(provider: makeProvider(), host: host)
+
+        let sent = try XCTUnwrap(client.requests.first)
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data((sent.body ?? "").utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(body["stream"] as? Bool, true)
+        XCTAssertEqual(body["model"] as? String, "gpt-5.2")
+        XCTAssertEqual(sent.headers?["Authorization"], "Bearer sk-test")
+        XCTAssertEqual(sent.headers?["Accept"], "text/event-stream")
+    }
+
+    func testMatchesTheSharedTranscriptVectors() async throws {
+        for transcript in try loadFixture().cases {
+            let host = await makeHost(
+                streaming: MockStreamingHttpClientService(script: .init(chunks: [transcript.sse]))
+            )
+            let events = try await collect(provider: makeProvider(), host: host)
+            let label = "\(transcript.name): \(transcript.description)"
+
+            XCTAssertEqual(events.count, transcript.expected.count, label)
+            for (event, expected) in zip(events, transcript.expected) {
+                switch (event, expected.kind) {
+                case let (.delta(text), "delta"):
+                    XCTAssertEqual(text, expected.text, label)
+
+                case let (.done(finalText, finishReason, usage), "done"):
+                    XCTAssertEqual(finalText, expected.finalText, label)
+                    XCTAssertEqual(finishReason, expected.finishReason, label)
+                    XCTAssertEqual(usage?.totalTokens, expected.usage?.totalTokens, label)
+
+                case let (.failure(error), "error"):
+                    let exception = try XCTUnwrap(error as? IndeRunException, label)
+                    XCTAssertEqual(exception.errorClass, expected.errorClass, label)
+                    XCTAssertEqual(exception.message, expected.message, label)
+
+                default:
+                    XCTFail("Unexpected event \(event) for expected kind \(expected.kind) in \(label)")
+                }
+            }
+        }
+    }
+
+    func testIsUnaffectedByHowTheEventStreamIsChunked() async throws {
+        let transcript = try loadFixture().cases[0]
+        let client = MockStreamingHttpClientService(
+            script: .init(chunks: transcript.sse.map { String($0) })
+        )
+        let host = await makeHost(streaming: client)
+
+        let events = try await collect(provider: makeProvider(), host: host)
+
+        XCTAssertEqual(events.count, transcript.expected.count)
+    }
+
+    func testClassifiesANonSuccessResponseBeforeReadingTheBodyAsAnEventStream() async throws {
+        let client = MockStreamingHttpClientService(script: .init(
+            status: 429,
+            statusText: "Too Many Requests",
+            headers: ["retry-after": "3"],
+            chunks: ["{\"error\":{\"message\":\"Rate limit reached\"}}"]
+        ))
+        let host = await makeHost(streaming: client)
+
+        do {
+            _ = try await collect(provider: makeProvider(), host: host)
+            XCTFail("Expected the stream to fail")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .RateLimited)
+            XCTAssertEqual(error.retryAfterMs, 3000)
+        }
+    }
+
+    func testRefusesToStreamWhenTheHostHasNoStreamingClient() async throws {
+        let host = await makeHost(streaming: nil)
+
+        do {
+            _ = try await collect(provider: makeProvider(), host: host)
+            XCTFail("Expected the stream to fail")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Unavailable)
+        }
+    }
+}

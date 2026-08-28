@@ -24,6 +24,14 @@ export type StreamTerminalOutcome = {
      */
     finalText?: string;
     /**
+     * How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
+     * 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
+     * otherwise completed run). 'cancelled' is included so this enum stays identical to
+     * TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal
+     * outcome branch. Optional: providers that do not report a finish reason omit it.
+     */
+    finishReason?: FinishReason;
+    /**
      * The stream completed normally: every provider-generated event was delivered before this
      * outcome was produced.
      *
@@ -127,6 +135,15 @@ export type Error = {
  * (unexpected engine-side failure).
  */
 export type ErrorClass = "CapabilityMismatch" | "Offline" | "AuthError" | "RateLimited" | "Timeout" | "Unavailable" | "Internal";
+
+/**
+ * How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
+ * 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
+ * otherwise completed run). 'cancelled' is included so this enum stays identical to
+ * TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal
+ * outcome branch. Optional: providers that do not report a finish reason omit it.
+ */
+export type FinishReason = "stop" | "length" | "cancelled" | "error";
 
 export type Outcome = "completed" | "error" | "cancelled";
 

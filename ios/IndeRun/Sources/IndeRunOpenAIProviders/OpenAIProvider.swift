@@ -83,7 +83,7 @@ private struct OpenAIErrorBody {
     }
 }
 
-public final class OpenAIProvider: ProviderAdapter, @unchecked Sendable {
+public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable {
     private let options: OpenAIProviderOptions
     private let cacheLock = NSLock()
     private var cachedHealth: (result: ProviderDynamicCapabilities, checkedAt: Int64)?
@@ -97,9 +97,10 @@ public final class OpenAIProvider: ProviderAdapter, @unchecked Sendable {
             id: options.id,
             type: .cloud,
             transport: .http,
+            streamingStyle: .tokens,
             supports: ProviderDescriptor.SupportsCapabilities(
                 run: true,
-                streaming: false,
+                streaming: true,
                 realtime: false,
                 tools: false,
                 reasoningEvents: false,
@@ -133,7 +134,21 @@ public final class OpenAIProvider: ProviderAdapter, @unchecked Sendable {
             )
         }
 
-        return await checkEndpointReachable(httpClient: httpClient, clock: host.clock)
+        let reachability = await checkEndpointReachable(httpClient: httpClient, clock: host.clock)
+        if host.streamingHttpClient != nil {
+            return reachability
+        }
+
+        // Mode 1 still works without it; only streaming is taken away, and the
+        // planner turns this into an inspectable `streaming_unavailable`
+        // rejection rather than an unexplained routing failure.
+        return ProviderDynamicCapabilities(
+            available: reachability.available,
+            reason: reachability.reason,
+            streamingAvailable: false,
+            streamingUnavailableReason:
+                "Host does not provide an HttpStreamingClientService, which OpenAI streaming requires."
+        )
     }
 
     private func checkEndpointReachable(httpClient: any HttpClientService, clock: ClockService?) async -> ProviderDynamicCapabilities {
@@ -196,36 +211,11 @@ public final class OpenAIProvider: ProviderAdapter, @unchecked Sendable {
             )
         }
 
-        var headers = ["Content-Type": "application/json"]
-
-        if options.auth == .authContextRef {
-            let slotId = request.authContextRef ?? options.authContextRef
-            guard let slotId, !slotId.isEmpty else {
-                throw createAuthError(
-                    message: "OpenAI Responses provider requires authContextRef.",
-                    runId: context.runId,
-                    providerId: options.id
-                )
-            }
-
-            guard let secureStorage = context.hostServices.secureStorage else {
-                throw createAuthError(
-                    message: "OpenAI Responses provider requires a SecureStorageService when auth is enabled.",
-                    runId: context.runId,
-                    providerId: options.id
-                )
-            }
-
-            guard let secret = await secureStorage.getSecret(slotId: slotId), !secret.isEmpty else {
-                throw createAuthError(
-                    message: "No OpenAI credential found for authContextRef '\(slotId)'.",
-                    runId: context.runId,
-                    providerId: options.id
-                )
-            }
-
-            headers["Authorization"] = "Bearer \(secret)"
-        }
+        let headers = try await resolveHeaders(
+            request: request,
+            hostServices: context.hostServices,
+            runId: context.runId
+        )
 
         let body = try serializeJSONObject(createRequestBody(request: request))
         let httpRequest = HttpRequest(
@@ -286,11 +276,246 @@ public final class OpenAIProvider: ProviderAdapter, @unchecked Sendable {
         return result
     }
 
-    private func createRequestBody(request: TaskRequest) -> [String: Any] {
+    /// Executes a normalized text-to-text task in Mode 2 against the OpenAI
+    /// Responses API's server-sent event stream.
+    ///
+    /// The request is the Mode 1 body plus `"stream": true`, so both modes stay
+    /// a single code path up to the transport. The response head is classified
+    /// before the body is read: a non-2xx is drained to text and run through the
+    /// same `mapHTTPError` as Mode 1, because a 429 must surface as RateLimited
+    /// rather than as a malformed event stream.
+    ///
+    /// Event mapping, from the Responses API's typed SSE events to the canonical
+    /// provider vocabulary:
+    ///
+    /// - `response.output_text.delta` becomes a delta;
+    /// - `response.completed` and `response.incomplete` become the terminal done,
+    ///   with `finalText`, `usage`, and `finishReason` read off the embedded
+    ///   response object by the same helpers Mode 1 uses — it has the same shape;
+    /// - `response.failed` and `error` become a terminal failure;
+    /// - every other event type is ignored, since the set is open and additive.
+    public func stream(
+        request: TaskRequest,
+        context: ProviderStreamContext
+    ) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await self.runStream(request: request, context: context, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            context.cancellation.onCancel { task.cancel() }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func runStream(
+        request: TaskRequest,
+        context: ProviderStreamContext,
+        continuation: AsyncThrowingStream<ProviderStreamEvent, Error>.Continuation
+    ) async throws {
+        guard let streamingClient = context.hostServices.streamingHttpClient else {
+            throw createUnavailable(
+                message: "OpenAI Responses streaming requires an HttpStreamingClientService.",
+                runId: context.runId,
+                providerId: options.id
+            )
+        }
+
+        var headers = try await resolveHeaders(
+            request: request,
+            hostServices: context.hostServices,
+            runId: context.runId
+        )
+        headers["Accept"] = "text/event-stream"
+
+        let httpRequest = HttpRequest(
+            body: try serializeJSONObject(createRequestBody(request: request, stream: true)),
+            headers: headers,
+            method: .post,
+            timeoutMs: options.timeoutMs,
+            url: options.endpointURL
+        )
+
+        let response: HttpStreamResponse
+        do {
+            response = try await streamingClient.stream(request: httpRequest)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as IndeRunException {
+            // The transport already classified this — a head timeout must stay a
+            // Timeout rather than being flattened into Unavailable here.
+            throw error
+        } catch {
+            throw createUnavailable(
+                message: "OpenAI Responses stream failed before a response was received.",
+                runId: context.runId,
+                providerId: options.id,
+                details: ["originalError": JSONAny(error.localizedDescription)]
+            )
+        }
+
+        if response.status < 200 || response.status >= 300 {
+            var errorBody = Data()
+            for try await chunk in response.body {
+                errorBody.append(chunk)
+            }
+            throw mapHTTPError(
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers,
+                body: String(bytes: errorBody, encoding: .utf8) ?? "",
+                runId: context.runId
+            )
+        }
+
+        var parser = SseParser()
+        for try await chunk in response.body {
+            if context.cancellation.isCancelled { return }
+            for sseEvent in parser.consume(chunk)
+            where try emit(sseEvent: sseEvent, context: context, continuation: continuation) {
+                return
+            }
+        }
+        for sseEvent in parser.finish()
+        where try emit(sseEvent: sseEvent, context: context, continuation: continuation) {
+            return
+        }
+
+        // Falling out of the loop means the stream ended without a terminal
+        // event. The engine reports that as a provider fault; inventing a
+        // completion from whatever deltas happened to arrive would hide a
+        // truncated response.
+    }
+
+    /// Maps one framed SSE event onto the provider vocabulary. Returns true when
+    /// the event was terminal and the stream should stop being read.
+    private func emit(
+        sseEvent: SseEvent,
+        context: ProviderStreamContext,
+        continuation: AsyncThrowingStream<ProviderStreamEvent, Error>.Continuation
+    ) throws -> Bool {
+        if sseEvent.data == "[DONE]" { return false }
+
+        let json = parseJSONObject(sseEvent.data)
+        // The `event:` line and the payload's own `type` carry the same value;
+        // prefer the payload so a proxy that drops event names still works.
+        let type = (json["type"] as? String) ?? sseEvent.event
+
+        switch type {
+        case "response.output_text.delta":
+            if let delta = json["delta"] as? String {
+                continuation.yield(.delta(text: delta))
+            }
+            return false
+
+        case "response.completed", "response.incomplete":
+            let body = OpenAIResponseBody(json: json["response"] as? [String: Any] ?? [:])
+            continuation.yield(.done(
+                finalText: extractOutputText(responseBody: body) ?? "",
+                finishReason: finishReason(responseBody: body),
+                usage: usage(responseBody: body)
+            ))
+            return true
+
+        case "response.failed", "error":
+            continuation.yield(.failure(error: mapStreamError(json: json, runId: context.runId)))
+            return true
+
+        default:
+            return false
+        }
+    }
+
+    /// Maps a `response.failed` / `error` stream event onto the error taxonomy.
+    /// These arrive over an HTTP 200 body, so there is no status code to
+    /// classify from; OpenAI reports rate limiting and auth failures here with
+    /// the same `code` values it uses in unary error bodies.
+    ///
+    /// Two payload shapes exist and both are accepted: the standalone `error`
+    /// event carries `code`/`message` at its root, while `response.failed`
+    /// nests them under `response.error`. The root `type` is the event name
+    /// rather than an error type, so it is never read as one.
+    private func mapStreamError(json: [String: Any], runId: String) -> Error {
+        let nested = (json["error"] as? [String: Any])
+            ?? ((json["response"] as? [String: Any])?["error"] as? [String: Any])
+            ?? [:]
+        let message = nested["message"] as? String
+            ?? json["message"] as? String
+            ?? "OpenAI Responses stream reported a failure."
+        let code = nested["code"] as? String ?? json["code"] as? String
+        let details: [String: JSONAny] = [
+            "errorType": JSONAny(nested["type"] as? String ?? JSONNull()),
+            "errorCode": JSONAny(code ?? JSONNull())
+        ]
+
+        switch code {
+        case "rate_limit_exceeded":
+            return createRateLimited(
+                message: message, runId: runId, providerId: options.id, retryable: true, details: details
+            )
+        case "invalid_api_key", "authentication_error":
+            return createAuthError(message: message, runId: runId, providerId: options.id, details: details)
+        default:
+            return createUnavailable(
+                message: message, runId: runId, providerId: options.id, retryable: true, details: details
+            )
+        }
+    }
+
+    /// Resolves the request headers, including the bearer token behind
+    /// `authContextRef`. Shared by `run` and `stream`: the credential never
+    /// travels in the request payload, only the slot id does, so both modes must
+    /// resolve it the same way.
+    private func resolveHeaders(
+        request: TaskRequest,
+        hostServices: HostServices,
+        runId: String
+    ) async throws -> [String: String] {
+        var headers = ["Content-Type": "application/json"]
+        guard options.auth == .authContextRef else { return headers }
+
+        let slotId = request.authContextRef ?? options.authContextRef
+        guard let slotId, !slotId.isEmpty else {
+            throw createAuthError(
+                message: "OpenAI Responses provider requires authContextRef.",
+                runId: runId,
+                providerId: options.id
+            )
+        }
+
+        guard let secureStorage = hostServices.secureStorage else {
+            throw createAuthError(
+                message: "OpenAI Responses provider requires a SecureStorageService when auth is enabled.",
+                runId: runId,
+                providerId: options.id
+            )
+        }
+
+        guard let secret = await secureStorage.getSecret(slotId: slotId), !secret.isEmpty else {
+            throw createAuthError(
+                message: "No OpenAI credential found for authContextRef '\(slotId)'.",
+                runId: runId,
+                providerId: options.id
+            )
+        }
+
+        headers["Authorization"] = "Bearer \(secret)"
+        return headers
+    }
+
+    private func createRequestBody(request: TaskRequest, stream: Bool = false) -> [String: Any] {
         var body: [String: Any] = [
             "model": options.model,
             "input": createInput(request: request)
         ]
+
+        if stream {
+            body["stream"] = true
+        }
 
         if let generation = request.generation {
             if let maxOutputTokens = generation.maxOutputTokens {

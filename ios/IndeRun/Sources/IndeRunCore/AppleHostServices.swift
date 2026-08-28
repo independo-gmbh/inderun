@@ -130,6 +130,118 @@ public final class URLSessionHttpClientService: HttpClientService, Sendable {
     }
 }
 
+/// Streaming HTTP client backed by `URLSession.bytes(for:)`.
+///
+/// `URLSession.AsyncBytes` yields individual bytes, so bytes are re-accumulated
+/// into `Data` chunks here and flushed on newline (or once the buffer grows past
+/// ``maxBufferBytes``). Chunk boundaries carry no meaning by contract; flushing
+/// at newlines simply avoids withholding data that has already arrived, which
+/// would stall any line-oriented protocol carried over the stream.
+public final class URLSessionStreamingHttpClientService: HttpStreamingClientService, Sendable {
+    private static let maxBufferBytes = 16 * 1024
+    private static let newline: UInt8 = 0x0A
+    /// Seven days. A stand-in for "no deadline": an established stream ends when
+    /// the server closes it or the caller cancels, not on a timer.
+    private static let noIdleDeadline: TimeInterval = 7 * 24 * 60 * 60
+
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    /// Opens the connection, failing with a normalized timeout if the response
+    /// head does not arrive within `timeoutMs`.
+    private func openStream(
+        _ urlRequest: URLRequest,
+        timeoutMs: Int?
+    ) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        guard let timeoutMs else {
+            return try await session.bytes(for: urlRequest)
+        }
+
+        return try await withThrowingTaskGroup(
+            of: (URLSession.AsyncBytes, URLResponse).self
+        ) { group in
+            let session = self.session
+            group.addTask { try await session.bytes(for: urlRequest) }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(0, timeoutMs)) * 1_000_000)
+                throw createTimeout(message: "HTTP transport timed out waiting for the response head.")
+            }
+
+            guard let result = try await group.next() else {
+                throw createInternal(message: "HTTP transport produced no response.")
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
+    public func stream(request: HttpRequest) async throws -> HttpStreamResponse {
+        guard let url = URL(string: request.url) else {
+            throw createInternal(message: "Invalid HTTP request URL.")
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = request.method.rawValue
+        // `timeoutMs` bounds the response head only, so it deliberately does not
+        // become `timeoutInterval`: URLSession treats that as a deadline between
+        // arriving packets and keeps resetting it, which would abort an idle but
+        // perfectly healthy event stream. The head is raced against an explicit
+        // sleep below instead, and `timeoutInterval` is pushed far out so
+        // URLSession imposes no idle deadline of its own.
+        urlRequest.timeoutInterval = Self.noIdleDeadline
+        request.headers?.forEach { key, value in
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+        if let body = request.body {
+            urlRequest.httpBody = Data(body.utf8)
+        }
+
+        let (bytes, response) = try await openStream(urlRequest, timeoutMs: request.timeoutMs)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw createInternal(message: "HTTP transport returned a non-HTTP response.")
+        }
+
+        // Lower-cased so header lookups are case-insensitive at the call site.
+        let headers = httpResponse.allHeaderFields.reduce(into: [String: String]()) { result, pair in
+            if let key = pair.key as? String {
+                result[key.lowercased()] = String(describing: pair.value)
+            }
+        }
+
+        let body = AsyncThrowingStream<Data, Error> { continuation in
+            let task = Task {
+                var buffer = Data()
+                do {
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        if byte == Self.newline || buffer.count >= Self.maxBufferBytes {
+                            continuation.yield(buffer)
+                            buffer.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+
+        return HttpStreamResponse(
+            status: httpResponse.statusCode,
+            statusText: HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode),
+            headers: headers,
+            body: body
+        )
+    }
+}
+
 public enum DefaultHostServices {
     public static func make(
         connectivity: ConnectivityService = NetworkConnectivityService(),
@@ -137,6 +249,7 @@ public enum DefaultHostServices {
         secureStorage: SecureStorageService = KeychainSecureStorageService(),
         clock: ClockService = SystemClockService(),
         httpClient: HttpClientService = URLSessionHttpClientService(),
+        streamingHttpClient: HttpStreamingClientService = URLSessionStreamingHttpClientService(),
         telemetry: TelemetryService? = nil
     ) -> HostServices {
         HostServices(
@@ -145,6 +258,7 @@ public enum DefaultHostServices {
             secureStorage: secureStorage,
             clock: clock,
             httpClient: httpClient,
+            streamingHttpClient: streamingHttpClient,
             telemetry: telemetry
         )
     }

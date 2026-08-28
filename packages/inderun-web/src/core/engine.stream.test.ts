@@ -279,6 +279,39 @@ describe("IndeRun.stream()", () => {
     expect(received.map((e) => e.sequence)).toEqual([0, 1, 2]);
   });
 
+  it("surfaces a provider-reported finishReason on the completed outcome", async () => {
+    const provider = createFakeStreamProvider("p1", {
+      script: [
+        { event: { kind: "delta", text: "trunc" } },
+        { event: { kind: "done", finalText: "trunc", finishReason: "length" } }
+      ]
+    });
+    registry.register(provider);
+
+    const engine = new IndeRun(registry, host);
+    const { events } = await engine.stream(createRequest());
+    const received = await drain(events);
+
+    expect(received[received.length - 1]!.payload).toMatchObject({
+      outcome: "completed",
+      finalText: "trunc",
+      finishReason: "length"
+    });
+  });
+
+  it("omits finishReason when the provider does not report one", async () => {
+    const provider = createFakeStreamProvider("p1", {
+      script: [{ event: { kind: "done", finalText: "ok" } }]
+    });
+    registry.register(provider);
+
+    const engine = new IndeRun(registry, host);
+    const { events } = await engine.stream(createRequest());
+    const received = await drain(events);
+
+    expect(received[received.length - 1]!.payload).not.toHaveProperty("finishReason");
+  });
+
   it("cancel-during-emit: stops further deltas and produces exactly one cancelled terminal", async () => {
     const provider = createFakeStreamProvider("p1", {
       script: [

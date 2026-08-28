@@ -54,12 +54,15 @@ export type {
 } from "./types.js";
 
 export type {
+  AbortSignalLike,
   ConnectivityService,
   ThermalState,
   DeviceConstraintsService,
   SecureStorageService,
   ClockService,
   HttpClientService,
+  HttpStreamResponse,
+  HttpStreamingClientService,
   TelemetryEventType,
   TelemetryService,
   HostServices

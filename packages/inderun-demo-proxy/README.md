@@ -4,6 +4,10 @@ Standalone proxy backend for the IndeRun demo apps.
 
 It exposes an OpenAI Responses-compatible route so browser, iOS, and Android demos can keep provider credentials server-side.
 
+Requests that ask for `"stream": true` are relayed as they arrive rather than buffered, so Mode 2
+works through the proxy. That is the point of the proxy for streaming: a browser cannot open its
+own authenticated connection to OpenAI without shipping the key in client code.
+
 ## Routes
 
 - `POST /api/inderun/openai-responses`

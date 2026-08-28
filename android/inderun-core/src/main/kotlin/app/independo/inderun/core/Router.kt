@@ -2,6 +2,7 @@ package app.independo.inderun.core
 
 import app.independo.inderun.contracts.Candidate
 import app.independo.inderun.contracts.FailureCode
+import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.TaskRequest
 
 data class RouteSelection(
@@ -17,9 +18,20 @@ class Router private constructor(
 ) {
     constructor(registry: ProviderRegistry) : this(registry, SharedCoreRoutePlanner)
 
+    /**
+     * Plans a route for [request].
+     *
+     * [interactionMode] is a planning input, not a filter applied to the result:
+     * providers that cannot satisfy the requested mode are rejected during
+     * planning with their own normalized reason, so a `stream` request and a
+     * `run` request over the same registry may legitimately produce different
+     * provider chains while remaining under identical privacy, locality and
+     * availability constraints.
+     */
     suspend fun selectRoute(
         request: TaskRequest,
         hostServices: HostServices,
+        interactionMode: InteractionMode = InteractionMode.Run,
     ): RouteSelection {
         val online = hostServices.connectivity.isOnline()
         val snapshots = collectProviderSnapshots(hostServices)
@@ -29,12 +41,13 @@ class Router private constructor(
                 request = request,
                 online = online,
                 snapshots = snapshots,
+                interactionMode = interactionMode,
             ),
         )?.let { routePlan ->
             return selectFromRoutePlan(snapshots, routePlan)
         }
 
-        return selectFallbackRoute(request, snapshots, online)
+        return selectFallbackRoute(request, snapshots, online, interactionMode)
     }
 
     private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> = registry.list()
@@ -81,8 +94,9 @@ class Router private constructor(
         request: TaskRequest,
         snapshots: List<ProviderSnapshot>,
         online: Boolean,
+        interactionMode: InteractionMode,
     ): RouteSelection {
-        val plan = createFallbackPlan(request, snapshots, online)
+        val plan = createFallbackPlan(request, snapshots, online, interactionMode)
         return selectFromRoutePlan(snapshots, plan)
     }
 
@@ -90,15 +104,28 @@ class Router private constructor(
         request: TaskRequest,
         snapshots: List<ProviderSnapshot>,
         online: Boolean,
+        interactionMode: InteractionMode,
     ): SharedPlannerRoutePlan {
         val planInput = buildSharedPlannerInput(
             request = request,
             online = online,
             snapshots = snapshots,
+            interactionMode = interactionMode,
         )
+        val wantsStream = interactionMode == InteractionMode.Stream
 
+        // Mode filtering mirrors the Rust route-core's `evaluate_provider`: the
+        // run check is scoped to run mode, and stream mode requires both the
+        // static declaration and the dynamic capability. This planner still does
+        // not populate `rejectedProviders` — see issue #164.
         val eligible = snapshots.filter { snapshot ->
-            snapshot.descriptor.tasks.contains(planInput.task.kind) && snapshot.descriptor.supports.run
+            if (!snapshot.descriptor.tasks.contains(planInput.task.kind)) return@filter false
+            if (!wantsStream) return@filter snapshot.descriptor.supports.run
+
+            val projected = planInput.providers.firstOrNull { it.descriptor.id == snapshot.descriptor.id }
+                ?: return@filter false
+            projected.descriptor.supports.streaming == true &&
+                projected.capabilities.streamingAvailable != false
         }
 
         val selected = eligible.firstOrNull { snapshot ->
@@ -129,7 +156,11 @@ class Router private constructor(
             return SharedPlannerRoutePlan(
                 candidates = emptyList(),
                 explanation = SharedPlannerExplanation(
-                    summary = "No eligible provider found for the current routing constraints.",
+                    summary = if (wantsStream) {
+                        "No provider capable of streaming was found for task '${planInput.task.kind}'."
+                    } else {
+                        "No eligible provider found for the current routing constraints."
+                    },
                     selectedProviderId = null,
                 ),
                 failureCode = failureCode,
@@ -144,7 +175,13 @@ class Router private constructor(
                 Candidate(providerId = snapshot.descriptor.id, order = index.toLong())
             },
             explanation = SharedPlannerExplanation(
-                summary = "Selected provider '${ordered.first().descriptor.id}' deterministically from ${ordered.size} eligible candidate(s).",
+                summary = if (wantsStream) {
+                    "Selected streaming provider '${ordered.first().descriptor.id}' deterministically " +
+                        "from ${ordered.size} eligible candidate(s)."
+                } else {
+                    "Selected provider '${ordered.first().descriptor.id}' deterministically " +
+                        "from ${ordered.size} eligible candidate(s)."
+                },
                 selectedProviderId = ordered.first().descriptor.id,
             ),
             failureCode = null,

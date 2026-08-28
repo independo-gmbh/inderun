@@ -68,17 +68,37 @@ export async function handleProxyRequest(
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
+  // Forwarding the incoming request's signal is what makes a cancelled stream
+  // stop the upstream generation rather than leaving it running and billable.
   const upstream = await fetchImpl(endpointUrl, {
     method: "POST",
     headers,
-    body: JSON.stringify(upstreamBody)
+    body: JSON.stringify(upstreamBody),
+    signal: request.signal
   });
+
+  const upstreamContentType = upstream.headers.get("Content-Type") ?? "application/json";
+
+  // A streamed response has to be relayed as it arrives: buffering it here
+  // would defeat the point, since the browser cannot open its own authenticated
+  // connection to OpenAI without shipping the key in client code.
+  if (upstream.body && upstreamContentType.includes("text/event-stream")) {
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: {
+        "Content-Type": upstreamContentType,
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive"
+      }
+    });
+  }
 
   return new Response(await upstream.text(), {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: {
-      "Content-Type": upstream.headers.get("Content-Type") ?? "application/json"
+      "Content-Type": upstreamContentType
     }
   });
 }

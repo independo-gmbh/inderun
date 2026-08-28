@@ -100,6 +100,7 @@ export type Payload = {
      */
     phase?:         Phase;
     finalText?:     string;
+    finishReason?:  FinishReason;
     outcome?:       Outcome;
     runId?:         string;
     schemaVersion?: "1.0";
@@ -123,6 +124,8 @@ export type Error = {
 }
 
 export type ErrorClass = "CapabilityMismatch" | "Offline" | "AuthError" | "RateLimited" | "Timeout" | "Unavailable" | "Internal";
+
+export type FinishReason = "stop" | "length" | "cancelled" | "error";
 
 export type Outcome = "completed" | "error" | "cancelled";
 

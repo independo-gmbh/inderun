@@ -17,7 +17,7 @@ The core problem it solves is provider fragmentation: apps should not need separ
 
 ## Current Focus
 
-The current product scope is Mode 1 `run()` execution. Streaming and realtime sessions are part of the architecture, but they are not the main shipped surface for the current phase. The canonical streaming event/outcome contracts now exist in schema form (see `docs/architecture/architecture.md`), but no engine or provider implements them yet.
+The current product scope is Mode 1 `run()` execution plus Mode 2 `stream()`. All three engines implement the Mode 2 orchestrator against the canonical streaming event/outcome contracts, and the OpenAI-compatible provider streams on Web, iOS, and Android (see `docs/architecture/architecture.md`). Realtime sessions remain part of the architecture but are not implemented.
 
 ## Source Of Truth
 

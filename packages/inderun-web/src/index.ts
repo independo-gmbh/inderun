@@ -1,4 +1,5 @@
 export {
+  type AbortSignalLike,
   type ConnectivityService,
   type DeviceConstraintsService,
   type SecureStorageService,
@@ -6,6 +7,8 @@ export {
   type HttpClientService,
   type HttpRequest,
   type HttpResponse,
+  type HttpStreamResponse,
+  type HttpStreamingClientService,
   type HostServices,
   type ThermalState
 } from "./core/host.js";
@@ -17,7 +20,8 @@ export {
   type RunContext,
   type ProviderAdapter,
   type ProviderStreamContext,
-  type ProviderStreamEvent
+  type ProviderStreamEvent,
+  type StreamRun
 } from "./core/provider.js";
 
 export { EventGate } from "./core/event-gate.js";
@@ -60,6 +64,7 @@ export {
 export {
   BrowserConnectivityService,
   FetchHttpClient,
+  FetchStreamingHttpClient,
   SystemClockService,
   createBrowserHostServices,
   type CreateBrowserHostServicesOptions,

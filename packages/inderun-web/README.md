@@ -30,9 +30,48 @@ const result = await inderun.run({
 });
 ```
 
+## Streaming
+
+`stream()` returns the run handle, its canonical `StreamEvent` sequence, and a `cancel()` hook:
+
+```ts
+const { handle, events, cancel } = await inderun.stream({
+  schemaVersion: "1.0",
+  task: { kind: "text_to_text" },
+  prompt: "Write a one-sentence summary of IndeRun."
+});
+
+for await (const event of events) {
+  if (event.type === "content_delta") process.stdout.write(event.payload.text);
+  if (event.type === "terminal") console.log(event.payload.outcome);
+}
+```
+
+Order by `event.sequence`, not by arrival: it is the ordering authority for a run. Treat an
+unrecognized `event.type` as ignore-or-pass-through — the set is open and additive. Exactly one
+`terminal` event is produced per run, and `cancel()` is idempotent.
+
+Streaming needs a host that can deliver a response body incrementally.
+`createBrowserHostServices` provides one; a custom host without a
+`streamingHttpClient` still runs Mode 1, and a stream request is refused at routing
+time with a `streaming_unavailable` reason rather than failing later.
+
+### Custom OpenAI-compatible endpoints
+
+The adapter speaks the OpenAI **Responses** API, not chat completions. A custom endpoint must
+accept `"stream": true` and emit `text/event-stream` with the Responses event types —
+`response.output_text.delta`, and `response.completed` / `response.incomplete` carrying the
+response object. Unknown event types are ignored, so an endpoint that emits extra events is
+fine; one that emits a different vocabulary entirely is not.
+
 ## Security Model
 
 Browser apps should use a proxy endpoint and keep provider credentials server-side. `createIndeRunWeb` rejects direct calls to the public OpenAI Responses endpoint unless `allowDirectOpenAIEndpoint: true` is set for a controlled environment.
+
+This applies to streaming too, and is the reason `@independo/inderun-demo-proxy` relays event
+streams rather than buffering them: a browser cannot open its own authenticated connection to
+OpenAI without shipping the key in client code. Never embed a developer-owned API key in
+distributed client code — put it behind a trusted backend proxy and point `endpointUrl` at that.
 
 ## Advanced: registering the OpenAI provider directly
 

@@ -84,14 +84,12 @@ internal fun buildSharedPlannerInput(
     request: TaskRequest,
     online: Boolean,
     snapshots: List<ProviderSnapshot>,
+    interactionMode: InteractionMode = InteractionMode.Run,
 ): SharedPlannerInput {
     val constraints = request.constraints
     val preferences = request.preferences
     return SharedPlannerInput(
-        // The Kotlin SDK only exposes Mode 1 today. Mode 2 streaming requests become
-        // possible once ProviderAdapter.stream lands (see issues #152/#153); until then
-        // the planner is always asked for a `run` route.
-        interactionMode = InteractionMode.Run,
+        interactionMode = interactionMode,
         constraints = SharedPlannerConstraints(
             privacy = constraints?.privacy,
             cloud = constraints?.cloud,
@@ -126,16 +124,35 @@ internal fun buildSharedPlannerInput(
                         )
                     },
                 ),
-                capabilities = SharedPlannerCapabilities(
-                    available = snapshot.capabilities.available,
-                    reason = snapshot.capabilities.reason,
-                    streamingAvailable = snapshot.capabilities.streamingAvailable,
-                    streamingUnavailableReason = snapshot.capabilities.streamingUnavailableReason,
-                    cancellationAvailable = snapshot.capabilities.cancellationAvailable,
-                ),
+                capabilities = streamingAwareCapabilities(snapshot),
             )
         },
         task = SharedPlannerTask(kind = request.task.kind.rawValue),
+    )
+}
+
+/**
+ * Folds the "declares streaming but does not implement it" check into the
+ * dynamic capability the planner sees, so the mismatch is rejected during
+ * planning with an explanation instead of surfacing as an unexplained failure
+ * later. Mirrors `toSharedPlannerCapabilities` in the Web SDK's route planner.
+ */
+private fun streamingAwareCapabilities(snapshot: ProviderSnapshot): SharedPlannerCapabilities {
+    val declaresStreaming = snapshot.capabilities.streamingAvailable ?: snapshot.descriptor.supports.streaming
+    val implementsStream = snapshot.provider is StreamingProviderAdapter
+    val streamingUnavailableReason = snapshot.capabilities.streamingUnavailableReason
+        ?: if (declaresStreaming && !implementsStream) {
+            "Provider '${snapshot.descriptor.id}' declares streaming but does not implement stream()."
+        } else {
+            null
+        }
+
+    return SharedPlannerCapabilities(
+        available = snapshot.capabilities.available,
+        reason = snapshot.capabilities.reason,
+        streamingAvailable = declaresStreaming && implementsStream,
+        streamingUnavailableReason = streamingUnavailableReason,
+        cancellationAvailable = snapshot.capabilities.cancellationAvailable,
     )
 }
 

@@ -11,8 +11,36 @@ import type {
   ProviderAdapter,
   ProviderDescriptor,
   ProviderDynamicCapabilities,
+  ProviderStreamContext,
+  ProviderStreamEvent,
   RunContext
 } from "../../core/provider.js";
+import { parseSseStream } from "../../core/sse.js";
+
+/**
+ * The subset of the Responses API's server-sent event payloads this adapter
+ * reads. The event set is open and additive, so unknown fields and unknown
+ * types are ignored rather than treated as errors.
+ */
+interface OpenAIStreamEvent {
+  type?: string;
+  delta?: string;
+  response?: OpenAIResponseBody;
+  error?: { message?: string; type?: string; code?: string };
+  /** Root-level failure fields, as carried by the standalone `error` event. */
+  message?: string;
+  code?: string;
+}
+
+/** Buffers a body stream to text, for error responses that are not event streams. */
+async function drainToText(body: AsyncIterable<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+  for await (const chunk of body) {
+    text += decoder.decode(chunk, { stream: true });
+  }
+  return text + decoder.decode();
+}
 
 export const DEFAULT_OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 
@@ -73,6 +101,11 @@ type OpenAIResponseBody = {
   incomplete_details?: {
     reason?: unknown;
   };
+  error?: {
+    message?: string;
+    type?: string;
+    code?: string;
+  };
 };
 
 type OpenAIErrorBody = {
@@ -114,9 +147,10 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
       id: this.id,
       type: "cloud",
       transport: "http",
+      streamingStyle: "tokens",
       supports: {
         run: true,
-        streaming: false,
+        streaming: true,
         realtime: false,
         tools: false,
         reasoningEvents: false,
@@ -155,7 +189,20 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
       };
     }
 
-    return this.checkEndpointReachable(host.httpClient, host.clock);
+    const reachability = await this.checkEndpointReachable(host.httpClient, host.clock);
+    if (host.streamingHttpClient) {
+      return reachability;
+    }
+
+    // Mode 1 still works without it; only streaming is taken away, and the
+    // planner turns this into an inspectable `streaming_unavailable` rejection
+    // rather than an unexplained routing failure.
+    return {
+      ...reachability,
+      streamingAvailable: false,
+      streamingUnavailableReason:
+        "Host does not provide an HttpStreamingClientService, which OpenAI streaming requires."
+    };
   }
 
   private async checkEndpointReachable(
@@ -213,40 +260,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
       });
     }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json"
-    };
-
-    if (this.auth === "authContextRef") {
-      const slotId = request.authContextRef ?? this.options.authContextRef;
-      if (!slotId) {
-        throw createAuthError("OpenAI Responses provider requires authContextRef.", {
-          providerId: this.id,
-          runId: context.runId
-        });
-      }
-
-      const secureStorage = context.hostServices.secureStorage;
-      if (!secureStorage) {
-        throw createAuthError(
-          "OpenAI Responses provider requires a SecureStorageService when auth is enabled.",
-          {
-            providerId: this.id,
-            runId: context.runId
-          }
-        );
-      }
-
-      const secret = await secureStorage.getSecret(slotId);
-      if (!secret) {
-        throw createAuthError(`No OpenAI credential found for authContextRef '${slotId}'.`, {
-          providerId: this.id,
-          runId: context.runId
-        });
-      }
-
-      headers.Authorization = `Bearer ${secret}`;
-    }
+    const headers = await this.resolveHeaders(request, context);
 
     let response;
     try {
@@ -318,11 +332,217 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     return result;
   }
 
-  private createRequestBody(request: TaskRequest): Record<string, unknown> {
+  /**
+   * Executes a normalized text-to-text task in Mode 2 against the OpenAI
+   * Responses API's server-sent event stream.
+   *
+   * The request is the Mode 1 body plus `"stream": true`, so both modes stay a
+   * single code path up to the transport. The response head is classified
+   * before the body is read: a non-2xx is drained to text and run through the
+   * same `mapHttpError` as Mode 1, because a 429 must surface as RateLimited
+   * rather than as a malformed event stream.
+   *
+   * Event mapping, from the Responses API's typed SSE events to the canonical
+   * provider vocabulary:
+   *
+   * - `response.output_text.delta` becomes a delta;
+   * - `response.completed` and `response.incomplete` become the terminal done,
+   *   with `finalText`, `usage`, and `finishReason` read off the embedded
+   *   response object by the same helpers Mode 1 uses — it has the same shape;
+   * - `response.failed` and `error` become a terminal error;
+   * - every other event type is ignored, since the set is open and additive.
+   *
+   * @param request - Canonical IndeRun task request.
+   * @param context - Engine stream context: run id, host services, abort signal.
+   */
+  async *stream(
+    request: TaskRequest,
+    context: ProviderStreamContext
+  ): AsyncGenerator<ProviderStreamEvent> {
+    const streamingClient = context.hostServices.streamingHttpClient;
+    if (!streamingClient) {
+      throw createUnavailable(
+        "OpenAI Responses streaming requires an HttpStreamingClientService.",
+        {
+          providerId: this.id,
+          runId: context.runId
+        }
+      );
+    }
+
+    const headers = await this.resolveHeaders(request, context);
+    headers.Accept = "text/event-stream";
+
+    let response;
+    try {
+      const httpRequest: HttpRequest = {
+        method: "POST",
+        url: this.endpointUrl,
+        headers,
+        body: JSON.stringify(this.createRequestBody(request, true))
+      };
+
+      if (this.options.timeoutMs !== undefined) {
+        httpRequest.timeoutMs = this.options.timeoutMs;
+      }
+
+      response = await streamingClient.stream(httpRequest, context.signal);
+    } catch (err) {
+      if (isAbortError(err)) {
+        throw createTimeout("OpenAI Responses stream timed out before the first byte.", {
+          providerId: this.id,
+          runId: context.runId
+        });
+      }
+
+      throw createUnavailable("OpenAI Responses stream failed before a response was received.", {
+        providerId: this.id,
+        runId: context.runId,
+        details: { originalError: getErrorSummary(err) }
+      });
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      throw this.mapHttpError(
+        response.status,
+        response.statusText,
+        response.headers,
+        await drainToText(response.body),
+        context
+      );
+    }
+
+    for await (const sseEvent of parseSseStream(response.body)) {
+      if (sseEvent.data === "[DONE]") {
+        continue;
+      }
+
+      const parsed = parseJson<OpenAIStreamEvent>(sseEvent.data);
+      // The `event:` line and the payload's own `type` carry the same value;
+      // prefer the payload so a proxy that drops event names still works.
+      const type = parsed.type ?? sseEvent.event;
+
+      if (type === "response.output_text.delta") {
+        if (parsed.delta) {
+          yield { kind: "delta", text: parsed.delta };
+        }
+        continue;
+      }
+
+      if (type === "response.completed" || type === "response.incomplete") {
+        const body = parsed.response ?? {};
+        const done: ProviderStreamEvent = {
+          kind: "done",
+          finalText: extractOutputText(body) ?? "",
+          finishReason: getFinishReason(body)
+        };
+        const usage = getUsage(body);
+        if (usage) {
+          done.usage = usage;
+        }
+        yield done;
+        return;
+      }
+
+      if (type === "response.failed" || type === "error") {
+        yield { kind: "error", error: this.mapStreamError(parsed, context) };
+        return;
+      }
+    }
+
+    // Falling out of the loop means the stream ended without a terminal event.
+    // The engine reports that as a provider fault; inventing a completion from
+    // whatever deltas happened to arrive would hide a truncated response.
+  }
+
+  /**
+   * Maps a `response.failed` / `error` stream event onto the error taxonomy.
+   * These arrive over an HTTP 200 body, so there is no status code to classify
+   * from; OpenAI reports rate limiting and auth failures here with the same
+   * `code` values it uses in unary error bodies.
+   *
+   * Two payload shapes exist and both are accepted: the standalone `error`
+   * event carries `code`/`message` at its root, while `response.failed` nests
+   * them under `response.error`. The root `type` is the event name rather than
+   * an error type, so it is never read as one.
+   */
+  private mapStreamError(event: OpenAIStreamEvent, context: ProviderStreamContext): unknown {
+    const nested = event.error ?? event.response?.error;
+    const message =
+      nested?.message ?? event.message ?? "OpenAI Responses stream reported a failure.";
+    const code = nested?.code ?? event.code;
+    const details = { errorType: nested?.type, errorCode: code };
+    const params = { providerId: this.id, runId: context.runId, details };
+
+    switch (code) {
+      case "rate_limit_exceeded":
+        return createRateLimited(message, { ...params, retryable: true });
+      case "invalid_api_key":
+      case "authentication_error":
+        return createAuthError(message, params);
+      default:
+        return createUnavailable(message, { ...params, retryable: true });
+    }
+  }
+
+  /**
+   * Resolves the request headers, including the bearer token behind
+   * `authContextRef`. Shared by `run` and `stream`: the credential never travels
+   * in the request payload, only the slot id does, so both modes must resolve it
+   * the same way.
+   */
+  private async resolveHeaders(
+    request: TaskRequest,
+    context: RunContext
+  ): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+
+    if (this.auth !== "authContextRef") {
+      return headers;
+    }
+
+    const slotId = request.authContextRef ?? this.options.authContextRef;
+    if (!slotId) {
+      throw createAuthError("OpenAI Responses provider requires authContextRef.", {
+        providerId: this.id,
+        runId: context.runId
+      });
+    }
+
+    const secureStorage = context.hostServices.secureStorage;
+    if (!secureStorage) {
+      throw createAuthError(
+        "OpenAI Responses provider requires a SecureStorageService when auth is enabled.",
+        {
+          providerId: this.id,
+          runId: context.runId
+        }
+      );
+    }
+
+    const secret = await secureStorage.getSecret(slotId);
+    if (!secret) {
+      throw createAuthError(`No OpenAI credential found for authContextRef '${slotId}'.`, {
+        providerId: this.id,
+        runId: context.runId
+      });
+    }
+
+    headers.Authorization = `Bearer ${secret}`;
+    return headers;
+  }
+
+  private createRequestBody(request: TaskRequest, stream = false): Record<string, unknown> {
     const body: Record<string, unknown> = {
       model: this.options.model,
       input: createInput(request)
     };
+
+    if (stream) {
+      body.stream = true;
+    }
 
     const generation = request.generation;
     if (generation?.maxOutputTokens !== undefined) {

@@ -34,23 +34,38 @@ public final class Router: Sendable {
         self.planner = planner
     }
 
+    /// Plans a route for `request`.
+    ///
+    /// `interactionMode` is a planning input, not a filter applied to the result:
+    /// providers that cannot satisfy the requested mode are rejected during
+    /// planning with their own normalized reason, so a `stream` request and a
+    /// `run` request over the same registry may legitimately produce different
+    /// provider chains while remaining under identical privacy, locality and
+    /// availability constraints.
     public func selectRoute(
         request: TaskRequest,
-        hostServices: HostServices
+        hostServices: HostServices,
+        interactionMode: InteractionMode = .run
     ) async throws -> RouteSelection {
         let online = await hostServices.connectivity.isOnline()
         let snapshots = await collectProviderSnapshots(hostServices: hostServices)
         let planInput = buildSharedPlannerInput(
             request: request,
             online: online,
-            snapshots: snapshots
+            snapshots: snapshots,
+            interactionMode: interactionMode
         )
 
         if let routePlan = planner.planRoute(input: planInput) {
             return try selectFromRoutePlan(snapshots: snapshots, routePlan: routePlan)
         }
 
-        return try selectFallbackRoute(request: request, snapshots: snapshots, networkOnline: online)
+        return try selectFallbackRoute(
+            request: request,
+            snapshots: snapshots,
+            networkOnline: online,
+            interactionMode: interactionMode
+        )
     }
 
     private func collectProviderSnapshots(hostServices: HostServices) async -> [ProviderSnapshot] {
@@ -83,9 +98,15 @@ public final class Router: Sendable {
     private func selectFallbackRoute(
         request: TaskRequest,
         snapshots: [ProviderSnapshot],
-        networkOnline: Bool
+        networkOnline: Bool,
+        interactionMode: InteractionMode
     ) throws -> RouteSelection {
-        let plan: RoutePlan = createFallbackPlan(request: request, snapshots: snapshots, networkOnline: networkOnline)
+        let plan: RoutePlan = createFallbackPlan(
+            request: request,
+            snapshots: snapshots,
+            networkOnline: networkOnline,
+            interactionMode: interactionMode
+        )
         guard plan.selectedProviderId != nil else {
             throw routePlanFailure(plan)
         }
@@ -117,11 +138,30 @@ public final class Router: Sendable {
     private func createFallbackPlan(
         request: TaskRequest,
         snapshots: [ProviderSnapshot],
-        networkOnline: Bool
+        networkOnline: Bool,
+        interactionMode: InteractionMode
     ) -> RoutePlan {
-        let planInput = buildSharedPlannerInput(request: request, online: networkOnline, snapshots: snapshots)
-        let eligible = snapshots.filter {
-            $0.descriptor.tasks.contains(planInput.task.kind) && $0.descriptor.supports.run
+        let planInput = buildSharedPlannerInput(
+            request: request,
+            online: networkOnline,
+            snapshots: snapshots,
+            interactionMode: interactionMode
+        )
+        let wantsStream = interactionMode == .stream
+        // Mode filtering mirrors the Rust route-core's `evaluate_provider`: the
+        // run check is scoped to run mode, and stream mode requires both the
+        // static declaration and the dynamic capability. This planner still does
+        // not populate `rejectedProviders` — see issue #164.
+        let eligible = snapshots.filter { snapshot in
+            guard snapshot.descriptor.tasks.contains(planInput.task.kind) else { return false }
+            guard let provider = planInput.providers.first(where: { $0.descriptor.id == snapshot.descriptor.id })
+            else { return false }
+
+            if wantsStream {
+                return provider.descriptor.supports.streaming == true
+                    && provider.capabilities.streamingAvailable != false
+            }
+            return snapshot.descriptor.supports.run
         }
 
         // Constraint-satisfying candidates only -- applied once, before picking a primary and
@@ -157,7 +197,9 @@ public final class Router: Sendable {
                 candidates: [],
                 explanation: Explanation(
                     selectedProviderId: nil,
-                    summary: "No eligible provider found for the current routing constraints."
+                    summary: wantsStream
+                        ? "No provider capable of streaming was found for task '\(planInput.task.kind)'."
+                        : "No eligible provider found for the current routing constraints."
                 ),
                 failureCode: failureCode,
                 fallbackProviderIds: [],
@@ -172,8 +214,11 @@ public final class Router: Sendable {
             },
             explanation: Explanation(
                 selectedProviderId: ordered.first?.descriptor.id,
-                summary: "Selected provider '\(ordered.first?.descriptor.id ?? "")' deterministically "
-                    + "from \(ordered.count) eligible candidate(s)."
+                summary: wantsStream
+                    ? "Selected streaming provider '\(ordered.first?.descriptor.id ?? "")' deterministically "
+                        + "from \(ordered.count) eligible candidate(s)."
+                    : "Selected provider '\(ordered.first?.descriptor.id ?? "")' deterministically "
+                        + "from \(ordered.count) eligible candidate(s)."
             ),
             failureCode: nil,
             fallbackProviderIds: ordered.dropFirst().map { $0.descriptor.id },
@@ -198,7 +243,8 @@ public final class Router: Sendable {
 private func buildSharedPlannerInput(
     request: TaskRequest,
     online: Bool,
-    snapshots: [ProviderSnapshot]
+    snapshots: [ProviderSnapshot],
+    interactionMode: InteractionMode
 ) -> SharedPlannerInput {
     let constraints = request.constraints
     let preferences = request.preferences
@@ -209,22 +255,13 @@ private func buildSharedPlannerInput(
             networkOnline: online,
             privacy: constraints?.privacy
         ),
-        // The Swift SDK only exposes Mode 1 today. Mode 2 streaming requests become possible
-        // once `ProviderAdapter.stream` lands (see issues #152/#153); until then the planner is
-        // always asked for a `run` route.
-        interactionMode: .run,
+        interactionMode: interactionMode,
         preferences: SharedPlannerPreferences(
             optimizeFor: preferences?.optimizeFor
         ),
         providers: snapshots.map { snapshot in
             SharedPlannerProviderInput(
-                capabilities: SharedPlannerCapabilities(
-                    available: snapshot.capabilities.available,
-                    cancellationAvailable: snapshot.capabilities.cancellationAvailable,
-                    reason: snapshot.capabilities.reason,
-                    streamingAvailable: snapshot.capabilities.streamingAvailable,
-                    streamingUnavailableReason: snapshot.capabilities.streamingUnavailableReason
-                ),
+                capabilities: streamingAwareCapabilities(for: snapshot),
                 descriptor: SharedPlannerProviderDescriptor(
                     cancel: cancelSemantics(from: snapshot.descriptor.cancel),
                     id: snapshot.descriptor.id,
@@ -244,6 +281,29 @@ private func buildSharedPlannerInput(
             )
         },
         task: SharedPlannerTask(kind: request.task.kind.rawValue)
+    )
+}
+
+/// Folds the "declares streaming but does not implement it" check into the
+/// dynamic capability the planner sees, so the mismatch is rejected during
+/// planning with an explanation instead of surfacing as an unexplained failure
+/// later. Mirrors `toSharedPlannerCapabilities` in the Web SDK's route planner.
+private func streamingAwareCapabilities(for snapshot: ProviderSnapshot) -> SharedPlannerCapabilities {
+    let declaresStreaming = snapshot.capabilities.streamingAvailable
+        ?? snapshot.descriptor.supports.streaming
+    let implementsStream = snapshot.provider is any StreamingProviderAdapter
+    let streamingAvailable = declaresStreaming && implementsStream
+    let streamingUnavailableReason = snapshot.capabilities.streamingUnavailableReason
+        ?? (declaresStreaming && !implementsStream
+            ? "Provider '\(snapshot.descriptor.id)' declares streaming but does not implement stream()."
+            : nil)
+
+    return SharedPlannerCapabilities(
+        available: snapshot.capabilities.available,
+        cancellationAvailable: snapshot.capabilities.cancellationAvailable,
+        reason: snapshot.capabilities.reason,
+        streamingAvailable: streamingAvailable,
+        streamingUnavailableReason: streamingUnavailableReason
     )
 }
 

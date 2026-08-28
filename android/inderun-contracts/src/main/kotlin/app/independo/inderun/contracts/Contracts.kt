@@ -272,6 +272,12 @@ data class TaskResult(
  * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
  * otherwise-returned result — no provider in this codebase currently produces it, since a
  * full execution failure is instead surfaced by run() throwing an IndeRunError.
+ *
+ * How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
+ * 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
+ * otherwise completed run). 'cancelled' is included so this enum stays identical to
+ * TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal
+ * outcome branch. Optional: providers that do not report a finish reason omit it.
  */
 enum class FinishReason(val rawValue: String) {
     CANCELLED("cancelled"),
@@ -1130,6 +1136,7 @@ data class Payload(
     val phase: Phase? = null,
 
     val finalText: String? = null,
+    val finishReason: FinishReason? = null,
     val outcome: Outcome? = null,
     val runId: String? = null,
     val schemaVersion: SchemaVersion? = null,
@@ -1198,6 +1205,15 @@ data class StreamTerminalOutcome(
      * TaskResult.output.text for Mode 1.
      */
     val finalText: String? = null,
+
+    /**
+     * How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
+     * 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
+     * otherwise completed run). 'cancelled' is included so this enum stays identical to
+     * TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal
+     * outcome branch. Optional: providers that do not report a finish reason omit it.
+     */
+    val finishReason: FinishReason? = null,
 
     /**
      * The stream completed normally: every provider-generated event was delivered before this
