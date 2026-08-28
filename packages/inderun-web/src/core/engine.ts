@@ -7,7 +7,7 @@ import {
   type TaskResult
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
-import type { ProviderAdapter, ProviderCapabilitySnapshot } from "./provider.js";
+import type { ProviderAdapter, ProviderCapabilitySnapshot, StreamRun } from "./provider.js";
 import type { IndeRunApi } from "./generated/inderun-api.js";
 import { ProviderRegistry } from "./registry.js";
 import { type RouteSelection, Router } from "./router.js";
@@ -21,16 +21,11 @@ import { type TelemetryEvent, type TelemetryService, NoOpTelemetryService } from
 import { EventGate } from "./event-gate.js";
 
 /**
- * Handle returned by IndeRun.stream(). `events` is the canonical StreamEvent
- * sequence for this run, terminating in exactly one terminal StreamEvent per the
- * Event Gate's guarantee. `cancel()` is idempotent: repeated or concurrent calls
- * produce exactly one `cancelled` terminal outcome.
+ * @deprecated Renamed to `StreamRun`, which is the name the generated
+ * `IndeRunApi` surface and the Swift/Kotlin SDKs use. Kept as an alias so the
+ * rename is not a breaking change.
  */
-export interface StreamHandleResult {
-  handle: StreamRunHandle;
-  events: AsyncIterable<StreamEvent>;
-  cancel(reason?: string): void;
-}
+export type StreamHandleResult = StreamRun;
 
 /**
  * Main orchestrator SDK entrypoint class.
@@ -255,7 +250,7 @@ export class IndeRun implements IndeRunApi {
    * @param request - The canonical task request containing prompts, tasks, and constraints.
    * @throws {IndeRunException} If validation fails or no eligible streaming provider exists.
    */
-  async stream(request: TaskRequest): Promise<StreamHandleResult> {
+  async stream(request: TaskRequest): Promise<StreamRun> {
     const startTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
     const now = () => (this.hostServices.clock ? this.hostServices.clock.now() : Date.now());
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;

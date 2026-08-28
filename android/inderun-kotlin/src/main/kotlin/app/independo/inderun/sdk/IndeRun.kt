@@ -243,7 +243,7 @@ class IndeRun(
      *
      * @throws app.independo.inderun.core.IndeRunException on validation or routing failure.
      */
-    suspend fun stream(request: TaskRequest): StreamRun {
+    override suspend fun stream(request: TaskRequest): StreamRun {
         val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
 

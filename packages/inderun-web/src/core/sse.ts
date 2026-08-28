@@ -37,9 +37,7 @@ export interface SseEvent {
  *
  * @param chunks - Raw response body chunks, in arrival order.
  */
-export async function* parseSseStream(
-  chunks: AsyncIterable<Uint8Array>
-): AsyncGenerator<SseEvent> {
+export async function* parseSseStream(chunks: AsyncIterable<Uint8Array>): AsyncGenerator<SseEvent> {
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
 

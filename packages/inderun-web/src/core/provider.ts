@@ -1,4 +1,9 @@
-import type { TaskRequest, TaskResult } from "@independo/inderun-contracts";
+import type {
+  StreamEvent,
+  StreamRunHandle,
+  TaskRequest,
+  TaskResult
+} from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
 
 /**
@@ -208,4 +213,19 @@ export interface ProviderAdapter {
    * `describe().supports.streaming === true` are expected to implement this.
    */
   stream?(req: TaskRequest, ctx: ProviderStreamContext): AsyncIterable<ProviderStreamEvent>;
+}
+
+/**
+ * What `IndeRun.stream()` returns: the run's identity, its canonical event
+ * sequence, and a cancel hook.
+ *
+ * `events` terminates in exactly one terminal `StreamEvent`, per the Event
+ * Gate's guarantee, and is single-use — the run is driven once, not restarted
+ * per consumer. `cancel()` is idempotent: repeated or concurrent calls produce
+ * exactly one `cancelled` terminal outcome.
+ */
+export interface StreamRun {
+  handle: StreamRunHandle;
+  events: AsyncIterable<StreamEvent>;
+  cancel(reason?: string): void;
 }

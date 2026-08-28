@@ -20,7 +20,8 @@ export {
   type RunContext,
   type ProviderAdapter,
   type ProviderStreamContext,
-  type ProviderStreamEvent
+  type ProviderStreamEvent,
+  type StreamRun
 } from "./core/provider.js";
 
 export { EventGate } from "./core/event-gate.js";
