@@ -32,12 +32,12 @@ there for what's currently in scope before starting work — do not infer scope
 from this document or assume it is up to date.
 
 As of this writing, Mode 1 `run()` is implemented and stable, and provider
-breadth (ONNX Runtime, web system-model) has landed. The Mode 2 `stream()`
-orchestrator, Event Gate, and cancellation semantics are implemented in the
-TypeScript Engine core (`packages/inderun-web/src/core/`), proven against a
-deterministic test-only provider — no shipped provider streams for real yet,
-since that needs a host-services chunked/SSE HTTP capability that doesn't
-exist. Mode 3 `openSession()` / realtime sessions remain unimplemented.
+breadth (ONNX Runtime, web system-model) has landed. Mode 2 `stream()` — the
+orchestrator, Event Gate, and cancellation semantics — is implemented in all
+three engines (TypeScript, Swift, Kotlin), hosts expose an optional streaming
+HTTP capability, and the OpenAI-compatible provider streams on all three
+platforms. The local/platform provider families do not stream yet. Mode 3
+`openSession()` / realtime sessions remain unimplemented.
 
 Out of scope now:
 
@@ -70,7 +70,10 @@ Any provider integration should explicitly define:
 
 - static descriptor (`describe`)
 - dynamic capability check (`capabilities(host)`)
-- supported interaction modes (`run` is the only implemented mode; `stream` and `openSession` are forward-looking descriptor seams, not yet implemented — see §3)
+- supported interaction modes (`run` and `stream` are implemented; `openSession` is a
+  forward-looking descriptor seam — see §3). A provider that streams opts into the
+  streaming adapter type; declaring `supports.streaming` without implementing it is a
+  routing-visible mistake, not a harmless one.
 - cancellation behavior (`hard` / `soft` / `none`)
 - mapped error taxonomy and normalized telemetry
 

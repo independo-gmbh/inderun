@@ -65,9 +65,35 @@ supply a different `OnnxGenAiRuntime` implementation, or `createFixtureOnnxRunti
 and tests. See `docs/architecture/onnx-runtime-provider-family.md#apple-implementation` for the
 model IO contract, source-type support, and error mapping.
 
+## Streaming
+
+`IndeRun.stream(request:)` returns the run handle, its canonical `StreamEvent` sequence, and a
+`cancel(reason:)` hook:
+
+```swift
+let run = try await indeRun.stream(request: request)
+for try await event in run.events {
+    if event.type == "content_delta" { print(event.payload?.text ?? "", terminator: "") }
+    if event.type == "terminal" { print(event.payload?.outcome as Any) }
+}
+```
+
+Order by `event.sequence`, not by arrival: it is the ordering authority for a run. Treat an
+unrecognized `event.type` as ignore-or-pass-through — the set is open and additive. Exactly one
+terminal event is produced per run, and `cancel(reason:)` is idempotent.
+
+Streaming needs a host that can deliver a response body incrementally.
+`DefaultHostServices.make()` provides one; a host without a `streamingHttpClient` still runs
+Mode 1, and a stream request is refused at routing time with a `streaming_unavailable` reason.
+
+The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
+must accept `"stream": true` and emit `text/event-stream` with the Responses event types.
+
 ## Notes
 
-- Keep credentials behind `authContextRef`.
+- Keep credentials behind `authContextRef`. Never ship a developer-owned API key in a
+  distributed app — point `endpointURL` at a trusted backend proxy that holds the key and
+  relays the event stream. This is enforced on the Web SDK and is a convention here.
 - Use the Apple provider for on-device Mode 1 execution when the system runtime is available.
 - Use the OpenAI provider for OpenAI-compatible cloud execution through a host-provided HTTP client.
 - Use the ONNX Runtime provider for developer-supplied/custom local models.

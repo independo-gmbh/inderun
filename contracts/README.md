@@ -17,8 +17,14 @@ It also includes the canonical Mode 2 streaming contracts — `stream-run.schema
 `stream-terminal-outcome.schema.json` (`StreamTerminalOutcome`). The TypeScript Engine core
 implements the Mode 2 orchestrator against these, and `route-planner-input.schema.json` carries
 the requested `interactionMode` plus the static/dynamic streaming capability fields the planner
-needs to route it. No shipped provider implements `stream()` yet (see
+needs to route it. The TypeScript, Swift, and Kotlin engines all implement Mode 2, and the
+OpenAI-compatible provider streams on all three (see
 `docs/architecture/architecture.md#streaming-contracts-and-orchestration-mode-2`).
+
+`fixtures/streaming/` holds cross-SDK conformance vectors for behavior that is implemented
+separately per platform and so has no generator keeping it in sync: `sse-framing.json` for the
+server-sent events framer in each core, and `openai-responses-transcript.json` for the OpenAI
+event mapping in each adapter. Each is loaded directly by all three test suites.
 
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
