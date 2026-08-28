@@ -1290,3 +1290,84 @@ final class URLSessionStreamingHttpClientServiceTests: XCTestCase {
         XCTAssertTrue(stopped)
     }
 }
+
+// MARK: - SSE Framing
+
+/// Drives `SseParser` from the shared cross-SDK vectors so the three
+/// implementations of the protocol cannot drift apart.
+final class SseParserConformanceTests: XCTestCase {
+    private struct FramingCase: Decodable {
+        let name: String
+        let description: String
+        let chunksHex: [String]
+        let expected: [ExpectedEvent]
+    }
+
+    private struct ExpectedEvent: Decodable {
+        let event: String?
+        let data: String
+        let id: String?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [FramingCase]
+    }
+
+    private static func repositoryRoot() -> URL {
+        // .../ios/IndeRun/Tests/IndeRunTests/IndeRunTests.swift -> repository root
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = Self.repositoryRoot()
+            .appendingPathComponent("contracts/fixtures/streaming/sse-framing.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    private func bytes(fromHex hex: String) -> Data {
+        var data = Data()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            data.append(UInt8(hex[index ..< next], radix: 16)!)
+            index = next
+        }
+        return data
+    }
+
+    func testMatchesSharedFramingVectors() throws {
+        let fixture = try loadFixture()
+        XCTAssertFalse(fixture.cases.isEmpty)
+
+        for framingCase in fixture.cases {
+            var parser = SseParser()
+            var received: [SseEvent] = []
+            for hex in framingCase.chunksHex {
+                received.append(contentsOf: parser.consume(bytes(fromHex: hex)))
+            }
+            received.append(contentsOf: parser.finish())
+
+            let expected = framingCase.expected.map {
+                SseEvent(event: $0.event, data: $0.data, id: $0.id)
+            }
+            XCTAssertEqual(received, expected, "\(framingCase.name): \(framingCase.description)")
+        }
+    }
+
+    func testIsUnaffectedByChunking() {
+        let raw = Array("event: a\ndata: one\n\ndata: two\n\n".utf8)
+        var parser = SseParser()
+        var received: [SseEvent] = []
+        for byte in raw {
+            received.append(contentsOf: parser.consume(Data([byte])))
+        }
+        received.append(contentsOf: parser.finish())
+
+        XCTAssertEqual(received, [SseEvent(event: "a", data: "one"), SseEvent(data: "two")])
+    }
+}
