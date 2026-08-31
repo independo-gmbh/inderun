@@ -1125,15 +1125,40 @@ final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
         var chunkDelay: TimeInterval
         /// Never sends the response head, so the caller's head deadline decides.
         var withholdResponse: Bool = false
+        /// Holds the rest of the response back until `releaseGate()` is called,
+        /// so a test can prove it observed earlier bytes *before* the transfer
+        /// could possibly have completed. This replaces latency measurements:
+        /// a buffering client cannot get past the gate at any machine speed.
+        var gateAfterChunkIndex: Int?
     }
 
     private static let lock = NSLock()
     private static var scriptStorage = Script(status: 200, headers: [:], chunks: [], chunkDelay: 0)
     private static var stoppedStorage = false
+    private static var gateStorage = DispatchSemaphore(value: 0)
+    /// Liveness backstop only: a wedged test finishes instead of hanging the
+    /// whole job. No assertion depends on this budget.
+    private static var gateDeadline: DispatchTime { .now() + 10 }
 
     static var script: Script {
         get { lock.lock(); defer { lock.unlock() }; return scriptStorage }
-        set { lock.lock(); scriptStorage = newValue; stoppedStorage = false; lock.unlock() }
+        set {
+            lock.lock()
+            scriptStorage = newValue
+            stoppedStorage = false
+            // A fresh gate per script keeps signals from leaking between tests.
+            gateStorage = DispatchSemaphore(value: 0)
+            lock.unlock()
+        }
+    }
+
+    private static var gate: DispatchSemaphore {
+        lock.lock(); defer { lock.unlock() }; return gateStorage
+    }
+
+    /// Lets the scripted response continue past its gated chunk.
+    static func releaseGate() {
+        gate.signal()
     }
 
     static var stopped: Bool {
@@ -1162,13 +1187,18 @@ final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
 
         DispatchQueue.global().async { [weak self] in
             guard let self else { return }
-            for chunk in script.chunks {
+            for (index, chunk) in script.chunks.enumerated() {
                 if Self.stopped { return }
                 if script.chunkDelay > 0 {
                     Thread.sleep(forTimeInterval: script.chunkDelay)
                 }
                 if Self.stopped { return }
                 self.client?.urlProtocol(self, didLoad: Data(chunk.utf8))
+                if index == script.gateAfterChunkIndex {
+                    _ = Self.gate.wait(timeout: Self.gateDeadline)
+                    // The transfer may have been torn down while we waited.
+                    if Self.stopped { return }
+                }
             }
             if Self.stopped { return }
             self.client?.urlProtocolDidFinishLoading(self)
@@ -1179,6 +1209,36 @@ final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
         Self.lock.lock()
         Self.stoppedStorage = true
         Self.lock.unlock()
+    }
+}
+
+/// Bounds an await so a stream that never produces a value fails the test with a
+/// readable error instead of hanging the run. The budget is a liveness backstop,
+/// not a latency assertion — tests must never depend on how long `body` takes.
+/// It stays below `ScriptedStreamingURLProtocol`'s gate budget so a wedged test
+/// reports the timeout rather than a confusing downstream assertion.
+private func withTestTimeout<T: Sendable>(
+    seconds: Double = 5,
+    _ body: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await body() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw TestTimeoutError(seconds: seconds)
+        }
+        guard let result = try await group.next() else {
+            throw TestTimeoutError(seconds: seconds)
+        }
+        group.cancelAll()
+        return result
+    }
+}
+
+private struct TestTimeoutError: Error, CustomStringConvertible {
+    let seconds: Double
+    var description: String {
+        "Timed out after \(seconds)s waiting for a value that should have arrived immediately."
     }
 }
 
@@ -1219,25 +1279,33 @@ final class URLSessionStreamingHttpClientServiceTests: XCTestCase {
     }
 
     func testSurfacesBytesBeforeTheResponseCompletes() async throws {
+        // The fixture holds everything after the first chunk until this test
+        // says so, so the first chunk is necessarily observed while the response
+        // is still open. A buffering client would deadlock here rather than pass
+        // slowly, which is why this needs no wall-clock budget.
         ScriptedStreamingURLProtocol.script = .init(
             status: 200,
             headers: ["Content-Type": "text/event-stream"],
             chunks: ["data: one\n\n", "data: two\n\n", "data: three\n\n"],
-            chunkDelay: 0.05
+            chunkDelay: 0,
+            gateAfterChunkIndex: 0
         )
 
         let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
         let response = try await client.stream(request: makeRequest())
 
-        // The first chunk must be observable well before the last one is sent;
-        // a buffering client could not satisfy this.
         var iterator = response.body.makeAsyncIterator()
-        let started = Date()
-        let first = try await iterator.next()
+        let first = try await withTestTimeout { try await iterator.next() }
         // Chunk boundaries are arbitrary by contract — this client flushes at
         // newlines — so the assertion is on content arriving early, not shape.
         XCTAssertEqual(String(decoding: first ?? Data(), as: UTF8.self), "data: one\n")
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.14)
+
+        ScriptedStreamingURLProtocol.releaseGate()
+        var rest = ""
+        while let chunk = try await iterator.next() {
+            rest += String(decoding: chunk, as: UTF8.self)
+        }
+        XCTAssertEqual(rest, "\ndata: two\n\ndata: three\n\n")
     }
 
     func testExposesNonSuccessHeadAndErrorBody() async throws {
@@ -1293,38 +1361,48 @@ final class URLSessionStreamingHttpClientServiceTests: XCTestCase {
     }
 
     func testCancellingTheConsumingTaskTearsDownTheConnection() async throws {
+        // Gated after the first chunk, so the stream is provably mid-flight when
+        // the consumer is cancelled — no "sleep and hope" window.
         ScriptedStreamingURLProtocol.script = .init(
             status: 200,
             headers: ["Content-Type": "text/event-stream"],
-            chunks: Array(repeating: "data: x\n\n", count: 200),
-            chunkDelay: 0.02
+            chunks: Array(repeating: "data: x\n\n", count: 4),
+            chunkDelay: 0,
+            gateAfterChunkIndex: 0
         )
 
         let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
         let response = try await client.stream(request: makeRequest())
 
+        let (firstChunkSeen, signalFirstChunk) = AsyncStream<Void>.makeStream()
         let task = Task { () -> Int in
             var count = 0
             for try await _ in response.body {
                 count += 1
+                if count == 1 { signalFirstChunk.yield(()) }
             }
             return count
         }
 
-        try await Task.sleep(nanoseconds: 60_000_000)
+        var iterator = firstChunkSeen.makeAsyncIterator()
+        _ = try await withTestTimeout { await iterator.next() }
         task.cancel()
         _ = try? await task.value
 
         // stopLoading() is how URLSession reports that the transfer was torn
-        // down rather than left running in the background.
+        // down rather than left running in the background. Teardown is
+        // asynchronous, so this polls until it lands rather than asserting how
+        // fast it lands.
         var stopped = false
-        for _ in 0 ..< 50 where !stopped {
+        for _ in 0 ..< 250 where !stopped {
             if ScriptedStreamingURLProtocol.stopped {
                 stopped = true
                 break
             }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
+        // Let the fixture's worker unwind regardless of the outcome.
+        ScriptedStreamingURLProtocol.releaseGate()
         XCTAssertTrue(stopped)
     }
 }
@@ -1418,10 +1496,14 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
     struct Step {
         let event: ProviderStreamEvent
         let delayMs: UInt64
+        /// Blocks this step until the run has actually been cancelled, so tests
+        /// that cancel mid-stream do not race a fixed delay.
+        let waitsForCancellation: Bool
 
-        init(_ event: ProviderStreamEvent, delayMs: UInt64 = 0) {
+        init(_ event: ProviderStreamEvent, delayMs: UInt64 = 0, waitsForCancellation: Bool = false) {
             self.event = event
             self.delayMs = delayMs
+            self.waitsForCancellation = waitsForCancellation
         }
     }
 
@@ -1488,7 +1570,14 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         return AsyncThrowingStream { continuation in
             Task { [script, throwAfterScript] in
                 for step in script {
-                    if step.delayMs > 0 {
+                    if step.waitsForCancellation {
+                        // Bounded so a broken cancellation path fails the test
+                        // instead of hanging it; the loop exits the moment
+                        // cancellation is observed.
+                        for _ in 0 ..< 500 where !context.cancellation.isCancelled {
+                            try? await Task.sleep(nanoseconds: 2_000_000)
+                        }
+                    } else if step.delayMs > 0 {
                         try? await Task.sleep(nanoseconds: step.delayMs * 1_000_000)
                     }
                     if context.cancellation.isCancelled {
@@ -1688,9 +1777,11 @@ final class StreamOrchestrationTests: XCTestCase {
     func testProducesExactlyOneCancelledTerminalAndStopsDeltas() async throws {
         let registry = ProviderRegistry()
         try registry.register(MockStreamProvider(id: "p1", script: [
-            .init(.delta(text: "one"), delayMs: 5),
-            .init(.delta(text: "two"), delayMs: 60),
-            .init(.done(finalText: "one two"), delayMs: 5)
+            .init(.delta(text: "one")),
+            // Held until the consumer's cancel has landed, so "stops deltas" is
+            // a real ordering guarantee rather than a wall-clock head start.
+            .init(.delta(text: "two"), waitsForCancellation: true),
+            .init(.done(finalText: "one two"))
         ]))
 
         let engine = IndeRun(registry: registry, hostServices: makeHost())
