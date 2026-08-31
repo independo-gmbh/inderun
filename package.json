@@ -37,7 +37,7 @@
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^11.0.1",
     "conventional-changelog-conventionalcommits": "^9.3.1",
-    "eslint": "^10.8.1",
+    "eslint": "^10.9.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.11.0",
     "prettier": "^3.9.6",
