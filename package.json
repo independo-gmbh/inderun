@@ -9,6 +9,8 @@
   "scripts": {
     "build": "pnpm build:wasm && pnpm -r build",
     "build:wasm": "node scripts/build-route-core-wasm.mjs",
+    "build:route-core-apple": "node scripts/build-route-core-apple.mjs",
+    "verify:route-core-apple": "node scripts/verify-route-core-apple.mjs",
     "test": "pnpm test:js && pnpm test:rust && pnpm test:kotlin && pnpm test:swift",
     "test:js": "pnpm build:wasm && pnpm -r test",
     "test:rust": "cargo test --workspace",

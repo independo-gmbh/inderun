@@ -3,3 +3,22 @@ members = [
   "rust/inderun-route-core",
 ]
 resolver = "2"
+
+# Profile for the Apple dynamic libraries shipped in the committed XCFramework
+# (scripts/build-route-core-apple.mjs). Size is the constraint: the artifact is in
+# git and is rewritten whenever the planner changes. opt-level "z", fat LTO and a
+# single codegen unit let the linker drop the parts of std and serde_json that the
+# two FFI entry points never reach; `panic = "abort"` removes the unwinding
+# tables, and unwinding out of an `extern "C"` boundary would be undefined
+# behaviour anyway. Together with `strip` this is ~400 KB per slice.
+#
+# None of it would help a staticlib: an archive is just a bundle of object files,
+# so nothing is eliminated until the consumer links, and a `--release` archive is
+# ~17 MB per slice regardless of these settings.
+[profile.apple]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

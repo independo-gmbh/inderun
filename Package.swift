@@ -56,9 +56,16 @@ let package = Package(
             dependencies: ["IndeRunCore", "IndeRunContracts"],
             path: "ios/IndeRun/Sources/IndeRunSwift"
         ),
+        // The shared Rust route planner, built by scripts/build-route-core-apple.mjs
+        // and committed: SwiftPM resolves this package from a git tag, so the tag
+        // has to contain the binary. See ios/IndeRun/README.md.
+        .binaryTarget(
+            name: "InderunRouteCoreFFI",
+            path: "ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework"
+        ),
         .target(
             name: "IndeRunCore",
-            dependencies: ["IndeRunContracts"],
+            dependencies: ["IndeRunContracts", "InderunRouteCoreFFI"],
             path: "ios/IndeRun/Sources/IndeRunCore"
         ),
         .target(

@@ -1,0 +1,20 @@
+# Pinned rather than floating "stable", because this workspace produces a
+# committed executable: ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework is
+# what SwiftPM consumers run, and "whatever stable was that day" is not something
+# a reviewer can check an artifact against. The version is recorded in the
+# framework's provenance manifest and verified in CI.
+#
+# rustup installs this on demand, so CI needs no second copy of the version and
+# the workflows keep using the toolchain action only to warm the cache.
+# Bumping it is a deliberate change: rebuild the XCFramework in the same commit.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+targets = [
+  "wasm32-unknown-unknown",
+  "aarch64-apple-ios",
+  "aarch64-apple-ios-sim",
+  "x86_64-apple-ios",
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+]

@@ -46,7 +46,10 @@ which runs its own release pipeline and consumes the artifacts published here.
    - commits the version/changelog files, tags `vX.Y.Z`, and creates the GitHub release.
 4. The published GitHub release triggers `.github/workflows/maven-publish.yml`, which runs
    `./gradlew publishToMavenCentral` for the library modules (stable releases only).
-5. Swift consumers use the new git tag directly — no separate publish step.
+5. Swift consumers use the new git tag directly — no separate publish step. Because the tag is
+   the distribution channel, the release job is gated on a `Verify Apple artifact` job that
+   checks the committed route-core XCFramework against its provenance manifest before anything
+   is tagged (see [ci.md](./ci.md)).
 
 ## Versioning (Conventional Commits)
 

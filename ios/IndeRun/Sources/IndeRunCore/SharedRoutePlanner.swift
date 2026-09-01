@@ -1,13 +1,31 @@
 import Foundation
 import IndeRunContracts
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
+import InderunRouteCoreFFI
 
 protocol RoutePlanning: Sendable {
-    func planRoute(input: SharedPlannerInput) -> SharedPlannerRoutePlan?
+    func planRoute(input: SharedPlannerInput) throws -> SharedPlannerRoutePlan
+}
+
+/// Why the shared route planner could not produce a plan.
+///
+/// The Web equivalent (`WasmUnavailableReason`) additionally has load-time
+/// reasons -- `import_failed`, `init_failed` -- because a browser fetches and
+/// instantiates the core at runtime. Here it is linked into the binary, so a
+/// missing planner is a link failure at build time and cannot be a runtime state.
+enum RoutePlannerUnavailableReason: String, Sendable {
+    /// The planner input could not be encoded as JSON.
+    case inputEncodeFailed = "input_encode_failed"
+    /// The core returned nothing at all, which its C contract does not allow.
+    case planFailed = "plan_failed"
+    /// The core returned JSON that does not decode as a `RoutePlan`.
+    case invalidPlanShape = "invalid_plan_shape"
+}
+
+/// Thrown instead of returning nil: there is no second planner to degrade to, so
+/// every failure has to name itself rather than be swallowed into a re-plan under
+/// different semantics. `Router` turns this into an `Internal` routing error.
+struct RoutePlannerUnavailable: Error, Sendable {
+    let reason: RoutePlannerUnavailableReason
 }
 
 typealias SharedPlannerInput = RoutePlannerInput
@@ -23,77 +41,45 @@ typealias SharedPlannerRejectedProvider = RejectedProvider
 typealias SharedPlannerRejectedReason = Reason
 typealias SharedPlannerExplanation = Explanation
 
+/// Calls the shared Rust route planner (`rust/inderun-route-core`) through its C
+/// interface. The library is linked from the committed XCFramework that
+/// `Package.swift` declares as a binary target, not loaded at runtime -- see
+/// `scripts/build-route-core-apple.mjs`.
+///
+/// This is the only planner on iOS. Swift deliberately does not restate the
+/// ranking, constraint, or rejection rules: a second copy of them is what drifted
+/// on Web (issue #164) and here (issue #171), silently changing which provider
+/// runs depending on which implementation answered.
 final class SharedCoreRoutePlanner: RoutePlanning, @unchecked Sendable {
     static let shared = SharedCoreRoutePlanner()
 
-    private typealias PlanRouteJsonFn = @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
-    private typealias FreeStringFn = @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
-
-    private let handle: UnsafeMutableRawPointer?
-    private let planRouteJsonFn: PlanRouteJsonFn?
-    private let freeStringFn: FreeStringFn?
-
-    init() {
-        let resolvedHandle = SharedCoreRoutePlanner.openLibrary()
-        handle = resolvedHandle
-        planRouteJsonFn = resolvedHandle.flatMap {
-            guard let symbol = dlsym($0, "inderun_plan_route_json") else {
-                return nil
-            }
-            return unsafeBitCast(symbol, to: PlanRouteJsonFn.self)
-        }
-        freeStringFn = resolvedHandle.flatMap {
-            guard let symbol = dlsym($0, "inderun_free_string") else {
-                return nil
-            }
-            return unsafeBitCast(symbol, to: FreeStringFn.self)
-        }
-    }
-
-    deinit {
-        if let handle {
-            dlclose(handle)
-        }
-    }
-
-    func planRoute(input: SharedPlannerInput) -> SharedPlannerRoutePlan? {
-        guard let planRouteJsonFn, let freeStringFn else {
-            return nil
-        }
-
+    func planRoute(input: SharedPlannerInput) throws -> SharedPlannerRoutePlan {
         guard let inputData = try? input.jsonData(),
               let inputJson = String(data: inputData, encoding: .utf8) else {
-            return nil
+            throw RoutePlannerUnavailable(reason: .inputEncodeFailed)
         }
 
-        return inputJson.withCString { value in
-            guard let rawOutput = planRouteJsonFn(value) else {
-                return nil
+        let outputJson: String = try inputJson.withCString { value in
+            guard let rawOutput = inderun_plan_route_json(value) else {
+                throw RoutePlannerUnavailable(reason: .planFailed)
             }
 
+            // The buffer was allocated by Rust and is ours to release.
             defer {
-                freeStringFn(rawOutput)
+                inderun_free_string(rawOutput)
             }
 
-            let outputJson = String(cString: rawOutput)
-            return try? SharedPlannerRoutePlan(outputJson)
-        }
-    }
-
-    private static func openLibrary() -> UnsafeMutableRawPointer? {
-        let environment = ProcessInfo.processInfo.environment
-        let candidates = [
-            environment["INDERUN_ROUTE_CORE_LIB_PATH"],
-            "libinderun_route_core.dylib",
-            "libinderun_route_core.so"
-        ].compactMap { $0 }
-
-        for candidate in candidates {
-            if let handle = dlopen(candidate, RTLD_LAZY) {
-                return handle
-            }
+            return String(cString: rawOutput)
         }
 
-        return nil
+        // Malformed input and planner errors come back as a well-formed RoutePlan
+        // carrying `failureCode: unavailable`, which Router maps to a routing
+        // error like any other refusal. Failing to decode means the contract
+        // itself is out of sync, which is not a routing outcome.
+        guard let plan = try? SharedPlannerRoutePlan(outputJson) else {
+            throw RoutePlannerUnavailable(reason: .invalidPlanShape)
+        }
+
+        return plan
     }
 }

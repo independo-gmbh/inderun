@@ -20,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pinnedRustcPath, pinnedToolchain } from "./rust-toolchain.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(repoRoot, "packages", "inderun-route-core-wasm", "generated");
@@ -62,31 +63,32 @@ function run(command, args, hint) {
   }
 }
 
+const toolchain = pinnedToolchain();
+
 const TOOLCHAIN_HINT =
-  "The WASM route core is required to build and test the Web SDK. Install the Rust\n" +
-  "toolchain and the wasm-bindgen CLI, then retry:\n" +
-  "  rustup target add wasm32-unknown-unknown\n" +
+  "The WASM route core is required to build and test the Web SDK. Install the\n" +
+  "pinned Rust toolchain and the wasm-bindgen CLI, then retry:\n" +
+  `  rustup toolchain install ${toolchain}\n` +
+  `  rustup target add --toolchain ${toolchain} wasm32-unknown-unknown\n` +
   "  cargo install wasm-bindgen-cli --version 0.2.125 --locked\n" +
   "See packages/inderun-route-core-wasm/README.md.";
 
-// `rustup which` pins RUSTC to the stable toolchain's binary so the build does not
-// pick up whatever rustc happens to be first on PATH (mirrors the CI invocation).
-const stableRustc = spawnSync("rustup", ["which", "rustc", "--toolchain", "stable"], {
-  encoding: "utf8"
-});
-if (stableRustc.error?.code === "ENOENT" || stableRustc.status !== 0) {
-  console.error(
-    `\n[build-route-core-wasm] Could not resolve the stable Rust toolchain.\n${TOOLCHAIN_HINT}`
-  );
+// RUSTC is resolved explicitly so the build cannot pick up whatever rustc happens
+// to be first on PATH: a Homebrew rust install shadows rustup's shim. The version
+// comes from rust-toolchain.toml -- these bindings are published to npm, so
+// "whatever stable was that day" is not a good enough answer for what built them.
+try {
+  process.env.RUSTC = pinnedRustcPath(toolchain);
+} catch (error) {
+  console.error(`\n[build-route-core-wasm] ${error.message}\n${TOOLCHAIN_HINT}`);
   process.exit(1);
 }
 
-process.env.RUSTC = stableRustc.stdout.trim();
 run(
   "rustup",
   [
     "run",
-    "stable",
+    toolchain,
     "cargo",
     "build",
     "-p",

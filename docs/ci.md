@@ -63,7 +63,7 @@ skips the real job via `needs`/`if` when nothing relevant changed:
 - `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**`, `Cargo.toml`, `Cargo.lock`, `scripts/build-route-core-wasm.mjs` (all of these feed the WASM bindings, and the Web SDK has no fallback planner — a dependency-only change can alter the compiled route core and therefore Web routing), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
 - `android.yml`: `android/**`
 - `rust.yml`: `rust/**`, `Cargo.toml`, `Cargo.lock`
-- `swift.yml`: `ios/**`, `Package.swift`
+- `swift.yml`: `ios/**`, `Package.swift`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and the four route-core scripts under `scripts/` (the Swift SDK links the compiled route core and has no fallback planner, so anything that can change the core changes iOS routing — and anything that can change the core's *provenance checks* has to re-run them)
 
 Each filter also includes the workflow's own file, so editing a workflow always
 re-runs it. This is deliberately done as an in-workflow `changes` job rather than a
@@ -132,6 +132,51 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   remember. Running the JS tests locally therefore requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (the script prints the install
   commands when either is missing).
+- `pnpm build:route-core-apple` (`scripts/build-route-core-apple.mjs`) is the equivalent for the
+  Apple platforms: it cross-compiles the route core for iOS device, iOS simulator, and macOS,
+  and packages the results into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`.
+  Freshness is delegated to cargo for the same reason as the WASM build; only the packaging
+  step is skipped, and `--force` disables even that. Unlike the WASM bindings that XCFramework
+  **is committed** — SwiftPM has no publish step, so consumers get whatever the git tag
+  contains, and an artifact injected at release time would leave every prerelease tag
+  unbuildable. The libraries are dynamic (`cdylib` in framework bundles), not static: a
+  `staticlib` archive eliminates nothing until the consumer links, so it weighs ~17 MB per
+  slice against ~400 KB for the same code as a dynamic library — the difference between 87 MB
+  and 2 MB of binary rewritten in git on every planner change. The `apple` cargo profile in the
+  workspace `Cargo.toml` is what buys that.
+- **Verifying the committed XCFramework.** It is an executable in git: it is what SwiftPM
+  consumers run, and reviewing the Rust source says nothing about whether that binary came from
+  it. Rust builds are not byte-reproducible, so rebuild-and-diff cannot answer the question.
+  Two mechanisms answer it together:
+  - `ios/IndeRun/Frameworks/InderunRouteCoreFFI.provenance.json`, written by the build script,
+    records the pinned compiler plus SHA-256 hashes of every source the artifact was built from
+    (crate sources and manifest, workspace manifest, lockfile, toolchain pin, the packaged C
+    header, and the build scripts themselves) and of every file inside the XCFramework.
+    `pnpm verify:route-core-apple` (`scripts/verify-route-core-apple.mjs`) recomputes all of it
+    and additionally checks each slice with `lipo`/`otool`/`nm`/`plutil`: architectures, Mach-O
+    platform, deployment target, the two exported FFI symbols, the `@rpath` install name, and
+    that nothing beyond `libSystem` is linked. It runs in `swift.yml` **before** anything is
+    rebuilt, so the committed artifact is what is under test, and `release.yml` gates the
+    release job on it — the tag is the Swift distribution channel, and nothing downstream
+    re-checks it.
+  - `swift.yml` then rebuilds from source with `--force` and runs the Swift suite a second time
+    against the result, which is the behavioural half: the committed binary and a fresh build of
+    the reviewed source must both satisfy the same tests. `swift test` only exercises the macOS
+    slice, so the job also runs the suite on an iOS simulator and builds `ios/SampleApps/IndeRunDemo`
+    for a generic iOS device, which links and embeds the device slice.
+  - Because hashes cover `Cargo.lock`, a Cargo dependency bump fails verification until the
+    XCFramework is rebuilt: a lockfile change can alter the compiled core, so such a PR needs a
+    `pnpm build:route-core-apple` commit on top. `Cargo.lock` is committed for this reason —
+    the stock "libraries don't commit lockfiles" advice assumes consumers resolve their own
+    versions, but this workspace ships a compiled binary and publishes compiled WASM, so the
+    versions that went into those artifacts have to be recorded. The manifest generator refuses
+    to hash an input git does not track, since such an entry would describe a file only the
+    build machine has.
+- The Rust toolchain is pinned in `rust-toolchain.toml` rather than tracking `stable`, because
+  the XCFramework is a committed executable and "whatever stable was that day" is not something
+  a reviewer can check an artifact against. rustup installs it on demand, so the workflows use
+  the toolchain action only to provide rustup and must not restate the version — a second copy
+  could disagree with the compiler that actually built the artifact.
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
   exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
   resolve the package's literal `import("../generated/inderun_route_core.js")` without

@@ -74,11 +74,10 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Set up Rust toolchain
-        # Intentionally not SHA-pinned: this tracks whatever "stable" Rust
-        # currently is, which is the point of using it here.
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # rust-toolchain.toml decides which compiler actually runs. The version
+        # must not be restated here -- see docs/ci.md.
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo state
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

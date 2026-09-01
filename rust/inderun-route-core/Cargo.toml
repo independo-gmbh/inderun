@@ -9,9 +9,17 @@ description = "Shared Rust route-planning core for IndeRun."
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-jni = "0.22.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# The JNI and wasm-bindgen entry points in src/ffi.rs are already cfg-gated to
+# their platforms; gating the dependencies too keeps them out of every other
+# target's build. That matters for the Apple static library, which is linked
+# into consumer apps.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.22.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 
 [features]

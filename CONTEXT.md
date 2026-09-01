@@ -97,6 +97,20 @@ Checked-in JavaScript commands:
   called automatically by `pnpm build` and `pnpm test:js`. Requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli`. The Web SDK has no fallback route
   planner, so the JS tests need these bindings to run at all.
+- `pnpm build:route-core-apple` — build the Rust route core for the Apple platforms and
+  package it into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`
+  (`scripts/build-route-core-apple.mjs`). Requires `rustup` with the five Apple targets and
+  the Xcode command line tools. Unlike the WASM bindings, the XCFramework **is committed**:
+  SwiftPM resolves this package from a git tag, so the tag has to contain the binary. Run it
+  and commit the result — including the regenerated `InderunRouteCoreFFI.provenance.json` —
+  in the same change whenever the route core changes; CI fails otherwise. Pass `--force` to
+  repackage unconditionally.
+- `pnpm verify:route-core-apple` — check the committed XCFramework against its provenance
+  manifest (pinned compiler, source hashes, per-file hashes) and validate every slice's
+  architectures, deployment target, exported FFI symbols, install name, and linked libraries
+  (`scripts/verify-route-core-apple.mjs`). Run by `swift.yml` before anything is rebuilt and by
+  `release.yml` before tagging. `--slices-only` skips the hash comparison, for validating a
+  freshly rebuilt artifact whose bytes legitimately differ.
 - `pnpm test` — run tests across **all** languages (JS/TS packages via `pnpm -r test`,
   Rust via `cargo test`, Kotlin via Gradle, Swift via `swift test`); requires the
   respective toolchains installed. Per-language scripts exist for scoped runs:
@@ -129,7 +143,8 @@ Checked-in Swift commands:
 
 - `swift build` — the SwiftPM manifest lives at the repository root (`Package.swift`)
   so the IndeRun Swift SDK is consumable by URL + git tag; sources remain under
-  `ios/IndeRun/Sources`.
+  `ios/IndeRun/Sources`. It links the committed route-core XCFramework as a binary target,
+  so this works on a plain checkout with no Rust toolchain installed.
 - `swift test`
 - `cd ios/IndeRun && swiftlint lint --strict` (SwiftLint config lives at `ios/IndeRun/.swiftlint.yml`)
 
@@ -147,6 +162,11 @@ Checked-in release commands:
   (prerelease). Config: `.releaserc`; workflow: `.github/workflows/release.yml`. See
   `docs/release.md`. Do not bump versions by hand — semantic-release derives them from
   Conventional Commits and fans the version out via `scripts/set-version.mjs`.
+
+The Rust toolchain is pinned in `rust-toolchain.toml`; rustup honors it automatically. Do not
+restate the version in scripts or workflows — the Apple XCFramework is a committed executable
+whose provenance manifest records the exact compiler, and a second copy of the version could
+disagree with it.
 
 Checked-in Rust commands:
 

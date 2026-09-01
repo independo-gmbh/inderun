@@ -70,7 +70,7 @@ Realtime sessions (`openSession`, Mode 3) remain fully unimplemented.
 - **Android ML Kit GenAI** — `AndroidMlKitGenAiProviderTest.kt`; demoed in `android/inderun-demo-app`.
 - **ONNX Runtime** — `packages/inderun-web/src/providers/onnx/{provider,transformers-runtime}.test.ts` (capability rejection, `local_required` no-fallback, runtime-error → error-class mapping); Apple/Android equivalents in the same test trees as above; demoed in `ios/SampleApps/IndeRunDemo` and `android/inderun-demo-app`.
 - **Web system-model** — `packages/inderun-web/src/providers/system-model/{provider,chrome-runtime}.test.ts` (availability states, error mapping, `local_required` behavior). Not yet wired into `packages/inderun-web-demo` (tracked as a follow-up) — the web demo currently covers cloud + ONNX only.
-- **Route selection/rejection + normalized errors** — `rust/inderun-route-core/src/tests.rs` is the canonical suite for rejection reasons (`rejected_providers[].reasons[].code`), including the streaming-mode rejections, and deterministic fallback ordering; `packages/inderun-web/src/core/router.stream.test.ts` covers the same rules end to end through the WASM core (the Swift and Kotlin mirror planners apply the same mode filtering but still do not populate `rejectedProviders`, and remain in place because neither mobile SDK ships the Rust core yet — see issue #164); `packages/inderun-web/src/core/engine.test.ts` covers the same at the TS engine layer (`CapabilityMismatch`/`Offline`/`Unavailable`, telemetry). The iOS and Android demo app READMEs each document an "Expected Failure Modes" section with concrete triggering scenarios per `errorClass`.
+- **Route selection/rejection + normalized errors** — `rust/inderun-route-core/src/tests.rs` is the canonical suite for rejection reasons (`rejected_providers[].reasons[].code`), including the streaming-mode rejections, and deterministic fallback ordering; `packages/inderun-web/src/core/router.stream.test.ts` covers the same rules end to end through the WASM core (the Kotlin mirror planner applies the same mode filtering but still does not populate `rejectedProviders`, and remains in place because the Android SDK does not ship the Rust core yet — see issue #172); `ios/IndeRun/Tests/IndeRunTests/IndeRunTests.swift` covers the same rules end to end through the linked core; `packages/inderun-web/src/core/engine.test.ts` covers the same at the TS engine layer (`CapabilityMismatch`/`Offline`/`Unavailable`, telemetry). The iOS and Android demo app READMEs each document an "Expected Failure Modes" section with concrete triggering scenarios per `errorClass`.
 
 To run this coverage: `pnpm test:js` (Web/TS provider + engine tests), `cargo test -p inderun_route_core` (routing/rejection), `swift test` (iOS), `cd android && ./gradlew test` (Android). See each package's README for demo-app run instructions.
 
@@ -96,7 +96,14 @@ Implementation nuance not captured by the matrix above:
   shipping it. Details: [Android Implementation](onnx-runtime-provider-family.md#android-implementation).
 - **Web system-model** — the browser owns model availability/download/execution, unlike the
   developer-supplied ONNX family. Details: [web-system-model-provider-family.md](web-system-model-provider-family.md).
-- Shared route planning: Rust core used by the TypeScript/Web side and WASM wrapper
+- Shared route planning: one Rust core (`rust/inderun-route-core`), reached differently per
+  platform. The Swift SDK links it from `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`,
+  a `binaryTarget` in `Package.swift` built by `scripts/build-route-core-apple.mjs` and
+  committed to git — SwiftPM has no publish step, so a git tag has to contain the binary it
+  needs. Because the symbols are linked rather than loaded, there is no "planner missing" state
+  at runtime on iOS: `SharedCoreRoutePlanner` calls the two C entry points directly, and the
+  build fails if they are absent. Android does not ship the core yet and keeps a mirror planner
+  (issue #172). On Web the wrapper is the WASM package
   (`@independo/inderun-route-core-wasm`). The Web SDK's `WasmRoutePlanner`
   (`packages/inderun-web/src/core/route-planner.ts`) loads it via a static, literal dynamic
   `import()` so bundlers (Vite et al.) can statically resolve and chunk it — see #109 for why

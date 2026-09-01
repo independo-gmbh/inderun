@@ -51,8 +51,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Rust toolchain
-        # Intentionally not SHA-pinned: this tracks whatever "stable" Rust
-        # currently is, which is the point of using it here.
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # rust-toolchain.toml decides which compiler actually runs. The version
+        # must not be restated here -- see docs/ci.md.
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
