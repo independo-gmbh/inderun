@@ -22,3 +22,16 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Profile for the Android shared libraries packaged into inderun-core's AAR
+# (scripts/build-route-core-android.mjs). Same size reasoning as `apple` -- four
+# ABIs ship inside every consuming app -- with one deliberate difference: no
+# `panic = "abort"`. The JNI entry point relies on `EnvUnowned::with_env`, which
+# catches a panic and rethrows it as a Java exception; aborting would take the
+# host app down instead.
+[profile.android]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

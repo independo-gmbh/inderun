@@ -10,7 +10,7 @@ truth for exact steps. This table describes only what each one covers.
 - `JavaScript` (`javascript.yml`): builds and tests the pnpm packages, regenerating the shared contract and Rust→WASM artifacts first.
 - `Rust` (`rust.yml`): builds and tests the `inderun_route_core` crate.
 - `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
-- `Android` (`android.yml`): builds and tests the Gradle modules.
+- `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs.
 - The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Maven Publish` (`maven-publish.yml`): on a published (non-prerelease) GitHub release, publishes the Android library modules to Maven Central.
@@ -61,7 +61,7 @@ To avoid running, e.g., the Android build for a docs-only or web-only PR, each o
 skips the real job via `needs`/`if` when nothing relevant changed:
 
 - `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**`, `Cargo.toml`, `Cargo.lock`, `scripts/build-route-core-wasm.mjs` (all of these feed the WASM bindings, and the Web SDK has no fallback planner — a dependency-only change can alter the compiled route core and therefore Web routing), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
-- `android.yml`: `android/**`
+- `android.yml`: `android/**`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `scripts/build-route-core-android.mjs`, `scripts/rust-toolchain.mjs` (the Kotlin SDK loads the compiled route core and has no fallback planner, so anything that can change the core changes Android routing)
 - `rust.yml`: `rust/**`, `Cargo.toml`, `Cargo.lock`
 - `swift.yml`: `ios/**`, `Package.swift`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and the four route-core scripts under `scripts/` (the Swift SDK links the compiled route core and has no fallback planner, so anything that can change the core changes iOS routing — and anything that can change the core's *provenance checks* has to re-run them)
 
@@ -144,6 +144,29 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   slice against ~400 KB for the same code as a dynamic library — the difference between 87 MB
   and 2 MB of binary rewritten in git on every planner change. The `apple` cargo profile in the
   workspace `Cargo.toml` is what buys that.
+- `pnpm build:route-core-android` (`scripts/build-route-core-android.mjs`) builds the same core
+  for Android, in two modes. Without arguments it cross-compiles the four ABIs
+  (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`) using the NDK's per-API-level clang wrappers as
+  linkers; `--host` builds one library for the machine running the build. Gradle drives both:
+  `:inderun-core` registers the ABI build as a *generated* `jniLibs` source directory via AGP's
+  `addGeneratedSourceDirectory`, so only the variants that package native code pull it in and
+  `./gradlew test` needs neither the NDK nor the Android Rust targets; the root
+  `build.gradle.kts` puts the host build on `java.library.path` for `:inderun-core` and
+  `:inderun-kotlin`'s unit tests. Those tests reach the planner through the same
+  `System.loadLibrary` call the Android runtime makes, so the JNI boundary itself is under test
+  rather than only the two halves of the wire format.
+  - These binaries are **not** committed, unlike the Apple XCFramework. Android consumers
+    resolve `app.independo.inderun:inderun-core` from Maven Central, where `maven-publish.yml`
+    builds the AAR — there is no equivalent of SwiftPM's "the git tag is the artifact", so
+    tracking ~2 MB of `.so` files per planner change would buy nothing. That workflow therefore
+    provisions Node and the Rust toolchain alongside the NDK it already had.
+  - The JNI entry point is behind the crate's `jni-bindings` feature rather than a
+    `cfg(target_os = "android")` gate. With a target gate the symbol exists only in the Android
+    build and no JVM test can reach the real planner; `src/lib.rs` makes an Android build
+    *without* the feature a `compile_error!`, so the seam cannot be missed in the direction
+    that matters.
+  - `android.yml` runs `assembleRelease` after `test`, because `test` never reaches the ABI
+    cross-compiles — without it the four Android slices would first be built at publish time.
 - **Verifying the committed XCFramework.** It is an executable in git: it is what SwiftPM
   consumers run, and reviewing the Rust source says nothing about whether that binary came from
   it. Rust builds are not byte-reproducible, so rebuild-and-diff cannot answer the question.

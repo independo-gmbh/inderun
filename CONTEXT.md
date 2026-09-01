@@ -111,6 +111,12 @@ Checked-in JavaScript commands:
   (`scripts/verify-route-core-apple.mjs`). Run by `swift.yml` before anything is rebuilt and by
   `release.yml` before tagging. `--slices-only` skips the hash comparison, for validating a
   freshly rebuilt artifact whose bytes legitimately differ.
+- `pnpm build:route-core-android` — cross-compile the Rust route core for the four Android
+  ABIs (`scripts/build-route-core-android.mjs`). Requires `rustup` with the four Android
+  targets and the Android NDK. Normally invoked by Gradle rather than by hand: `:inderun-core`
+  registers the output as a generated `jniLibs` source directory, and the same script with
+  `--host` builds the library the JVM unit tests load. Unlike the Apple XCFramework these
+  binaries are **not** committed — the AAR is built by CI and published to Maven Central.
 - `pnpm test` — run tests across **all** languages (JS/TS packages via `pnpm -r test`,
   Rust via `cargo test`, Kotlin via Gradle, Swift via `swift test`); requires the
   respective toolchains installed. Per-language scripts exist for scoped runs:
@@ -149,6 +155,11 @@ Checked-in Swift commands:
 - `cd ios/IndeRun && swiftlint lint --strict` (SwiftLint config lives at `ios/IndeRun/.swiftlint.yml`)
 
 Checked-in Android commands:
+
+The Kotlin SDK has no fallback route planner, so the Gradle build produces the Rust route
+core itself: `test` builds a host library for the unit tests (needs `rustup` and Node), and
+anything that assembles an AAR cross-compiles the four Android ABIs (needs the NDK too). The
+build script prints the install commands when a toolchain is missing.
 
 - `cd android && ./gradlew build`
 - `cd android && ./gradlew test`

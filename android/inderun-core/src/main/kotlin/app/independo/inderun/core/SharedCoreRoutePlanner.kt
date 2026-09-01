@@ -20,6 +20,7 @@ import app.independo.inderun.contracts.RoutePlannerInputTask
 import app.independo.inderun.contracts.Supports
 import app.independo.inderun.contracts.TaskRequest
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 internal typealias SharedPlannerInput = RoutePlannerInput
@@ -37,46 +38,83 @@ internal typealias SharedPlannerRejectedReason = Reason
 internal typealias SharedPlannerReasonCode = Code
 
 internal interface RoutePlanner {
-    fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan?
+    fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan
 }
+
+/**
+ * Why the shared route core could not produce a plan. There is no second planner
+ * behind it, so each of these is a routing failure the caller sees rather than a
+ * signal to fall back — the vocabulary exists so the failure names itself.
+ */
+internal enum class RoutePlannerUnavailableReason(val value: String) {
+    /** The native library could not be loaded; the AAR is missing its jniLibs. */
+    LibraryUnavailable("library_unavailable"),
+
+    /** The JNI call itself failed. Planner-level errors arrive as a plan, not as a throw. */
+    PlanFailed("plan_failed"),
+
+    /** The core returned JSON this build cannot read — a contract skew between the two. */
+    InvalidPlanShape("invalid_plan_shape"),
+}
+
+internal class RoutePlannerUnavailableException(
+    val reason: RoutePlannerUnavailableReason,
+    cause: Throwable? = null,
+) : IllegalStateException("Route planner unavailable (${reason.value}).", cause)
 
 internal object SharedCoreRoutePlanner : RoutePlanner {
     @Volatile
     private var nativeLoaded = false
 
-    override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan? {
-        if (!ensureLoaded()) {
-            return null
+    override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan {
+        ensureLoaded()
+
+        // Serialized outside the try: a failure here is a bug in `toJson`, and
+        // mislabelling it as a JNI failure would send the reader to the wrong
+        // side of the boundary.
+        val inputJson = input.toJson()
+
+        // Only a JNI-level failure throws: the core answers a malformed input with
+        // a plan carrying `failureCode`, which is a routing outcome, not this.
+        val outputJson = try {
+            planRouteJsonNative(inputJson)
+        } catch (error: RuntimeException) {
+            throw RoutePlannerUnavailableException(RoutePlannerUnavailableReason.PlanFailed, error)
         }
 
-        val outputJson = runCatching {
-            planRouteJsonNative(input.toJson())
-        }.getOrNull() ?: return null
-
-        return parseSharedPlannerRoutePlan(outputJson)
+        return try {
+            parseSharedPlannerRoutePlan(outputJson)
+        } catch (error: JSONException) {
+            throw RoutePlannerUnavailableException(RoutePlannerUnavailableReason.InvalidPlanShape, error)
+        }
     }
 
     @JvmStatic
     private external fun planRouteJsonNative(inputJson: String): String
 
+    /**
+     * The library is packaged into the AAR as jniLibs (see
+     * android/inderun-core/build.gradle.kts), and the JVM unit tests get a
+     * host build on `java.library.path`, so both reach it by the same
+     * `System.loadLibrary` call. A failure here is a broken build, not a
+     * degraded mode: it is raised rather than recorded.
+     */
     @Synchronized
-    private fun ensureLoaded(): Boolean {
+    private fun ensureLoaded() {
         if (nativeLoaded) {
-            return true
+            return
         }
 
-        nativeLoaded = runCatching {
-            val explicitPath = System.getProperty("inderun.routeCoreLibPath")
-                ?: System.getenv("INDERUN_ROUTE_CORE_LIB_PATH")
-            if (!explicitPath.isNullOrBlank()) {
-                System.load(explicitPath)
-            } else {
-                System.loadLibrary("inderun_route_core")
-            }
-            true
-        }.getOrDefault(false)
+        try {
+            System.loadLibrary("inderun_route_core")
+        } catch (error: UnsatisfiedLinkError) {
+            throw RoutePlannerUnavailableException(
+                RoutePlannerUnavailableReason.LibraryUnavailable,
+                error,
+            )
+        }
 
-        return nativeLoaded
+        nativeLoaded = true
     }
 }
 

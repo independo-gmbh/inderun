@@ -35,6 +35,16 @@ jobs:
           filters: |
             android:
               - 'android/**'
+              # The Kotlin SDK has no fallback route planner, so anything that can
+              # change the compiled route core changes Android behaviour: the
+              # crate, the workspace manifest, the lockfile, the toolchain pin,
+              # and the scripts that build the library.
+              - 'rust/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'scripts/build-route-core-android.mjs'
+              - 'scripts/rust-toolchain.mjs'
               - '.github/workflows/android.yml'
 
   android:
@@ -42,11 +52,35 @@ jobs:
     needs: changes
     if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Four Android cross-compiles and a host build on top of the Gradle work.
+    timeout-minutes: 35
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The Gradle tasks that produce the route core shell out to
+      # scripts/build-route-core-android.mjs, so Node is a build dependency of the
+      # Android SDK, not just of the JavaScript packages.
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Version, components and targets all come from rust-toolchain.toml, which
+      # rustup installs on demand -- the pin must not be restated here.
+      - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # the toolchain file decides which compiler actually runs.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo state
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
+            rust/inderun-route-core -> target
+          cache-on-failure: true
 
       - name: Set up Java 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -62,6 +96,31 @@ jobs:
         working-directory: android
         run: ./gradlew spotlessCheck
 
+      # These tests load a host build of the route core through
+      # `System.loadLibrary`, the same call the Android runtime makes, so they
+      # exercise the real planner -- there is no Kotlin mirror behind it any more.
+      # Only the host build is needed here; the ABIs come with assembleRelease.
       - name: Run Gradle tests
         working-directory: android
         run: ./gradlew test
+
+      # inderun-onnx-providers declares a CMake native target (see its
+      # build.gradle.kts) and inderun-core packages the route core as jniLibs, so
+      # assembling needs the NDK -- android-actions/setup-android does not install
+      # it by default and AGP does not auto-download a missing NDK in CI.
+      - name: Cache Android NDK and CMake
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: android-ndk-27.2.12479018-cmake-3.22.1
+
+      - name: Install Android NDK and CMake
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+
+      # `test` never reaches the ABI cross-compiles, so without this the four
+      # Android slices of the planner would first be built at publish time.
+      - name: Assemble the library AARs
+        working-directory: android
+        run: ./gradlew assembleRelease

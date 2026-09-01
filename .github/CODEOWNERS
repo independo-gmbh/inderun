@@ -10,6 +10,10 @@
 /scripts/route-core-apple-provenance.mjs       @kstruempf
 /scripts/verify-route-core-apple.mjs           @kstruempf
 /scripts/rust-toolchain.mjs                    @kstruempf
+
+# The Android route core is built at publish time rather than committed, so the
+# artifact is only as trustworthy as the script that produces it.
+/scripts/build-route-core-android.mjs          @kstruempf
 /rust-toolchain.toml                           @kstruempf
 
 # Release configuration: what gets versioned, tagged, and published.
