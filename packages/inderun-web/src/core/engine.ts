@@ -53,6 +53,48 @@ export class IndeRun implements IndeRunApi {
   }
 
   /**
+   * Current time from the host clock, falling back to wall-clock time when the
+   * host does not supply one.
+   */
+  private now(): number {
+    return this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
+  }
+
+  /**
+   * Emits `route_decided` for a completed route selection. Shared by `run()` and
+   * `stream()`: the payload is identical for both modes, and the interaction
+   * mode is already reflected in the plan the router returned.
+   */
+  private emitRouteDecided(
+    runId: string,
+    request: TaskRequest,
+    routeSelection: RouteSelection,
+    providerCount: number
+  ): void {
+    this.safeEmit({
+      type: "route_decided",
+      runId,
+      timestamp: this.now(),
+      payload: {
+        selectedProviderId: routeSelection.routePlan.selectedProviderId,
+        fallbackProviderIds: routeSelection.routePlan.fallbackProviderIds,
+        rejectedProviders: routeSelection.routePlan.rejectedProviders,
+        fallbackAvailable: providerCount > 1,
+        taskKind: request.task.kind,
+        constraints: request.constraints ?? null,
+        preferences: request.preferences ?? null,
+        explanation: routeSelection.explanation,
+        plannerSource: routeSelection.plannerSource,
+        // Always null: the shared Rust/WASM core is the only planner, and a
+        // planner that cannot load throws instead of routing, so no
+        // `route_decided` event can carry a reason. The key stays so the
+        // payload shape does not change for existing consumers.
+        plannerUnavailableReason: null
+      }
+    });
+  }
+
+  /**
    * Safely emits a telemetry event by swallowing any internal logging/telemetry system errors.
    * @param event - The telemetry event to emit.
    */
@@ -98,7 +140,7 @@ export class IndeRun implements IndeRunApi {
    * @throws {IndeRunException} Standardized error indicating validation, connection, or provider failures.
    */
   async run(request: TaskRequest): Promise<TaskResult> {
-    const startTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
+    const startTime = this.now();
 
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
 
@@ -119,24 +161,7 @@ export class IndeRun implements IndeRunApi {
       const routeSelection = await this.router.selectRoute(request, this.hostServices, "run");
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
-      // Emit route_decided event
-      this.safeEmit({
-        type: "route_decided",
-        runId,
-        timestamp: this.hostServices.clock ? this.hostServices.clock.now() : Date.now(),
-        payload: {
-          selectedProviderId: routeSelection.routePlan.selectedProviderId,
-          fallbackProviderIds: routeSelection.routePlan.fallbackProviderIds,
-          rejectedProviders: routeSelection.routePlan.rejectedProviders,
-          fallbackAvailable: providers.length > 1,
-          taskKind: request.task.kind,
-          explanation: routeSelection.explanation,
-          constraints: request.constraints ?? null,
-          preferences: request.preferences ?? null,
-          plannerSource: routeSelection.plannerSource,
-          plannerUnavailableReason: routeSelection.plannerUnavailableReason ?? null
-        }
-      });
+      this.emitRouteDecided(runId, request, routeSelection, providers.length);
 
       // 3. Execute the run task using the planned provider chain
       const attemptedProviderIds: string[] = [];
@@ -151,7 +176,7 @@ export class IndeRun implements IndeRunApi {
             hostServices: this.hostServices
           });
 
-          const endTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
+          const endTime = this.now();
           const totalMs = endTime - startTime;
 
           result.runId = runId;
@@ -187,7 +212,7 @@ export class IndeRun implements IndeRunApi {
         }
       }
 
-      const endTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
+      const endTime = this.now();
       const totalMs = endTime - startTime;
       const exception = toIndeRunException(lastError ?? new Error("No providers were attempted."), {
         runId,
@@ -207,10 +232,10 @@ export class IndeRun implements IndeRunApi {
           totalMs:
             typeof (error as { details?: { totalMs?: number } }).details?.totalMs === "number"
               ? (error as { details?: { totalMs?: number } }).details?.totalMs
-              : (this.hostServices.clock ? this.hostServices.clock.now() : Date.now()) - startTime
+              : this.now() - startTime
         }
       });
-      const endTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
+      const endTime = this.now();
       const totalMs =
         typeof (exception as { details?: { totalMs?: number } }).details?.totalMs === "number"
           ? (exception as { details?: { totalMs?: number } }).details?.totalMs
@@ -251,8 +276,8 @@ export class IndeRun implements IndeRunApi {
    * @throws {IndeRunException} If validation fails or no eligible streaming provider exists.
    */
   async stream(request: TaskRequest): Promise<StreamRun> {
-    const startTime = this.hostServices.clock ? this.hostServices.clock.now() : Date.now();
-    const now = () => (this.hostServices.clock ? this.hostServices.clock.now() : Date.now());
+    const startTime = this.now();
+    const now = () => this.now();
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
 
     const validationIssues = getTaskRequestValidationIssues(request);
@@ -274,23 +299,7 @@ export class IndeRun implements IndeRunApi {
     }
     const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
-    this.safeEmit({
-      type: "route_decided",
-      runId,
-      timestamp: now(),
-      payload: {
-        selectedProviderId: routeSelection.routePlan.selectedProviderId,
-        fallbackProviderIds: routeSelection.routePlan.fallbackProviderIds,
-        rejectedProviders: routeSelection.routePlan.rejectedProviders,
-        fallbackAvailable: providers.length > 1,
-        taskKind: request.task.kind,
-        explanation: routeSelection.explanation,
-        constraints: request.constraints ?? null,
-        preferences: request.preferences ?? null,
-        plannerSource: routeSelection.plannerSource,
-        plannerUnavailableReason: routeSelection.plannerUnavailableReason ?? null
-      }
-    });
+    this.emitRouteDecided(runId, request, routeSelection, providers.length);
 
     // Defensive only: streaming eligibility is decided by the route planner, which
     // throws with its own rejection reasons when nothing can stream. Reaching here

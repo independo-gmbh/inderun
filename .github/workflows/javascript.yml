@@ -36,7 +36,14 @@ jobs:
             js:
               - 'packages/**'
               - 'contracts/**'
+              # The Web SDK has no fallback planner, so anything that can change
+              # the compiled route core changes Web behaviour: the crate, the
+              # workspace manifest, the lockfile (a dependency bump alone can
+              # alter the .wasm), and the script that builds the bindings.
               - 'rust/inderun-route-core/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'scripts/build-route-core-wasm.mjs'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - 'package.json'
@@ -119,15 +126,10 @@ jobs:
       - name: Verify generated contracts and API surface are up to date
         run: git diff --exit-code -- packages/contracts/src/generated ios/IndeRun/Sources/IndeRunContracts rust/inderun-route-core/src/generated packages/inderun-web/src/core/generated android/inderun-kotlin/src/main/kotlin/app/independo/inderun/sdk/generated ios/IndeRun/Sources/IndeRunSwift/Generated
 
+      # `pnpm build` and `pnpm test:js` both call this too; running it explicitly
+      # keeps the toolchain failure mode visible as its own step.
       - name: Build Rust WASM bindings
-        run: |
-          RUSTC="$(rustup which rustc --toolchain stable)" \
-            rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown
-
-          wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
-            --target web \
-            --out-dir packages/inderun-route-core-wasm/generated \
-            --out-name inderun_route_core
+        run: pnpm build:wasm
 
       - name: Build workspace
         run: pnpm build

@@ -228,9 +228,7 @@ describe("mountApp", () => {
       ],
       explanation: { summary: "Selected openai because cloud is allowed." },
       constraints: null,
-      preferences: null,
-      plannerSource: null,
-      plannerUnavailableReason: null
+      preferences: null
     };
 
     const runPrompt = vi.fn().mockResolvedValue({

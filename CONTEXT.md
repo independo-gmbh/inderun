@@ -93,6 +93,10 @@ Checked-in JavaScript commands:
 
 - `pnpm install`
 - `pnpm build`
+- `pnpm build:wasm` — build the Rust route core to WASM (`scripts/build-route-core-wasm.mjs`);
+  called automatically by `pnpm build` and `pnpm test:js`. Requires `rustup` with the
+  `wasm32-unknown-unknown` target and `wasm-bindgen-cli`. The Web SDK has no fallback route
+  planner, so the JS tests need these bindings to run at all.
 - `pnpm test` — run tests across **all** languages (JS/TS packages via `pnpm -r test`,
   Rust via `cargo test`, Kotlin via Gradle, Swift via `swift test`); requires the
   respective toolchains installed. Per-language scripts exist for scoped runs:

@@ -29,28 +29,26 @@ export interface SharedPlannerModule {
 }
 
 /**
- * Coarse, privacy-safe reason the WASM planner produced no route plan. Used
- * only for observability (telemetry/logging) — callers still fall back to
- * local selection regardless of which reason fired.
+ * Coarse, privacy-safe reason the WASM planner produced no route plan. Surfaced
+ * on the resulting `Internal` routing error and in the `console.warn`, so an
+ * operator can tell a missing bundle chunk from a blocked instantiation.
  */
 export type WasmUnavailableReason =
   "import_failed" | "invalid_module_shape" | "init_failed" | "plan_failed";
 
 /**
  * Result of a {@link RoutePlanner} attempt. `routePlan` is `null` when the
- * planner could not produce a plan, in which case `source` is `"unavailable"`
- * and `unavailableReason` narrows down why, so callers can log/emit telemetry
- * instead of silently swapping planners.
+ * planner could not produce a plan, and `unavailableReason` then narrows down
+ * why.
  */
 export interface PlannerOutcome {
   routePlan: SharedPlannerRoutePlan | null;
-  source: "wasm" | "unavailable";
   unavailableReason?: WasmUnavailableReason;
 }
 
 /**
  * Strategy that turns planner input into a deterministic route plan, or an
- * "unavailable" outcome (callers then fall back to local selection).
+ * "unavailable" outcome (which the router reports as a routing failure).
  */
 export interface RoutePlanner {
   planRoute(input: SharedPlannerInput): Promise<PlannerOutcome>;
@@ -72,30 +70,33 @@ export interface ProviderRuntimeSnapshot {
  * Vite/webpack/Rollup can statically resolve and chunk it — a variable
  * specifier defeats bundler analysis and silently never loads in the browser
  * (see issue #109). The module is imported lazily and memoized; if it cannot
- * be loaded, `planRoute` resolves an "unavailable" outcome so the engine can
- * fall back to local selection, and logs once via `console.warn` so the
- * degradation is never fully silent.
+ * be loaded, `planRoute` resolves an "unavailable" outcome, which the engine
+ * turns into an `Internal` routing failure carrying the reason below. There is
+ * no second planner to degrade to — a failure here is a failure to route, not a
+ * quieter route — so this also logs once via `console.warn` to name the cause.
  */
 export class WasmRoutePlanner implements RoutePlanner {
   private modulePromise?: Promise<SharedPlannerModule | null>;
-  private loadFailureReason?: WasmUnavailableReason;
+  private loadFailure?: { reason: WasmUnavailableReason; error?: unknown };
   private hasWarned = false;
 
   async planRoute(input: SharedPlannerInput): Promise<PlannerOutcome> {
     const module = await this.loadModule();
     if (!module) {
-      const unavailableReason = this.loadFailureReason ?? "import_failed";
-      this.warnOnce(unavailableReason);
-      return { routePlan: null, source: "unavailable", unavailableReason };
+      // The load path only records why it failed; warning here covers both the
+      // first attempt and every later call served from the memoized promise.
+      const unavailableReason = this.loadFailure?.reason ?? "import_failed";
+      this.warnOnce(unavailableReason, this.loadFailure?.error);
+      return { routePlan: null, unavailableReason };
     }
 
     try {
       const json = JSON.stringify(input);
       const result = await module.planRouteJson(json);
-      return { routePlan: JSON.parse(result) as SharedPlannerRoutePlan, source: "wasm" };
+      return { routePlan: JSON.parse(result) as SharedPlannerRoutePlan };
     } catch (error) {
       this.warnOnce("plan_failed", error);
-      return { routePlan: null, source: "unavailable", unavailableReason: "plan_failed" };
+      return { routePlan: null, unavailableReason: "plan_failed" };
     }
   }
 
@@ -111,14 +112,12 @@ export class WasmRoutePlanner implements RoutePlanner {
     try {
       mod = (await import("@independo/inderun-route-core-wasm")) as SharedPlannerModule;
     } catch (error) {
-      this.loadFailureReason = "import_failed";
-      this.warnOnce("import_failed", error);
+      this.loadFailure = { reason: "import_failed", error };
       return null;
     }
 
     if (typeof mod.planRouteJson !== "function") {
-      this.loadFailureReason = "invalid_module_shape";
-      this.warnOnce("invalid_module_shape");
+      this.loadFailure = { reason: "invalid_module_shape" };
       return null;
     }
 
@@ -126,8 +125,7 @@ export class WasmRoutePlanner implements RoutePlanner {
       try {
         await mod.initSharedCore();
       } catch (error) {
-        this.loadFailureReason = "init_failed";
-        this.warnOnce("init_failed", error);
+        this.loadFailure = { reason: "init_failed", error };
         return null;
       }
     }
@@ -140,22 +138,23 @@ export class WasmRoutePlanner implements RoutePlanner {
       return;
     }
     this.hasWarned = true;
-    console.warn(
-      `[IndeRun] WASM route planner unavailable (${reason}); falling back to local route selection.`,
-      error
-    );
+    console.warn(`[IndeRun] WASM route planner unavailable (${reason}); routing will fail.`, error);
   }
 }
 
 /**
  * Describes each provider and evaluates its dynamic capabilities against the
- * host, returning snapshots sorted by provider id for deterministic planning.
+ * host.
+ *
+ * Registration order is passed through untouched: the shared planner ranks
+ * candidates itself and tie-breaks by provider id, so sorting here would only
+ * assert an ordering the planner is free to ignore.
  */
 export async function collectProviderRuntimeSnapshots(
   registryProviders: ProviderAdapter[],
   hostServices: HostServices
 ): Promise<ProviderRuntimeSnapshot[]> {
-  const snapshots = await Promise.all(
+  return Promise.all(
     registryProviders.map(async (provider) => {
       const descriptor = provider.describe();
       const capabilities = await provider.capabilities(hostServices);
@@ -167,8 +166,6 @@ export async function collectProviderRuntimeSnapshots(
       };
     })
   );
-
-  return snapshots.sort((left, right) => left.descriptor.id.localeCompare(right.descriptor.id));
 }
 
 /**

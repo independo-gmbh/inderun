@@ -60,7 +60,7 @@ To avoid running, e.g., the Android build for a docs-only or web-only PR, each o
 `javascript.yml`/`android.yml`/`rust.yml`/`swift.yml` runs a `changes` job first and
 skips the real job via `needs`/`if` when nothing relevant changed:
 
-- `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**` (feeds the WASM bindings), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
+- `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**`, `Cargo.toml`, `Cargo.lock`, `scripts/build-route-core-wasm.mjs` (all of these feed the WASM bindings, and the Web SDK has no fallback planner — a dependency-only change can alter the compiled route core and therefore Web routing), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
 - `android.yml`: `android/**`
 - `rust.yml`: `rust/**`, `Cargo.toml`, `Cargo.lock`
 - `swift.yml`: `ios/**`, `Package.swift`
@@ -119,10 +119,23 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   always report spurious formatting drift; `release.yml` runs the full `pnpm generate`
   (Spotless included) and includes that path, since its output is guaranteed
   ktlint-clean.
+- `pnpm build:wasm` (`scripts/build-route-core-wasm.mjs`) is the single definition of the
+  Rust→WASM build: it runs `cargo build --target wasm32-unknown-unknown` plus
+  `wasm-bindgen --target web`. Freshness is left to cargo, which fingerprints every effective
+  input (sources, workspace manifest, lockfile, rustc version); only the wasm-bindgen step is
+  skipped, and only when the existing bindings are newer than the `.wasm` cargo just produced.
+  A hand-rolled mtime check over crate sources alone would serve stale bindings after a
+  dependency bump. Both `pnpm build` and `pnpm test:js` call it, and `javascript.yml`/`release.yml`
+  run it as an explicit step so a missing toolchain fails visibly. Since the Web SDK has no
+  fallback planner (issue #164), the JS suite genuinely needs those bindings — hence building
+  them is part of `pnpm test:js` rather than a prerequisite contributors are expected to
+  remember. Running the JS tests locally therefore requires `rustup` with the
+  `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (the script prints the install
+  commands when either is missing).
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
   exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
   resolve the package's literal `import("../generated/inderun_route_core.js")` without
-  requiring the Rust/wasm-bindgen toolchain locally. CI's `wasm-bindgen --target web` step
+  requiring the Rust/wasm-bindgen toolchain locally. The `wasm-bindgen --target web` step
   overwrites it with the real generated bindings during the build; the stub is not meant to be
   committed back and should only be hand-updated if the Rust route-core API changes.
   `release.yml` reverts this overwrite (`git checkout -- packages/inderun-route-core-wasm/generated`)

@@ -7,9 +7,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "pnpm build:wasm && pnpm -r build",
+    "build:wasm": "node scripts/build-route-core-wasm.mjs",
     "test": "pnpm test:js && pnpm test:rust && pnpm test:kotlin && pnpm test:swift",
-    "test:js": "pnpm -r test",
+    "test:js": "pnpm build:wasm && pnpm -r test",
     "test:rust": "cargo test --workspace",
     "test:kotlin": "cd android && ./gradlew test",
     "test:swift": "swift test",
