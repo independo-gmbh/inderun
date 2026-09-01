@@ -50,8 +50,16 @@ which runs its own release pipeline and consumes the artifacts published here.
 
 ## Versioning (Conventional Commits)
 
-`feat:` → minor, `fix:` → patch, `BREAKING CHANGE:` (or `!`) → major. Chore/docs/refactor/
-test/build/ci/perf/style all produce a patch (see `.releaserc` for the exact `releaseRules`).
+`feat:` → minor, `fix:` → patch. Chore/docs/refactor/test/build/ci/perf/style all produce a
+patch (see `release.config.js` for the exact `releaseRules`).
+
+`BREAKING CHANGE:` (or `!`) → **minor while the project is pre-1.0**, not major. 0.x is where
+"the surface is still moving" is expressed; letting a `!` commit cut `1.0.0` automatically
+would announce a stability guarantee the project has not made yet. Commits still carry `!` and
+`BREAKING CHANGE:` footers, so the GitHub release notes and CHANGELOG still call the break out
+under its own heading — only the version arithmetic differs. Cutting 1.0.0 is therefore a
+deliberate act: flip `{ breaking: true, release: "minor" }` back to `"major"` in
+`release.config.js` as part of that release.
 
 ## Consuming the packages
 
