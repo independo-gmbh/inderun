@@ -47,9 +47,9 @@ typealias SharedPlannerExplanation = Explanation
 /// `scripts/build-route-core-apple.mjs`.
 ///
 /// This is the only planner on iOS. Swift deliberately does not restate the
-/// ranking, constraint, or rejection rules: a second copy of them is what drifted
-/// on Web (issue #164) and here (issue #171), silently changing which provider
-/// runs depending on which implementation answered.
+/// ranking, constraint, or rejection rules: a second copy of them would decide
+/// which provider runs whenever the two disagreed, and nothing in the routing
+/// output would say the answers had diverged.
 final class SharedCoreRoutePlanner: RoutePlanning, @unchecked Sendable {
     static let shared = SharedCoreRoutePlanner()
 

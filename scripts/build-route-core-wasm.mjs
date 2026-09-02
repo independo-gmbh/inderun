@@ -3,9 +3,9 @@
  * Builds the Rust route core to WASM and runs wasm-bindgen over it, producing
  * `packages/inderun-route-core-wasm/generated/`.
  *
- * The generated bindings are gitignored (see docs/ci.md), but they are no longer
- * optional: the Web SDK has a single planner, so a test run without them would
- * not be testing the planner that ships. This script is what `pnpm test:js` and
+ * The generated bindings are gitignored (see docs/ci.md) but are not optional:
+ * the Web SDK has a single planner, so a test run without them would not be
+ * testing the planner that ships. This script is what `pnpm test:js` and
  * both CI workflows call, so there is one definition of the build.
  *
  * Freshness is delegated to cargo rather than re-derived here: cargo already

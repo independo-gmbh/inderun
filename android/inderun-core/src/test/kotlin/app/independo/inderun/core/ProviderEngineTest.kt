@@ -103,11 +103,10 @@ class ProviderEngineTest {
     }
 
     /**
-     * The mirror planner this replaced applied the privacy filter only when
-     * picking the primary and then built the chain from the unfiltered list, so a
-     * `localRequired` run could fall through to a cloud provider. The shared core
-     * filters once, and this pins that: a cloud provider must appear nowhere in
-     * the selection, not merely not first.
+     * The shared core applies the cloud/privacy constraint once, to every candidate
+     * rather than only to the primary. This pins that: under `localRequired` a cloud
+     * provider must appear nowhere in the selection, not merely not first, so a
+     * failing local provider can never fall through to the cloud.
      */
     @Test
     fun routingLocalRequiredNeverFallsBackToCloudProvider() = runTest {
@@ -139,8 +138,9 @@ class ProviderEngineTest {
     }
 
     /**
-     * Ordering is the planner's, not the registry's: the Kotlin mirror ignored
-     * `optimizeFor` entirely, which is the drift this test exists to catch.
+     * Ordering is the planner's, not the registry's. The provider ids are chosen so
+     * that registry order would give the opposite answer, which is what makes this a
+     * test of the shared core's `optimizeFor` ranking rather than of iteration order.
      */
     @Test
     fun routerOrdersCandidatesByOptimizeFor() = runTest {

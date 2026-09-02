@@ -104,8 +104,7 @@ Provider selection is not implemented in Swift. `Router` collects the provider s
 maps the result back onto adapters, but the ranking, constraint, and rejection rules all come
 from the shared Rust core (`rust/inderun-route-core`), which every platform shares. There is
 no second planner behind it: if the core cannot answer, routing fails with an `Internal`
-error rather than falling back to a Swift restatement of the same rules, which is what drifted
-before (issue #171).
+error rather than routing by a second set of rules.
 
 The core is linked from `Frameworks/InderunRouteCoreFFI.xcframework`, declared as a
 `binaryTarget` in the root `Package.swift`. That XCFramework is committed to git: SwiftPM has

@@ -58,9 +58,9 @@ subprojects {
             }
         )
 
-        // Deleting the Kotlin mirror planner (issue #172) means these modules'
-        // tests fail without the native core rather than quietly routing by a
-        // second rule set, so the library is a test dependency, not a nicety.
+        // Routing has a single planner, so these modules' tests fail without the
+        // native core rather than quietly routing by a second rule set: the library
+        // is a test dependency, not a nicety.
         // Prepended rather than replacing java.library.path: Robolectric resolves
         // its own native dependencies through the inherited value.
         if (project.name == "inderun-core" || project.name == "inderun-kotlin") {

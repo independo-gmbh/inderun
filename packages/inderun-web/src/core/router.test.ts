@@ -8,10 +8,9 @@ import type { PlannerOutcome, RoutePlanner } from "./route-planner.js";
 import { Router } from "./router.js";
 
 /**
- * Covers the two properties that the deleted TypeScript mirror planner used to
- * get wrong (issue #164): ordering now comes from the shared Rust core's
- * placement/preference ranks, and a planner that cannot load fails the route
- * instead of quietly re-planning with different semantics.
+ * Covers the two properties the Router owes to the shared Rust core: ordering comes
+ * from the core's placement/preference ranks rather than from registry order, and a
+ * planner that cannot load fails the route instead of routing by different rules.
  */
 
 function createHostServices(online = true): HostServices {

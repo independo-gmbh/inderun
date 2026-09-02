@@ -83,13 +83,7 @@ export class IndeRun implements IndeRunApi {
         taskKind: request.task.kind,
         constraints: request.constraints ?? null,
         preferences: request.preferences ?? null,
-        explanation: routeSelection.explanation,
-        plannerSource: routeSelection.plannerSource,
-        // Always null: the shared Rust/WASM core is the only planner, and a
-        // planner that cannot load throws instead of routing, so no
-        // `route_decided` event can carry a reason. The key stays so the
-        // payload shape does not change for existing consumers.
-        plannerUnavailableReason: null
+        explanation: routeSelection.explanation
       }
     });
   }

@@ -294,9 +294,9 @@ final class IndeRunTests: XCTestCase {
     }
     
     /// The shared planner ranks candidates by placement and preference and only
-    /// then tie-breaks by id. The deleted Swift mirror ignored `optimizeFor`
-    /// entirely, so the ids here are picked so that an id sort would answer
-    /// "a_cloud" both times -- if this passes, the ordering really came from Rust.
+    /// then tie-breaks by id. The ids here are picked so that a plain id sort would
+    /// answer "a_cloud" both times -- if this passes, the ordering really came from
+    /// Rust and not from the order the registry happened to hand providers over in.
     func testSharedPlannerOrdersCandidatesByOptimizeFor() async throws {
         try registry.register(MockProvider(id: "a_cloud", type: .cloud))
         try registry.register(MockProvider(id: "z_local", type: .local))
@@ -321,9 +321,8 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(latencyFirst.provider.describe().id, "a_cloud")
     }
 
-    /// The mirror never populated `rejectedProviders`, which made iOS route
-    /// explanations strictly poorer than Web's. Through the shared core, a refused
-    /// provider names itself and why.
+    /// Every platform's route explanation is the shared core's: a refused provider
+    /// names itself and why, rather than being silently absent from the chain.
     func testRoutePlanNamesRejectedProviders() async throws {
         let unavailable = MockProvider(id: "local_down", type: .local)
         unavailable.isAvailable = false
@@ -482,12 +481,10 @@ final class IndeRunTests: XCTestCase {
     /// `localRequired`, even when the primary (local) provider fails at execution time and even
     /// though the cloud provider is otherwise available.
     ///
-    /// This once guarded a Swift-side mirror of the shared planner, which applied its
-    /// cloud/privacy filter when picking the primary candidate but not when building the
-    /// fallback list. The mirror is gone (issue #171) and the whole chain now comes from
-    /// `rust/inderun-route-core`, where the constraint is enforced once for every candidate --
-    /// so this exercises the guarantee end to end through the FFI rather than a Swift
-    /// restatement of it.
+    /// The whole chain comes from `rust/inderun-route-core`, which enforces the
+    /// cloud/privacy constraint once for every candidate rather than only for the primary --
+    /// so a cloud provider must appear nowhere in the selection, not merely not first.
+    /// Exercised end to end through the FFI.
     func testRoutingLocalRequiredNeverFallsBackToCloudProvider() async throws {
         let local = MockProvider(id: "local_p", type: .local)
         local.shouldFail = true

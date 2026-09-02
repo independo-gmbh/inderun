@@ -114,11 +114,10 @@ Implementation nuance not captured by the matrix above:
   (`@independo/inderun-route-core-wasm`). The Web SDK's `WasmRoutePlanner`
   (`packages/inderun-web/src/core/route-planner.ts`) loads it via a static, literal dynamic
   `import()` so bundlers (Vite et al.) can statically resolve and chunk it — see #109 for why
-  a variable specifier silently never loads in a bundled browser build. It is the only planner
-  on Web: if the module fails to import, initialize, or plan, routing fails with an `Internal`
-  error naming the reason (`plannerUnavailableReason`) instead of falling back to a second
-  implementation of the same rules (see `docs/architecture/architecture.md` and issue #164).
-  An environment that cannot instantiate WebAssembly — a Content-Security-Policy without
+  a variable specifier silently never loads in a bundled browser build. If the module fails to
+  import, initialize, or plan, routing fails with an `Internal` error naming the reason
+  (`plannerUnavailableReason`) — see `docs/architecture/architecture.md` for why no platform
+  keeps a second planner behind the core. An environment that cannot instantiate WebAssembly — a Content-Security-Policy without
   `wasm-unsafe-eval`, or an offline app that did not precache the asset — therefore cannot
   route at all; the package's `./generated/*` export subpath exists so such apps can self-host
   and precache the `.wasm` explicitly.

@@ -373,10 +373,9 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
     });
 
     it("honors an explicit privacy descriptor when routing local_required", async () => {
-      // Regression from the deleted TypeScript planner (#164), which read
-      // `dataLeavesDevice` without negating it and so rejected local providers that
-      // declare their privacy explicitly while admitting cloud ones. The assertion now
-      // pins `is_data_private` in the shared Rust planner, the only planner left.
+      // Pins `is_data_private` in the shared Rust planner: a provider that declares
+      // `dataLeavesDevice: false` is local for constraint purposes, so `local_required`
+      // must select it rather than reject it in favour of a cloud provider.
       const localProvider = createMockLocalProvider("mock-local-private", true);
       const localDescriptor = localProvider.describe();
       localProvider.describe = () => ({

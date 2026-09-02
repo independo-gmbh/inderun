@@ -111,8 +111,8 @@ class SharedCoreRoutePlannerTest {
     /**
      * The one test that crosses the JNI boundary end to end. Everything else here
      * checks the two halves of the wire format in isolation, which cannot catch a
-     * missing `Java_..._planRouteJsonNative` export or a library that never loaded
-     * — the failure mode this module shipped with until the mirror was deleted.
+     * missing `Java_..._planRouteJsonNative` export or a library that never loaded.
+     * Since routing has no second planner behind it, both are fatal to the SDK.
      */
     @Test
     fun sharedCoreRoutePlannerRoundTripsThroughTheJniBoundary() {

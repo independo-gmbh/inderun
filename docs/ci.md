@@ -127,7 +127,7 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   A hand-rolled mtime check over crate sources alone would serve stale bindings after a
   dependency bump. Both `pnpm build` and `pnpm test:js` call it, and `javascript.yml`/`release.yml`
   run it as an explicit step so a missing toolchain fails visibly. Since the Web SDK has no
-  fallback planner (issue #164), the JS suite genuinely needs those bindings — hence building
+  fallback planner, the JS suite genuinely needs those bindings — hence building
   them is part of `pnpm test:js` rather than a prerequisite contributors are expected to
   remember. Running the JS tests locally therefore requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (the script prints the install

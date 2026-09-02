@@ -38,12 +38,6 @@ export interface RouteSelection {
    * Explanation detailing the selection decision. Useful for debugging and telemetry.
    */
   explanation: string;
-  /**
-   * Which planner produced `routePlan`. The shared Rust core compiled to WASM is
-   * the only planner on Web, so this is always `"wasm"`; it is kept as a field
-   * because it is part of the `route_decided` telemetry payload.
-   */
-  plannerSource: "wasm";
 }
 
 /**
@@ -125,8 +119,7 @@ export class Router {
       provider: selected.provider,
       fallbackProviders: orderedProviders.slice(1).map((snapshot) => snapshot.provider),
       routePlan,
-      explanation: routePlan.explanation.summary,
-      plannerSource: "wasm"
+      explanation: routePlan.explanation.summary
     };
   }
 
