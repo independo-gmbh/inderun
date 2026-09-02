@@ -14,6 +14,7 @@ struct ContentView: View {
                     promptSection
                     actionSection
                     availabilitySection
+                    streamSection
                     resultSection
                     routingDecisionSection
                     limitationsSection
@@ -136,6 +137,49 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!viewModel.canRun)
+
+            if viewModel.isStreaming {
+                Button(role: .destructive) {
+                    viewModel.cancelStream()
+                } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button {
+                    Task {
+                        await viewModel.streamPrompt()
+                    }
+                } label: {
+                    Text("Stream")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!viewModel.canRun)
+            }
+        }
+    }
+
+    private var streamSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Streaming (Mode 2)")
+                .font(.headline)
+
+            if viewModel.isStreaming || !viewModel.streamedText.isEmpty || viewModel.streamOutcome != nil {
+                resultPanel(
+                    title: viewModel.isStreaming ? "Streaming..." : "Streamed Output",
+                    body: viewModel.streamedText.isEmpty ? "Waiting for the first content event..." : viewModel.streamedText,
+                    tint: viewModel.isStreaming ? .blue : .green
+                )
+                if let outcome = viewModel.streamOutcome {
+                    metadataRow(label: "Outcome", value: outcome)
+                }
+            } else {
+                Text("Stream the prompt to watch content events arrive incrementally. Only Apple Foundation Models and the cloud provider stream today, so \"Local Only\" streams solely on an Apple-Intelligence-capable device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -221,6 +265,7 @@ struct ContentView: View {
                 Text("• The ONNX Local provider runs against a deterministic fixture runtime by default. Point it at a real bundled/app-managed ModelPackage to exercise actual on-device inference.")
                 Text("• Apple availability depends on device class, OS version, locale, Apple Intelligence state, and model readiness.")
                 Text("• The app never embeds cloud credentials. The demo proxy resolves upstream endpoint and auth server-side.")
+                Text("• The ONNX Local provider does not stream. Streaming under \"Local Only\" therefore requires Apple Foundation Models to be available; otherwise routing refuses the request with CapabilityMismatch.")
             }
             .font(.footnote)
             .foregroundStyle(.secondary)

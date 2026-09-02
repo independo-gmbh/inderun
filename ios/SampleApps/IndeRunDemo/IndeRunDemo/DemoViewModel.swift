@@ -128,11 +128,19 @@ final class DemoViewModel: ObservableObject {
     @Published private(set) var errorState: ErrorState?
     @Published private(set) var lastRouteDecision: RouteDecision?
     @Published private(set) var isRunning = false
+    /// Text assembled from Mode 2 content events as they arrive.
+    @Published private(set) var streamedText = ""
+    /// Human-readable terminal outcome of the last stream, or nil before one ran.
+    @Published private(set) var streamOutcome: String?
+    @Published private(set) var isStreaming = false
 
     private let hostServices: HostServices
     private let userDefaults: UserDefaults
     private let telemetryService = DemoTelemetryService()
     private let onDeviceProvider = AppleFoundationModelsProvider()
+    /// Held only so `cancelStream` can reach the run's cancel hook; the stream is
+    /// consumed by `streamPrompt`, which clears this when it terminates.
+    private var streamRun: StreamRun?
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -200,7 +208,7 @@ final class DemoViewModel: ObservableObject {
     }
 
     var canRun: Bool {
-        !isRunning && !trimmedPrompt.isEmpty
+        !isRunning && !isStreaming && !trimmedPrompt.isEmpty
     }
 
     func refreshAvailability() async {
@@ -259,37 +267,152 @@ final class DemoViewModel: ObservableObject {
                     retryAfterMs: nil
                 )
             )
-        } catch let error as IndeRunException {
-            // `details.originalError` (when present) carries the underlying native error message
-            // an adapter attached before normalizing to this generic `IndeRunException` -- surface
-            // it here rather than silently dropping it, since it's often the only clue to what
-            // actually failed (e.g. the raw ONNX Runtime error text behind an "Internal" class).
-            let originalErrorSuffix = error.details?["originalError"]?.stringValue.map { "\n\nOriginal error:\n\($0)" } ?? ""
+        } catch {
+            present(error: error)
+        }
+
+        lastRouteDecision = telemetryService.lastRouteDecision()
+        await refreshAvailability()
+    }
+
+    /// Runs the same request in Mode 2 and renders content events as they arrive.
+    ///
+    /// The only providers that stream today are Apple Foundation Models (on-device)
+    /// and the OpenAI-compatible cloud provider, so `Local Only` streams solely on
+    /// an Apple-Intelligence-capable device; elsewhere routing refuses the request
+    /// with a normalized `CapabilityMismatch` before any event is produced.
+    func streamPrompt() async {
+        isStreaming = true
+        streamedText = ""
+        streamOutcome = nil
+        result = nil
+        errorState = nil
+        defer {
+            isStreaming = false
+            streamRun = nil
+        }
+
+        do {
+            let inderun = try makeIndeRun()
+            let request = TaskRequest(
+                prompt: trimmedPrompt,
+                // Same low output budget as `runPrompt`, for the same ONNX memory-pressure
+                // reason -- the request is provider-agnostic and may route anywhere.
+                generation: Generation(maxOutputTokens: 32, seed: nil, stop: nil, temperature: nil, topP: nil),
+                constraints: privacy.constraints
+            )
+
+            let run = try await inderun.stream(request: request)
+            streamRun = run
+
+            for try await event in run.events {
+                switch event.type {
+                case "content_delta":
+                    streamedText += event.payload?.text ?? ""
+                case "content_snapshot":
+                    // Snapshots are cumulative (Apple Foundation Models), so they
+                    // replace the accumulated text rather than appending to it.
+                    streamedText = event.payload?.text ?? streamedText
+                case "terminal":
+                    applyTerminal(event, handle: run.handle)
+                default:
+                    break
+                }
+            }
+        } catch {
+            // Validation and routing failures reject `stream()` itself; everything
+            // after that arrives as the terminal event handled above.
+            present(error: error)
+        }
+
+        lastRouteDecision = telemetryService.lastRouteDecision()
+        await refreshAvailability()
+    }
+
+    /// Requests cancellation of the in-flight stream. Idempotent, and the engine
+    /// guarantees exactly one terminal outcome regardless of when it lands.
+    func cancelStream() {
+        streamRun?.cancel(reason: "cancelled from the demo app")
+    }
+
+    /// Maps the single terminal `StreamEvent` onto the same result/error panels the
+    /// Mode 1 path uses, so both modes present outcomes identically.
+    private func applyTerminal(_ event: StreamEvent, handle: StreamRunHandle) {
+        guard let payload = event.payload else { return }
+
+        switch payload.outcome {
+        case .completed:
+            streamOutcome = "completed"
+            streamedText = payload.finalText ?? streamedText
+            result = ResultState(
+                outputText: payload.finalText ?? streamedText,
+                metadata: AttemptMetadata(
+                    runId: payload.runId ?? handle.runId,
+                    providerUsed: payload.telemetry?.providerUsed ?? handle.providerId ?? "n/a",
+                    totalMs: payload.telemetry?.totalMs,
+                    providerId: payload.telemetry?.providerUsed ?? handle.providerId,
+                    retryAfterMs: nil
+                )
+            )
+        case .cancelled:
+            // Not an error: a cancelled run is a normal terminal outcome carrying
+            // whatever content was delivered before the cancel landed.
+            streamOutcome = payload.reason.map { "cancelled: \($0)" } ?? "cancelled"
+            streamedText = payload.partialText ?? streamedText
+        case .error:
+            streamOutcome = "error"
+            streamedText = payload.partialText ?? streamedText
             errorState = ErrorState(
                 title: "Normalized Error",
                 body: """
-\(error.errorClass.rawValue)
+\(payload.error?.errorClass.rawValue ?? "Internal")
 
-\(error.message)\(originalErrorSuffix)
+\(payload.error?.message ?? "The stream failed without a message.")
 """,
                 metadata: AttemptMetadata(
-                    runId: error.runId ?? "n/a",
-                    providerUsed: error.providerId ?? "n/a",
-                    totalMs: error.details?["totalMs"]?.doubleValue,
-                    providerId: error.providerId,
-                    retryAfterMs: error.retryAfterMs
+                    runId: payload.runId ?? handle.runId,
+                    providerUsed: payload.error?.providerId ?? handle.providerId ?? "n/a",
+                    totalMs: payload.telemetry?.totalMs,
+                    providerId: payload.error?.providerId,
+                    retryAfterMs: payload.error?.retryAfterMs
                 )
             )
-        } catch {
+        case .none:
+            break
+        }
+    }
+
+    /// Shared error presentation for both modes.
+    private func present(error: Error) {
+        guard let error = error as? IndeRunException else {
             errorState = ErrorState(
                 title: "Unexpected Error",
                 body: error.localizedDescription,
                 metadata: nil
             )
+            return
         }
 
-        lastRouteDecision = telemetryService.lastRouteDecision()
-        await refreshAvailability()
+        // `details.originalError` (when present) carries the underlying native error message
+        // an adapter attached before normalizing to this generic `IndeRunException` -- surface
+        // it here rather than silently dropping it, since it's often the only clue to what
+        // actually failed (e.g. the raw ONNX Runtime error text behind an "Internal" class).
+        let originalErrorSuffix = error.details?["originalError"]?.stringValue.map { "\n\nOriginal error:\n\($0)" } ?? ""
+        errorState = ErrorState(
+            title: "Normalized Error",
+            body: """
+\(error.errorClass.rawValue)
+
+\(error.message)\(originalErrorSuffix)
+""",
+            metadata: AttemptMetadata(
+                runId: error.runId ?? "n/a",
+                providerUsed: error.providerId ?? "n/a",
+                totalMs: error.details?["totalMs"]?.doubleValue,
+                providerId: error.providerId,
+                retryAfterMs: error.retryAfterMs
+            )
+        )
     }
 
     private var trimmedPrompt: String {

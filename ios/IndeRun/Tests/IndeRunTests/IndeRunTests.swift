@@ -165,8 +165,44 @@ final class MockAppleFoundationModelsRuntime: AppleFoundationModelsRuntime, @unc
     var availabilityValue: AppleFoundationModelsAvailability = .available
     var responseText = "Apple response"
     var thrownError: Error?
+    /// Cumulative snapshots `streamResponse` yields, in order -- Apple's partial
+    /// responses carry the full text so far, not an increment.
+    var streamSnapshots: [String] = ["Apple", "Apple response"]
+    /// Thrown after the scripted snapshots, when set.
+    var streamError: Error?
+    /// Index the stream parks on until `releaseStreamGate()` is called, so a test
+    /// can cancel while the stream is provably still in flight.
+    var streamGateIndex: Int?
+    private let lock = NSLock()
+    private var gateReleased = false
+    private var streamTerminatedFlag = false
     private(set) var receivedPrompt: String?
     private(set) var receivedOptions: AppleFoundationModelsGenerationOptions?
+
+    /// Whether the produced stream was torn down (consumer cancelled or finished).
+    var streamTerminated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return streamTerminatedFlag
+    }
+
+    func releaseStreamGate() {
+        lock.lock()
+        gateReleased = true
+        lock.unlock()
+    }
+
+    private var isGateReleased: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return gateReleased
+    }
+
+    private func markStreamTerminated() {
+        lock.lock()
+        streamTerminatedFlag = true
+        lock.unlock()
+    }
 
     func availability() async -> AppleFoundationModelsAvailability {
         availabilityValue
@@ -179,6 +215,44 @@ final class MockAppleFoundationModelsRuntime: AppleFoundationModelsRuntime, @unc
             throw thrownError
         }
         return responseText
+    }
+
+    func streamResponse(
+        to prompt: String,
+        options: AppleFoundationModelsGenerationOptions
+    ) -> AsyncThrowingStream<String, Error> {
+        receivedPrompt = prompt
+        receivedOptions = options
+        let snapshots = streamSnapshots
+        let error = streamError
+        let gateIndex = streamGateIndex
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                for (index, snapshot) in snapshots.enumerated() {
+                    if index == gateIndex {
+                        // Bounded so a broken cancellation path fails the test
+                        // instead of hanging it.
+                        for _ in 0 ..< 500 where !self.isGateReleased && !Task.isCancelled {
+                            try? await Task.sleep(nanoseconds: 2_000_000)
+                        }
+                    }
+                    if Task.isCancelled {
+                        break
+                    }
+                    continuation.yield(snapshot)
+                }
+                if let error {
+                    continuation.finish(throwing: error)
+                    return
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                self.markStreamTerminated()
+                task.cancel()
+            }
+        }
     }
 }
 
@@ -425,7 +499,7 @@ final class IndeRunTests: XCTestCase {
         )
 
         let input = try XCTUnwrap(planner.capturedInput)
-        // The Swift SDK is Mode 1 only until ProviderAdapter gains stream().
+        // Router.selectRoute defaults to Mode 1, and this MockProvider does not stream.
         XCTAssertEqual(input.interactionMode, .run)
         let descriptor = try XCTUnwrap(input.providers.first?.descriptor)
         XCTAssertEqual(descriptor.supports.streaming, false)
@@ -687,11 +761,16 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(descriptor.type, .local)
         XCTAssertEqual(descriptor.transport, .systemService)
         XCTAssertTrue(descriptor.supports.run)
-        XCTAssertFalse(descriptor.supports.streaming)
+        XCTAssertTrue(descriptor.supports.streaming)
+        // Apple's partial responses are cumulative, so the provider must not
+        // advertise itself as a token/chunk emitter.
+        XCTAssertEqual(descriptor.streamingStyle, .snapshots)
         XCTAssertFalse(descriptor.supports.realtime)
         XCTAssertEqual(descriptor.cancel, .soft)
         XCTAssertEqual(descriptor.tasks, ["text_to_text"])
         XCTAssertEqual(descriptor.privacy?.dataLeavesDevice, false)
+        // Declaring streaming without conforming is a routing-visible mistake.
+        XCTAssertTrue(provider is any StreamingProviderAdapter)
     }
 
     func testAppleFoundationModelsCapabilitiesUnavailable() async {
@@ -788,6 +867,229 @@ final class IndeRunTests: XCTestCase {
         } catch {
             XCTFail("Expected IndeRunException")
         }
+    }
+
+    // MARK: Apple Foundation Models -- Mode 2
+
+    private func makeAppleStreamContext(
+        runId: String,
+        cancellation: StreamCancellationToken = StreamCancellationToken()
+    ) -> ProviderStreamContext {
+        ProviderStreamContext(runId: runId, hostServices: hostServices, cancellation: cancellation)
+    }
+
+    func testAppleFoundationModelsStreamYieldsSnapshotsAndCompletes() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["Bon", "Bonjour", "Bonjour tout"]
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(
+            prompt: "Translate hello",
+            generation: Generation(maxOutputTokens: 32, seed: 123, stop: ["."], temperature: 0.2, topP: 0.9),
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+        )
+
+        var snapshots: [String] = []
+        var finalText: String?
+        var finishReason: FinishReason?
+        for try await event in provider.stream(
+            request: request,
+            context: makeAppleStreamContext(runId: "run_apple_stream")
+        ) {
+            switch event {
+            case let .snapshot(text):
+                snapshots.append(text)
+            case let .done(text, reason, _):
+                finalText = text
+                finishReason = reason
+            case .delta, .failure:
+                XCTFail("Apple streaming must emit snapshots, not \(event)")
+            }
+        }
+
+        XCTAssertEqual(snapshots, ["Bon", "Bonjour", "Bonjour tout"])
+        XCTAssertEqual(finalText, "Bonjour tout")
+        XCTAssertEqual(finishReason, FinishReason.stop)
+        XCTAssertEqual(runtime.receivedPrompt, "Translate hello")
+        XCTAssertEqual(runtime.receivedOptions?.maxOutputTokens, 32)
+        XCTAssertEqual(runtime.receivedOptions?.temperature, 0.2)
+    }
+
+    func testAppleFoundationModelsStreamNormalizesMessages() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(
+            prompt: "ignored when messages exist",
+            messages: [
+                Message(role: .system, content: "Be concise."),
+                Message(role: .user, content: "Summarize this.")
+            ]
+        )
+
+        for try await _ in provider.stream(
+            request: request,
+            context: makeAppleStreamContext(runId: "run_stream_messages")
+        ) {}
+
+        XCTAssertEqual(runtime.receivedPrompt, "system: Be concise.\nuser: Summarize this.")
+    }
+
+    func testAppleFoundationModelsStreamThrowsCapabilityMismatchWhenUnavailable() async {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.availabilityValue = .unavailable(reason: "Apple Intelligence disabled")
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+
+        do {
+            for try await _ in provider.stream(
+                request: TaskRequest(prompt: "Hello"),
+                context: makeAppleStreamContext(runId: "run_stream_unavailable")
+            ) {
+                XCTFail("Should not have produced an event")
+            }
+            XCTFail("Should have thrown CapabilityMismatch")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .CapabilityMismatch)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+            XCTAssertEqual(err.runId, "run_stream_unavailable")
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testAppleFoundationModelsStreamMapsUnexpectedFailureToInternal() async {
+        struct RuntimeFailure: Error {}
+
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["partial"]
+        runtime.streamError = RuntimeFailure()
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+
+        var snapshots: [String] = []
+        do {
+            for try await event in provider.stream(
+                request: TaskRequest(prompt: "Hello"),
+                context: makeAppleStreamContext(runId: "run_stream_failure")
+            ) {
+                if case let .snapshot(text) = event {
+                    snapshots.append(text)
+                }
+            }
+            XCTFail("Should have thrown Internal")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .Internal)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+
+        // The snapshots delivered before the failure are still the caller's, and
+        // the engine reports them as partialText on the terminal event.
+        XCTAssertEqual(snapshots, ["partial"])
+    }
+
+    func testAppleFoundationModelsStreamPreservesAlreadyNormalizedErrors() async {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = []
+        runtime.streamError = createUnavailable(message: "system model went away")
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+
+        do {
+            for try await _ in provider.stream(
+                request: TaskRequest(prompt: "Hello"),
+                context: makeAppleStreamContext(runId: "run_stream_normalized")
+            ) {}
+            XCTFail("Should have thrown Unavailable")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .Unavailable)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testAppleFoundationModelsStreamStopsAndTearsDownOnCancellation() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["one", "one two"]
+        // The second snapshot is held until the gate is released, so cancelling
+        // after the first is an ordering guarantee, not a wall-clock race.
+        runtime.streamGateIndex = 1
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let cancellation = StreamCancellationToken()
+
+        var snapshots: [String] = []
+        var sawDone = false
+        for try await event in provider.stream(
+            request: TaskRequest(prompt: "Hello"),
+            context: makeAppleStreamContext(runId: "run_stream_cancel", cancellation: cancellation)
+        ) {
+            switch event {
+            case let .snapshot(text):
+                snapshots.append(text)
+                cancellation.cancel(reason: "user stopped")
+                runtime.releaseStreamGate()
+            case .done:
+                sawDone = true
+            case .delta, .failure:
+                XCTFail("Unexpected event \(event)")
+            }
+        }
+
+        XCTAssertEqual(snapshots, ["one"])
+        XCTAssertFalse(sawDone, "A cancelled stream must not report completion")
+        XCTAssertTrue(runtime.streamTerminated, "The underlying runtime stream must be torn down")
+    }
+
+    func testAppleFoundationModelsStreamsThroughTheEngineUnderLocalRequired() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["Local", "Local first"]
+        try registry.register(AppleFoundationModelsProvider(runtime: runtime))
+        let engine = IndeRun(registry: registry, hostServices: hostServices)
+
+        let run = try await engine.stream(request: TaskRequest(
+            requestId: "req_apple_stream",
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello",
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+        ))
+
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+        }
+
+        XCTAssertEqual(run.handle.providerId, AppleFoundationModelsProvider.defaultId)
+        XCTAssertEqual(events.map { $0.type }, ["content_snapshot", "content_snapshot", "terminal"])
+        XCTAssertEqual(events.compactMap { $0.payload?.text }, ["Local", "Local first"])
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "Local first")
+    }
+
+    func testAppleFoundationModelsEngineCancellationProducesOneTerminalOutcome() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["one", "one two"]
+        runtime.streamGateIndex = 1
+        try registry.register(AppleFoundationModelsProvider(runtime: runtime))
+        let engine = IndeRun(registry: registry, hostServices: hostServices)
+
+        let run = try await engine.stream(request: TaskRequest(
+            requestId: "req_apple_cancel",
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello",
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+        ))
+
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+            if event.type == "content_snapshot" {
+                run.cancel(reason: "user stopped")
+                runtime.releaseStreamGate()
+            }
+        }
+
+        XCTAssertEqual(events.map { $0.type }, ["content_snapshot", "terminal"])
+        XCTAssertEqual(events.last?.payload?.outcome, .cancelled)
+        XCTAssertEqual(events.last?.payload?.partialText, "one")
+        XCTAssertEqual(events.filter { $0.type == "terminal" }.count, 1)
     }
 
     func testAppleProviderRegistryFactoryRegistersFoundationModelsProvider() throws {

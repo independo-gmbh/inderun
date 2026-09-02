@@ -82,9 +82,17 @@ Order by `event.sequence`, not by arrival: it is the ordering authority for a ru
 unrecognized `event.type` as ignore-or-pass-through — the set is open and additive. Exactly one
 terminal event is produced per run, and `cancel(reason:)` is idempotent.
 
-Streaming needs a host that can deliver a response body incrementally.
+Two providers stream today, and they emit different content event types. The Apple Foundation
+Models provider is on-device and streams cumulative snapshots, so its content events are
+`content_snapshot` — each payload replaces the previous text rather than appending to it. The
+OpenAI adapter streams tokens as `content_delta`. Handle both if you do not want to pin your app
+to one provider.
+
+The HTTP-transport providers need a host that can deliver a response body incrementally.
 `DefaultHostServices.make()` provides one; a host without a `streamingHttpClient` still runs
-Mode 1, and a stream request is refused at routing time with a `streaming_unavailable` reason.
+Mode 1, and a stream request that can only be served over HTTP is refused at routing time with a
+`streaming_unavailable` reason. The Apple provider does not go through that path — it streams
+from the system model with no host HTTP capability involved.
 
 The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types.
@@ -94,7 +102,7 @@ must accept `"stream": true` and emit `text/event-stream` with the Responses eve
 - Keep credentials behind `authContextRef`. Never ship a developer-owned API key in a
   distributed app — point `endpointURL` at a trusted backend proxy that holds the key and
   relays the event stream. This is enforced on the Web SDK and is a convention here.
-- Use the Apple provider for on-device Mode 1 execution when the system runtime is available.
+- Use the Apple provider for on-device Mode 1 and Mode 2 execution when the system runtime is available.
 - Use the OpenAI provider for OpenAI-compatible cloud execution through a host-provided HTTP client.
 - Use the ONNX Runtime provider for developer-supplied/custom local models.
 
