@@ -69,6 +69,15 @@ resolve a JDK 21 installation.
 
 - Use the checked-in commands below rather than inventing new workflow steps.
 - Keep any new tooling documented in this file and `AGENTS.md`.
+- Opt into the commit-message template, which encodes the Conventional Commits footer
+  order this repository's release automation depends on (`BREAKING CHANGE:` last):
+
+  ```sh
+  git config commit.template .gitmessage
+  ```
+
+  Git stores `commit.template` per clone, so this is a one-time step and cannot be
+  checked in for you. See [docs/release.md](docs/release.md) for why the order matters.
 
 ## Commands
 
