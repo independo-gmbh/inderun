@@ -49,6 +49,12 @@ jobs:
         # this resolves to.
         uses: dtolnay/rust-toolchain@stable
 
+      # The action above only provides rustup. No arguments, so the version still
+      # comes only from rust-toolchain.toml -- see docs/ci.md for why this is a
+      # step rather than left to rustup.
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
+
       - name: Verify the committed route core
         run: pnpm verify:route-core-apple
 
@@ -96,6 +102,12 @@ jobs:
         # rust-toolchain.toml decides which compiler actually runs. The version
         # must not be restated here -- see docs/ci.md.
         uses: dtolnay/rust-toolchain@stable
+
+      # The action above only provides rustup. No arguments, so the version still
+      # comes only from rust-toolchain.toml -- see docs/ci.md for why this is a
+      # step rather than left to rustup.
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
 
       - name: Cache Cargo state
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

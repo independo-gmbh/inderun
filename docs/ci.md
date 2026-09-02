@@ -197,9 +197,18 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
     build machine has.
 - The Rust toolchain is pinned in `rust-toolchain.toml` rather than tracking `stable`, because
   the XCFramework is a committed executable and "whatever stable was that day" is not something
-  a reviewer can check an artifact against. rustup installs it on demand, so the workflows use
-  the toolchain action only to provide rustup and must not restate the version — a second copy
-  could disagree with the compiler that actually built the artifact.
+  a reviewer can check an artifact against. The workflows use the toolchain action only to
+  provide rustup and must not restate the version — a second copy could disagree with the
+  compiler that actually built the artifact. Every job that needs the pin then runs
+  `rustup toolchain install --no-self-update`, with no toolchain argument so the version still
+  comes from the file alone. That step is required, not belt-and-braces: rustup installs the
+  toolchain a `rust-toolchain.toml` selects, but *not* one named explicitly on the command
+  line, and `scripts/rust-toolchain.mjs` names it explicitly (`rustup run <pin>`,
+  `rustup which --toolchain <pin>`) precisely so a Homebrew rustc on PATH cannot shadow it.
+  Jobs that happen to run cargo from the repo root first — anything with a `Cache Cargo state`
+  step — got the install as a side effect of the toolchain file, which is why the missing step
+  surfaced only in `release.yml`'s macOS verify job, the one job that calls a pinned-toolchain
+  script before any cargo invocation.
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
   exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
   resolve the package's literal `import("../generated/inderun_route_core.js")` without
