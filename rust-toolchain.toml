@@ -6,8 +6,9 @@
 # built rather than committed, but pinning keeps every platform's planner on one
 # compiler.
 #
-# rustup installs this on demand, so CI needs no second copy of the version and
-# the workflows keep using the toolchain action only to warm the cache.
+# CI installs this with a bare `rustup toolchain install`, which reads this file,
+# so no workflow needs a second copy of the version -- the toolchain action there
+# only provides rustup itself. Components and targets below come along with it.
 # Bumping it is a deliberate change: rebuild the XCFramework in the same commit.
 [toolchain]
 channel = "1.96.0"

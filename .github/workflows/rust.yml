@@ -61,8 +61,6 @@ jobs:
       # step rather than left to rustup.
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install --no-self-update
-        with:
-          components: rustfmt, clippy
 
       - name: Cache Cargo state
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
