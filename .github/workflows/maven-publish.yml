@@ -44,6 +44,12 @@ jobs:
         # the toolchain file decides which compiler actually runs.
         uses: dtolnay/rust-toolchain@stable
 
+      # The action above only provides rustup. No arguments, so the version still
+      # comes only from rust-toolchain.toml -- see docs/ci.md for why this is a
+      # step rather than left to rustup.
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
+
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
