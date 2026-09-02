@@ -208,7 +208,10 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   Jobs that happen to run cargo from the repo root first — anything with a `Cache Cargo state`
   step — got the install as a side effect of the toolchain file, which is why the missing step
   surfaced only in `release.yml`'s macOS verify job, the one job that calls a pinned-toolchain
-  script before any cargo invocation.
+  script before any cargo invocation. Note that `rust-toolchain.toml`'s own header still says
+  rustup installs the pin on demand; it is left alone deliberately, because the file is hashed
+  into the XCFramework's provenance manifest and editing even a comment would invalidate the
+  committed artifact and require a rebuild. This section is the accurate one.
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
   exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
   resolve the package's literal `import("../generated/inderun_route_core.js")` without
