@@ -64,6 +64,32 @@ under its own heading — only the version arithmetic differs. Cutting 1.0.0 is 
 deliberate act: flip `{ breaking: true, release: "minor" }` back to `"major"` in
 `release.config.js` as part of that release.
 
+### Footer order in a commit message
+
+`BREAKING CHANGE:` must be the **last** footer, with nothing after it. Trailers
+(`Co-Authored-By`, `Claude-Session`, `Signed-off-by`) and issue references
+(`Closes #123`) go above it.
+
+semantic-release's parser reads everything after `BREAKING CHANGE:` as part of that
+note and prints it verbatim under the release's ⚠ heading. It does not stop at the
+next trailer, so a trailer placed below the footer is published as if it were part
+of the breaking-change description — `v0.3.0-dev.9`'s iOS entry carries two of them
+for exactly that reason, while the two sibling commits that put the footer last came
+out clean.
+
+`.gitmessage` at the repository root is a template encoding this order. It is not
+active by default, since git keeps `commit.template` in local config:
+
+```sh
+git config commit.template .gitmessage
+```
+
+One trade to know about: GitHub only attributes a `Co-authored-by` trailer when it
+sits in the message's final paragraph, so on a breaking commit the co-author is
+recorded in the message but not shown as a commit author in the GitHub UI. That is
+why the reordering is scoped to breaking commits only — they are the rare case, and
+on them readable release notes are worth more than the avatar.
+
 ## Consuming the packages
 
 **npm**

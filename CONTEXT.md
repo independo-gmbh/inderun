@@ -173,6 +173,11 @@ Checked-in release commands:
   (prerelease). Config: `.releaserc`; workflow: `.github/workflows/release.yml`. See
   `docs/release.md`. Do not bump versions by hand — semantic-release derives them from
   Conventional Commits and fans the version out via `scripts/set-version.mjs`.
+- When a commit carries a `BREAKING CHANGE:` footer, that footer goes **last** and the
+  trailers (`Co-Authored-By`, `Claude-Session`) move above it — everything after
+  `BREAKING CHANGE:` is parsed as part of the note and published verbatim in the release
+  notes. Commits without one keep trailers last as usual. `.gitmessage` is the template;
+  see `docs/release.md`.
 
 The Rust toolchain is pinned in `rust-toolchain.toml`; rustup honors it automatically. Do not
 restate the version in scripts or workflows — the Apple XCFramework is a committed executable

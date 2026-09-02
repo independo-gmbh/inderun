@@ -1,0 +1,12 @@
+# <type>(<scope>)<!>: <subject>            # feat|fix|chore|docs|refactor|test|build|ci|perf|style
+#
+# Why the change is needed, and what it does. Wrap at 80.
+#
+# ---- footers -------------------------------------------------------------
+# Normally: issue refs (Closes #123 / Refs #123), then trailers last
+# (Co-Authored-By, Claude-Session, Signed-off-by).
+#
+# When the commit has a BREAKING CHANGE footer, that footer goes LAST and the
+# trailers move above it -- semantic-release reads everything following
+# `BREAKING CHANGE:` as part of the note and publishes it verbatim in the
+# release notes and CHANGELOG. See docs/release.md.
