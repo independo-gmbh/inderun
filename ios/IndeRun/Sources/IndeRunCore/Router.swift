@@ -56,16 +56,21 @@ public final class Router: Sendable {
             interactionMode: interactionMode
         )
 
-        if let routePlan = planner.planRoute(input: planInput) {
-            return try selectFromRoutePlan(snapshots: snapshots, routePlan: routePlan)
+        let routePlan: SharedPlannerRoutePlan
+        do {
+            routePlan = try planner.planRoute(input: planInput)
+        } catch let failure as RoutePlannerUnavailable {
+            // There is no second planner to degrade to: routing is the shared Rust
+            // core's semantics or nothing. Failing here keeps provider selection
+            // identical across platforms rather than forking it whenever the core
+            // cannot answer.
+            throw createInternal(
+                message: "Route planner unavailable (\(failure.reason.rawValue)).",
+                details: ["plannerUnavailableReason": JSONAny(failure.reason.rawValue)]
+            )
         }
 
-        return try selectFallbackRoute(
-            request: request,
-            snapshots: snapshots,
-            networkOnline: online,
-            interactionMode: interactionMode
-        )
+        return try selectFromRoutePlan(snapshots: snapshots, routePlan: routePlan)
     }
 
     private func collectProviderSnapshots(hostServices: HostServices) async -> [ProviderSnapshot] {
@@ -81,7 +86,10 @@ public final class Router: Sendable {
             )
         }
 
-        return snapshots.sorted { $0.descriptor.id < $1.descriptor.id }
+        // Registration order is passed through untouched: the shared planner ranks
+        // candidates itself and tie-breaks by provider id, so sorting here would
+        // only assert an ordering the planner is free to ignore.
+        return snapshots
     }
 
     private func selectFromRoutePlan(
@@ -93,25 +101,6 @@ public final class Router: Sendable {
         }
 
         return try buildSelectionFromRoutePlan(snapshots: snapshots, routePlan: routePlan)
-    }
-
-    private func selectFallbackRoute(
-        request: TaskRequest,
-        snapshots: [ProviderSnapshot],
-        networkOnline: Bool,
-        interactionMode: InteractionMode
-    ) throws -> RouteSelection {
-        let plan: RoutePlan = createFallbackPlan(
-            request: request,
-            snapshots: snapshots,
-            networkOnline: networkOnline,
-            interactionMode: interactionMode
-        )
-        guard plan.selectedProviderId != nil else {
-            throw routePlanFailure(plan)
-        }
-
-        return try buildSelectionFromRoutePlan(snapshots: snapshots, routePlan: plan)
     }
 
     private func buildSelectionFromRoutePlan(
@@ -132,98 +121,6 @@ public final class Router: Sendable {
             fallbackProviders: orderedSnapshots.filter { $0.descriptor.id != selectedId }.map { $0.provider },
             routePlan: routePlan,
             explanation: routePlan.explanation.summary
-        )
-    }
-
-    private func createFallbackPlan(
-        request: TaskRequest,
-        snapshots: [ProviderSnapshot],
-        networkOnline: Bool,
-        interactionMode: InteractionMode
-    ) -> RoutePlan {
-        let planInput = buildSharedPlannerInput(
-            request: request,
-            online: networkOnline,
-            snapshots: snapshots,
-            interactionMode: interactionMode
-        )
-        let wantsStream = interactionMode == .stream
-        // Mode filtering mirrors the Rust route-core's `evaluate_provider`: the
-        // run check is scoped to run mode, and stream mode requires both the
-        // static declaration and the dynamic capability. This planner still does
-        // not populate `rejectedProviders` — see issue #164.
-        let eligible = snapshots.filter { snapshot in
-            guard snapshot.descriptor.tasks.contains(planInput.task.kind) else { return false }
-            guard let provider = planInput.providers.first(where: { $0.descriptor.id == snapshot.descriptor.id })
-            else { return false }
-
-            if wantsStream {
-                return provider.descriptor.supports.streaming == true
-                    && provider.capabilities.streamingAvailable != false
-            }
-            return snapshot.descriptor.supports.run
-        }
-
-        // Constraint-satisfying candidates only -- applied once, before picking a primary and
-        // before building the fallback list, so a provider that violates the request's
-        // cloud/privacy constraints (e.g. a cloud provider under `localRequired`) can never appear
-        // as a fallback just because it happened to sit later in `eligible`. Mirrors the Rust
-        // route-core's `plan_route`, which filters all candidates uniformly via `evaluate_provider`
-        // before splitting them into selected + fallback.
-        let constrained = eligible.filter { snapshot in
-            let descriptor = snapshot.descriptor
-            let constraints = planInput.constraints
-            let isPrivate = descriptor.privacy?.dataLeavesDevice == false || descriptor.type != .cloud
-
-            if constraints.cloud == .forbidden && descriptor.type == .cloud { return false }
-            if constraints.cloud == .cloudRequired && descriptor.type != .cloud { return false }
-            if constraints.privacy == .localRequired && !isPrivate { return false }
-            if constraints.privacy == .cloudRequired && descriptor.type != .cloud { return false }
-            if !networkOnline && descriptor.type == .cloud { return false }
-            return snapshot.capabilities.available
-        }
-
-        let ordered: [ProviderSnapshot] = constrained.first.map { selectedSnapshot -> [ProviderSnapshot] in
-            [selectedSnapshot] + constrained.filter { $0.descriptor.id != selectedSnapshot.descriptor.id }
-        } ?? []
-        if ordered.isEmpty {
-            let failureCode: FailureCode? = !networkOnline
-                ? .offline
-                : (planInput.constraints.cloud == .cloudRequired || planInput.constraints.privacy == .cloudRequired)
-                ? .unavailable
-                : .capabilityMismatch
-
-            return RoutePlan(
-                candidates: [],
-                explanation: Explanation(
-                    selectedProviderId: nil,
-                    summary: wantsStream
-                        ? "No provider capable of streaming was found for task '\(planInput.task.kind)'."
-                        : "No eligible provider found for the current routing constraints."
-                ),
-                failureCode: failureCode,
-                fallbackProviderIds: [],
-                rejectedProviders: [],
-                selectedProviderId: nil
-            )
-        }
-
-        return RoutePlan(
-            candidates: ordered.enumerated().map { index, snapshot in
-                Candidate(order: index, providerId: snapshot.descriptor.id)
-            },
-            explanation: Explanation(
-                selectedProviderId: ordered.first?.descriptor.id,
-                summary: wantsStream
-                    ? "Selected streaming provider '\(ordered.first?.descriptor.id ?? "")' deterministically "
-                        + "from \(ordered.count) eligible candidate(s)."
-                    : "Selected provider '\(ordered.first?.descriptor.id ?? "")' deterministically "
-                        + "from \(ordered.count) eligible candidate(s)."
-            ),
-            failureCode: nil,
-            fallbackProviderIds: ordered.dropFirst().map { $0.descriptor.id },
-            rejectedProviders: [],
-            selectedProviderId: ordered.first?.descriptor.id
         )
     }
 

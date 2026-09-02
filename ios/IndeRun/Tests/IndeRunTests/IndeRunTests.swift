@@ -126,11 +126,15 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
     }
 }
 
+/// Returns a canned plan, or throws to stand in for a core that cannot answer.
 struct MockRoutePlanner: RoutePlanning {
     let plan: SharedPlannerRoutePlan?
 
-    func planRoute(input: SharedPlannerInput) -> SharedPlannerRoutePlan? {
-        plan
+    func planRoute(input: SharedPlannerInput) throws -> SharedPlannerRoutePlan {
+        guard let plan else {
+            throw RoutePlannerUnavailable(reason: .planFailed)
+        }
+        return plan
     }
 }
 
@@ -144,8 +148,11 @@ final class CapturingRoutePlanner: RoutePlanning, @unchecked Sendable {
         self.plan = plan
     }
 
-    func planRoute(input: SharedPlannerInput) -> SharedPlannerRoutePlan? {
+    func planRoute(input: SharedPlannerInput) throws -> SharedPlannerRoutePlan {
         capturedInput = input
+        guard let plan else {
+            throw RoutePlannerUnavailable(reason: .planFailed)
+        }
         return plan
     }
 }
@@ -255,7 +262,10 @@ final class IndeRunTests: XCTestCase {
             registry: registry,
             planner: MockRoutePlanner(
                 plan: SharedPlannerRoutePlan(
-                    candidates: [],
+                    candidates: [
+                        Candidate(order: 0, providerId: "local_b"),
+                        Candidate(order: 1, providerId: "local_a")
+                    ],
                     explanation: SharedPlannerExplanation(
                         selectedProviderId: "local_b",
                         summary: "Selected provider 'local_b' from shared Rust planner."
@@ -277,9 +287,120 @@ final class IndeRunTests: XCTestCase {
         )
 
         XCTAssertEqual(selection.provider.describe().id, "local_b")
+        // The chain comes from the plan's candidate order, not from registration
+        // order: local_b is selected even though local_a registered first.
+        XCTAssertEqual(selection.fallbackProviders.map { $0.describe().id }, ["local_a"])
         XCTAssertTrue(selection.explanation.contains("shared Rust planner"))
     }
     
+    /// The shared planner ranks candidates by placement and preference and only
+    /// then tie-breaks by id. The ids here are picked so that a plain id sort would
+    /// answer "a_cloud" both times -- if this passes, the ordering really came from
+    /// Rust and not from the order the registry happened to hand providers over in.
+    func testSharedPlannerOrdersCandidatesByOptimizeFor() async throws {
+        try registry.register(MockProvider(id: "a_cloud", type: .cloud))
+        try registry.register(MockProvider(id: "z_local", type: .local))
+        let router = Router(registry: registry)
+
+        let privacyFirst = try await router.selectRoute(
+            request: TaskRequest(
+                prompt: "rank by privacy",
+                preferences: TaskRequestPreferences(optimizeFor: .privacy)
+            ),
+            hostServices: hostServices
+        )
+        XCTAssertEqual(privacyFirst.provider.describe().id, "z_local")
+
+        let latencyFirst = try await router.selectRoute(
+            request: TaskRequest(
+                prompt: "rank by latency",
+                preferences: TaskRequestPreferences(optimizeFor: .latency)
+            ),
+            hostServices: hostServices
+        )
+        XCTAssertEqual(latencyFirst.provider.describe().id, "a_cloud")
+    }
+
+    /// Every platform's route explanation is the shared core's: a refused provider
+    /// names itself and why, rather than being silently absent from the chain.
+    func testRoutePlanNamesRejectedProviders() async throws {
+        let unavailable = MockProvider(id: "local_down", type: .local)
+        unavailable.isAvailable = false
+        try registry.register(unavailable)
+        try registry.register(MockProvider(id: "local_up", type: .local))
+
+        let selection = try await Router(registry: registry).selectRoute(
+            request: TaskRequest(prompt: "explain the refusal"),
+            hostServices: hostServices
+        )
+
+        XCTAssertEqual(selection.provider.describe().id, "local_up")
+        XCTAssertEqual(selection.routePlan.rejectedProviders.map { $0.providerId }, ["local_down"])
+        XCTAssertEqual(
+            selection.routePlan.rejectedProviders.first?.reasons.map { $0.code },
+            [.capabilityUnavailable]
+        )
+    }
+
+    /// A planner that cannot answer is a hard failure, not a quieter route: there
+    /// is no second implementation of the ranking rules to fall back to.
+    func testPlannerFailureSurfacesAsInternalError() async throws {
+        try registry.register(MockProvider(id: "local_p", type: .local))
+        let router = Router(registry: registry, planner: MockRoutePlanner(plan: nil))
+
+        do {
+            _ = try await router.selectRoute(
+                request: TaskRequest(prompt: "planner is unavailable"),
+                hostServices: hostServices
+            )
+            XCTFail("Should have thrown rather than routing without the shared planner")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Internal)
+            XCTAssertTrue(error.message.contains("plan_failed"))
+            XCTAssertEqual(
+                error.details?["plannerUnavailableReason"]?.value as? String,
+                "plan_failed"
+            )
+        }
+    }
+
+    /// The only test that exercises the C boundary itself rather than routing
+    /// through it: input encodes, the core answers, the answer decodes, and the
+    /// buffer it allocated is released.
+    func testSharedCoreRoutePlannerRoundTripsThroughTheFfi() throws {
+        let plan = try SharedCoreRoutePlanner.shared.planRoute(
+            input: SharedPlannerInput(
+                constraints: SharedPlannerConstraints(cloud: nil, networkOnline: true, privacy: nil),
+                interactionMode: .run,
+                preferences: SharedPlannerPreferences(optimizeFor: nil),
+                providers: [
+                    SharedPlannerProviderInput(
+                        capabilities: SharedPlannerCapabilities(
+                            available: true,
+                            cancellationAvailable: nil,
+                            reason: nil,
+                            streamingAvailable: nil,
+                            streamingUnavailableReason: nil
+                        ),
+                        descriptor: SharedPlannerProviderDescriptor(
+                            cancel: .soft,
+                            id: "local_p",
+                            privacy: nil,
+                            supports: SharedPlannerProviderSupports(run: true, streaming: false),
+                            tasks: ["text_to_text"],
+                            type: .local
+                        )
+                    )
+                ],
+                task: SharedPlannerTask(kind: "text_to_text")
+            )
+        )
+
+        XCTAssertEqual(plan.selectedProviderId, "local_p")
+        XCTAssertNil(plan.failureCode)
+        XCTAssertEqual(plan.candidates.map { $0.providerId }, ["local_p"])
+    }
+
     func testPlannerInputCarriesInteractionModeAndStreamingCapability() async throws {
         let provider = MockProvider(id: "local_a", type: .local)
         try registry.register(provider)
@@ -358,11 +479,12 @@ final class IndeRunTests: XCTestCase {
     
     /// Regression test: a cloud provider must never appear as a *fallback* candidate under
     /// `localRequired`, even when the primary (local) provider fails at execution time and even
-    /// though the cloud provider is otherwise available. The Swift-side fallback route planner
-    /// (`Router.createFallbackPlan`, used whenever the shared Rust route-core dylib isn't loaded --
-    /// which is always true on iOS) previously applied its cloud/privacy constraint filter only
-    /// when picking the primary candidate, not when building the fallback list, so a failing local
-    /// provider could silently fall through to a cloud provider under `Local Only`.
+    /// though the cloud provider is otherwise available.
+    ///
+    /// The whole chain comes from `rust/inderun-route-core`, which enforces the
+    /// cloud/privacy constraint once for every candidate rather than only for the primary --
+    /// so a cloud provider must appear nowhere in the selection, not merely not first.
+    /// Exercised end to end through the FFI.
     func testRoutingLocalRequiredNeverFallsBackToCloudProvider() async throws {
         let local = MockProvider(id: "local_p", type: .local)
         local.shouldFail = true
@@ -533,7 +655,15 @@ final class IndeRunTests: XCTestCase {
         XCTAssertGreaterThan(clock.monotonicNow() ?? 0, 0)
     }
 
-    func testKeychainSecureStorageRoundTripBySlotId() async {
+    func testKeychainSecureStorageRoundTripBySlotId() async throws {
+        // The keychain needs a signed bundle with a keychain-access group. An
+        // xctest bundle running on the simulator has neither, so SecItemAdd fails
+        // with errSecMissingEntitlement regardless of the code under test. The
+        // macOS `swift test` run covers this; the simulator run exists to exercise
+        // the route core's simulator slice, not storage.
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Keychain access is unavailable to an unsigned xctest bundle on the simulator.")
+        #else
         let storage = KeychainSecureStorageService(service: "dev.inderun.tests")
         let slotId = "test-\(UUID().uuidString)"
 
@@ -546,6 +676,7 @@ final class IndeRunTests: XCTestCase {
         await storage.deleteSecret(slotId: slotId)
         let deleted = await storage.getSecret(slotId: slotId)
         XCTAssertNil(deleted)
+        #endif
     }
 
     func testAppleFoundationModelsDescriptor() {

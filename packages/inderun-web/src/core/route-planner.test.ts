@@ -47,7 +47,6 @@ describe("WasmRoutePlanner", () => {
 
     expect(outcome).toEqual({
       routePlan: null,
-      source: "unavailable",
       unavailableReason: "import_failed"
     });
     expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -61,7 +60,6 @@ describe("WasmRoutePlanner", () => {
 
     expect(outcome).toEqual({
       routePlan: null,
-      source: "unavailable",
       unavailableReason: "invalid_module_shape"
     });
   });
@@ -77,7 +75,6 @@ describe("WasmRoutePlanner", () => {
 
     expect(outcome).toEqual({
       routePlan: null,
-      source: "unavailable",
       unavailableReason: "init_failed"
     });
   });
@@ -95,7 +92,6 @@ describe("WasmRoutePlanner", () => {
 
     expect(outcome).toEqual({
       routePlan: null,
-      source: "unavailable",
       unavailableReason: "plan_failed"
     });
   });
@@ -117,7 +113,7 @@ describe("WasmRoutePlanner", () => {
     const planner = await loadPlanner();
     const outcome = await planner.planRoute(sampleInput);
 
-    expect(outcome).toEqual({ routePlan: plan, source: "wasm" });
+    expect(outcome).toEqual({ routePlan: plan });
   });
 
   it("warns only once across repeated calls after a load failure", async () => {

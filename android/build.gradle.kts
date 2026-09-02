@@ -14,6 +14,22 @@ plugins {
     id("com.vanniktech.maven.publish") version "0.37.0" apply false
 }
 
+// The Rust route core, built for the machine running the tests. The JVM unit
+// tests reach the real planner through the same `System.loadLibrary` call the
+// Android runtime uses -- see SharedCoreRoutePlanner -- so they only need the
+// library on `java.library.path`. Registered on the root project because two
+// modules' tests route: :inderun-core and :inderun-kotlin.
+val routeCoreHostDir = File(rootProject.projectDir.parentFile, "target/route-core-host")
+
+val buildRouteCoreHost = tasks.register<Exec>("buildRouteCoreHost") {
+    group = "verification"
+    description = "Builds the Rust route core for this machine, for the JVM unit tests."
+    workingDir = rootProject.projectDir.parentFile
+    commandLine("node", "scripts/build-route-core-android.mjs", "--host")
+    // Freshness is cargo's job; see the same note in inderun-core/build.gradle.kts.
+    outputs.upToDateWhen { false }
+}
+
 subprojects {
     apply(plugin = "com.diffplug.spotless")
     configure<com.diffplug.gradle.spotless.SpotlessExtension> {
@@ -41,6 +57,22 @@ subprojects {
                 languageVersion.set(JavaLanguageVersion.of(21))
             }
         )
+
+        // Routing has a single planner, so these modules' tests fail without the
+        // native core rather than quietly routing by a second rule set: the library
+        // is a test dependency, not a nicety.
+        // Prepended rather than replacing java.library.path: Robolectric resolves
+        // its own native dependencies through the inherited value.
+        if (project.name == "inderun-core" || project.name == "inderun-kotlin") {
+            dependsOn(buildRouteCoreHost)
+            systemProperty(
+                "java.library.path",
+                listOfNotNull(
+                    routeCoreHostDir.absolutePath,
+                    System.getProperty("java.library.path")
+                ).joinToString(File.pathSeparator)
+            )
+        }
     }
 
     // Maven Central publishing for the library modules that apply the plugin

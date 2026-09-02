@@ -290,8 +290,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
             explanation: {
               summary: "Selected provider 'provider-b' from shared Rust planner."
             }
-          },
-          source: "wasm"
+          }
         };
       }
     };
@@ -373,10 +372,10 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       expect(result.telemetry.totalMs).toBe(100);
     });
 
-    it("honors an explicit privacy descriptor when routing local_required through the fallback planner", async () => {
-      // Regression: the fallback planner used to read `dataLeavesDevice` without negating it,
-      // which rejected local providers that declare their privacy explicitly and admitted cloud
-      // ones. Mirrors `is_data_private` in the shared Rust planner.
+    it("honors an explicit privacy descriptor when routing local_required", async () => {
+      // Pins `is_data_private` in the shared Rust planner: a provider that declares
+      // `dataLeavesDevice: false` is local for constraint purposes, so `local_required`
+      // must select it rather than reject it in favour of a cloud provider.
       const localProvider = createMockLocalProvider("mock-local-private", true);
       const localDescriptor = localProvider.describe();
       localProvider.describe = () => ({
@@ -429,7 +428,9 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         constraints: { privacy: "local_required" }
       };
 
-      await expect(engine.run(req)).rejects.toThrowError(/No on-device provider found\./);
+      await expect(engine.run(req)).rejects.toThrowError(
+        /No eligible local provider found for task 'text_to_text'\./
+      );
 
       try {
         await engine.run(req);
@@ -455,8 +456,11 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         constraints: { privacy: "local_required" }
       };
 
+      // The shared planner reports the same summary whether the local provider is
+      // missing or merely unavailable; the distinction lives in `rejectedProviders`,
+      // asserted below.
       await expect(engine.run(req)).rejects.toThrowError(
-        /No on-device provider is currently available\./
+        /No eligible local provider found for task 'text_to_text'\./
       );
 
       try {
@@ -465,6 +469,12 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         expect(err).toBeInstanceOf(IndeRunException);
         const exception = err as IndeRunException;
         expect(exception.errorClass).toBe("CapabilityMismatch");
+        expect(exception.details?.rejectedProviders).toEqual([
+          {
+            providerId: "mock-local-unavailable",
+            reasons: [expect.objectContaining({ code: "capability_unavailable" })]
+          }
+        ]);
       }
     });
   });
@@ -504,7 +514,9 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         constraints: { privacy: "cloud_required" }
       };
 
-      await expect(engine.run(req)).rejects.toThrowError(/No network connection is available\./);
+      await expect(engine.run(req)).rejects.toThrowError(
+        /Cloud execution was blocked because the host is offline\./
+      );
 
       try {
         await engine.run(req);
@@ -527,7 +539,9 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         constraints: { privacy: "cloud_required" }
       };
 
-      await expect(engine.run(req)).rejects.toThrowError(/No cloud provider found\./);
+      await expect(engine.run(req)).rejects.toThrowError(
+        /No eligible cloud provider found for task 'text_to_text'\./
+      );
 
       try {
         await engine.run(req);
@@ -553,7 +567,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       };
 
       await expect(engine.run(req)).rejects.toThrowError(
-        /No cloud provider is currently available\./
+        /No eligible cloud provider found for task 'text_to_text'\./
       );
 
       try {

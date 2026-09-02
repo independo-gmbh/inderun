@@ -70,7 +70,7 @@ Realtime sessions (`openSession`, Mode 3) remain fully unimplemented.
 - **Android ML Kit GenAI** — `AndroidMlKitGenAiProviderTest.kt`; demoed in `android/inderun-demo-app`.
 - **ONNX Runtime** — `packages/inderun-web/src/providers/onnx/{provider,transformers-runtime}.test.ts` (capability rejection, `local_required` no-fallback, runtime-error → error-class mapping); Apple/Android equivalents in the same test trees as above; demoed in `ios/SampleApps/IndeRunDemo` and `android/inderun-demo-app`.
 - **Web system-model** — `packages/inderun-web/src/providers/system-model/{provider,chrome-runtime}.test.ts` (availability states, error mapping, `local_required` behavior). Not yet wired into `packages/inderun-web-demo` (tracked as a follow-up) — the web demo currently covers cloud + ONNX only.
-- **Route selection/rejection + normalized errors** — `rust/inderun-route-core/src/tests.rs` is the canonical suite for rejection reasons (`rejected_providers[].reasons[].code`), including the streaming-mode rejections, and deterministic fallback ordering; `packages/inderun-web/src/core/router.stream.test.ts` covers the same rules in the TypeScript mirror planner (the Swift and Kotlin mirror planners apply the same mode filtering but still do not populate `rejectedProviders` — see issue #164); `packages/inderun-web/src/core/engine.test.ts` covers the same at the TS engine layer (`CapabilityMismatch`/`Offline`/`Unavailable`, telemetry). The iOS and Android demo app READMEs each document an "Expected Failure Modes" section with concrete triggering scenarios per `errorClass`.
+- **Route selection/rejection + normalized errors** — `rust/inderun-route-core/src/tests.rs` is the canonical suite for rejection reasons (`rejected_providers[].reasons[].code`), including the streaming-mode rejections, and deterministic fallback ordering; `packages/inderun-web/src/core/router.stream.test.ts` covers the same rules end to end through the WASM core; `ios/IndeRun/Tests/IndeRunTests/IndeRunTests.swift` and `android/inderun-core/src/test/kotlin/app/independo/inderun/core/` cover the same rules end to end through the linked and JNI-loaded cores respectively; `packages/inderun-web/src/core/engine.test.ts` covers the same at the TS engine layer (`CapabilityMismatch`/`Offline`/`Unavailable`, telemetry). The iOS and Android demo app READMEs each document an "Expected Failure Modes" section with concrete triggering scenarios per `errorClass`.
 
 To run this coverage: `pnpm test:js` (Web/TS provider + engine tests), `cargo test -p inderun_route_core` (routing/rejection), `swift test` (iOS), `cd android && ./gradlew test` (Android). See each package's README for demo-app run instructions.
 
@@ -96,15 +96,31 @@ Implementation nuance not captured by the matrix above:
   shipping it. Details: [Android Implementation](onnx-runtime-provider-family.md#android-implementation).
 - **Web system-model** — the browser owns model availability/download/execution, unlike the
   developer-supplied ONNX family. Details: [web-system-model-provider-family.md](web-system-model-provider-family.md).
-- Shared route planning: Rust core used by the TypeScript/Web side and WASM wrapper
-  (`@independo/inderun-route-core-wasm`). The Web SDK's default `WasmRoutePlanner`
-  (`packages/inderun-web/src/route-planner.ts`) loads it via a static, literal dynamic
+- Shared route planning: one Rust core (`rust/inderun-route-core`), reached differently per
+  platform. The Swift SDK links it from `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`,
+  a `binaryTarget` in `Package.swift` built by `scripts/build-route-core-apple.mjs` and
+  committed to git — SwiftPM has no publish step, so a git tag has to contain the binary it
+  needs. Because the symbols are linked rather than loaded, there is no "planner missing" state
+  at runtime on iOS: `SharedCoreRoutePlanner` calls the two C entry points directly, and the
+  build fails if they are absent. The Kotlin SDK packages it as `jniLibs` in `inderun-core`'s
+  AAR, cross-compiled for the four Android ABIs by `scripts/build-route-core-android.mjs`.
+  Those binaries are *not* committed: Android consumers resolve the module from Maven Central,
+  where CI builds the AAR, so there is no equivalent of SwiftPM's "the git tag is the artifact".
+  `SharedCoreRoutePlanner` reaches it with `System.loadLibrary`, so unlike iOS a missing library
+  is a runtime failure — raised as `library_unavailable`, never swallowed. The JNI entry point
+  sits behind the crate's `jni-bindings` feature rather than a `cfg(target_os = "android")`
+  gate, which is what lets the JVM unit tests load a host build of the same library and reach
+  the real planner. On Web the wrapper is the WASM package
+  (`@independo/inderun-route-core-wasm`). The Web SDK's `WasmRoutePlanner`
+  (`packages/inderun-web/src/core/route-planner.ts`) loads it via a static, literal dynamic
   `import()` so bundlers (Vite et al.) can statically resolve and chunk it — see #109 for why
   a variable specifier silently never loads in a bundled browser build. If the module fails to
-  import, initialize, or plan (network failure, unsupported environment, etc.), the planner
-  degrades to the in-process TypeScript fallback planner and reports the reason via the
-  `route_decided` telemetry event's `plannerSource`/`plannerUnavailableReason` fields (see
-  `docs/architecture/architecture.md`) rather than failing the request or staying silent.
+  import, initialize, or plan, routing fails with an `Internal` error naming the reason
+  (`plannerUnavailableReason`) — see `docs/architecture/architecture.md` for why no platform
+  keeps a second planner behind the core. An environment that cannot instantiate WebAssembly — a Content-Security-Policy without
+  `wasm-unsafe-eval`, or an offline app that did not precache the asset — therefore cannot
+  route at all; the package's `./generated/*` export subpath exists so such apps can self-host
+  and precache the `.wasm` explicitly.
 
 ## Provider Authoring Workflow
 

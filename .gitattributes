@@ -1,0 +1,4 @@
+# The committed route-core XCFramework (see scripts/build-route-core-apple.mjs).
+# Marking it binary keeps `git diff` and merge drivers from trying to reconcile
+# machine code, which they cannot do usefully.
+ios/IndeRun/Frameworks/** binary

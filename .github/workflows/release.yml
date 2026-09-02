@@ -15,8 +15,46 @@ permissions:
   contents: read
 
 jobs:
+  # The tag this workflow creates is the Swift SDK's distribution channel: SwiftPM
+  # consumers get whatever ios/IndeRun/Frameworks contains at that commit. Nothing
+  # downstream rebuilds or re-checks it, so the artifact is verified here, before
+  # a tag makes it consumable. macOS because the checks read Mach-O metadata with
+  # the Xcode command line tools.
+  verify-apple-artifact:
+    name: Verify Apple artifact
+    runs-on: macos-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm 11.9.0
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # Only to provide rustup: the compiler version comes from
+      # rust-toolchain.toml and is compared against the artifact's manifest.
+      - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: the toolchain file decides which compiler
+        # this resolves to.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify the committed route core
+        run: pnpm verify:route-core-apple
+
   release:
     name: Release
+    needs: verify-apple-artifact
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -54,11 +92,10 @@ jobs:
         run: npm i -g npm@^11
 
       - name: Set up Rust toolchain
-        # Intentionally not SHA-pinned: this tracks whatever "stable" Rust
-        # currently is, which is the point of using it here.
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # rust-toolchain.toml decides which compiler actually runs. The version
+        # must not be restated here -- see docs/ci.md.
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo state
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -92,15 +129,10 @@ jobs:
       - name: Verify generated contracts and API surface are up to date
         run: git diff --exit-code -- packages/contracts/src/generated android/inderun-contracts/src/main/kotlin ios/IndeRun/Sources/IndeRunContracts rust/inderun-route-core/src/generated packages/inderun-web/src/core/generated android/inderun-kotlin/src/main/kotlin/app/independo/inderun/sdk/generated ios/IndeRun/Sources/IndeRunSwift/Generated
 
+      # `pnpm build` and `pnpm test:js` both call this too; running it explicitly
+      # keeps the toolchain failure mode visible as its own step.
       - name: Build Rust WASM bindings
-        run: |
-          RUSTC="$(rustup which rustc --toolchain stable)" \
-            rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown
-
-          wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
-            --target web \
-            --out-dir packages/inderun-route-core-wasm/generated \
-            --out-name inderun_route_core
+        run: pnpm build:wasm
 
       - name: Build workspace
         run: pnpm build

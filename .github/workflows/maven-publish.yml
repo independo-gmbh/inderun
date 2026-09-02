@@ -30,6 +30,20 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.event.release.tag_name || github.ref }}
 
+      # inderun-core packages the shared Rust route core as jniLibs; the Gradle
+      # task shells out to scripts/build-route-core-android.mjs, so both Node and
+      # the pinned Rust toolchain are build dependencies of the published AAR.
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Version, components and targets come from rust-toolchain.toml.
+      - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # the toolchain file decides which compiler actually runs.
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -45,9 +59,10 @@ jobs:
       # android-37 platform package isn't available via sdkmanager's remote repo index yet).
 
       # inderun-onnx-providers declares a CMake native target (see its build.gradle.kts) solely to
-      # get AGP to package libc++_shared.so; publishToMavenCentral reaches those tasks, so the
-      # NDK/CMake must be present -- android-actions/setup-android doesn't install them by default
-      # and AGP does not auto-download a missing NDK in CI.
+      # get AGP to package libc++_shared.so, and inderun-core cross-compiles the route core for the
+      # four Android ABIs; publishToMavenCentral reaches those tasks, so the NDK/CMake must be
+      # present -- android-actions/setup-android doesn't install them by default and AGP does not
+      # auto-download a missing NDK in CI.
       - name: Cache Android NDK and CMake
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

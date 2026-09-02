@@ -1,0 +1,4 @@
+framework module InderunRouteCoreFFI {
+    umbrella header "inderun_route_core.h"
+    export *
+}

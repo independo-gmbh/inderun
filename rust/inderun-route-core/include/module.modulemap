@@ -1,0 +1,7 @@
+// Packaged into the XCFramework's headers directory so SwiftPM exposes the
+// route core as an importable module. The name must match the binaryTarget in
+// Package.swift, which is what Swift code writes in its `import`.
+module InderunRouteCoreFFI {
+    header "inderun_route_core.h"
+    export *
+}

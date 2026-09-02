@@ -93,6 +93,30 @@ Checked-in JavaScript commands:
 
 - `pnpm install`
 - `pnpm build`
+- `pnpm build:wasm` — build the Rust route core to WASM (`scripts/build-route-core-wasm.mjs`);
+  called automatically by `pnpm build` and `pnpm test:js`. Requires `rustup` with the
+  `wasm32-unknown-unknown` target and `wasm-bindgen-cli`. The Web SDK has no fallback route
+  planner, so the JS tests need these bindings to run at all.
+- `pnpm build:route-core-apple` — build the Rust route core for the Apple platforms and
+  package it into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`
+  (`scripts/build-route-core-apple.mjs`). Requires `rustup` with the five Apple targets and
+  the Xcode command line tools. Unlike the WASM bindings, the XCFramework **is committed**:
+  SwiftPM resolves this package from a git tag, so the tag has to contain the binary. Run it
+  and commit the result — including the regenerated `InderunRouteCoreFFI.provenance.json` —
+  in the same change whenever the route core changes; CI fails otherwise. Pass `--force` to
+  repackage unconditionally.
+- `pnpm verify:route-core-apple` — check the committed XCFramework against its provenance
+  manifest (pinned compiler, source hashes, per-file hashes) and validate every slice's
+  architectures, deployment target, exported FFI symbols, install name, and linked libraries
+  (`scripts/verify-route-core-apple.mjs`). Run by `swift.yml` before anything is rebuilt and by
+  `release.yml` before tagging. `--slices-only` skips the hash comparison, for validating a
+  freshly rebuilt artifact whose bytes legitimately differ.
+- `pnpm build:route-core-android` — cross-compile the Rust route core for the four Android
+  ABIs (`scripts/build-route-core-android.mjs`). Requires `rustup` with the four Android
+  targets and the Android NDK. Normally invoked by Gradle rather than by hand: `:inderun-core`
+  registers the output as a generated `jniLibs` source directory, and the same script with
+  `--host` builds the library the JVM unit tests load. Unlike the Apple XCFramework these
+  binaries are **not** committed — the AAR is built by CI and published to Maven Central.
 - `pnpm test` — run tests across **all** languages (JS/TS packages via `pnpm -r test`,
   Rust via `cargo test`, Kotlin via Gradle, Swift via `swift test`); requires the
   respective toolchains installed. Per-language scripts exist for scoped runs:
@@ -125,11 +149,17 @@ Checked-in Swift commands:
 
 - `swift build` — the SwiftPM manifest lives at the repository root (`Package.swift`)
   so the IndeRun Swift SDK is consumable by URL + git tag; sources remain under
-  `ios/IndeRun/Sources`.
+  `ios/IndeRun/Sources`. It links the committed route-core XCFramework as a binary target,
+  so this works on a plain checkout with no Rust toolchain installed.
 - `swift test`
 - `cd ios/IndeRun && swiftlint lint --strict` (SwiftLint config lives at `ios/IndeRun/.swiftlint.yml`)
 
 Checked-in Android commands:
+
+The Kotlin SDK has no fallback route planner, so the Gradle build produces the Rust route
+core itself: `test` builds a host library for the unit tests (needs `rustup` and Node), and
+anything that assembles an AAR cross-compiles the four Android ABIs (needs the NDK too). The
+build script prints the install commands when a toolchain is missing.
 
 - `cd android && ./gradlew build`
 - `cd android && ./gradlew test`
@@ -143,6 +173,11 @@ Checked-in release commands:
   (prerelease). Config: `.releaserc`; workflow: `.github/workflows/release.yml`. See
   `docs/release.md`. Do not bump versions by hand — semantic-release derives them from
   Conventional Commits and fans the version out via `scripts/set-version.mjs`.
+
+The Rust toolchain is pinned in `rust-toolchain.toml`; rustup honors it automatically. Do not
+restate the version in scripts or workflows — the Apple XCFramework is a committed executable
+whose provenance manifest records the exact compiler, and a second copy of the version could
+disagree with it.
 
 Checked-in Rust commands:
 

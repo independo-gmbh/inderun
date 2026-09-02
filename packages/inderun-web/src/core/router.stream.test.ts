@@ -6,11 +6,11 @@ import { ProviderRegistry } from "./registry.js";
 import { Router } from "./router.js";
 
 /**
- * These tests exercise the hand-written mirror planner in `Router`, not the Rust
- * core: the WASM module cannot be imported under vitest, so `WasmRoutePlanner`
- * reports "unavailable" and the fallback path runs. The rejection codes and the
- * stream-mode failure summary asserted here are kept verbatim in sync with
- * `rust/inderun-route-core/src/tests.rs`.
+ * These tests exercise the shared Rust planner through the real WASM module,
+ * which `src/test/setup-shared-core.ts` initializes for every suite. The
+ * rejection codes and the stream-mode failure summary asserted here therefore
+ * come from `rust/inderun-route-core/src/planner.rs` itself, not from a
+ * TypeScript restatement of it.
  */
 
 function createHostServices(online = true): HostServices {

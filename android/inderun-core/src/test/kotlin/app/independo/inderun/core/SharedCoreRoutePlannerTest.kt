@@ -4,9 +4,11 @@ import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.PrivacyEnum
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
+import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -105,6 +107,62 @@ class SharedCoreRoutePlannerTest {
         assertEquals(1, reasons.size)
         assertEquals(Code.StreamingNotSupported, reasons[0].code)
     }
+
+    /**
+     * The one test that crosses the JNI boundary end to end. Everything else here
+     * checks the two halves of the wire format in isolation, which cannot catch a
+     * missing `Java_..._planRouteJsonNative` export or a library that never loaded.
+     * Since routing has no second planner behind it, both are fatal to the SDK.
+     */
+    @Test
+    fun sharedCoreRoutePlannerRoundTripsThroughTheJniBoundary() {
+        val local = descriptor("provider_local", ProviderDescriptor.ProviderType.local)
+        val cloud = descriptor("provider_cloud", ProviderDescriptor.ProviderType.cloud)
+
+        val plan = SharedCoreRoutePlanner.planRoute(
+            buildSharedPlannerInput(
+                request = TaskRequest(
+                    schemaVersion = SchemaVersion.V1_0,
+                    prompt = "Hello",
+                    task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
+                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                ),
+                online = true,
+                snapshots = listOf(snapshot(cloud), snapshot(local)),
+            ),
+        )
+
+        assertEquals("provider_local", plan.selectedProviderId)
+        assertEquals(emptyList<String>(), plan.fallbackProviderIds)
+        assertEquals(listOf("provider_local"), plan.candidates.map { it.providerId })
+        assertEquals(
+            listOf(Code.PrivacyConstraint),
+            plan.rejectedProviders.single { it.providerId == "provider_cloud" }.reasons.map { it.code },
+        )
+    }
+
+    private fun descriptor(id: String, type: ProviderDescriptor.ProviderType): ProviderDescriptor = ProviderDescriptor(
+        id = id,
+        type = type,
+        transport = ProviderDescriptor.TransportType.in_process,
+        supports = ProviderDescriptor.SupportsCapabilities(
+            run = true,
+            streaming = false,
+            realtime = false,
+            tools = false,
+            reasoningEvents = false,
+            structuredOutput = false,
+            multimodal = false,
+        ),
+        cancel = ProviderDescriptor.CancelSemantics.soft,
+        tasks = listOf("text_to_text"),
+    )
+
+    private fun snapshot(descriptor: ProviderDescriptor): ProviderSnapshot = ProviderSnapshot(
+        provider = StubProvider(descriptor),
+        descriptor = descriptor,
+        capabilities = ProviderDynamicCapabilities(available = true),
+    )
 
     private class StubProvider(private val descriptor: ProviderDescriptor) : ProviderAdapter {
         override fun describe(): ProviderDescriptor = descriptor

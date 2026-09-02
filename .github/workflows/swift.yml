@@ -36,6 +36,14 @@ jobs:
             swift:
               - 'ios/**'
               - 'Package.swift'
+              - 'rust/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'scripts/build-route-core-apple.mjs'
+              - 'scripts/route-core-apple-provenance.mjs'
+              - 'scripts/verify-route-core-apple.mjs'
+              - 'scripts/rust-toolchain.mjs'
               - '.github/workflows/swift.yml'
 
   swift:
@@ -43,11 +51,96 @@ jobs:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-latest
-    timeout-minutes: 15
+    # Five cross-compiles, two `swift test` runs, a simulator boot, and a device
+    # app build. Slower than a lint job by design: the artifact this verifies is
+    # executable code shipped to consumers.
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm 11.9.0
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # Version, components and targets all come from rust-toolchain.toml, which
+      # rustup installs on demand -- the pin must not be restated here, or the
+      # artifact could be verified against a compiler that did not build it.
+      - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # the toolchain file decides which compiler actually runs.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo state
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
+            rust/inderun-route-core -> target
+          cache-on-failure: true
+
+      # The committed XCFramework is an executable in git: it is what SwiftPM
+      # consumers run. This checks it against its provenance manifest -- pinned
+      # compiler, content hashes of every source it was built from, hashes of
+      # every packaged file -- plus the shape of each slice (architectures,
+      # platform, deployment target, exported FFI symbols, install name, dynamic
+      # dependencies). It runs before anything rebuilds, so it is the committed
+      # artifact under test and not a local rebuild of it.
+      - name: Verify the committed route core
+        run: pnpm verify:route-core-apple
+
+      # First test pass: against the artifact as committed, which is what a
+      # consumer resolving this repository by tag would link.
+      - name: Run Swift package tests against the committed route core
+        run: swift test
+
+      # Second pass: rebuilt from source, which answers the half a manifest
+      # cannot. Rust builds are not byte-reproducible, so the check that the
+      # committed binary behaves like the reviewed source is to build that source
+      # and run the same suite against the result. --force because skipping on an
+      # mtime comparison would leave it ambiguous which binary was tested.
+      - name: Rebuild the route core from source
+        run: pnpm build:route-core-apple --force
+
+      - name: Verify the rebuilt slices
+        run: pnpm verify:route-core-apple --slices-only
+
+      - name: Run Swift package tests against the rebuilt route core
+        run: swift test
+
+      # swift test only ever exercises the macOS slice. These two cover the other
+      # two: the simulator slice by running the same suite on it, and the device
+      # slice by linking and embedding it into a real app bundle.
+      - name: Run Swift package tests on the iOS simulator
+        run: |
+          set -euo pipefail
+          device="$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys; print(next(d['name'] for runtime in json.load(sys.stdin)['devices'].values() for d in runtime if d['name'].startswith('iPhone')))")"
+          echo "Testing on $device"
+          xcodebuild test \
+            -scheme IndeRun-Package \
+            -destination "platform=iOS Simulator,name=$device" \
+            -derivedDataPath "$RUNNER_TEMP/dd-simulator"
+
+      - name: Build the demo app for an iOS device
+        working-directory: ios/SampleApps/IndeRunDemo
+        run: |
+          xcodebuild build \
+            -project IndeRunDemo.xcodeproj \
+            -scheme IndeRunDemo \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd-device" \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Install SwiftLint
         run: brew install swiftlint
@@ -55,6 +148,3 @@ jobs:
       - name: Run SwiftLint
         working-directory: ios/IndeRun
         run: swiftlint lint --strict
-
-      - name: Run Swift package tests
-        run: swift test

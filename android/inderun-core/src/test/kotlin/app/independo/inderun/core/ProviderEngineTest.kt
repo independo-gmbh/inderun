@@ -1,13 +1,17 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.Candidate
+import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.OptimizeFor
 import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.PrivacyEnum
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
+import app.independo.inderun.contracts.TaskRequestPreferences
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -16,7 +20,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+/**
+ * Runs under Robolectric because routing now goes through the shared Rust core,
+ * and the planner input is serialized with `org.json` -- which is a stub in the
+ * plain `android.jar` these unit tests otherwise compile against.
+ */
+@RunWith(RobolectricTestRunner::class)
 class ProviderEngineTest {
     @Test
     fun registryRejectsDuplicateIds() {
@@ -60,7 +72,10 @@ class ProviderEngineTest {
 
         val planner = object : RoutePlanner {
             override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan = SharedPlannerRoutePlan(
-                candidates = emptyList(),
+                candidates = listOf(
+                    Candidate(providerId = "provider_b", order = 0),
+                    Candidate(providerId = "provider_a", order = 1),
+                ),
                 selectedProviderId = "provider_b",
                 fallbackProviderIds = listOf("provider_a"),
                 failureCode = null,
@@ -83,7 +98,101 @@ class ProviderEngineTest {
         )
 
         assertEquals("provider_b", selection.provider.describe().id)
+        assertEquals(listOf("provider_a"), selection.fallbackProviders.map { it.describe().id })
         assertTrue(selection.explanation.contains("shared Rust planner"))
+    }
+
+    /**
+     * The shared core applies the cloud/privacy constraint once, to every candidate
+     * rather than only to the primary. This pins that: under `localRequired` a cloud
+     * provider must appear nowhere in the selection, not merely not first, so a
+     * failing local provider can never fall through to the cloud.
+     */
+    @Test
+    fun routingLocalRequiredNeverFallsBackToCloudProvider() = runTest {
+        val registry = ProviderRegistry()
+        registry.register(FakeProvider("provider_local", available = true))
+        registry.register(
+            FakeProvider("provider_cloud", available = true, type = ProviderDescriptor.ProviderType.cloud),
+        )
+
+        val selection = Router(registry).selectRoute(
+            request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
+                prompt = "Hello",
+                task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+            ),
+            hostServices = fakeHostServices(),
+        )
+
+        assertEquals("provider_local", selection.provider.describe().id)
+        assertEquals(emptyList<String>(), selection.fallbackProviders.map { it.describe().id })
+        assertEquals(
+            listOf(Code.PrivacyConstraint),
+            selection.routePlan.rejectedProviders
+                .single { it.providerId == "provider_cloud" }
+                .reasons
+                .map { it.code },
+        )
+    }
+
+    /**
+     * Ordering is the planner's, not the registry's. The provider ids are chosen so
+     * that registry order would give the opposite answer, which is what makes this a
+     * test of the shared core's `optimizeFor` ranking rather than of iteration order.
+     */
+    @Test
+    fun routerOrdersCandidatesByOptimizeFor() = runTest {
+        val registry = ProviderRegistry()
+        registry.register(FakeProvider("provider_local", available = true))
+        registry.register(
+            FakeProvider("provider_cloud", available = true, type = ProviderDescriptor.ProviderType.cloud),
+        )
+
+        val selection = Router(registry).selectRoute(
+            request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
+                prompt = "Hello",
+                task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
+                preferences = TaskRequestPreferences(optimizeFor = OptimizeFor.Latency),
+            ),
+            hostServices = fakeHostServices(),
+        )
+
+        assertEquals("provider_cloud", selection.provider.describe().id)
+        assertEquals(listOf("provider_local"), selection.fallbackProviders.map { it.describe().id })
+    }
+
+    /**
+     * There is no second planner, so an unusable core is an `Internal` failure
+     * that names itself rather than a silent switch to different routing rules.
+     */
+    @Test
+    fun plannerFailureSurfacesAsInternalError() = runTest {
+        val registry = ProviderRegistry()
+        registry.register(FakeProvider("provider_a", available = true))
+
+        val planner = object : RoutePlanner {
+            override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan = throw RoutePlannerUnavailableException(RoutePlannerUnavailableReason.LibraryUnavailable)
+        }
+
+        try {
+            Router.withPlanner(registry, planner).selectRoute(
+                request = TaskRequest(
+                    schemaVersion = SchemaVersion.V1_0,
+                    prompt = "Hello",
+                    task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
+                ),
+                hostServices = fakeHostServices(),
+            )
+        } catch (error: IndeRunException) {
+            assertEquals(app.independo.inderun.contracts.IndeRunErrorClass.Internal, error.errorClass)
+            assertEquals("library_unavailable", error.details?.get("plannerUnavailableReason"))
+            return@runTest
+        }
+
+        throw AssertionError("Expected an Internal error when the route planner is unavailable.")
     }
 
     @Test
@@ -139,10 +248,11 @@ class ProviderEngineTest {
     private class FakeProvider(
         private val id: String,
         private val available: Boolean = true,
+        private val type: ProviderDescriptor.ProviderType = ProviderDescriptor.ProviderType.local,
     ) : ProviderAdapter {
         override fun describe(): ProviderDescriptor = ProviderDescriptor(
             id = id,
-            type = ProviderDescriptor.ProviderType.local,
+            type = type,
             transport = ProviderDescriptor.TransportType.in_process,
             supports = ProviderDescriptor.SupportsCapabilities(
                 run = true,

@@ -13,7 +13,13 @@ const plugins = [
     "@semantic-release/commit-analyzer",
     {
       releaseRules: [
-        { breaking: true, release: "major" },
+        // Pre-1.0: a breaking change is a minor bump, not a major one. 0.x is where
+        // "the surface is still moving" is expressed; letting a `!` commit cut 1.0.0
+        // automatically would announce a stability guarantee this project has not
+        // made yet. Commits keep their `!` and BREAKING CHANGE: footers, so the
+        // release notes still call the break out -- only the arithmetic differs.
+        // Flip this back to "major" as part of deliberately cutting 1.0.0.
+        { breaking: true, release: "minor" },
         { type: "revert", scope: "*", release: "patch" },
         { type: "docs", scope: "*", release: "patch" },
         { type: "style", scope: "*", release: "patch" },

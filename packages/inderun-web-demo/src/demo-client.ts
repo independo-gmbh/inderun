@@ -37,8 +37,6 @@ export interface RouteDecidedPayload {
   explanation: { summary: string };
   constraints: Record<string, unknown> | null;
   preferences: Record<string, unknown> | null;
-  plannerSource: string | null;
-  plannerUnavailableReason: string | null;
 }
 
 function toRouteDecidedPayload(payload: Record<string, unknown>): RouteDecidedPayload | undefined {
@@ -63,10 +61,7 @@ function toRouteDecidedPayload(payload: Record<string, unknown>): RouteDecidedPa
     rejectedProviders,
     explanation,
     constraints: (payload.constraints as Record<string, unknown> | null) ?? null,
-    preferences: (payload.preferences as Record<string, unknown> | null) ?? null,
-    plannerSource: typeof payload.plannerSource === "string" ? payload.plannerSource : null,
-    plannerUnavailableReason:
-      typeof payload.plannerUnavailableReason === "string" ? payload.plannerUnavailableReason : null
+    preferences: (payload.preferences as Record<string, unknown> | null) ?? null
   };
 }
 
