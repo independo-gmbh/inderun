@@ -259,8 +259,9 @@ describe("OnnxRuntimeWebProvider run", () => {
   });
 
   it("never retries on a cloud provider when the local attempt fails under local_required", async () => {
-    // Regression: the fallback planner filtered only the selected provider by constraints, so a
-    // failing local_required attempt was retried against the cloud fallback.
+    // Regression from the deleted TypeScript planner (#164), which filtered only the selected
+    // provider by constraints, so a failing local_required attempt was retried against the cloud
+    // fallback. The shared Rust planner constrains the whole chain.
     const provider = createProvider({
       runtime: createFixtureOnnxRuntime({
         failWith: new OnnxRuntimeError("internal", "generation blew up")
