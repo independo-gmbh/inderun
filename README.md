@@ -23,18 +23,24 @@ consistent, deterministic behavior.
 
 The project is organized around a few stable ideas:
 
-- `run()` is the current public execution path.
+- `run()` and `stream()` are the public execution paths — request/response and incremental output.
 - Routing is deterministic and based on request constraints plus host capability snapshots.
 - Provider behavior is normalized so apps do not need provider-specific branching in their own code.
 - Secrets stay out of request payloads and are referenced through `authContextRef`.
 
 ## Status
 
-IndeRun is currently focused on Mode 1 `run()` execution for `text_to_text`. Streaming and realtime sessions are
-planned but not yet implemented; the shipped surface is request/response execution. Every platform can always use the
-OpenAI-compatible **cloud** provider; **on-device** execution is used automatically by routing when the device
-supports it (or forced with a `localRequired` privacy constraint). See
+IndeRun ships two execution modes for `text_to_text`: Mode 1 `run()` (request/response) and Mode 2 `stream()`
+(incremental output with cancellation), both implemented in all three SDKs. Realtime sessions remain planned but
+unimplemented. Every platform can always use the OpenAI-compatible **cloud** provider; **on-device** execution is used
+automatically by routing when the device supports it (or forced with a `localRequired` privacy constraint). See
 [GitHub Milestones](https://github.com/independo-gmbh/inderun/milestones) for current roadmap status.
+
+Not every provider streams. Whether a stream request can be served depends on the registered providers, so it is
+decided by the route planner and refused up front with a normalized reason when nothing eligible can stream — see the
+[provider matrix](docs/architecture/providers.md#provider-matrix) for per-provider Mode 2 status, and each SDK README
+([web](packages/inderun-web/README.md), [iOS](ios/IndeRun/README.md), [Android](android/README.md)) for the streaming
+API and its event-handling contract.
 
 ## Platforms
 
