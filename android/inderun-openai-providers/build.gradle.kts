@@ -22,9 +22,13 @@ android {
 }
 
 dependencies {
-    implementation(project(":inderun-contracts"))
-    implementation(project(":inderun-core"))
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    // `api`, not `implementation` -- these types appear in this module's public
+    // signatures, so consumers need them on their compile classpath. See the note
+    // in :inderun-core's build file.
+    api(project(":inderun-contracts"))
+    api(project(":inderun-core"))
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+
     implementation("org.json:json:20260814")
 
     testImplementation("junit:junit:4.13.2")
