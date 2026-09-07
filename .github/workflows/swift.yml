@@ -59,6 +59,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # diagnose-api-breaking-changes resolves the base branch as a baseline
+          # treeish, which the default shallow clone does not contain.
+          fetch-depth: 0
 
       - name: Set up pnpm 11.9.0
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -109,6 +113,17 @@ jobs:
       # consumer resolving this repository by tag would link.
       - name: Run Swift package tests against the committed route core
         run: swift test
+
+      # The Swift half of the cross-platform public-API guard (#189). Scoped to
+      # IndeRunContracts on purpose: swift-api-digester cannot load a baseline for
+      # any target that depends on the InderunRouteCoreFFI binary target ("missing
+      # required module 'InderunRouteCoreFFI'"), which is every other module here.
+      # Contracts is the surface worth guarding most anyway -- it is generated from
+      # the shared schemas and is what the other two SDKs mirror. Widen the scope if
+      # SwiftPM ever resolves binary targets for baseline builds.
+      - name: Diagnose API-breaking changes in IndeRunContracts
+        if: github.event_name == 'pull_request'
+        run: swift package diagnose-api-breaking-changes "origin/${{ github.base_ref }}" --targets IndeRunContracts
 
       # Second pass: rebuilt from source, which answers the half a manifest
       # cannot. Rust builds are not byte-reproducible, so the check that the

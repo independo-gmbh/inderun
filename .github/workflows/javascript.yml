@@ -141,3 +141,12 @@ jobs:
 
       - name: Test workspace
         run: pnpm test:js
+
+      # The npm half of the cross-platform public-API guard (#189). publint checks
+      # the published package's shape; attw resolves every `exports` subpath the way
+      # a consumer's TypeScript would, which is what catches a public `.d.ts`
+      # referencing a package we do not actually ship a dependency on. The
+      # esm-only profile drops the node10 and CJS-consumer resolutions -- these
+      # packages are ESM-only by design and would otherwise always report them.
+      - name: Verify published package shape
+        run: pnpm verify:packaging

@@ -104,6 +104,34 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   `sdk=<supported-level>` in that module's `src/test/resources/robolectric.properties`
   (this decouples the Robolectric test SDK from `compileSdk`).
 
+## Public-API packaging checks
+
+Three checks, one per SDK, guard the same defect: a type in a public signature coming from a
+dependency the consumer does not actually get. See
+[#189](https://github.com/independo-gmbh/inderun/issues/189) for how it went unnoticed — it is
+invisible inside this repository and only breaks for someone consuming the published artifacts.
+
+- **Android**, in `android.yml`: `node scripts/verify-android-api-dependencies.mjs` generates the
+  Maven POMs and compares every dependency's scope against `android/published-api-dependencies.txt`.
+  A dependency slipping from `api(...)` back to `implementation(...)` shows up as `compile` →
+  `runtime` and fails the job. Regenerate the baseline with `--update` after an intentional change.
+  Additionally, the `inderun-consumer-smoke` module compiles the README quick start against a single
+  `implementation(project(":inderun-kotlin"))`, so `./gradlew test` alone catches a missing edge.
+- **Swift**, in `swift.yml`: `swift package diagnose-api-breaking-changes` against the PR's base
+  branch, scoped to `IndeRunContracts`. The scope is a tool limitation, not a choice —
+  swift-api-digester cannot build a baseline for any target depending on the `InderunRouteCoreFFI`
+  binary target, which is every other module. Runs on pull requests only, and needs the job's
+  `fetch-depth: 0` checkout to resolve the baseline.
+- **Web**, in `javascript.yml`: `pnpm verify:packaging` runs `publint` and
+  `attw --pack . --profile esm-only` over the three published npm packages, resolving every
+  `exports` subpath the way a consumer's TypeScript would. The `esm-only` profile drops the node10
+  and CommonJS-consumer resolutions, which these ESM-only packages would always report.
+
+A full ABI dump on Android (binary-compatibility-validator, metalava) is **not** possible today:
+both hook the `KotlinAndroidTarget` registered by the standalone `org.jetbrains.kotlin.android`
+plugin, and AGP 9 refuses that plugin now that Kotlin support is built in. BCV applies without
+error and then registers no tasks at all. Revisit when either tool supports AGP's built-in Kotlin.
+
 ## Notes
 
 - The JavaScript workflow also regenerates the shared contract and WASM artifacts before package builds.
