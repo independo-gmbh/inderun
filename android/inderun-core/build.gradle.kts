@@ -75,9 +75,22 @@ android {
 }
 
 dependencies {
-    implementation(project(":inderun-contracts"))
+    // `api`, not `implementation`: every type below appears in this module's public
+    // signatures (`ProviderAdapter`/`StreamingProviderAdapter` take and return contract
+    // types, `StreamRun.events` and `HttpStreamResponse.body` are `Flow`s), so consumers
+    // need them on their *compile* classpath. Gradle keeps `implementation` dependencies
+    // off it deliberately, and com.vanniktech.maven.publish maps them to POM `runtime`
+    // scope, which would leave a Maven Central consumer unable to name the types our own
+    // API hands them. Anything whose types stay `internal` stays `implementation`.
+    api(project(":inderun-contracts"))
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    // `HostServices.isOnline()` carries @RequiresPermission, so the annotation is part of
+    // the signature a consumer implements against. Declared explicitly rather than leaned
+    // on through core-ktx, which stays `implementation` -- only `SecureStorageService`
+    // uses it, and nothing from it reaches this module's API.
+    api("androidx.annotation:annotation:1.10.0")
+
     implementation("androidx.core:core-ktx:1.19.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")

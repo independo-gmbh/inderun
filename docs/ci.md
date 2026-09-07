@@ -104,6 +104,48 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   `sdk=<supported-level>` in that module's `src/test/resources/robolectric.properties`
   (this decouples the Robolectric test SDK from `compileSdk`).
 
+## Public-API packaging checks
+
+Three checks, one per SDK, guard the same defect: a type in a public signature coming from a
+dependency the consumer does not actually get. See
+[#189](https://github.com/independo-gmbh/inderun/issues/189) for how it went unnoticed — it is
+invisible inside this repository and only breaks for someone consuming the published artifacts.
+
+- **Android**, in `android.yml`: `node scripts/verify-android-api-dependencies.mjs` generates the
+  Maven POMs and compares every dependency's scope against `android/published-api-dependencies.txt`.
+  A dependency slipping from `api(...)` back to `implementation(...)` shows up as `compile` →
+  `runtime` and fails the job. Regenerate the baseline with `--update` after an intentional change.
+  Additionally, the `inderun-consumer-smoke` module compiles the README quick start against a single
+  `implementation(project(":inderun-kotlin"))`, so `./gradlew test` alone catches a missing edge.
+  The baseline is what makes an intentional scope change explicit: demoting a dependency that
+  nothing publicly exposes is a legitimate edit, and it has to be re-recorded and reviewed rather
+  than slipping through.
+- **Swift**, in `swift.yml`: two things, guarding two different failures.
+
+  The re-export boundary is guarded by the `IndeRunUmbrellaConsumerTests` and
+  `IndeRunProviderConsumerTests` targets in `Package.swift`, which are the direct counterpart of
+  `inderun-consumer-smoke`. Each depends on exactly one product — `IndeRunSwift` and
+  `IndeRunOpenAIProviders` respectively — and names contract and core types through it, so
+  weakening an `@_exported import` fails `swift test`. `IndeRunTests` cannot catch this: it
+  depends on all six modules directly, which is what hid the problem in the first place.
+
+  Separately, `swift package diagnose-api-breaking-changes` runs against the PR's base branch,
+  scoped to `IndeRunContracts`. That is an ABI check on the generated contract surface, not a
+  packaging check — it would stay green through a re-export regression, since removing
+  `@_exported` changes no declaration in `IndeRunContracts`. The scope is a tool limitation:
+  swift-api-digester cannot build a baseline for any target depending on the `InderunRouteCoreFFI`
+  binary target, which is every other module. Runs on pull requests only, and needs the job's
+  `fetch-depth: 0` checkout to resolve the baseline.
+- **Web**, in `javascript.yml`: `pnpm verify:packaging` runs `publint` and
+  `attw --pack . --profile esm-only` over the three published npm packages, resolving every
+  `exports` subpath the way a consumer's TypeScript would. The `esm-only` profile drops the node10
+  and CommonJS-consumer resolutions, which these ESM-only packages would always report.
+
+A full ABI dump on Android (binary-compatibility-validator, metalava) is **not** possible today:
+both hook the `KotlinAndroidTarget` registered by the standalone `org.jetbrains.kotlin.android`
+plugin, and AGP 9 refuses that plugin now that Kotlin support is built in. BCV applies without
+error and then registers no tasks at all. Revisit when either tool supports AGP's built-in Kotlin.
+
 ## Notes
 
 - The JavaScript workflow also regenerates the shared contract and WASM artifacts before package builds.

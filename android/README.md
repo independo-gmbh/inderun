@@ -12,6 +12,24 @@ Android workspace for the IndeRun SDK, host services, provider adapters, and dem
 - `inderun-onnx-providers` - ONNX Runtime provider for developer-supplied local models
   (`local.onnx.genai.android`)
 - `inderun-demo-app` - demo app for reviewing the Mode 1 and Mode 2 flows
+- `inderun-consumer-smoke` - not published; compiles the README quick start against a single
+  `implementation(project(":inderun-kotlin"))` so a missing `api(...)` edge fails here rather
+  than in a consumer's app
+
+### Published dependency scopes
+
+A dependency whose types appear in a module's public signatures is declared with `api(...)`,
+not `implementation(...)`: Gradle keeps `implementation` dependencies off consumers' compile
+classpath, and the publish plugin maps them to POM `runtime` scope. `inderun-kotlin` therefore
+brings `inderun-contracts`, `inderun-core` and `kotlinx-coroutines-core` with it, and an app
+needs no further declarations to name `TaskRequest`, `TaskResult` or `Flow<StreamEvent>`.
+
+The resulting scopes are pinned in `published-api-dependencies.txt` and checked in CI:
+
+```sh
+pnpm verify:android-api-deps            # verify
+node scripts/verify-android-api-dependencies.mjs --update   # after an intentional change
+```
 
 ## Streaming
 

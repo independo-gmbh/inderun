@@ -16,6 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "inderun-android"
 
+include(":inderun-consumer-smoke")
 include(":inderun-contracts")
 include(":inderun-core")
 include(":inderun-demo-app")

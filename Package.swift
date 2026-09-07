@@ -88,6 +88,21 @@ let package = Package(
             ],
             path: "ios/IndeRun/Sources/IndeRunOnnxProviders"
         ),
+        // Consumer-compilation smoke tests. Each depends on exactly one product and
+        // proves that product's `@_exported import` chain hands a consumer the types
+        // its own signatures use. IndeRunTests below cannot: it depends on all six
+        // modules directly, which is what hid the missing re-exports until #189.
+        // Do not add dependencies to either of these -- the short list is the test.
+        .testTarget(
+            name: "IndeRunUmbrellaConsumerTests",
+            dependencies: ["IndeRunSwift"],
+            path: "ios/IndeRun/Tests/IndeRunUmbrellaConsumerTests"
+        ),
+        .testTarget(
+            name: "IndeRunProviderConsumerTests",
+            dependencies: ["IndeRunOpenAIProviders"],
+            path: "ios/IndeRun/Tests/IndeRunProviderConsumerTests"
+        ),
         .testTarget(
             name: "IndeRunTests",
             dependencies: [

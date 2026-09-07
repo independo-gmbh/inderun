@@ -48,13 +48,18 @@ describe("FetchStreamingHttpClient", () => {
 
   function streamOf(
     chunks: string[],
-    options: { onCancel?: () => void; gate?: Promise<void> } = {}
+    options: { onCancel?: () => void; neverEnds?: boolean } = {}
   ): ReadableStream<Uint8Array> {
     let index = 0;
     return new ReadableStream<Uint8Array>({
       async pull(controller) {
-        if (index === 1 && options.gate) await options.gate;
         if (index >= chunks.length) {
+          // `neverEnds` models a connection the server is still holding open with
+          // nothing more to send yet. It matters for the cancellation test below:
+          // cancelling an already-closed stream is a no-op that never reaches the
+          // underlying source, so a fixture that closes itself would decide that
+          // test by whichever of the two microtask chains happened to win.
+          if (options.neverEnds) await new Promise(() => {});
           controller.close();
           return;
         }
@@ -125,13 +130,9 @@ describe("FetchStreamingHttpClient", () => {
 
   it("tears down the connection when the caller's signal aborts mid-body", async () => {
     let cancelled = false;
-    let releaseSecondChunk: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => {
-      releaseSecondChunk = resolve;
-    });
     globalThis.fetch = (() => {
-      const stream = streamOf(["first", "second"], {
-        gate,
+      const stream = streamOf(["first"], {
+        neverEnds: true,
         onCancel: () => {
           cancelled = true;
         }
@@ -150,11 +151,12 @@ describe("FetchStreamingHttpClient", () => {
         for await (const chunk of response.body) {
           received.push(decoder.decode(chunk));
           controller.abort();
-          releaseSecondChunk?.();
         }
       })()
     ).rejects.toThrow();
 
+    // The body ends because the client cancelled it, not because the source ran
+    // out: the source is still open, so `cancel` reaching it is the assertion.
     expect(received).toEqual(["first"]);
     expect(cancelled).toBe(true);
   });

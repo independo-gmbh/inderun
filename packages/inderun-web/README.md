@@ -10,6 +10,8 @@ TypeScript/Web SDK for IndeRun.
 
 This package provides the Web SDK entrypoint, the engine core, routing, telemetry, error normalization, the OpenAI-compatible cloud provider, the Web ONNX Runtime provider for developer-supplied local models, and the Web system-model provider for browser-managed on-device models.
 
+The contract types this SDK's own signatures take and return — `TaskRequest`, `TaskResult`, `StreamEvent`, `StreamRunHandle`, `StreamTerminalOutcome`, `IndeRunError`, the host-service and telemetry interfaces, and (from the `/onnx` subpath) `ModelPackage` — are re-exported here, so a fully typed app does not need to depend on `@independo/inderun-contracts` separately. Import that package directly only if you want the JSON Schemas or the `get*ValidationIssues` validators.
+
 ## Basic Usage
 
 ```ts

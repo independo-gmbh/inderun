@@ -64,6 +64,8 @@ Credentials must be referenced through secure storage, not embedded in request p
 
 Bridge packages may accept minimal provider bootstrap options when the underlying platform SDK cannot infer required cloud-provider configuration from the canonical request alone. That bootstrap must stay limited to provider registration inputs and must not duplicate routing or orchestration semantics.
 
+Parity extends to packaging. Each SDK is split into several modules, but an app depending on the SDK entry point must be able to name every type that entry point's signatures take and return, without declaring the internal modules itself. Each ecosystem expresses that differently — Gradle `api(...)` dependencies on Android, `@_exported import` on Swift, re-exported types from the package entry point on npm — and leaving one of them out is a routing-invisible defect that only appears for consumers of the published artifacts. `docs/ci.md` covers the checks that hold this in place.
+
 ## Out Of Scope
 
 Mode 4 submit/jobs infrastructure is out of scope for the current phase. The architecture may leave room for it, but this document should not spec that future work in detail.

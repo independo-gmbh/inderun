@@ -10,7 +10,16 @@ The SDK can route Mode 1 `run()` and Mode 2 `stream()` requests through on-devic
 val indeRun = IndeRun.initialize(this)
 ```
 
-To register an OpenAI-compatible cloud provider explicitly:
+`inderun-kotlin` exposes `inderun-contracts`, `inderun-core` and `kotlinx-coroutines-core` as
+`api` dependencies, so its own dependency line is all an app needs to name `TaskRequest`,
+`TaskResult` and the `Flow<StreamEvent>` from `stream()`.
+
+To register an OpenAI-compatible cloud provider explicitly, add its module — it is not a
+dependency of this one:
+
+```kotlin
+implementation("app.independo.inderun:inderun-openai-providers:latest.release")
+```
 
 ```kotlin
 import app.independo.inderun.core.ProviderRegistry

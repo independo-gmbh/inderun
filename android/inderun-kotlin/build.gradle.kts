@@ -22,11 +22,26 @@ android {
 }
 
 dependencies {
-    implementation(project(":inderun-contracts"))
-    implementation(project(":inderun-core"))
-    implementation(project(":inderun-mlkit-providers"))
-    implementation(project(":inderun-openai-providers"))
+    // `api`, not `implementation` -- these types appear in this module's public
+    // signatures, so consumers need them on their compile classpath. See the note
+    // in :inderun-core's build file.
+    api(project(":inderun-contracts"))
+    api(project(":inderun-core"))
+
+    // Coroutines stay `implementation` deliberately, unlike in :inderun-core. This
+    // module uses them internally (channelFlow in IndeRun.stream) but exposes no
+    // coroutines type of its own: `run`/`stream`/`checkCapabilities` are `suspend`,
+    // which only needs kotlin-stdlib, and the `Flow` a consumer collects belongs to
+    // :inderun-core's StreamRun. Consumers still get coroutines at compile scope
+    // through the `api(project(":inderun-core"))` edge above, so promoting it here
+    // would add a published API commitment this module does not actually make.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+
+    // IndeRun.initialize() registers the ML Kit provider, but no ML Kit or provider
+    // type reaches this module's public API. :inderun-openai-providers is not a
+    // dependency at all: apps that want cloud execution add it themselves and
+    // register OpenAIProvider -- see this module's README.
+    implementation(project(":inderun-mlkit-providers"))
 
     // The ML Kit engine streams below need GenAiException to drive the provider's
     // policy-rejection path; :inderun-mlkit-providers keeps ML Kit off its own API.

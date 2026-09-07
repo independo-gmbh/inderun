@@ -22,10 +22,15 @@ android {
 }
 
 dependencies {
-    implementation(project(":inderun-contracts"))
-    implementation(project(":inderun-core"))
+    // `api`, not `implementation` -- these types appear in this module's public
+    // signatures, so consumers need them on their compile classpath. See the note
+    // in :inderun-core's build file.
+    api(project(":inderun-contracts"))
+    api(project(":inderun-core"))
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+
+    // ML Kit is deliberately kept off this module's public API, so it stays here.
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")

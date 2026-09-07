@@ -45,6 +45,7 @@ jobs:
               - 'rust-toolchain.toml'
               - 'scripts/build-route-core-android.mjs'
               - 'scripts/rust-toolchain.mjs'
+              - 'scripts/verify-android-api-dependencies.mjs'
               - '.github/workflows/android.yml'
 
   android:
@@ -101,6 +102,13 @@ jobs:
       - name: Check Kotlin formatting
         working-directory: android
         run: ./gradlew spotlessCheck
+
+      # Guards the regression from #189: a dependency whose types appear in a
+      # module's public API declared as `implementation`, which publishes it in
+      # POM `runtime` scope and takes it off consumers' compile classpath. Only
+      # generates POMs, so it runs before the NDK is installed.
+      - name: Verify published dependency scopes
+        run: node scripts/verify-android-api-dependencies.mjs
 
       # These tests load a host build of the route core through
       # `System.loadLibrary`, the same call the Android runtime makes, so they
