@@ -13,6 +13,7 @@ truth for exact steps. This table describes only what each one covers.
 - `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs.
 - The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
+- `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
 - `Maven Publish` (`maven-publish.yml`): on a published (non-prerelease) GitHub release, publishes the Android library modules to Maven Central.
 - `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
 
@@ -63,7 +64,7 @@ skips the real job via `needs`/`if` when nothing relevant changed:
 - `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**`, `Cargo.toml`, `Cargo.lock`, `scripts/build-route-core-wasm.mjs` (all of these feed the WASM bindings, and the Web SDK has no fallback planner — a dependency-only change can alter the compiled route core and therefore Web routing), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
 - `android.yml`: `android/**`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `scripts/build-route-core-android.mjs`, `scripts/rust-toolchain.mjs` (the Kotlin SDK loads the compiled route core and has no fallback planner, so anything that can change the core changes Android routing)
 - `rust.yml`: `rust/**`, `Cargo.toml`, `Cargo.lock`
-- `swift.yml`: `ios/**`, `Package.swift`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and the four route-core scripts under `scripts/` (the Swift SDK links the compiled route core and has no fallback planner, so anything that can change the core changes iOS routing — and anything that can change the core's *provenance checks* has to re-run them)
+- `swift.yml`: `ios/**`, `Package.swift`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and the four route-core scripts under `scripts/` (the Swift SDK links the compiled route core and has no fallback planner, so anything that can change the core changes iOS routing — and anything that can change the core's _provenance checks_ has to re-run them)
 
 Each filter also includes the workflow's own file, so editing a workflow always
 re-runs it. This is deliberately done as an in-workflow `changes` job rather than a
@@ -85,6 +86,35 @@ Dependabot's `github-actions` ecosystem entry in `dependabot.yml` keeps these cu
 it updates both the SHA and the version comment together. `dtolnay/rust-toolchain@stable`
 is the one intentional exception: it tracks whatever Rust's current stable release is,
 which is the point of using it, so pinning it to a SHA would defeat the purpose.
+
+## Rebuilding the XCFramework for Dependabot
+
+Every Cargo bump makes the committed `InderunRouteCoreFFI.xcframework` stale, because its
+provenance manifest hashes `Cargo.lock` and the binary in git was linked against the previous
+dependency set. That is a real failure, not a false alarm — but Dependabot cannot produce a
+macOS artifact, so without help every cargo PR lands red and waits for someone to run
+`pnpm build:route-core-apple` locally.
+
+`route-core-apple-refresh.yml` makes that commit instead. Three things about it are load-bearing:
+
+- **It triggers on `workflow_run`, not `pull_request`.** Runs triggered by Dependabot get a
+  read-only `GITHUB_TOKEN` and no Actions secrets, so they cannot push. A `workflow_run` run
+  executes in the base repository with the normal token and secrets. That privilege is also why
+  the job is gated on the head being a `dependabot/cargo/**` branch _in this repository_ —
+  never a fork.
+- **The provenance check decides whether it acts.** A `Swift` failure can have nothing to do
+  with the artifact, and rewriting a committed executable needs a reason. It is also what keeps
+  the workflow from looping: Rust builds are not byte-reproducible, so an unconditional rebuild
+  would push a new commit on every run indefinitely.
+- **The token is scoped to the push step.** Checkout runs with `persist-credentials: false`, so
+  the bumped crates' build scripts compile with no credential in `.git/config` or in the
+  environment. `GH_TOKEN` (the same PAT/App token `release.yml` uses) is what makes the pushed
+  commit re-run the Swift check; the `GITHUB_TOKEN` fallback still fixes the branch, but pushes
+  made with it do not start workflow runs, so the check has to be re-run by hand.
+
+Two consequences worth knowing: `workflow_run` workflows are read from the default branch, so
+changes to this file only take effect once merged to `main`; and because the workflow pushes to
+Dependabot's branch, Dependabot stops rebasing that PR afterwards.
 
 ## Dependabot major-version bumps
 
@@ -190,7 +220,7 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   for Android, in two modes. Without arguments it cross-compiles the four ABIs
   (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`) using the NDK's per-API-level clang wrappers as
   linkers; `--host` builds one library for the machine running the build. Gradle drives both:
-  `:inderun-core` registers the ABI build as a *generated* `jniLibs` source directory via AGP's
+  `:inderun-core` registers the ABI build as a _generated_ `jniLibs` source directory via AGP's
   `addGeneratedSourceDirectory`, so only the variants that package native code pull it in and
   `./gradlew test` needs neither the NDK nor the Android Rust targets; the root
   `build.gradle.kts` puts the host build on `java.library.path` for `:inderun-core` and
@@ -205,7 +235,7 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   - The JNI entry point is behind the crate's `jni-bindings` feature rather than a
     `cfg(target_os = "android")` gate. With a target gate the symbol exists only in the Android
     build and no JVM test can reach the real planner; `src/lib.rs` makes an Android build
-    *without* the feature a `compile_error!`, so the seam cannot be missed in the direction
+    _without_ the feature a `compile_error!`, so the seam cannot be missed in the direction
     that matters.
   - `android.yml` runs `assembleRelease` after `test`, because `test` never reaches the ABI
     cross-compiles — without it the four Android slices would first be built at publish time.
@@ -231,7 +261,9 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
     for a generic iOS device, which links and embeds the device slice.
   - Because hashes cover `Cargo.lock`, a Cargo dependency bump fails verification until the
     XCFramework is rebuilt: a lockfile change can alter the compiled core, so such a PR needs a
-    `pnpm build:route-core-apple` commit on top. `Cargo.lock` is committed for this reason —
+    `pnpm build:route-core-apple` commit on top. On Dependabot's cargo PRs that commit is made
+    by `route-core-apple-refresh.yml` (see below); anywhere else it is the author's to make.
+    `Cargo.lock` is committed for this reason —
     the stock "libraries don't commit lockfiles" advice assumes consumers resolve their own
     versions, but this workspace ships a compiled binary and publishes compiled WASM, so the
     versions that went into those artifacts have to be recorded. The manifest generator refuses
@@ -244,7 +276,7 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   compiler that actually built the artifact. Every job that needs the pin then runs
   `rustup toolchain install --no-self-update`, with no toolchain argument so the version still
   comes from the file alone. That step is required, not belt-and-braces: rustup installs the
-  toolchain a `rust-toolchain.toml` selects, but *not* one named explicitly on the command
+  toolchain a `rust-toolchain.toml` selects, but _not_ one named explicitly on the command
   line, and `scripts/rust-toolchain.mjs` names it explicitly (`rustup run <pin>`,
   `rustup which --toolchain <pin>`) precisely so a Homebrew rustc on PATH cannot shadow it.
   Jobs that happen to run cargo from the repo root first — anything with a `Cache Cargo state`
