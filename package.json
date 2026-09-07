@@ -13,7 +13,7 @@
     "verify:route-core-apple": "node scripts/verify-route-core-apple.mjs",
     "build:route-core-android": "node scripts/build-route-core-android.mjs",
     "verify:android-api-deps": "node scripts/verify-android-api-dependencies.mjs",
-  "verify:packaging": "pnpm -r run verify:packaging",
+    "verify:packaging": "pnpm -r run verify:packaging",
     "test": "pnpm test:js && pnpm test:rust && pnpm test:kotlin && pnpm test:swift",
     "test:js": "pnpm build:wasm && pnpm -r test",
     "test:rust": "cargo test --workspace",
@@ -44,14 +44,14 @@
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^11.0.1",
     "conventional-changelog-conventionalcommits": "^9.3.1",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.11.0",
+    "globals": "^17.12.0",
     "prettier": "^3.9.6",
     "publint": "^0.3.24",
     "quicktype": "^26.0.0",
     "semantic-release": "^25.0.9",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.68.0"
+    "typescript-eslint": "^8.69.0"
   }
 }
