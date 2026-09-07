@@ -21,8 +21,8 @@ inderun-core runtime androidx.core:core-ktx
 inderun-kotlin compile app.independo.inderun:inderun-contracts
 inderun-kotlin compile app.independo.inderun:inderun-core
 inderun-kotlin compile org.jetbrains.kotlin:kotlin-stdlib
-inderun-kotlin compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-kotlin runtime app.independo.inderun:inderun-mlkit-providers
+inderun-kotlin runtime org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-mlkit-providers compile app.independo.inderun:inderun-contracts
 inderun-mlkit-providers compile app.independo.inderun:inderun-core
 inderun-mlkit-providers compile org.jetbrains.kotlin:kotlin-stdlib
