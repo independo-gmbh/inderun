@@ -48,7 +48,10 @@ API and its event-handling contract.
 
 **Requirements:** Node 24+ (for tooling/SSR) or a modern browser (ES2022 + WebAssembly).
 
-Install — this pulls in `@independo/inderun-contracts` and `@independo/inderun-route-core-wasm` automatically:
+Install — one package is enough. `@independo/inderun-contracts` and
+`@independo/inderun-route-core-wasm` come with it, and the contract types the SDK's own signatures
+use (`TaskRequest`, `TaskResult`, `StreamEvent`, …) are re-exported from `@independo/inderun-web`,
+so there is nothing to add for a fully typed app:
 
 ```sh
 pnpm add @independo/inderun-web
@@ -94,8 +97,13 @@ SwiftPM resolves to the latest compatible release, so this does not need updatin
 
 ```swift
 .package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
-// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders, IndeRunOpenAIProviders
+// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders,
+//           IndeRunOpenAIProviders, IndeRunOnnxProviders
 ```
+
+Depend on the `IndeRun` product alone for the common case: it re-exports `IndeRunCore` and
+`IndeRunContracts`, so `import IndeRunSwift` brings `TaskRequest`, `TaskResult` and `StreamRun`
+into scope. Add a provider product only for the providers you register.
 
 Quick start — on-device by default:
 
@@ -141,6 +149,11 @@ Install via Gradle (Maven Central) — `latest.release` resolves to the newest p
 ```kotlin
 implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
+
+That one line is enough for a fully typed app: `inderun-kotlin` exposes `inderun-contracts`,
+`inderun-core` and `kotlinx-coroutines-core` as `api` dependencies, so `TaskRequest`, `TaskResult`
+and the `Flow<StreamEvent>` returned by `stream()` are on your compile classpath. Cloud execution
+additionally needs `app.independo.inderun:inderun-openai-providers`.
 
 > For reproducible builds, pin an explicit version instead — the Maven Central badge above shows the current release.
 

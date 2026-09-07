@@ -127,6 +127,16 @@ Checked-in JavaScript commands:
   and then Spotless-format the generated Kotlin (`generate:kotlin`), so the committed
   `Contracts.kt` stays ktlint-clean. Requires the Android/Gradle toolchain. CI jobs that
   only need the TS/Rust output run `pnpm generate:code` (no Gradle).
+- `pnpm verify:android-api-deps` — generate the Android Maven POMs and check every dependency's
+  scope against `android/published-api-dependencies.txt`
+  (`scripts/verify-android-api-dependencies.mjs`). Guards the defect from #189: a dependency whose
+  types appear in a module's public API declared `implementation` instead of `api`, which publishes
+  it in POM `runtime` scope and takes it off consumers' compile classpath. Requires the Gradle
+  toolchain. Pass `--update` to re-record the baseline after an intentional change, `--no-generate`
+  to reuse existing POMs. Run by `android.yml`.
+- `pnpm verify:packaging` — run `publint` and `attw --pack . --profile esm-only` over the three
+  published npm packages, checking that every `exports` subpath resolves the way a consumer's
+  TypeScript would. Needs `pnpm build` first. Run by `javascript.yml`.
 - `pnpm lint`
 - `pnpm format` / `pnpm format:check` — run formatting/verification across **all**
   languages (JS/TS via Prettier, Rust via `cargo fmt`, Kotlin via Spotless, Swift
@@ -167,6 +177,17 @@ build script prints the install commands when a toolchain is missing.
 - `cd android && ./gradlew spotlessCheck` (`spotlessApply` to auto-format)
 - `cd android && ./gradlew publishToMavenLocal` — build the library modules' Maven
   artifacts locally (no credentials needed); Maven Central publishing is automated in CI.
+
+Every published module declares a dependency whose types appear in its public signatures with
+`api(...)`, never `implementation(...)`; `android/README.md` explains why and
+`android/published-api-dependencies.txt` pins the resulting POM scopes. The unpublished
+`:inderun-consumer-smoke` module compiles the README quick start against a single
+`implementation(project(":inderun-kotlin"))`, so `./gradlew test` fails when an edge goes missing.
+Do not add dependencies to that module — reaching them transitively is what it is testing.
+
+Full ABI validation (binary-compatibility-validator, metalava) does not work here: both require
+the standalone `org.jetbrains.kotlin.android` plugin, which AGP 9 refuses now that Kotlin support
+is built in. Do not re-add BCV expecting it to work — it applies cleanly and registers no tasks.
 
 Checked-in release commands:
 
