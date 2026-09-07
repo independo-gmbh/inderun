@@ -158,6 +158,13 @@ Checked-in JavaScript commands:
 
 Checked-in Swift commands:
 
+`Package.swift` carries two consumer-compilation smoke targets, `IndeRunUmbrellaConsumerTests`
+and `IndeRunProviderConsumerTests`, the Swift counterpart of `:inderun-consumer-smoke`. Each
+depends on exactly one product and reaches contract/core types through that product's
+`@_exported import` chain (see each target's `Exports.swift`). Do not add dependencies or imports
+to either target — the single-entry dependency list is the assertion. `IndeRunTests` depends on
+all six modules and therefore cannot catch a missing re-export.
+
 - `swift build` — the SwiftPM manifest lives at the repository root (`Package.swift`)
   so the IndeRun Swift SDK is consumable by URL + git tag; sources remain under
   `ios/IndeRun/Sources`. It links the committed route-core XCFramework as a binary target,

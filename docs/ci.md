@@ -117,8 +117,22 @@ invisible inside this repository and only breaks for someone consuming the publi
   `runtime` and fails the job. Regenerate the baseline with `--update` after an intentional change.
   Additionally, the `inderun-consumer-smoke` module compiles the README quick start against a single
   `implementation(project(":inderun-kotlin"))`, so `./gradlew test` alone catches a missing edge.
-- **Swift**, in `swift.yml`: `swift package diagnose-api-breaking-changes` against the PR's base
-  branch, scoped to `IndeRunContracts`. The scope is a tool limitation, not a choice —
+  The baseline is what makes an intentional scope change explicit: demoting a dependency that
+  nothing publicly exposes is a legitimate edit, and it has to be re-recorded and reviewed rather
+  than slipping through.
+- **Swift**, in `swift.yml`: two things, guarding two different failures.
+
+  The re-export boundary is guarded by the `IndeRunUmbrellaConsumerTests` and
+  `IndeRunProviderConsumerTests` targets in `Package.swift`, which are the direct counterpart of
+  `inderun-consumer-smoke`. Each depends on exactly one product — `IndeRunSwift` and
+  `IndeRunOpenAIProviders` respectively — and names contract and core types through it, so
+  weakening an `@_exported import` fails `swift test`. `IndeRunTests` cannot catch this: it
+  depends on all six modules directly, which is what hid the problem in the first place.
+
+  Separately, `swift package diagnose-api-breaking-changes` runs against the PR's base branch,
+  scoped to `IndeRunContracts`. That is an ABI check on the generated contract surface, not a
+  packaging check — it would stay green through a re-export regression, since removing
+  `@_exported` changes no declaration in `IndeRunContracts`. The scope is a tool limitation:
   swift-api-digester cannot build a baseline for any target depending on the `InderunRouteCoreFFI`
   binary target, which is every other module. Runs on pull requests only, and needs the job's
   `fetch-depth: 0` checkout to resolve the baseline.

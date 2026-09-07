@@ -17,9 +17,17 @@ dependencies: the official ONNX Runtime SPM bindings and `swift-transformers`).
 
 Every target re-exports what its own public API names — `IndeRunCore` re-exports
 `IndeRunContracts`, and the SDK and provider targets re-export `IndeRunCore` (see each target's
-`Exports.swift`). So `import IndeRunSwift` alone brings `TaskRequest`, `TaskResult`, `StreamRun`
-and the rest into scope, and depending on the `IndeRun` product is enough for the common case.
-This is the Swift counterpart of the Android SDK's `api(...)` dependencies.
+`Exports.swift`). So one import is always enough for the types in scope: `import IndeRunSwift`
+brings `TaskRequest`, `TaskResult` and `StreamRun`, and `import IndeRunOpenAIProviders` brings
+`ProviderRegistry` and `ProviderAdapter`. This is the Swift counterpart of the Android SDK's
+`api(...)` dependencies, and the two consumer smoke test targets in `Package.swift` hold it in
+place.
+
+Products are a separate question from imports. The `IndeRun` product contains the engine and the
+contract types, and no providers — unlike the Android SDK, where `IndeRun.initialize()` registers
+the on-device provider for you, the Swift initializer takes a registry you built. Add
+`IndeRunAppleProviders`, `IndeRunOpenAIProviders` or `IndeRunOnnxProviders` for the providers you
+intend to register; the usage example below needs the first two.
 
 ## Usage
 

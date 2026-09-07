@@ -101,9 +101,11 @@ SwiftPM resolves to the latest compatible release, so this does not need updatin
 //           IndeRunOpenAIProviders, IndeRunOnnxProviders
 ```
 
-Depend on the `IndeRun` product alone for the common case: it re-exports `IndeRunCore` and
+`IndeRun` gives you the engine and its public contract types — it re-exports `IndeRunCore` and
 `IndeRunContracts`, so `import IndeRunSwift` brings `TaskRequest`, `TaskResult` and `StreamRun`
-into scope. Add a provider product only for the providers you register.
+into scope. It ships no providers: add `IndeRunAppleProviders`, `IndeRunOpenAIProviders` or
+`IndeRunOnnxProviders` for whichever ones you register. Each of those re-exports the contract
+types too, so a provider product on its own is also enough to compile against.
 
 Quick start — on-device by default:
 
