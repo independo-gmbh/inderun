@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
                     onOnnxModelSelectionChange = demoViewModel::updateOnnxModelSelection,
                     onRefreshClick = demoViewModel::refreshCapabilities,
                     onRunClick = demoViewModel::runPrompt,
+                    onStreamClick = demoViewModel::streamPrompt,
+                    onCancelStreamClick = demoViewModel::cancelStream,
                 )
             }
         }

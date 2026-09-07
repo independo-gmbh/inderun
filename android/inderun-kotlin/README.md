@@ -2,7 +2,7 @@
 
 Public entrypoint for the IndeRun Android SDK.
 
-The SDK can route Mode 1 `run()` requests through on-device providers or through `OpenAIProvider` from `inderun-openai-providers`.
+The SDK can route Mode 1 `run()` and Mode 2 `stream()` requests through on-device providers — `AndroidMlKitGenAiProvider` streams from Gemini Nano — or through `OpenAIProvider` from `inderun-openai-providers`.
 
 ## Usage
 

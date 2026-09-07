@@ -199,7 +199,7 @@ export const taskResultSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-result.schema.json",
   "title": "TaskResult",
-  "description": "The response payload for a completed text-to-text execution. A full execution failure (validation, routing, or every attempted provider failing) is surfaced by run() throwing an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal, degraded outcome on an otherwise-successful result (not currently produced by any provider in this codebase).",
+  "description": "The response payload for a completed text-to-text execution. A full execution failure (validation, routing, or every attempted provider failing) is surfaced by run() throwing an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal, degraded outcome on an otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI provider; telemetry.errorClass is not currently set by any provider in this codebase).",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -239,7 +239,7 @@ export const taskResultSchema = {
       }
     },
     "finishReason": {
-      "description": "How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an otherwise-returned result — no provider in this codebase currently produces it, since a full execution failure is instead surfaced by run() throwing an IndeRunError.",
+      "description": "How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an otherwise-returned result — the Android ML Kit GenAI provider produces it when Gemini Nano reports a finish reason that is neither a natural stop nor the token limit. A full execution failure is instead surfaced by run() throwing an IndeRunError.",
       "enum": [
         "stop",
         "length",
@@ -1035,7 +1035,7 @@ export const streamEventSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/stream-event.schema.json",
   "title": "StreamEvent",
-  "description": "The canonical Mode 2 streaming event union, discriminated by 'type'. Every variant shares an envelope of schemaVersion, runId, sequence, timestamp, and type. 'sequence' is the ordering authority for events within a run (a monotonically increasing integer starting at 0 per runId) — consumers must order by 'sequence', not by arrival order, since a bridge hop (e.g. a future Capacitor bridge) could reorder delivery. Known event types are split into user-visible content ('content_delta', 'content_snapshot') and mechanical/diagnostic types ('lifecycle', 'diagnostic', 'terminal') so SDKs can distinguish what belongs in a chat UI from what is orchestration detail. Forward compatibility: this union closes with an open 'unknown_event' branch so a consumer built against an older revision of this schema does not hard-fail when a newer, additive minor revision introduces a new known type; per contracts/README.md's schema evolution policy, SDKs must treat an unrecognized 'type' as ignore-or-pass-through-for-diagnostics, never as a hard error. Design seam only; no engine or provider implementation exists yet (see docs/architecture/architecture.md).",
+  "description": "The canonical Mode 2 streaming event union, discriminated by 'type'. Every variant shares an envelope of schemaVersion, runId, sequence, timestamp, and type. 'sequence' is the ordering authority for events within a run (a monotonically increasing integer starting at 0 per runId) — consumers must order by 'sequence', not by arrival order, since a bridge hop (e.g. a future Capacitor bridge) could reorder delivery. Known event types are split into user-visible content ('content_delta', 'content_snapshot') and mechanical/diagnostic types ('lifecycle', 'diagnostic', 'terminal') so SDKs can distinguish what belongs in a chat UI from what is orchestration detail. Forward compatibility: this union closes with an open 'unknown_event' branch so a consumer built against an older revision of this schema does not hard-fail when a newer, additive minor revision introduces a new known type; per contracts/README.md's schema evolution policy, SDKs must treat an unrecognized 'type' as ignore-or-pass-through-for-diagnostics, never as a hard error. All three engines implement this union (see docs/architecture/architecture.md).",
   "oneOf": [
     {
       "type": "object",
@@ -1119,7 +1119,7 @@ export const streamEventSchema = {
           "minimum": 0
         },
         "type": {
-          "description": "User-visible content: the full cumulative text produced so far. Mirrors ProviderDescriptor.streamingStyle 'snapshots' (packages/inderun-web/src/core/provider.ts) — providers reporting that style normalize to content_snapshot rather than content_delta.",
+          "description": "User-visible content: the full cumulative text produced so far. Mirrors ProviderDescriptor.streamingStyle 'snapshots' (packages/inderun-web/src/core/provider.ts) — providers reporting that style normalize to content_snapshot rather than content_delta. Retraction: a provider of any streamingStyle may additionally emit a content_snapshot to withdraw content it has already delivered, since a snapshot replaces the run's cumulative text rather than appending to it; an empty one therefore resets that text to nothing. This is how a provider whose backend rejects an in-flight response after partial delivery — an on-device safety/policy check, for example — tells consumers to discard what they have, so a consumer must handle content_snapshot even when the provider's declared style is 'tokens' or 'chunks'.",
           "const": "content_snapshot"
         },
         "payload": {

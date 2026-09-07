@@ -1,5 +1,6 @@
 package app.independo.inderun.providers.mlkit
 
+import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
@@ -14,6 +15,7 @@ import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -151,6 +153,72 @@ class AndroidMlKitGenAiProviderTest {
         throw AssertionError("Expected Internal when runtime throws.")
     }
 
+    @Test
+    fun runReportsLengthWhenMlKitFinishesOnMaxTokens() = runTest {
+        val provider = AndroidMlKitGenAiProvider(
+            id = AndroidMlKitGenAiProvider.DEFAULT_ID,
+            runtime = FakeRuntime(
+                availability = AndroidMlKitGenAiAvailability.Available,
+                finishReason = AndroidMlKitGenAiFinishReason.MAX_TOKENS,
+            ),
+        )
+
+        val result = provider.run(
+            request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
+                prompt = "Hello",
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+            ),
+            context = RunContext("run_123", fakeHostServices()),
+        )
+
+        assertEquals(FinishReason.LENGTH, result.finishReason)
+    }
+
+    @Test
+    fun runReportsErrorWhenMlKitStopsForSomeOtherReason() = runTest {
+        val provider = AndroidMlKitGenAiProvider(
+            id = AndroidMlKitGenAiProvider.DEFAULT_ID,
+            runtime = FakeRuntime(
+                availability = AndroidMlKitGenAiAvailability.Available,
+                finishReason = AndroidMlKitGenAiFinishReason.OTHER,
+            ),
+        )
+
+        val result = provider.run(
+            request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
+                prompt = "Hello",
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+            ),
+            context = RunContext("run_123", fakeHostServices()),
+        )
+
+        assertEquals(FinishReason.ERROR, result.finishReason)
+    }
+
+    @Test
+    fun runFallsBackToStopWhenMlKitReportsNoFinishReason() = runTest {
+        val provider = AndroidMlKitGenAiProvider(
+            id = AndroidMlKitGenAiProvider.DEFAULT_ID,
+            runtime = FakeRuntime(availability = AndroidMlKitGenAiAvailability.Available),
+        )
+
+        val result = provider.run(
+            request = TaskRequest(
+                schemaVersion = SchemaVersion.V1_0,
+                prompt = "Hello",
+                task = TaskRequestTask(),
+                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+            ),
+            context = RunContext("run_123", fakeHostServices()),
+        )
+
+        assertEquals(FinishReason.STOP, result.finishReason)
+    }
+
     private fun fakeHostServices(): HostServices = HostServices(
         connectivity = object : ConnectivityService {
             override fun isOnline(): Boolean = true
@@ -168,6 +236,7 @@ class AndroidMlKitGenAiProviderTest {
     private class FakeRuntime(
         private val availability: AndroidMlKitGenAiAvailability,
         private val outputText: String = "OK",
+        private val finishReason: AndroidMlKitGenAiFinishReason? = null,
         private val failure: Throwable? = null,
     ) : AndroidMlKitGenAiRuntime {
         var lastPrompt: String? = null
@@ -177,10 +246,18 @@ class AndroidMlKitGenAiProviderTest {
         override suspend fun generateText(
             prompt: String,
             options: AndroidMlKitGenAiGenerationOptions,
-        ): String {
+        ): AndroidMlKitGenAiOutput {
             lastPrompt = prompt
             failure?.let { throw it }
-            return outputText
+            return AndroidMlKitGenAiOutput(text = outputText, finishReason = finishReason)
         }
+
+        // Mode 2 belongs to AndroidMlKitGenAiProviderStreamTest; a runtime that
+        // silently returned an empty stream here would let a broken stream() pass
+        // this suite.
+        override fun generateTextStream(
+            prompt: String,
+            options: AndroidMlKitGenAiGenerationOptions,
+        ): Flow<AndroidMlKitGenAiOutput> = throw UnsupportedOperationException("Mode 1 fake")
     }
 }
