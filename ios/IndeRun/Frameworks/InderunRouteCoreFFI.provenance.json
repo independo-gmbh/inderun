@@ -6,7 +6,7 @@
   "toolchain": "1.96.0",
   "rustcVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)",
   "sources": {
-    "Cargo.lock": "1ba2e828dc3ff76f85c4600e59e1ab76012d90809aff9498678a52d468711928",
+    "Cargo.lock": "ed42a1faa0d683ead5970a537f2ffd88dba43965e0dff61bb7cb95657ce9f9d1",
     "Cargo.toml": "1cc6c6668c63da039f47ef6e5c705f57ef8f4582c6864c6b628f4289b664c18f",
     "rust-toolchain.toml": "cbfaf80ce835f1e53afb97c397f8f851c98fce28f46fa4384e271eacf9c012ef",
     "rust/inderun-route-core/Cargo.toml": "dd1686bd2322501740a104afb804c5384f4b11e7c9f381a97e9014b2b949486d",
@@ -23,17 +23,17 @@
     "scripts/rust-toolchain.mjs": "1a072943da7675710aeecfbb4ece665fabd0f6b9f827821395df54815c993956"
   },
   "files": {
-    "Info.plist": "f44798d8df910238ec53cd7db4a339a76bd646c29205b2e88e9a38efe98a9176",
+    "Info.plist": "239795340173a3eb743271bb370a3bef857aad3f597d432c5f6e43ed53f1725f",
     "ios-arm64/InderunRouteCoreFFI.framework/Headers/inderun_route_core.h": "31a9d94cb5158fe2f731f20d6289230de741a4687bca4cb2d9ea0f14525840dc",
-    "ios-arm64/InderunRouteCoreFFI.framework/InderunRouteCoreFFI": "f65b3358e256edfdb8d47cdde2b92b85429f2f3beaa9eff701b602dc1f0b830b",
+    "ios-arm64/InderunRouteCoreFFI.framework/InderunRouteCoreFFI": "5cb0100948a204d0ab888493511750d7ea6cbfa42182085d4480f81bbd5b4ea4",
     "ios-arm64/InderunRouteCoreFFI.framework/Info.plist": "609cf3ad14fddb936b8dcd73dc14246850769da8754802e60444492403280e33",
     "ios-arm64/InderunRouteCoreFFI.framework/Modules/module.modulemap": "2f508aea66395939cb8b2c577001b7755465eabb84a53544862f0617b56db0bd",
     "ios-arm64_x86_64-simulator/InderunRouteCoreFFI.framework/Headers/inderun_route_core.h": "31a9d94cb5158fe2f731f20d6289230de741a4687bca4cb2d9ea0f14525840dc",
-    "ios-arm64_x86_64-simulator/InderunRouteCoreFFI.framework/InderunRouteCoreFFI": "96e124f46f84505a0f850c86a481d587fca4df4d371fad4ddea9d2bc0f6a0283",
+    "ios-arm64_x86_64-simulator/InderunRouteCoreFFI.framework/InderunRouteCoreFFI": "df66ce34fa496a935cd7ff04e5578c833c8314636f06edf76883214208162802",
     "ios-arm64_x86_64-simulator/InderunRouteCoreFFI.framework/Info.plist": "cf04bdd34a5b797b82849ff32d108bb4bcd89ea0bf9c416900a4c471c071786b",
     "ios-arm64_x86_64-simulator/InderunRouteCoreFFI.framework/Modules/module.modulemap": "2f508aea66395939cb8b2c577001b7755465eabb84a53544862f0617b56db0bd",
     "macos-arm64_x86_64/InderunRouteCoreFFI.framework/Headers/inderun_route_core.h": "31a9d94cb5158fe2f731f20d6289230de741a4687bca4cb2d9ea0f14525840dc",
-    "macos-arm64_x86_64/InderunRouteCoreFFI.framework/InderunRouteCoreFFI": "8e8913b9d06c16aabbefa297f3a0bc75db53d888d3d24a40098fb337342449f4",
+    "macos-arm64_x86_64/InderunRouteCoreFFI.framework/InderunRouteCoreFFI": "d48d9a1e4c718a54dd5d95e921e38f4532dfbccf8c338dacf50ef608689d0d47",
     "macos-arm64_x86_64/InderunRouteCoreFFI.framework/Info.plist": "cc875083486caa6a5c27856fc7a582c7b0f4b944ee84e1dc7a5c7947b8d731bc",
     "macos-arm64_x86_64/InderunRouteCoreFFI.framework/Modules/module.modulemap": "2f508aea66395939cb8b2c577001b7755465eabb84a53544862f0617b56db0bd"
   }
