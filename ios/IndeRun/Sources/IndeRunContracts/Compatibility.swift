@@ -39,6 +39,16 @@ public extension TaskRequest {
     }
 }
 
+/// The generated memberwise initializer takes every field, in the schema's
+/// alphabetical order. Constraints are almost always set one at a time (a privacy
+/// floor, a timeout), so this mirrors the other convenience initializers here and
+/// lets callers name only what they are constraining.
+public extension TaskRequestConstraints {
+    init(privacy: PrivacyEnum? = nil, cloud: Cloud? = nil, timeoutMs: Int? = nil) {
+        self.init(cloud: cloud, privacy: privacy, timeoutMs: timeoutMs)
+    }
+}
+
 public extension Message {
     init(role: Role, content: String) {
         self.init(content: content, role: role)

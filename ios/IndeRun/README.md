@@ -15,6 +15,12 @@ The package is split into public API, core engine, contracts, and provider targe
 Requires iOS 16+ / macOS 14+ (raised from iOS 15 / macOS 12 by `IndeRunOnnxProviders`'s
 dependencies: the official ONNX Runtime SPM bindings and `swift-transformers`).
 
+Every target re-exports what its own public API names — `IndeRunCore` re-exports
+`IndeRunContracts`, and the SDK and provider targets re-export `IndeRunCore` (see each target's
+`Exports.swift`). So `import IndeRunSwift` alone brings `TaskRequest`, `TaskResult`, `StreamRun`
+and the rest into scope, and depending on the `IndeRun` product is enough for the common case.
+This is the Swift counterpart of the Android SDK's `api(...)` dependencies.
+
 ## Usage
 
 ```swift
