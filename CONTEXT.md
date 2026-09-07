@@ -105,7 +105,10 @@ Checked-in JavaScript commands:
   SwiftPM resolves this package from a git tag, so the tag has to contain the binary. Run it
   and commit the result — including the regenerated `InderunRouteCoreFFI.provenance.json` —
   in the same change whenever the route core changes; CI fails otherwise. Pass `--force` to
-  repackage unconditionally.
+  repackage unconditionally. A Cargo dependency bump counts as "the route core changes" —
+  the provenance manifest hashes `Cargo.lock`. On Dependabot's cargo PRs
+  `route-core-apple-refresh.yml` runs this and pushes the result; everywhere else it is a
+  manual commit on the branch. See `docs/ci.md`.
 - `pnpm verify:route-core-apple` — check the committed XCFramework against its provenance
   manifest (pinned compiler, source hashes, per-file hashes) and validate every slice's
   architectures, deployment target, exported FFI symbols, install name, and linked libraries
