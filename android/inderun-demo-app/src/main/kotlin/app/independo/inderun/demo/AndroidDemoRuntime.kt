@@ -37,6 +37,7 @@ import kotlin.concurrent.withLock
 internal interface DemoRuntime {
     suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot>
     suspend fun run(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoExecutionOutcome
+    suspend fun stream(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoStreamStart
     fun lastRouteDecision(): RouteDecision?
 }
 
@@ -50,17 +51,7 @@ internal class AndroidDemoRuntime(
     override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = makeIndeRun(settings).checkCapabilities()
 
     override suspend fun run(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoExecutionOutcome {
-        val request = TaskRequest(
-            schemaVersion = SchemaVersion.V1_0,
-            prompt = prompt,
-            task = TaskRequestTask(),
-            // SystemAndroidOnnxGenAiRuntime recomputes the full sequence on every decode step (no
-            // KV-cache reuse -- see docs/architecture/onnx-runtime-provider-family.md and
-            // https://github.com/independo-gmbh/inderun/issues/126), so the default 256-token
-            // budget is heavy enough to risk memory pressure on-device. Cap it low for this demo.
-            generation = Generation(maxOutputTokens = 32),
-            constraints = privacy.constraints,
-        )
+        val request = makeRequest(prompt, privacy)
 
         return try {
             val result = makeIndeRun(settings).run(request)
@@ -99,7 +90,51 @@ internal class AndroidDemoRuntime(
         }
     }
 
+    /**
+     * Starts a Mode 2 stream, or reports the routing refusal that stopped it from
+     * starting. Only the refusal is handled here -- a failure once the stream is
+     * running arrives as a terminal `error` event, which the caller renders from
+     * the event sequence like any other outcome.
+     */
+    override suspend fun stream(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoStreamStart = try {
+        DemoStreamStart.Started(makeIndeRun(settings).stream(makeRequest(prompt, privacy)))
+    } catch (error: IndeRunException) {
+        DemoStreamStart.Refused(
+            DemoErrorState(
+                title = "Normalized Error",
+                body = "${error.errorClass.rawValue}\n\n${error.message}",
+                metadata = AttemptMetadata(
+                    runId = error.runId ?: "n/a",
+                    providerUsed = error.providerId ?: "n/a",
+                    totalMs = error.details?.get("totalMs").toDoubleOrNull(),
+                    providerId = error.providerId,
+                    retryAfterMs = error.retryAfterMs,
+                ),
+            ),
+        )
+    } catch (error: Throwable) {
+        DemoStreamStart.Refused(
+            DemoErrorState(
+                title = "Unexpected Error",
+                body = error.localizedMessage ?: error.toString(),
+                metadata = null,
+            ),
+        )
+    }
+
     override fun lastRouteDecision(): RouteDecision? = telemetryService.lastRouteDecision()
+
+    private fun makeRequest(prompt: String, privacy: PrivacyPreference) = TaskRequest(
+        schemaVersion = SchemaVersion.V1_0,
+        prompt = prompt,
+        task = TaskRequestTask(),
+        // SystemAndroidOnnxGenAiRuntime recomputes the full sequence on every decode step (no
+        // KV-cache reuse -- see docs/architecture/onnx-runtime-provider-family.md and
+        // https://github.com/independo-gmbh/inderun/issues/126), so the default 256-token
+        // budget is heavy enough to risk memory pressure on-device. Cap it low for this demo.
+        generation = Generation(maxOutputTokens = 32),
+        constraints = privacy.constraints,
+    )
 
     private fun makeIndeRun(settings: DemoSettings): IndeRun {
         val registry = ProviderRegistry()
