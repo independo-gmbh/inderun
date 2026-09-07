@@ -230,14 +230,16 @@ enum class TelemetryLevel(val rawValue: String) {
  * (validation, routing, or every attempted provider failing) is surfaced by run() throwing
  * an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
  * are reserved for a provider reporting a non-fatal, degraded outcome on an
- * otherwise-successful result (not currently produced by any provider in this codebase).
+ * otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI
+ * provider; telemetry.errorClass is not currently set by any provider in this codebase).
  */
 data class TaskResult(
     /**
      * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
      * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
-     * otherwise-returned result — no provider in this codebase currently produces it, since a
-     * full execution failure is instead surfaced by run() throwing an IndeRunError.
+     * otherwise-returned result — the Android ML Kit GenAI provider produces it when Gemini
+     * Nano reports a finish reason that is neither a natural stop nor the token limit. A full
+     * execution failure is instead surfaced by run() throwing an IndeRunError.
      */
     val finishReason: FinishReason,
 
@@ -270,8 +272,9 @@ data class TaskResult(
 /**
  * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
  * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
- * otherwise-returned result — no provider in this codebase currently produces it, since a
- * full execution failure is instead surfaced by run() throwing an IndeRunError.
+ * otherwise-returned result — the Android ML Kit GenAI provider produces it when Gemini
+ * Nano reports a finish reason that is neither a natural stop nor the token limit. A full
+ * execution failure is instead surfaced by run() throwing an IndeRunError.
  *
  * How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
  * 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
@@ -1043,7 +1046,7 @@ data class StreamRunHandle(
  * against an older revision of this schema does not hard-fail when a newer, additive minor
  * revision introduces a new known type; per contracts/README.md's schema evolution policy,
  * SDKs must treat an unrecognized 'type' as ignore-or-pass-through-for-diagnostics, never
- * as a hard error. Design seam only; no engine or provider implementation exists yet (see
+ * as a hard error. All three engines implement this union (see
  * docs/architecture/architecture.md).
  */
 data class StreamEvent(
@@ -1094,8 +1097,14 @@ data class StreamEvent(
      *
      * User-visible content: the full cumulative text produced so far. Mirrors
      * ProviderDescriptor.streamingStyle 'snapshots' (packages/inderun-web/src/core/provider.ts)
-     * — providers reporting that style normalize to content_snapshot rather than
-     * content_delta.
+     * — providers reporting that style normalize to content_snapshot rather than content_delta.
+     * Retraction: a provider of any streamingStyle may additionally emit a content_snapshot to
+     * withdraw content it has already delivered, since a snapshot replaces the run's cumulative
+     * text rather than appending to it; an empty one therefore resets that text to nothing.
+     * This is how a provider whose backend rejects an in-flight response after partial delivery
+     * — an on-device safety/policy check, for example — tells consumers to discard what they
+     * have, so a consumer must handle content_snapshot even when the provider's declared style
+     * is 'tokens' or 'chunks'.
      *
      * Mechanical/diagnostic: a run lifecycle transition (e.g. provider selection, execution
      * start). Not user-visible content; not part of the generated text.

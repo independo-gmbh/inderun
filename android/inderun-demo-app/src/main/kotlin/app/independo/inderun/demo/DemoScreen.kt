@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.independo.inderun.contracts.Outcome
 
 @Composable
 internal fun DemoScreen(
@@ -44,6 +45,8 @@ internal fun DemoScreen(
     onOnnxModelSelectionChange: (DemoOnnxModelSelection) -> Unit,
     onRefreshClick: () -> Unit,
     onRunClick: () -> Unit,
+    onStreamClick: () -> Unit,
+    onCancelStreamClick: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -81,9 +84,13 @@ internal fun DemoScreen(
 
             ActionRow(
                 isRunning = uiState.isRunning,
+                isStreaming = uiState.isStreaming,
                 canRun = uiState.canRun,
+                canStream = uiState.canStream,
                 onRefreshClick = onRefreshClick,
                 onRunClick = onRunClick,
+                onStreamClick = onStreamClick,
+                onCancelStreamClick = onCancelStreamClick,
             )
 
             Section(title = "Provider Availability") {
@@ -134,6 +141,8 @@ internal fun DemoScreen(
                     }
                 }
             }
+
+            StreamingSection(stream = uiState.stream, isStreaming = uiState.isStreaming)
 
             RoutingDecisionSection(uiState.lastRouteDecision)
             LimitationsSection()
@@ -234,15 +243,19 @@ private fun PrivacySection(
 @Composable
 private fun ActionRow(
     isRunning: Boolean,
+    isStreaming: Boolean,
     canRun: Boolean,
+    canStream: Boolean,
     onRefreshClick: () -> Unit,
     onRunClick: () -> Unit,
+    onStreamClick: () -> Unit,
+    onCancelStreamClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        TextButton(onClick = onRefreshClick, enabled = !isRunning) {
+        TextButton(onClick = onRefreshClick, enabled = !isRunning && !isStreaming) {
             Text("Refresh Status")
         }
 
@@ -255,6 +268,66 @@ private fun ActionRow(
                 CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
             } else {
                 Text("Run")
+            }
+        }
+
+        // Cancel replaces Stream while a stream is in flight, the way the iOS demo
+        // does it, so there is exactly one action for the running stream.
+        Button(
+            onClick = if (isStreaming) onCancelStreamClick else onStreamClick,
+            enabled = isStreaming || canStream,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(if (isStreaming) "Cancel" else "Stream")
+        }
+    }
+}
+
+@Composable
+private fun StreamingSection(stream: DemoStreamState?, isStreaming: Boolean) {
+    Section(title = "Streaming (Mode 2)") {
+        when {
+            stream == null ->
+                ResultPanel(
+                    title = "Idle",
+                    body = "Tap Stream to send the same request through IndeRun.stream() and watch events arrive.",
+                    accentColor = MaterialTheme.colorScheme.primary,
+                )
+
+            else -> {
+                ResultPanel(
+                    title = if (isStreaming) "Streaming..." else "Outcome: ${stream.outcomeLabel}",
+                    body = stream.text.ifEmpty {
+                        if (isStreaming) {
+                            "Waiting for the first content event..."
+                        } else {
+                            // A provider can retract what it already delivered — ML Kit
+                            // does on a policy rejection — so an empty panel after a
+                            // terminal is a real outcome, not a stalled stream.
+                            "No content. The run ended without any text the provider stood behind."
+                        }
+                    },
+                    accentColor = when (stream.outcome) {
+                        Outcome.Error -> MaterialTheme.colorScheme.error
+                        Outcome.Completed -> Color(0xFF1B5E20)
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                )
+                stream.detail?.let { detail ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                stream.providerUsed?.let { provider ->
+                    Text(
+                        text = "provider: $provider",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
@@ -437,6 +510,8 @@ private fun DemoScreenPreview() {
             onOnnxModelSelectionChange = {},
             onRefreshClick = {},
             onRunClick = {},
+            onStreamClick = {},
+            onCancelStreamClick = {},
         )
     }
 }

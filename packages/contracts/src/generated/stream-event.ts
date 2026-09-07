@@ -13,7 +13,7 @@
  * against an older revision of this schema does not hard-fail when a newer, additive minor
  * revision introduces a new known type; per contracts/README.md's schema evolution policy,
  * SDKs must treat an unrecognized 'type' as ignore-or-pass-through-for-diagnostics, never
- * as a hard error. Design seam only; no engine or provider implementation exists yet (see
+ * as a hard error. All three engines implement this union (see
  * docs/architecture/architecture.md).
  */
 export type StreamEvent = {
@@ -59,8 +59,14 @@ export type StreamEvent = {
      *
      * User-visible content: the full cumulative text produced so far. Mirrors
      * ProviderDescriptor.streamingStyle 'snapshots' (packages/inderun-web/src/core/provider.ts)
-     * — providers reporting that style normalize to content_snapshot rather than
-     * content_delta.
+     * — providers reporting that style normalize to content_snapshot rather than content_delta.
+     * Retraction: a provider of any streamingStyle may additionally emit a content_snapshot to
+     * withdraw content it has already delivered, since a snapshot replaces the run's cumulative
+     * text rather than appending to it; an empty one therefore resets that text to nothing.
+     * This is how a provider whose backend rejects an in-flight response after partial delivery
+     * — an on-device safety/policy check, for example — tells consumers to discard what they
+     * have, so a consumer must handle content_snapshot even when the provider's declared style
+     * is 'tokens' or 'chunks'.
      *
      * Mechanical/diagnostic: a run lifecycle transition (e.g. provider selection, execution
      * start). Not user-visible content; not part of the generated text.

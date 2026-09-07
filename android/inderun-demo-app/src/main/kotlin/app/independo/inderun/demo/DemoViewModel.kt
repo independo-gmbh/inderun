@@ -3,7 +3,11 @@ package app.independo.inderun.demo
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import app.independo.inderun.contracts.Outcome
+import app.independo.inderun.contracts.Payload
+import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.core.ProviderCapabilitySnapshot
+import app.independo.inderun.core.StreamRun
 import app.independo.inderun.providers.onnx.AndroidOnnxRuntimeProvider
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +42,8 @@ internal class DemoViewModel(
 
     val uiState: StateFlow<DemoUiState> = _uiState.asStateFlow()
 
+    private var activeStream: StreamRun? = null
+
     init {
         viewModelScope.launch(dispatcher) {
             ensureSelectedOnnxModelDownloaded()
@@ -47,19 +53,19 @@ internal class DemoViewModel(
 
     fun updatePrompt(prompt: String) {
         _uiState.update { state ->
-            state.copy(prompt = prompt, result = null, error = null)
+            state.copy(prompt = prompt, result = null, error = null, stream = null)
         }
     }
 
     fun updatePrivacy(privacy: PrivacyPreference) {
         _uiState.update { state ->
-            state.copy(privacy = privacy, result = null, error = null)
+            state.copy(privacy = privacy, result = null, error = null, stream = null)
         }
     }
 
     fun updateCloudEndpointUrl(endpointUrl: String) {
         _uiState.update { state ->
-            val updatedState = state.copy(cloudEndpointUrl = endpointUrl, result = null, error = null)
+            val updatedState = state.copy(cloudEndpointUrl = endpointUrl, result = null, error = null, stream = null)
             settingsStore.save(updatedState.toSettings())
             updatedState
         }
@@ -67,7 +73,7 @@ internal class DemoViewModel(
 
     fun updateCloudModel(model: String) {
         _uiState.update { state ->
-            val updatedState = state.copy(cloudModel = model, result = null, error = null)
+            val updatedState = state.copy(cloudModel = model, result = null, error = null, stream = null)
             settingsStore.save(updatedState.toSettings())
             updatedState
         }
@@ -75,7 +81,7 @@ internal class DemoViewModel(
 
     fun updateOnnxModelSelection(selection: DemoOnnxModelSelection) {
         _uiState.update { state ->
-            val updatedState = state.copy(onnxModelSelection = selection, result = null, error = null)
+            val updatedState = state.copy(onnxModelSelection = selection, result = null, error = null, stream = null)
             settingsStore.save(updatedState.toSettings())
             updatedState
         }
@@ -139,7 +145,7 @@ internal class DemoViewModel(
         }
 
         viewModelScope.launch(dispatcher) {
-            _uiState.update { it.copy(isRunning = true, result = null, error = null) }
+            _uiState.update { it.copy(isRunning = true, result = null, error = null, stream = null) }
 
             val current = _uiState.value
             when (val outcome = runtime.run(current.prompt.trim(), current.privacy, current.toSettings())) {
@@ -163,6 +169,79 @@ internal class DemoViewModel(
             _uiState.update { it.copy(lastRouteDecision = runtime.lastRouteDecision()) }
             refreshCapabilities()
         }
+    }
+
+    /**
+     * Drives Mode 2. Content events are appended for `content_delta` and replace the
+     * panel for `content_snapshot`, because a provider streaming cumulative snapshots
+     * would otherwise be rendered as duplicated prefixes. The terminal event ends the
+     * run in all three cases, including `cancelled`, which is a normal outcome rather
+     * than an error.
+     */
+    fun streamPrompt() {
+        val state = _uiState.value
+        if (!state.canStream || state.isStreaming) {
+            return
+        }
+
+        viewModelScope.launch(dispatcher) {
+            _uiState.update {
+                it.copy(isStreaming = true, result = null, error = null, stream = DemoStreamState())
+            }
+
+            val current = _uiState.value
+            when (val start = runtime.stream(current.prompt.trim(), current.privacy, current.toSettings())) {
+                is DemoStreamStart.Refused ->
+                    _uiState.update { it.copy(isStreaming = false, stream = null, error = start.error) }
+
+                is DemoStreamStart.Started -> {
+                    activeStream = start.run
+                    try {
+                        start.run.events.collect(::applyStreamEvent)
+                    } catch (error: Throwable) {
+                        _uiState.update { it.copy(stream = it.stream?.copy(detail = error.localizedMessage ?: error.toString())) }
+                    } finally {
+                        activeStream = null
+                        _uiState.update { it.copy(isStreaming = false) }
+                    }
+                }
+            }
+
+            _uiState.update { it.copy(lastRouteDecision = runtime.lastRouteDecision()) }
+            refreshCapabilities()
+        }
+    }
+
+    /** Idempotent, like `StreamRun.cancel` itself: repeated taps are harmless. */
+    fun cancelStream() {
+        activeStream?.cancel("cancelled from the demo app")
+    }
+
+    private fun applyStreamEvent(event: StreamEvent) {
+        _uiState.update { state ->
+            val stream = state.stream ?: DemoStreamState()
+            val updated = when (event.type) {
+                "content_delta" -> stream.copy(text = stream.text + event.payload?.text.orEmpty())
+                "content_snapshot" -> stream.copy(text = event.payload?.text.orEmpty())
+                "terminal" -> stream.copy(
+                    text = event.payload?.finalText ?: event.payload?.partialText ?: stream.text,
+                    outcome = event.payload?.outcome,
+                    detail = terminalDetail(event.payload),
+                    providerUsed = event.payload?.telemetry?.providerUsed,
+                )
+                // The event type set is open and additive, so an unrecognized one is
+                // ignored rather than treated as an error.
+                else -> stream
+            }
+            state.copy(stream = updated)
+        }
+    }
+
+    private fun terminalDetail(payload: Payload?): String? = when (payload?.outcome) {
+        Outcome.Completed -> payload.finishReason?.rawValue?.let { "finish reason: $it" }
+        Outcome.Cancelled -> payload.reason?.let { "reason: $it" }
+        Outcome.Error -> payload.error?.let { "${it.errorClass.rawValue}: ${it.message}" }
+        null -> null
     }
 
     companion object {

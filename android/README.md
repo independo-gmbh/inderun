@@ -7,11 +7,11 @@ Android workspace for the IndeRun SDK, host services, provider adapters, and dem
 - `inderun-kotlin` - public Android SDK entrypoint
 - `inderun-core` - platform host services
 - `inderun-contracts` - generated Kotlin contract models
-- `inderun-mlkit-providers` - on-device ML Kit GenAI provider
+- `inderun-mlkit-providers` - on-device ML Kit GenAI provider (Mode 1 and Mode 2)
 - `inderun-openai-providers` - OpenAI-compatible cloud provider
 - `inderun-onnx-providers` - ONNX Runtime provider for developer-supplied local models
   (`local.onnx.genai.android`)
-- `inderun-demo-app` - demo app for reviewing the Mode 1 flow
+- `inderun-demo-app` - demo app for reviewing the Mode 1 and Mode 2 flows
 
 ## Streaming
 
@@ -34,10 +34,21 @@ ordering authority for a run. Treat an unrecognized `event.type` as ignore-or-pa
 the set is open and additive. Exactly one terminal event is produced per run, and `cancel` is
 idempotent.
 
-Streaming needs a host that can deliver a response body incrementally.
+Two providers stream on Android: `AndroidMlKitGenAiProvider` on-device and the OpenAI-compatible
+cloud adapter. Both emit incremental text, so their content events are normally `content_delta` and
+each payload appends to what came before.
+
+Handle `content_snapshot` anyway — a snapshot payload *replaces* the text so far rather than
+appending to it. Two reasons it can arrive: the Apple provider emits nothing else on iOS/macOS, and
+a provider of any style may emit an empty snapshot to **retract** content it already delivered. ML
+Kit does exactly that when Gemini Nano rejects a half-generated response on a policy check, so a
+consumer that only implements the delta branch would keep rejected text on screen.
+
+The HTTP-transport providers need a host that can deliver a response body incrementally.
 `HostServicesFactory.create(context)` provides one; a host without a `streamingHttpClient` still
-runs Mode 1, and a stream request is refused at routing time with a `streaming_unavailable`
-reason.
+runs Mode 1, and a stream request that can only be served over HTTP is refused at routing time
+with a `streaming_unavailable` reason. The ML Kit provider does not go through that path — it
+streams from Gemini Nano with no host HTTP capability involved.
 
 The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types. Keep
