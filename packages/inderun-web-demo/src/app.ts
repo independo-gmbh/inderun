@@ -1,7 +1,8 @@
-import type { TaskResult } from "@independo/inderun-contracts";
+import type { StreamEvent, TaskResult } from "@independo/inderun-contracts";
 import {
   type IndeRunException,
   type ProviderCapabilitySnapshot,
+  type StreamRun,
   toIndeRunException
 } from "@independo/inderun-web";
 import type { Privacy, RouteDecidedPayload } from "./demo-client";
@@ -35,6 +36,7 @@ export interface AppDependencies {
     onDeviceModel?: string;
   };
   runPrompt(prompt: string, privacy: Privacy): Promise<TaskResult>;
+  streamPrompt(prompt: string, privacy: Privacy): Promise<StreamRun>;
   checkProviderCapabilities(): Promise<ProviderCapabilitySnapshot[]>;
   getLastRouteDecision(): RouteDecidedPayload | undefined;
 }
@@ -63,6 +65,25 @@ type CapabilitiesState =
   | { status: "ready"; snapshots: ProviderCapabilitySnapshot[] }
   | { status: "error" };
 
+/** One line per canonical event, so ordering and gaps are visible on screen. */
+interface StreamLogEntry {
+  sequence: number;
+  type: string;
+  detail: string;
+}
+
+type StreamState =
+  | { status: "idle" }
+  | {
+      status: "streaming";
+      text: string;
+      log: StreamLogEntry[];
+      cancel: (reason?: string) => void;
+    }
+  | { status: "ended"; text: string; log: StreamLogEntry[]; summary: string }
+  /** The `stream()` call itself was refused, so there is no run and no events. */
+  | { status: "rejected"; error: IndeRunException };
+
 export function mountApp(root: HTMLElement, deps: AppDependencies): void {
   let state: AppState = {
     status: "idle",
@@ -70,6 +91,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
     privacy: "cloud_allowed"
   };
   let capabilitiesState: CapabilitiesState = { status: "loading" };
+  let streamState: StreamState = { status: "idle" };
 
   const loadCapabilities = async () => {
     try {
@@ -86,6 +108,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
     const outputPanel = renderOutputPanel(state);
     const capabilitiesPanel = renderCapabilitiesPanel(capabilitiesState);
     const routingDecisionPanel = renderRoutingDecision(state, deps.getLastRouteDecision());
+    const streaming = streamState.status === "streaming";
 
     root.innerHTML = `
       <main class="shell">
@@ -93,11 +116,13 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
           <p class="eyebrow">Web Demo</p>
           <h1 class="title">IndeRun Execution Demo</h1>
           <p class="lede">
-            Minimal review app for the canonical <code class="code">run()</code> flow on the web:
-            preference in, automatic capability-based provider routing, normalized result or error out.
+            Minimal review app for the canonical <code class="code">run()</code> and
+            <code class="code">stream()</code> flows on the web: preference in, automatic
+            capability-based provider routing, normalized result or error out.
           </p>
           <div class="pill-row">
             <span class="pill">Mode 1</span>
+            <span class="pill">Mode 2</span>
             <span class="pill">Capability Routed</span>
             <span class="pill">Proxy-Backed</span>
           </div>
@@ -117,8 +142,11 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
             state.prompt
           )}</textarea>
           <div class="actions">
-            <button id="run-button" type="button" ${state.status === "running" ? "disabled" : ""}>
+            <button id="run-button" type="button" ${state.status === "running" || streaming ? "disabled" : ""}>
               ${state.status === "running" ? "Running..." : "Run"}
+            </button>
+            <button id="stream-button" type="button" ${state.status === "running" ? "disabled" : ""}>
+              ${streaming ? "Cancel" : "Stream"}
             </button>
             <p class="hint">
               Endpoint: <code class="code">${escapeHtml(deps.config.proxyEndpointUrl)}</code> ·
@@ -145,6 +173,11 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
         </section>
 
         <section class="panel composer">
+          <h2 class="subtitle">Streaming (Mode 2)</h2>
+          ${renderStreamPanel(streamState)}
+        </section>
+
+        <section class="panel composer">
           <h2 class="subtitle">Routing Decision</h2>
           ${routingDecisionPanel}
         </section>
@@ -163,9 +196,15 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
 
     const promptField = root.querySelector<HTMLTextAreaElement>("#prompt");
     const runButton = root.querySelector<HTMLButtonElement>("#run-button");
+    const streamButton = root.querySelector<HTMLButtonElement>("#stream-button");
     const preferenceButtons = root.querySelectorAll<HTMLButtonElement>("[data-privacy]");
 
-    if (!promptField || !runButton || preferenceButtons.length !== PRIVACY_OPTIONS.length) {
+    if (
+      !promptField ||
+      !runButton ||
+      !streamButton ||
+      preferenceButtons.length !== PRIVACY_OPTIONS.length
+    ) {
       throw new Error("Demo UI failed to render required controls.");
     }
 
@@ -204,10 +243,152 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
 
       await loadCapabilities();
     });
+
+    streamButton.addEventListener("click", async () => {
+      if (streamState.status === "streaming") {
+        streamState.cancel("user cancelled");
+        return;
+      }
+
+      const prompt = promptField.value.trim();
+      state = { ...state, prompt };
+
+      let run: StreamRun;
+      try {
+        run = await deps.streamPrompt(prompt, state.privacy);
+      } catch (error) {
+        // A routing refusal rejects the stream() call itself: no handle, no events.
+        streamState = { status: "rejected", error: toIndeRunException(error) };
+        render();
+        return;
+      }
+
+      const live = { text: "", log: [] as StreamLogEntry[] };
+      streamState = {
+        status: "streaming",
+        text: live.text,
+        log: live.log,
+        cancel: (reason) => run.cancel(reason)
+      };
+      render();
+
+      // Patch the two stream elements in place rather than re-rendering the whole
+      // app per event, so a delta does not steal focus from the prompt field.
+      const output = root.querySelector<HTMLElement>("#stream-output");
+      const log = root.querySelector<HTMLElement>("#stream-log");
+
+      let summary = "The provider stream ended without a terminal event.";
+      try {
+        for await (const event of run.events) {
+          live.text = applyStreamEvent(event, live.text);
+          live.log.push(streamLogEntry(event));
+          if (event.type === "terminal") {
+            summary = terminalSummary(event);
+          }
+          if (output) output.textContent = live.text;
+          if (log) log.innerHTML = renderStreamLog(live.log);
+        }
+      } catch (error) {
+        // A transport failure, as opposed to a terminal `error` outcome, which is
+        // a normal event and completes the iteration.
+        summary = `Transport failure: ${toIndeRunException(error).errorClass}`;
+      }
+
+      streamState = { status: "ended", text: live.text, log: live.log, summary };
+      render();
+    });
   };
 
   render();
   void loadCapabilities();
+}
+
+/**
+ * Deltas append; a snapshot replaces the run's cumulative text, so an empty one
+ * visibly retracts what was already on screen.
+ */
+function applyStreamEvent(event: StreamEvent, text: string): string {
+  const payload = event.payload as { text?: string } | undefined;
+  if (event.type === "content_delta") {
+    return text + (payload?.text ?? "");
+  }
+  if (event.type === "content_snapshot") {
+    return payload?.text ?? "";
+  }
+  return text;
+}
+
+function terminalSummary(event: StreamEvent): string {
+  const payload = event.payload as
+    { outcome?: string; finishReason?: string; error?: { errorClass?: string } } | undefined;
+  switch (payload?.outcome) {
+    case "completed":
+      return `Completed${payload.finishReason ? ` (${payload.finishReason})` : ""}.`;
+    case "cancelled":
+      return "Cancelled. The text above is what had been delivered when the cancel landed.";
+    case "error":
+      return `Terminal error outcome: ${payload.error?.errorClass ?? "unknown"}. This is an event, not a rejection.`;
+    default:
+      return "Unrecognized terminal outcome.";
+  }
+}
+
+function streamLogEntry(event: StreamEvent): StreamLogEntry {
+  const payload = event.payload as { text?: string; outcome?: string; phase?: string } | undefined;
+  let detail = "";
+  if (event.type === "content_delta") {
+    detail = `+${JSON.stringify(payload?.text ?? "")}`;
+  } else if (event.type === "content_snapshot") {
+    detail = `=${JSON.stringify(payload?.text ?? "")}`;
+  } else if (event.type === "terminal") {
+    detail = payload?.outcome ?? "";
+  } else if (payload?.phase !== undefined) {
+    detail = payload.phase;
+  }
+  return { sequence: event.sequence, type: event.type, detail };
+}
+
+function renderStreamLog(entries: StreamLogEntry[]): string {
+  if (entries.length === 0) {
+    return `<li class="placeholder">No events yet.</li>`;
+  }
+  return entries
+    .map(
+      (entry) =>
+        `<li><code class="code">${entry.sequence}</code> ${escapeHtml(entry.type)} ${escapeHtml(entry.detail)}</li>`
+    )
+    .join("");
+}
+
+function renderStreamPanel(streamState: StreamState): string {
+  if (streamState.status === "idle") {
+    return `<p class="placeholder">Press Stream to run the same prompt through <code class="code">stream()</code>. Events are ordered by <code class="code">sequence</code>, not arrival.</p>`;
+  }
+  if (streamState.status === "rejected") {
+    return `
+      <div class="result failure">
+        <p class="result-label">stream() rejected</p>
+        <p><strong class="error-class">${escapeHtml(streamState.error.errorClass)}</strong></p>
+        <p>${escapeHtml(streamState.error.message)}</p>
+        <p class="hint">A routing refusal rejects the call itself &mdash; there is no run handle and no events.</p>
+      </div>
+    `;
+  }
+
+  const summary =
+    streamState.status === "ended"
+      ? `<p class="hint">${escapeHtml(streamState.summary)}</p>`
+      : `<p class="hint">Streaming. Press Cancel to stop.</p>`;
+
+  return `
+    <div class="result ${streamState.status === "ended" ? "success" : ""}">
+      <p class="result-label">Streamed text</p>
+      <pre id="stream-output">${escapeHtml(streamState.text)}</pre>
+      ${summary}
+      <p class="result-label">Event log</p>
+      <ul id="stream-log">${renderStreamLog(streamState.log)}</ul>
+    </div>
+  `;
 }
 
 function renderOutputPanel(state: AppState): string {
