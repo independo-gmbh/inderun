@@ -219,6 +219,7 @@ Never place raw API keys in a `TaskRequest`. Providers resolve credentials from 
 - [Architecture overview](docs/architecture/architecture.md)
 - [Provider model](docs/architecture/providers.md)
 - [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
+- [Streaming conformance and cross-platform validation](docs/streaming-conformance.md)
 - [CI behavior](docs/ci.md)
 - [Releases & publishing](docs/release.md)
 - [Contributor workflow and build commands](CONTRIBUTING.md)
