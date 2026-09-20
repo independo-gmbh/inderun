@@ -19,7 +19,9 @@ implements the Mode 2 orchestrator against these, and `route-planner-input.schem
 the requested `interactionMode` plus the static/dynamic streaming capability fields the planner
 needs to route it. The TypeScript, Swift, and Kotlin engines all implement Mode 2, and the
 OpenAI-compatible provider streams on all three (see
-`docs/architecture/architecture.md#streaming-contracts-and-orchestration-mode-2`).
+`docs/architecture/architecture.md#streaming-contracts-and-orchestration-mode-2`). What these shapes
+add up to for a consumer — event semantics, ordering, cancellation, fallback — is
+[`docs/streaming.md`](../docs/streaming.md).
 
 `fixtures/streaming/` holds cross-SDK conformance vectors for behavior that is implemented
 separately per platform and so has no generator keeping it in sync: `sse-framing.json` for the

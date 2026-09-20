@@ -43,7 +43,9 @@ try registry.register(
     OpenAIProvider(
         options: OpenAIProviderOptions(
             model: "gpt-5.2",
-            endpointURL: "https://api.openai.com/v1/responses",
+            // A backend you control that holds the OpenAI key and relays the
+            // Responses stream — not api.openai.com. See Credentials below.
+            endpointURL: "https://api.example.com/inderun/openai-responses",
             authContextRef: "openai_primary"
         )
     )
@@ -92,30 +94,33 @@ for try await event in run.events {
 }
 ```
 
-Order by `event.sequence`, not by arrival: it is the ordering authority for a run. Treat an
-unrecognized `event.type` as ignore-or-pass-through — the set is open and additive. Exactly one
-terminal event is produced per run, and `cancel(reason:)` is idempotent.
-
-Two providers stream today, and they emit different content event types. The Apple Foundation
-Models provider is on-device and streams cumulative snapshots, so its content events are
-`content_snapshot` — each payload replaces the previous text rather than appending to it. The
-OpenAI adapter streams tokens as `content_delta`. Handle both if you do not want to pin your app
-to one provider.
-
 The HTTP-transport providers need a host that can deliver a response body incrementally.
 `DefaultHostServices.make()` provides one; a host without a `streamingHttpClient` still runs
 Mode 1, and a stream request that can only be served over HTTP is refused at routing time with a
 `streaming_unavailable` reason. The Apple provider does not go through that path — it streams
-from the system model with no host HTTP capability involved.
+from the system model with no host HTTP capability involved, and it emits `content_snapshot`
+rather than `content_delta`.
 
 The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types.
 
+Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
+SDK and documented once, in [Streaming (Mode 2)](../../docs/streaming.md).
+
+## Credentials
+
+`authContextRef` names a slot in secure platform storage, so the secret never enters a
+`TaskRequest` and never sits in source. That is worth having, and it is not the same as making
+a key safe to ship: anything an installed app can read, someone with that app can read. A
+developer-owned API key does not become safe by being referenced indirectly.
+
+So `authContextRef` is for credentials that legitimately live on the device — a per-user or
+per-install token your backend issued. For a key you own, put it behind a backend you control
+and point `endpointURL` at that, which is what the example above does. The Web SDK enforces
+this; here it is a convention, because a native app can reach any endpoint it likes.
+
 ## Notes
 
-- Keep credentials behind `authContextRef`. Never ship a developer-owned API key in a
-  distributed app — point `endpointURL` at a trusted backend proxy that holds the key and
-  relays the event stream. This is enforced on the Web SDK and is a convention here.
 - Use the Apple provider for on-device Mode 1 and Mode 2 execution when the system runtime is available.
 - Use the OpenAI provider for OpenAI-compatible cloud execution through a host-provided HTTP client.
 - Use the ONNX Runtime provider for developer-supplied/custom local models.

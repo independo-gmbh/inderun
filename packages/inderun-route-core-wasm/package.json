@@ -1,7 +1,7 @@
 {
   "name": "@independo/inderun-route-core-wasm",
   "version": "0.2.1",
-  "description": "WASM wrapper package for the IndeRun Rust route-planning core.",
+  "description": "WebAssembly build of the IndeRun route planner: picks an AI provider from a request's constraints and a live capability snapshot.",
   "license": "MIT",
   "author": {
     "name": "Independo GmbH",
@@ -21,9 +21,12 @@
   "keywords": [
     "inderun",
     "ai",
+    "llm",
     "routing",
     "wasm",
-    "route-planning"
+    "route-planning",
+    "on-device-ai",
+    "cloud-fallback"
   ],
   "engines": {
     "node": ">=24"
