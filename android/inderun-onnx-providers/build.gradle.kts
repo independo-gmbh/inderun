@@ -50,12 +50,12 @@ dependencies {
     // (LoadedSession, runOnnxSession), and this module publishes no `Flow` of its own.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.29.0")
-    implementation("ai.djl.huggingface:tokenizers:0.36.0")
+    implementation("ai.djl.huggingface:tokenizers:0.38.0")
     implementation("ai.djl.android:tokenizer-native:0.33.0")
     implementation("org.json:json:20260814")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
