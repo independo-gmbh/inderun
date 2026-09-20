@@ -4,7 +4,11 @@ import type {
   TaskResult,
   TelemetryEvent
 } from "@independo/inderun-contracts";
-import { createIndeRunWeb, type ProviderCapabilitySnapshot } from "@independo/inderun-web";
+import {
+  createIndeRunWeb,
+  type ProviderCapabilitySnapshot,
+  type StreamRun
+} from "@independo/inderun-web";
 import {
   createFixtureOnnxRuntime,
   createTransformersJsRuntime,
@@ -37,8 +41,6 @@ export interface RouteDecidedPayload {
   explanation: { summary: string };
   constraints: Record<string, unknown> | null;
   preferences: Record<string, unknown> | null;
-  plannerSource: string | null;
-  plannerUnavailableReason: string | null;
 }
 
 function toRouteDecidedPayload(payload: Record<string, unknown>): RouteDecidedPayload | undefined {
@@ -63,10 +65,7 @@ function toRouteDecidedPayload(payload: Record<string, unknown>): RouteDecidedPa
     rejectedProviders,
     explanation,
     constraints: (payload.constraints as Record<string, unknown> | null) ?? null,
-    preferences: (payload.preferences as Record<string, unknown> | null) ?? null,
-    plannerSource: typeof payload.plannerSource === "string" ? payload.plannerSource : null,
-    plannerUnavailableReason:
-      typeof payload.plannerUnavailableReason === "string" ? payload.plannerUnavailableReason : null
+    preferences: (payload.preferences as Record<string, unknown> | null) ?? null
   };
 }
 
@@ -121,6 +120,15 @@ const inderun = createIndeRunWeb({
 
 export async function runPrompt(prompt: string, privacy: Privacy): Promise<TaskResult> {
   return inderun.run({
+    schemaVersion: "1.0",
+    task: { kind: "text_to_text" },
+    prompt,
+    constraints: { privacy }
+  });
+}
+
+export async function streamPrompt(prompt: string, privacy: Privacy): Promise<StreamRun> {
+  return inderun.stream({
     schemaVersion: "1.0",
     task: { kind: "text_to_text" },
     prompt,

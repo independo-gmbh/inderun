@@ -1,7 +1,7 @@
 {
   "name": "@independo/inderun-web",
   "version": "0.2.2",
-  "description": "TypeScript/Web SDK for IndeRun.",
+  "description": "On-device AI with automatic cloud fallback for web apps. Runs ONNX Runtime or the Chrome Prompt API in the browser and falls back to an OpenAI-compatible endpoint, with streaming and cancellation behind one API.",
   "license": "MIT",
   "author": {
     "name": "Independo GmbH",
@@ -11,7 +11,7 @@
   "bugs": "https://github.com/independo-gmbh/inderun/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/independo-gmbh/inderun.git",
+    "url": "git+https://github.com/independo-gmbh/inderun.git",
     "directory": "packages/inderun-web"
   },
   "publishConfig": {
@@ -21,9 +21,19 @@
   "keywords": [
     "inderun",
     "ai",
+    "llm",
     "sdk",
     "web",
-    "llm",
+    "on-device",
+    "on-device-ai",
+    "local-llm",
+    "offline",
+    "cloud-fallback",
+    "streaming",
+    "onnx",
+    "onnxruntime",
+    "prompt-api",
+    "openai",
     "routing"
   ],
   "engines": {
@@ -52,11 +62,15 @@
   },
   "files": [
     "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/test",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "verify:packaging": "publint && attw --pack . --profile esm-only",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
@@ -72,8 +86,8 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.5.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

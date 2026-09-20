@@ -2,11 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Pure data input contract for deterministic shared-core Mode-1 route planning.
+/// Pure data input contract for deterministic shared-core route planning.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RoutePlannerInput {
     /// Hard routing constraints evaluated before provider selection.
     pub constraints: Constraints,
+
+    /// Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+    /// produced before this field existed keep their exact Mode-1 semantics. The mode filters
+    /// eligible providers; it never changes candidate ordering.
+    pub interaction_mode: Option<InteractionMode>,
 
     /// Soft route ordering preferences applied after hard filtering.
     pub preferences: Preferences,
@@ -60,6 +66,17 @@ pub enum PrivacyEnum {
     LocalRequired,
 }
 
+/// Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+/// produced before this field existed keep their exact Mode-1 semantics. The mode filters
+/// eligible providers; it never changes candidate ordering.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InteractionMode {
+    Run,
+
+    Stream,
+}
+
 /// Soft route ordering preferences applied after hard filtering.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,14 +106,31 @@ pub struct Provider {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     pub available: bool,
 
+    /// Whether cancellation is honored right now in this host environment. Absent inherits the
+    /// static descriptor.cancel value (any value other than 'none' means available).
+    pub cancellation_available: Option<bool>,
+
     pub reason: Option<String>,
+
+    /// Whether the provider can stream right now in this host environment. Absent inherits the
+    /// static descriptor.supports.streaming value.
+    pub streaming_available: Option<bool>,
+
+    /// Human-readable explanation used when streamingAvailable is false. Absent lets the planner
+    /// synthesize a default message.
+    pub streaming_unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Descriptor {
+    /// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+    /// the planner does not filter on it.
+    pub cancel: Option<Cancel>,
+
     pub id: String,
 
     /// Descriptor privacy metadata used to enforce local/cloud routing rules.
@@ -108,6 +142,19 @@ pub struct Descriptor {
 
     #[serde(rename = "type")]
     pub descriptor_type: Type,
+}
+
+/// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+/// the planner does not filter on it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Cancel {
+    #[serde(rename = "none")]
+    CancelNone,
+
+    Hard,
+
+    Soft,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -132,6 +179,10 @@ pub struct PrivacyClass {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Supports {
     pub run: bool,
+
+    /// Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
+    /// descriptor that predates this field cannot be assumed to stream.
+    pub streaming: Option<bool>,
 }
 
 /// Minimal task descriptor for provider task matching.
@@ -202,11 +253,19 @@ pub struct RejectedProvider {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Reason {
+    /// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+    /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+    /// but the dynamic capability snapshot reports it cannot stream in the current host
+    /// environment.
     pub code: Code,
 
     pub message: String,
 }
 
+/// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+/// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+/// but the dynamic capability snapshot reports it cannot stream in the current host
+/// environment.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
@@ -223,6 +282,12 @@ pub enum Code {
 
     #[serde(rename = "run_not_supported")]
     RunNotSupported,
+
+    #[serde(rename = "streaming_not_supported")]
+    StreamingNotSupported,
+
+    #[serde(rename = "streaming_unavailable")]
+    StreamingUnavailable,
 
     #[serde(rename = "task_not_supported")]
     TaskNotSupported,

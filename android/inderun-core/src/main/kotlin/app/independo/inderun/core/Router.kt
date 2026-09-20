@@ -1,7 +1,7 @@
 package app.independo.inderun.core
 
-import app.independo.inderun.contracts.Candidate
 import app.independo.inderun.contracts.FailureCode
+import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.TaskRequest
 
 data class RouteSelection(
@@ -17,24 +17,43 @@ class Router private constructor(
 ) {
     constructor(registry: ProviderRegistry) : this(registry, SharedCoreRoutePlanner)
 
+    /**
+     * Plans a route for [request].
+     *
+     * [interactionMode] is a planning input, not a filter applied to the result:
+     * providers that cannot satisfy the requested mode are rejected during
+     * planning with their own normalized reason, so a `stream` request and a
+     * `run` request over the same registry may legitimately produce different
+     * provider chains while remaining under identical privacy, locality and
+     * availability constraints.
+     */
     suspend fun selectRoute(
         request: TaskRequest,
         hostServices: HostServices,
+        interactionMode: InteractionMode = InteractionMode.Run,
     ): RouteSelection {
         val online = hostServices.connectivity.isOnline()
         val snapshots = collectProviderSnapshots(hostServices)
 
-        planner.planRoute(
-            buildSharedPlannerInput(
-                request = request,
-                online = online,
-                snapshots = snapshots,
-            ),
-        )?.let { routePlan ->
-            return selectFromRoutePlan(snapshots, routePlan)
+        val routePlan = try {
+            planner.planRoute(
+                buildSharedPlannerInput(
+                    request = request,
+                    online = online,
+                    snapshots = snapshots,
+                    interactionMode = interactionMode,
+                ),
+            )
+        } catch (failure: RoutePlannerUnavailableException) {
+            // There is no second planner: a plan that cannot be produced is an
+            // internal failure, not a reason to route by a different rule set.
+            throw createInternal(
+                message = "Route planner unavailable (${failure.reason.value}).",
+                details = mapOf("plannerUnavailableReason" to failure.reason.value),
+            )
         }
 
-        return selectFallbackRoute(request, snapshots, online)
+        return selectFromRoutePlan(snapshots, routePlan)
     }
 
     private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> = registry.list()
@@ -45,7 +64,6 @@ class Router private constructor(
                 capabilities = provider.capabilities(hostServices),
             )
         }
-        .sortedBy { snapshot -> snapshot.descriptor.id }
 
     private fun selectFromRoutePlan(
         snapshots: List<ProviderSnapshot>,
@@ -77,90 +95,38 @@ class Router private constructor(
         throw routePlanFailure(routePlan)
     }
 
-    private fun selectFallbackRoute(
-        request: TaskRequest,
-        snapshots: List<ProviderSnapshot>,
-        online: Boolean,
-    ): RouteSelection {
-        val plan = createFallbackPlan(request, snapshots, online)
-        return selectFromRoutePlan(snapshots, plan)
-    }
-
-    private fun createFallbackPlan(
-        request: TaskRequest,
-        snapshots: List<ProviderSnapshot>,
-        online: Boolean,
-    ): SharedPlannerRoutePlan {
-        val planInput = buildSharedPlannerInput(
-            request = request,
-            online = online,
-            snapshots = snapshots,
-        )
-
-        val eligible = snapshots.filter { snapshot ->
-            snapshot.descriptor.tasks.contains(planInput.task.kind) && snapshot.descriptor.supports.run
-        }
-
-        val selected = eligible.firstOrNull { snapshot ->
-            val descriptor = snapshot.descriptor
-            val constraints = planInput.constraints
-            val isPrivate = descriptor.privacy?.dataLeavesDevice == false || descriptor.type != ProviderDescriptor.ProviderType.cloud
-
-            if (constraints.cloud == app.independo.inderun.contracts.Cloud.Forbidden && descriptor.type == ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
-            if (constraints.cloud == app.independo.inderun.contracts.Cloud.Required && descriptor.type != ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
-            if (constraints.privacy == app.independo.inderun.contracts.PrivacyEnum.LocalRequired && !isPrivate) return@firstOrNull false
-            if (constraints.privacy == app.independo.inderun.contracts.PrivacyEnum.CloudRequired && descriptor.type != ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
-            if (!online && descriptor.type == ProviderDescriptor.ProviderType.cloud) return@firstOrNull false
-            snapshot.capabilities.available
-        }
-
-        val ordered = selected?.let { selectedSnapshot ->
-            listOf(selectedSnapshot) + eligible.filter { it.descriptor.id != selectedSnapshot.descriptor.id }
-        } ?: emptyList()
-
-        if (ordered.isEmpty()) {
-            val failureCode = when {
-                !online -> FailureCode.Offline
-                planInput.constraints.cloud == app.independo.inderun.contracts.Cloud.Required ||
-                    planInput.constraints.privacy == app.independo.inderun.contracts.PrivacyEnum.CloudRequired -> FailureCode.Unavailable
-                else -> FailureCode.CapabilityMismatch
-            }
-
-            return SharedPlannerRoutePlan(
-                candidates = emptyList(),
-                explanation = SharedPlannerExplanation(
-                    summary = "No eligible provider found for the current routing constraints.",
-                    selectedProviderId = null,
-                ),
-                failureCode = failureCode,
-                fallbackProviderIds = emptyList(),
-                rejectedProviders = emptyList(),
-                selectedProviderId = null,
-            )
-        }
-
-        return SharedPlannerRoutePlan(
-            candidates = ordered.mapIndexed { index, snapshot ->
-                Candidate(providerId = snapshot.descriptor.id, order = index.toLong())
-            },
-            explanation = SharedPlannerExplanation(
-                summary = "Selected provider '${ordered.first().descriptor.id}' deterministically from ${ordered.size} eligible candidate(s).",
-                selectedProviderId = ordered.first().descriptor.id,
-            ),
-            failureCode = null,
-            fallbackProviderIds = ordered.drop(1).map { it.descriptor.id },
-            rejectedProviders = emptyList(),
-            selectedProviderId = ordered.first().descriptor.id,
-        )
-    }
-
+    /**
+     * Routing failure throws before any `route_decided` telemetry is emitted, so the plan's
+     * diagnostics are attached to the exception -- that is the only channel through which a
+     * caller learns *why* each provider was rejected.
+     */
     private fun routePlanFailure(routePlan: SharedPlannerRoutePlan): Throwable {
         val message = routePlan.explanation.summary
+        val details = routePlanFailureDetails(routePlan)
         return when (routePlan.failureCode) {
-            FailureCode.Offline -> createOffline(message)
-            FailureCode.Unavailable -> createUnavailable(message)
-            FailureCode.CapabilityMismatch, null -> createCapabilityMismatch(message)
+            FailureCode.Offline -> createOffline(message, details = details)
+            FailureCode.Unavailable -> createUnavailable(message, details = details)
+            FailureCode.CapabilityMismatch, null -> createCapabilityMismatch(message, details = details)
         }
+    }
+
+    /**
+     * Flattens the plan's typed diagnostics into the same JSON shape the Web SDK attaches, so a
+     * caller reads one contract across platforms.
+     */
+    private fun routePlanFailureDetails(routePlan: SharedPlannerRoutePlan): Map<String, Any?> = buildMap {
+        routePlan.failureCode?.let { put("failureCode", failureCodeValue(it)) }
+        put(
+            "rejectedProviders",
+            routePlan.rejectedProviders.map { rejected ->
+                mapOf(
+                    "providerId" to rejected.providerId,
+                    "reasons" to rejected.reasons.map { reason ->
+                        mapOf("code" to reasonCodeValue(reason.code), "message" to reason.message)
+                    },
+                )
+            },
+        )
     }
 
     internal companion object {

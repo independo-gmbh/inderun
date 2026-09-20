@@ -1,14 +1,26 @@
 package app.independo.inderun.demo
 
+import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.Outcome
+import app.independo.inderun.contracts.Payload
+import app.independo.inderun.contracts.PayloadTelemetry
+import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.StreamEvent
+import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderDescriptor
 import app.independo.inderun.core.ProviderDynamicCapabilities
+import app.independo.inderun.core.StreamRun
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -158,6 +170,96 @@ class DemoViewModelTest {
         override suspend fun download(model: DemoOnnxModelOption, onProgress: (Float) -> Unit) = Unit
     }
 
+    @Test
+    fun streamPrompt_appendsDeltasAndRecordsTheCompletedTerminal() = runTest {
+        val runtime = FakeRuntime(
+            streamStart = {
+                DemoStreamStart.Started(
+                    streamRun(listOf(delta(0, "Hello"), delta(1, " world"), completed(2, "Hello world"))),
+                )
+            },
+        )
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+
+        viewModel.streamPrompt()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.isStreaming)
+        assertEquals("Hello world", state.stream?.text)
+        assertEquals(Outcome.Completed, state.stream?.outcome)
+        assertEquals("finish reason: stop", state.stream?.detail)
+        assertEquals("android_mlkit_genai", state.stream?.providerUsed)
+    }
+
+    @Test
+    fun streamPrompt_surfacesARoutingRefusalAsAnErrorWithNoStreamPanel() = runTest {
+        val runtime = FakeRuntime(
+            streamStart = {
+                DemoStreamStart.Refused(
+                    DemoErrorState(title = "Normalized Error", body = "capability_mismatch", metadata = null),
+                )
+            },
+        )
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+
+        viewModel.streamPrompt()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.isStreaming)
+        assertNull(state.stream)
+        assertEquals("capability_mismatch", state.error?.body)
+    }
+
+    @Test
+    fun cancelStream_forwardsToTheRunHandleAndEndsWithACancelledOutcome() = runTest {
+        var cancelReason: String? = null
+        val gate = CompletableDeferred<Unit>()
+        val runtime = FakeRuntime(
+            streamStart = {
+                DemoStreamStart.Started(
+                    StreamRun(
+                        handle = StreamRunHandle(
+                            providerId = "android_mlkit_genai",
+                            runId = "run_stream",
+                            schemaVersion = SchemaVersion.V1_0,
+                            startedAt = 0.0,
+                        ),
+                        // Parks after the first delta, the way a real stream waits for
+                        // the next chunk, so cancelling has something to interrupt.
+                        events = flow {
+                            emit(delta(0, "one"))
+                            gate.await()
+                            emit(cancelled(1, partialText = "one", reason = "cancelled from the demo app"))
+                        },
+                        onCancel = { reason ->
+                            cancelReason = reason
+                            gate.complete(Unit)
+                        },
+                    ),
+                )
+            },
+        )
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+
+        viewModel.streamPrompt()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isStreaming)
+
+        viewModel.cancelStream()
+        advanceUntilIdle()
+
+        assertEquals("cancelled from the demo app", cancelReason)
+        val state = viewModel.uiState.value
+        assertFalse(state.isStreaming)
+        assertEquals(Outcome.Cancelled, state.stream?.outcome)
+        assertEquals("one", state.stream?.text)
+    }
+
     private class FakeRuntime(
         private val snapshots: List<ProviderCapabilitySnapshot> = emptyList(),
         private val runOutcome: DemoExecutionOutcome = DemoExecutionOutcome.Success(
@@ -171,6 +273,7 @@ class DemoViewModelTest {
             ),
         ),
         private val routeDecision: RouteDecision? = null,
+        private val streamStart: () -> DemoStreamStart = { DemoStreamStart.Started(streamRun(emptyList())) },
     ) : DemoRuntime {
         override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = snapshots
 
@@ -180,6 +283,63 @@ class DemoViewModelTest {
             settings: DemoSettings,
         ): DemoExecutionOutcome = runOutcome
 
+        override suspend fun stream(
+            prompt: String,
+            privacy: PrivacyPreference,
+            settings: DemoSettings,
+        ): DemoStreamStart = streamStart()
+
         override fun lastRouteDecision(): RouteDecision? = routeDecision
+    }
+
+    private companion object {
+        fun streamRun(events: List<StreamEvent>, onCancel: (String?) -> Unit = {}): StreamRun = StreamRun(
+            handle = StreamRunHandle(
+                providerId = "android_mlkit_genai",
+                runId = "run_stream",
+                schemaVersion = SchemaVersion.V1_0,
+                startedAt = 0.0,
+            ),
+            events = events.asFlow(),
+            onCancel = onCancel,
+        )
+
+        fun delta(sequence: Long, text: String) = StreamEvent(
+            payload = Payload(text = text),
+            runId = "run_stream",
+            schemaVersion = SchemaVersion.V1_0,
+            sequence = sequence,
+            timestamp = 0.0,
+            type = "content_delta",
+        )
+
+        fun completed(sequence: Long, finalText: String) = StreamEvent(
+            payload = Payload(
+                finalText = finalText,
+                finishReason = FinishReason.STOP,
+                outcome = Outcome.Completed,
+                runId = "run_stream",
+                telemetry = PayloadTelemetry(providerUsed = "android_mlkit_genai", totalMs = 12.0),
+            ),
+            runId = "run_stream",
+            schemaVersion = SchemaVersion.V1_0,
+            sequence = sequence,
+            timestamp = 0.0,
+            type = "terminal",
+        )
+
+        fun cancelled(sequence: Long, partialText: String, reason: String) = StreamEvent(
+            payload = Payload(
+                outcome = Outcome.Cancelled,
+                partialText = partialText,
+                reason = reason,
+                runId = "run_stream",
+            ),
+            runId = "run_stream",
+            schemaVersion = SchemaVersion.V1_0,
+            sequence = sequence,
+            timestamp = 0.0,
+            type = "terminal",
+        )
     }
 }

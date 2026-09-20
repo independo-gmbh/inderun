@@ -11,11 +11,10 @@ import {
 import {
   buildSharedPlannerInput,
   collectProviderRuntimeSnapshots,
+  type InteractionMode,
   type ProviderRuntimeSnapshot,
   type RoutePlanner,
-  type SharedPlannerInput,
   type SharedPlannerRoutePlan,
-  type WasmUnavailableReason,
   WasmRoutePlanner
 } from "./route-planner.js";
 
@@ -39,16 +38,6 @@ export interface RouteSelection {
    * Explanation detailing the selection decision. Useful for debugging and telemetry.
    */
   explanation: string;
-  /**
-   * Which planner produced `routePlan`: the shared Rust/WASM core, or the
-   * local TypeScript fallback used when the WASM planner is unavailable.
-   */
-  plannerSource: "wasm" | "fallback";
-  /**
-   * Set when `plannerSource` is `"fallback"` because the WASM planner failed;
-   * `undefined` when the fallback was not caused by a planner failure.
-   */
-  plannerUnavailableReason?: WasmUnavailableReason;
 }
 
 /**
@@ -71,19 +60,33 @@ export class Router {
    *  - `CapabilityMismatch` when `execution === 'on_device'` but no local provider is registered or available.
    *  - `Offline` when `execution === 'cloud'` but the device lacks internet connectivity.
    *  - `Unavailable` when `execution === 'cloud'` but no cloud provider is registered or functional.
+   *
+   * The requested `interactionMode` is a planning input, not a post-filter: the
+   * shared planner rejects providers that cannot satisfy it and says why, so the
+   * whole returned chain is mode-compatible.
    */
-  async selectRoute(request: TaskRequest, hostServices: HostServices): Promise<RouteSelection> {
+  async selectRoute(
+    request: TaskRequest,
+    hostServices: HostServices,
+    interactionMode: InteractionMode = "run"
+  ): Promise<RouteSelection> {
     const online = await hostServices.connectivity.isOnline();
     const snapshots = await collectProviderRuntimeSnapshots(this.registry.list(), hostServices);
 
-    const planInput = buildSharedPlannerInput(request, snapshots, online);
+    const planInput = buildSharedPlannerInput(request, snapshots, online, interactionMode);
     const outcome = await this.planner.planRoute(planInput);
 
-    if (outcome.routePlan) {
-      return this.selectFromSharedPlan(snapshots, outcome.routePlan);
+    if (!outcome.routePlan) {
+      // There is no second planner to degrade to: routing is the shared Rust
+      // core's semantics or nothing. Failing here keeps provider selection
+      // identical everywhere rather than forking it on a module load failure.
+      const reason = outcome.unavailableReason ?? "import_failed";
+      throw createInternal(`Route planner unavailable (${reason}).`, {
+        details: { plannerUnavailableReason: reason }
+      });
     }
 
-    return this.selectFallbackRoute(request, snapshots, online, outcome.unavailableReason);
+    return this.selectFromSharedPlan(snapshots, outcome.routePlan);
   }
 
   private selectFromSharedPlan(
@@ -94,28 +97,12 @@ export class Router {
       throw this.routePlanFailure(routePlan);
     }
 
-    return this.buildSelectionFromRoutePlan(snapshots, routePlan, "wasm");
-  }
-
-  private selectFallbackRoute(
-    request: TaskRequest,
-    snapshots: ProviderRuntimeSnapshot[],
-    online: boolean,
-    plannerUnavailableReason?: WasmUnavailableReason
-  ): RouteSelection {
-    const plan = this.createFallbackPlan(request, snapshots, online);
-    if (!plan.selectedProviderId) {
-      throw this.routePlanFailure(plan);
-    }
-
-    return this.buildSelectionFromRoutePlan(snapshots, plan, "fallback", plannerUnavailableReason);
+    return this.buildSelectionFromRoutePlan(snapshots, routePlan);
   }
 
   private buildSelectionFromRoutePlan(
     snapshots: ProviderRuntimeSnapshot[],
-    routePlan: SharedPlannerRoutePlan,
-    plannerSource: "wasm" | "fallback",
-    plannerUnavailableReason?: WasmUnavailableReason
+    routePlan: SharedPlannerRoutePlan
   ): RouteSelection {
     const orderedProviders = routePlan.candidates
       .map((candidate) =>
@@ -132,145 +119,31 @@ export class Router {
       provider: selected.provider,
       fallbackProviders: orderedProviders.slice(1).map((snapshot) => snapshot.provider),
       routePlan,
-      explanation: routePlan.explanation.summary,
-      plannerSource,
-      ...(plannerUnavailableReason ? { plannerUnavailableReason } : {})
+      explanation: routePlan.explanation.summary
     };
   }
 
-  private createFallbackPlan(
-    request: TaskRequest,
-    snapshots: ProviderRuntimeSnapshot[],
-    online: boolean
-  ): SharedPlannerRoutePlan {
-    const planInput = buildSharedPlannerInput(request, snapshots, online);
-    const eligible = snapshots
-      .filter((candidate) => candidate.descriptor.tasks.includes(planInput.task.kind))
-      .filter((candidate) => candidate.descriptor.supports.run);
-
-    const localCandidates = eligible.filter((candidate) => candidate.descriptor.type !== "cloud");
-    const cloudCandidates = eligible.filter((candidate) => candidate.descriptor.type === "cloud");
-
-    // Constraint filtering must apply to the whole candidate list, not just the selected provider:
-    // the remainder becomes the engine's fallback chain, and a fallback that violates the request
-    // constraints would let a `local_required` run be retried against a cloud provider.
-    const admissible = eligible.filter((candidate) => {
-      const descriptor = candidate.descriptor;
-      const constraints = planInput.constraints;
-      // Mirrors `is_data_private` in the shared Rust planner: a provider is private when it
-      // declares that data does not leave the device, defaulting to non-cloud providers.
-      const isDataPrivate = descriptor.privacy
-        ? !descriptor.privacy.dataLeavesDevice
-        : descriptor.type !== "cloud";
-
-      if (constraints.cloud === "forbidden" && descriptor.type === "cloud") {
-        return false;
-      }
-
-      if (constraints.cloud === "required" && descriptor.type !== "cloud") {
-        return false;
-      }
-
-      if (constraints.privacy === "local_required" && !isDataPrivate) {
-        return false;
-      }
-
-      if (constraints.privacy === "cloud_required" && descriptor.type !== "cloud") {
-        return false;
-      }
-
-      if (!online && descriptor.type === "cloud") {
-        return false;
-      }
-
-      return candidate.capabilities.available;
-    });
-
-    if (admissible.length === 0) {
-      const failureSummary = this.buildFallbackFailureSummary({
-        online,
-        constraints: planInput.constraints,
-        localCandidates,
-        cloudCandidates
-      });
-      const failureCode = !online
-        ? "offline"
-        : planInput.constraints.cloud === "required" ||
-            planInput.constraints.privacy === "cloud_required"
-          ? "unavailable"
-          : "capability_mismatch";
-
-      return {
-        fallbackProviderIds: [],
-        candidates: [],
-        rejectedProviders: [],
-        failureCode,
-        explanation: {
-          summary: failureSummary
-        }
-      };
-    }
-
-    const selectedProviderId = admissible[0]?.descriptor.id;
-
-    return {
-      selectedProviderId,
-      fallbackProviderIds: admissible.slice(1).map((candidate) => candidate.descriptor.id),
-      candidates: admissible.map((candidate, index) => ({
-        providerId: candidate.descriptor.id,
-        order: index
-      })),
-      rejectedProviders: [],
-      explanation: {
-        summary: `Selected provider '${selectedProviderId}' deterministically from ${admissible.length} eligible candidate(s).`,
-        selectedProviderId
-      }
-    };
-  }
-
-  private buildFallbackFailureSummary(input: {
-    online: boolean;
-    constraints: SharedPlannerInput["constraints"];
-    localCandidates: ProviderRuntimeSnapshot[];
-    cloudCandidates: ProviderRuntimeSnapshot[];
-  }): string {
-    const wantsCloud =
-      input.constraints.cloud === "required" || input.constraints.privacy === "cloud_required";
-    const wantsLocal = input.constraints.privacy === "local_required";
-
-    if (!input.online && (wantsCloud || input.cloudCandidates.length > 0)) {
-      return "No network connection is available.";
-    }
-
-    if (wantsCloud) {
-      if (input.cloudCandidates.length === 0) {
-        return "No cloud provider found.";
-      }
-
-      return "No cloud provider is currently available.";
-    }
-
-    if (wantsLocal) {
-      if (input.localCandidates.length === 0) {
-        return "No on-device provider found.";
-      }
-
-      return "No on-device provider is currently available.";
-    }
-
-    return "No eligible provider found for the current routing constraints.";
-  }
-
+  /**
+   * Routing failure throws before any `route_decided` telemetry is emitted, so the
+   * plan's diagnostics are attached to the exception — that is the only channel
+   * through which a caller learns *why* each provider was rejected.
+   */
   private routePlanFailure(routePlan: SharedPlannerRoutePlan): never {
     const message = routePlan.explanation.summary;
+    const details = {
+      details: {
+        failureCode: routePlan.failureCode,
+        rejectedProviders: routePlan.rejectedProviders
+      }
+    };
     switch (routePlan.failureCode) {
       case "offline":
-        throw createOffline(message);
+        throw createOffline(message, details);
       case "unavailable":
-        throw createUnavailable(message);
+        throw createUnavailable(message, details);
       case "capability_mismatch":
       default:
-        throw createCapabilityMismatch(message);
+        throw createCapabilityMismatch(message, details);
     }
   }
 }

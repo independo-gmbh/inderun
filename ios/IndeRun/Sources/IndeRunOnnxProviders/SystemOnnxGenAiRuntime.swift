@@ -84,7 +84,11 @@ public final class SystemOnnxGenAiRuntime: OnnxGenAiRuntime {
         return OnnxGenerationOutput(
             text: text,
             finishReason: finishReason,
-            usage: Usage(inputTokens: promptLength, outputTokens: generatedIds.count, totalTokens: promptLength + generatedIds.count)
+            usage: TaskResultUsage(
+                inputTokens: promptLength,
+                outputTokens: generatedIds.count,
+                totalTokens: promptLength + generatedIds.count
+            )
         )
     }
 

@@ -56,9 +56,16 @@ let package = Package(
             dependencies: ["IndeRunCore", "IndeRunContracts"],
             path: "ios/IndeRun/Sources/IndeRunSwift"
         ),
+        // The shared Rust route planner, built by scripts/build-route-core-apple.mjs
+        // and committed: SwiftPM resolves this package from a git tag, so the tag
+        // has to contain the binary. See ios/IndeRun/README.md.
+        .binaryTarget(
+            name: "InderunRouteCoreFFI",
+            path: "ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework"
+        ),
         .target(
             name: "IndeRunCore",
-            dependencies: ["IndeRunContracts"],
+            dependencies: ["IndeRunContracts", "InderunRouteCoreFFI"],
             path: "ios/IndeRun/Sources/IndeRunCore"
         ),
         .target(
@@ -80,6 +87,21 @@ let package = Package(
                 .product(name: "Tokenizers", package: "swift-transformers")
             ],
             path: "ios/IndeRun/Sources/IndeRunOnnxProviders"
+        ),
+        // Consumer-compilation smoke tests. Each depends on exactly one product and
+        // proves that product's `@_exported import` chain hands a consumer the types
+        // its own signatures use. IndeRunTests below cannot: it depends on all six
+        // modules directly, which is what hid the missing re-exports until #189.
+        // Do not add dependencies to either of these -- the short list is the test.
+        .testTarget(
+            name: "IndeRunUmbrellaConsumerTests",
+            dependencies: ["IndeRunSwift"],
+            path: "ios/IndeRun/Tests/IndeRunUmbrellaConsumerTests"
+        ),
+        .testTarget(
+            name: "IndeRunProviderConsumerTests",
+            dependencies: ["IndeRunOpenAIProviders"],
+            path: "ios/IndeRun/Tests/IndeRunProviderConsumerTests"
         ),
         .testTarget(
             name: "IndeRunTests",

@@ -3,7 +3,7 @@ import Foundation
 public typealias TaskDescriptor = TaskRequestTask
 public typealias GenerationHints = Generation
 public typealias TelemetryPreferences = TaskRequestTelemetry
-public typealias UsageInfo = Usage
+public typealias UsageInfo = TaskResultUsage
 public typealias TelemetryInfo = TaskResultTelemetry
 public typealias IndeRunErrorClass = ErrorClass
 public typealias TelemetryValue = JSONAny
@@ -36,6 +36,16 @@ public extension TaskRequest {
             task: task,
             telemetry: telemetry
         )
+    }
+}
+
+/// The generated memberwise initializer takes every field, in the schema's
+/// alphabetical order. Constraints are almost always set one at a time (a privacy
+/// floor, a timeout), so this mirrors the other convenience initializers here and
+/// lets callers name only what they are constraining.
+public extension TaskRequestConstraints {
+    init(privacy: PrivacyEnum? = nil, cloud: Cloud? = nil, timeoutMs: Int? = nil) {
+        self.init(cloud: cloud, privacy: privacy, timeoutMs: timeoutMs)
     }
 }
 

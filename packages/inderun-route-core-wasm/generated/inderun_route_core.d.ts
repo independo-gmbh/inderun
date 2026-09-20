@@ -1,11 +1,5 @@
 /* tslint:disable */
 /* eslint-disable */
-// Hand-written stub checked in so `tsc` can resolve the literal
-// `import("../generated/inderun_route_core.js")` in src/index.ts without
-// requiring the Rust/wasm-bindgen toolchain to have run locally (see #109).
-// CI's `wasm-bindgen --target web` step overwrites this file with the real
-// generated bindings during the build; keep this stub's shape in sync with
-// that output when the Rust route-core API changes.
 
 export function plan_route_json(input_json: string): string;
 

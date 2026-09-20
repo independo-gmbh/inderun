@@ -17,24 +17,72 @@
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-IndeRun is an open-source AI execution framework that gives applications one unified API for running tasks across
-on-device, edge, and cloud providers. It ships native SDKs for **web, iOS, and Android** with a shared contract and
-consistent, deterministic behavior.
+**On-device AI with automatic cloud fallback, for cross-platform apps.**
 
-The project is organized around a few stable ideas:
+IndeRun runs a text task on the device when the device can — Apple Foundation Models on iOS and macOS, ML Kit GenAI
+(Gemini Nano) on Android, ONNX Runtime for developer-supplied models, the browser's Prompt API on desktop Chrome — and
+falls back to an OpenAI-compatible cloud provider when it cannot. One API, one normalized result and error shape, on
+**web, Capacitor, iOS, and Android**. Open source, MIT.
 
-- `run()` is the current public execution path.
-- Routing is deterministic and based on request constraints plus host capability snapshots.
-- Provider behavior is normalized so apps do not need provider-specific branching in their own code.
-- Secrets stay out of request payloads and are referenced through `authContextRef`.
+What that buys an application:
+
+- **It keeps working offline**, wherever a local provider is available on the device.
+- **Input can stay on the device.** `privacy: "local_required"` removes every provider whose data leaves the device
+  from the route, so there is no silent cloud fallback.
+- **It degrades rather than fails.** A device that cannot run the local model routes to the cloud; a request no
+  registered provider can serve is refused up front with a reason, not attempted and failed halfway.
+- **No per-call cost when a capability runs locally**, and the same code path when it does not.
+- **`run()` and `stream()`** — request/response and incremental output with cancellation — behave the same on every
+  platform, down to one shared error taxonomy. Secrets stay out of request payloads, referenced via `authContextRef`.
+
+Routing is the mechanism rather than the pitch: one shared planner picks providers from the request's constraints plus
+a live capability snapshot, and records why each rejected provider was rejected.
+[Choosing where a task runs](#choosing-where-a-task-runs) covers the constraints; the
+[architecture overview](docs/architecture/architecture.md) covers the rest.
+
+IndeRun is built and used in [Independo](https://www.independo.app)'s accessibility products, which is where the
+offline and on-device paths are exercised.
 
 ## Status
 
-IndeRun is currently focused on Mode 1 `run()` execution for `text_to_text`. Streaming and realtime sessions are
-planned but not yet implemented; the shipped surface is request/response execution. Every platform can always use the
-OpenAI-compatible **cloud** provider; **on-device** execution is used automatically by routing when the device
-supports it (or forced with a `localRequired` privacy constraint). See
+IndeRun ships two execution modes for `text_to_text`: Mode 1 `run()` (request/response) and Mode 2 `stream()`
+(incremental output with cancellation), both implemented in all three SDKs. Realtime sessions remain planned but
+unimplemented. Every platform can always use the OpenAI-compatible **cloud** provider; **on-device** execution is used
+automatically by routing when the device supports it (or forced with a `localRequired` privacy constraint). See
 [GitHub Milestones](https://github.com/independo-gmbh/inderun/milestones) for current roadmap status.
+
+Not every provider streams, so whether a stream request can be served depends on the registered providers and is
+decided at routing time rather than discovered partway through. [Streaming (Mode 2)](docs/streaming.md) is the full
+contract — event types, ordering, cancellation, fallback, and what each provider does and does not report.
+
+`run()` and `stream()` are the canonical `v0.3.0` execution API, and deliberately not the final developer ergonomics:
+they are task-shaped because routing needs the task and its constraints, which is a different thing from being pleasant
+to call. [Milestone 4](https://github.com/independo-gmbh/inderun/milestones) adds a familiar text-generation facade and
+ecosystem adapters on top of them. Documentation here describes what ships today rather than anticipating that.
+
+## Choosing where a task runs
+
+Placement is a property of the request, not of the call site. `constraints.privacy` says how strict you are:
+
+| `constraints.privacy`       | Effect on routing                                                                                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local_required`            | Every provider whose data leaves the device is **rejected** — removed from the chain, so no cloud fallback. If none remains, the request is refused. |
+| `local_preferred`           | Nothing is rejected. On-device providers are **ranked first**; cloud stays in the chain as fallback.                                                 |
+| `cloud_allowed` _(default)_ | No preference from privacy. The default ranking still prefers local → edge → cloud.                                                                  |
+| `cloud_required`            | Non-cloud providers are rejected.                                                                                                                    |
+
+`constraints.cloud` (`forbidden` / `allowed` / `required`) is a separate axis. It outranks the privacy axis when
+ordering providers; for rejection the two apply independently.
+
+Everything else is capability. A provider is a candidate only if it declares the task kind and the interaction mode,
+_and_ its live capability check says it can serve them on this host right now. One that cannot is rejected before
+anything is attempted, and the refusal names every rejected provider with a normalized reason code —
+`privacy_constraint`, `streaming_unavailable`, `offline`, `capability_unavailable` — on the thrown error's `details`.
+That is the only channel through which a caller learns why a request could not be placed.
+
+Ordering among the survivors is deterministic for a fixed request and capability snapshot, so the same inputs always
+produce the same provider and the same fallback order. See
+[the architecture overview](docs/architecture/architecture.md#placement-constraints).
 
 ## Platforms
 
@@ -42,7 +90,10 @@ supports it (or forced with a `localRequired` privacy constraint). See
 
 **Requirements:** Node 24+ (for tooling/SSR) or a modern browser (ES2022 + WebAssembly).
 
-Install — this pulls in `@independo/inderun-contracts` and `@independo/inderun-route-core-wasm` automatically:
+Install — one package is enough. `@independo/inderun-contracts` and
+`@independo/inderun-route-core-wasm` come with it, and the contract types the SDK's own signatures
+use (`TaskRequest`, `TaskResult`, `StreamEvent`, …) are re-exported from `@independo/inderun-web`,
+so there is nothing to add for a fully typed app:
 
 ```sh
 pnpm add @independo/inderun-web
@@ -74,6 +125,20 @@ register the Web ONNX Runtime provider — see the
 and the [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md). The
 provider ships from the `@independo/inderun-web/onnx` subpath.
 
+### Capacitor (hybrid apps)
+
+A thin Capacitor bridge puts the same API in hybrid apps, with the on-device providers of whichever platform the app is
+running on — Apple Foundation Models on iOS, ML Kit GenAI on Android, the Web SDK's providers in the browser — and the
+same OpenAI-compatible fallback everywhere. It is published as
+[`@independo/capacitor-inderun`](https://www.npmjs.com/package/@independo/capacitor-inderun); the source lives in its
+own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun).
+
+Both `run()` and `stream()` cross the bridge on all three platforms. The bridge owns transport and never orchestration:
+it does not plan routes, retry, apply fallback, or synthesize a terminal outcome — those stay in the platform SDKs
+below, and where events are lost in transit it reports a transport failure rather than inventing an ending. One
+consequence worth knowing before you build on it: there is no backpressure across the JS boundary, so a slow consumer
+buys memory rather than throttling.
+
 ### iOS / macOS (Swift)
 
 **Requirements:**
@@ -88,8 +153,15 @@ SwiftPM resolves to the latest compatible release, so this does not need updatin
 
 ```swift
 .package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
-// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders, IndeRunOpenAIProviders
+// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders,
+//           IndeRunOpenAIProviders, IndeRunOnnxProviders
 ```
+
+`IndeRun` gives you the engine and its public contract types — it re-exports `IndeRunCore` and
+`IndeRunContracts`, so `import IndeRunSwift` brings `TaskRequest`, `TaskResult` and `StreamRun`
+into scope. It ships no providers: add `IndeRunAppleProviders`, `IndeRunOpenAIProviders` or
+`IndeRunOnnxProviders` for whichever ones you register. Each of those re-exports the contract
+types too, so a provider product on its own is also enough to compile against.
 
 Quick start — on-device by default:
 
@@ -136,6 +208,11 @@ Install via Gradle (Maven Central) — `latest.release` resolves to the newest p
 implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
 
+That one line is enough for a fully typed app: `inderun-kotlin` exposes `inderun-contracts`,
+`inderun-core` and `kotlinx-coroutines-core` as `api` dependencies, so `TaskRequest`, `TaskResult`
+and the `Flow<StreamEvent>` returned by `stream()` are on your compile classpath. Cloud execution
+additionally needs `app.independo.inderun:inderun-openai-providers`.
+
 > For reproducible builds, pin an explicit version instead — the Maven Central badge above shows the current release.
 
 Quick start — on-device by default:
@@ -159,18 +236,14 @@ val result = indeRun.run(
 > `inderun-openai-providers` — see the [Kotlin SDK README](android/inderun-kotlin/README.md)
 > and the [provider model](docs/architecture/providers.md).
 
-### Capacitor (hybrid apps)
-
-A thin Capacitor bridge is used internally to integrate the native iOS and Android SDKs into hybrid applications. It
-is not currently published as a public package or repository.
-
 ## Minimum system requirements
 
-| Platform     | SDK minimum                                    | On-device local model                                  |
-| ------------ | ---------------------------------------------- | ------------------------------------------------------ |
-| Web          | Node 24+ / modern browser (ES2022 + WASM)      | — (cloud provider only)                                |
-| iOS / macOS  | iOS 16+ / macOS 14+, Swift 5.9+                | Apple Intelligence device, iOS 26+ / macOS 26+         |
-| Android      | Android 8.0+ (API 26), JDK 17                  | Device with AICore / Gemini Nano support               |
+| Platform    | SDK minimum                               | On-device local model                                                              |
+| ----------- | ----------------------------------------- | ---------------------------------------------------------------------------------- |
+| Web         | Node 24+ / modern browser (ES2022 + WASM) | ONNX Runtime (developer-supplied model); Chrome Prompt API on desktop Chrome 138+    |
+| Capacitor   | iOS 16+ / Android 8.0+ (API 26) / web     | Whatever the host platform provides — the rows below on native, the Web row in a PWA |
+| iOS / macOS | iOS 16+ / macOS 14+, Swift 5.9+            | Apple Foundation Models: Apple Intelligence device, iOS 26+ / macOS 26+             |
+| Android     | Android 8.0+ (API 26), JDK 17              | ML Kit GenAI: device with AICore / Gemini Nano support                              |
 
 The OpenAI-compatible cloud provider is available on every platform. On-device execution additionally requires the
 capabilities above and is selected automatically by routing.
@@ -178,7 +251,14 @@ capabilities above and is selected automatically by routing.
 ## Credentials & security
 
 Never place raw API keys in a `TaskRequest`. Providers resolve credentials from secure platform storage via
-`authContextRef`. For web, keep the key server-side behind a proxy endpoint.
+`authContextRef`, so a secret never enters a request payload and never sits in source.
+
+`authContextRef` does not make a key safe to ship, and it is not meant to. Anything a browser or an installed app can
+read, someone with that browser or app can read — a developer-owned API key does not become safe by being referenced
+indirectly. Use `authContextRef` for credentials that legitimately live on the device: a per-user or per-install token
+your backend issued. For a key **you** own, put it behind a backend you control and point the provider's endpoint at
+that. The Web SDK enforces this by refusing the public OpenAI endpoint unless you opt out explicitly for a controlled
+environment; on iOS and Android it is a convention, because a native app can reach any endpoint it likes.
 
 ## Packages
 
@@ -195,7 +275,9 @@ Never place raw API keys in a `TaskRequest`. Providers resolve credentials from 
 - [Project brief](docs/architecture/technical-brief.md)
 - [Architecture overview](docs/architecture/architecture.md)
 - [Provider model](docs/architecture/providers.md)
+- [Streaming (Mode 2)](docs/streaming.md)
 - [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
+- [Streaming conformance and cross-platform validation](docs/streaming-conformance.md)
 - [CI behavior](docs/ci.md)
 - [Releases & publishing](docs/release.md)
 - [Contributor workflow and build commands](CONTRIBUTING.md)

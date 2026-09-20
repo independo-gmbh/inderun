@@ -1,17 +1,39 @@
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.kotlin.dsl.support.serviceOf
 
 plugins {
-    id("com.android.application") version "9.3.1" apply false
-    id("com.android.library") version "9.3.1" apply false
+    id("com.android.application") version "9.4.0" apply false
+    id("com.android.library") version "9.4.0" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.10" apply false
-    id("com.diffplug.spotless") version "8.9.0" apply false
+    id("com.diffplug.spotless") version "8.10.1" apply false
     id("com.vanniktech.maven.publish") version "0.37.0" apply false
+}
+
+// The Rust route core, built for the machine running the tests. The JVM unit
+// tests reach the real planner through the same `System.loadLibrary` call the
+// Android runtime uses -- see SharedCoreRoutePlanner -- so they only need the
+// library on `java.library.path`. Registered on the root project because two
+// modules' tests route: :inderun-core and :inderun-kotlin.
+val routeCoreHostDir = File(rootProject.projectDir.parentFile, "target/route-core-host")
+
+// The cross-SDK conformance vectors live outside every module, so Gradle would
+// otherwise report a test task up to date after the fixtures change and quietly
+// skip the suites that read them -- which is exactly when they most need to run.
+val sharedStreamingFixtures = File(rootProject.projectDir.parentFile, "contracts/fixtures/streaming")
+
+val buildRouteCoreHost = tasks.register<Exec>("buildRouteCoreHost") {
+    group = "verification"
+    description = "Builds the Rust route core for this machine, for the JVM unit tests."
+    workingDir = rootProject.projectDir.parentFile
+    commandLine("node", "scripts/build-route-core-android.mjs", "--host")
+    // Freshness is cargo's job; see the same note in inderun-core/build.gradle.kts.
+    outputs.upToDateWhen { false }
 }
 
 subprojects {
@@ -41,6 +63,26 @@ subprojects {
                 languageVersion.set(JavaLanguageVersion.of(21))
             }
         )
+
+        inputs.dir(sharedStreamingFixtures)
+            .withPropertyName("sharedStreamingFixtures")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+
+        // Routing has a single planner, so these modules' tests fail without the
+        // native core rather than quietly routing by a second rule set: the library
+        // is a test dependency, not a nicety.
+        // Prepended rather than replacing java.library.path: Robolectric resolves
+        // its own native dependencies through the inherited value.
+        if (project.name == "inderun-core" || project.name == "inderun-kotlin") {
+            dependsOn(buildRouteCoreHost)
+            systemProperty(
+                "java.library.path",
+                listOfNotNull(
+                    routeCoreHostDir.absolutePath,
+                    System.getProperty("java.library.path")
+                ).joinToString(File.pathSeparator)
+            )
+        }
     }
 
     // Maven Central publishing for the library modules that apply the plugin

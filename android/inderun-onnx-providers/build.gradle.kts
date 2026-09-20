@@ -40,13 +40,19 @@ android {
 }
 
 dependencies {
-    implementation(project(":inderun-contracts"))
-    implementation(project(":inderun-core"))
+    // `api`, not `implementation` -- these types appear in this module's public
+    // signatures, so consumers need them on their compile classpath. See the note
+    // in :inderun-core's build file.
+    api(project(":inderun-contracts"))
+    api(project(":inderun-core"))
+
+    // ONNX Runtime and the tokenizer are reached only through `internal` declarations
+    // (LoadedSession, runOnnxSession), and this module publishes no `Flow` of its own.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.29.0")
     implementation("ai.djl.huggingface:tokenizers:0.36.0")
     implementation("ai.djl.android:tokenizer-native:0.33.0")
-    implementation("org.json:json:20260719")
+    implementation("org.json:json:20260814")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")

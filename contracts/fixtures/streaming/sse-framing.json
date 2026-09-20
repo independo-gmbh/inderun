@@ -1,0 +1,191 @@
+{
+  "$comment": "Cross-SDK conformance vectors for the server-sent events framing utility in each IndeRun core (packages/inderun-web/src/core/sse.ts, ios/.../IndeRunCore/SSE.swift, android/.../core/Sse.kt). The three parsers are separate implementations of one protocol, so they are held to one set of vectors rather than three hand-written test suites that could drift. 'chunksHex' are the raw bytes as they arrive from the streaming HTTP host capability, hex-encoded so a case can place a chunk boundary inside a multi-byte UTF-8 sequence. Absent 'event'/'id' on an expected entry mean the field was not present in the stream. Behavior follows the WHATWG server-sent events stream parsing rules, minus reconnection: 'retry' is parsed as a field and ignored, and no Last-Event-ID reconnect logic exists.",
+  "cases": [
+    {
+      "name": "single_data_event",
+      "description": "A lone data field terminated by a blank line dispatches one event with no type.",
+      "chunksHex": [
+        "646174613a2068656c6c6f0a0a"
+      ],
+      "expected": [
+        {
+          "data": "hello"
+        }
+      ]
+    },
+    {
+      "name": "named_event_with_id",
+      "description": "event and id fields are carried alongside data.",
+      "chunksHex": [
+        "6576656e743a20726573706f6e73652e6f75747075745f746578742e64656c74610a69643a20370a646174613a2068690a0a"
+      ],
+      "expected": [
+        {
+          "data": "hi",
+          "event": "response.output_text.delta",
+          "id": "7"
+        }
+      ]
+    },
+    {
+      "name": "multi_line_data_is_newline_joined",
+      "description": "Repeated data fields accumulate, separated by a single newline, with no trailing newline.",
+      "chunksHex": [
+        "646174613a206f6e650a646174613a2074776f0a646174613a2074687265650a0a"
+      ],
+      "expected": [
+        {
+          "data": "one\ntwo\nthree"
+        }
+      ]
+    },
+    {
+      "name": "comments_are_ignored",
+      "description": "Lines starting with a colon are comments (commonly used as keep-alives) and never dispatch.",
+      "chunksHex": [
+        "3a206b6565702d616c6976650a646174613a2061667465720a0a"
+      ],
+      "expected": [
+        {
+          "data": "after"
+        }
+      ]
+    },
+    {
+      "name": "crlf_and_cr_line_endings",
+      "description": "CRLF and bare CR terminate lines exactly like LF.",
+      "chunksHex": [
+        "646174613a2063726c660d0a0d0a",
+        "646174613a2063720d0d"
+      ],
+      "expected": [
+        {
+          "data": "crlf"
+        },
+        {
+          "data": "cr"
+        }
+      ]
+    },
+    {
+      "name": "event_split_across_chunks",
+      "description": "A chunk boundary falling inside a field line must not lose or duplicate data.",
+      "chunksHex": [
+        "646174613a207370",
+        "6c697420616372",
+        "6f7373206368756e6b730a",
+        "0a"
+      ],
+      "expected": [
+        {
+          "data": "split across chunks"
+        }
+      ]
+    },
+    {
+      "name": "chunk_boundary_splits_utf8_sequence",
+      "description": "A boundary inside a multi-byte UTF-8 sequence must decode correctly once the rest arrives. The euro sign is 0xE2 0x82 0xAC.",
+      "chunksHex": [
+        "646174613a20",
+        "e282",
+        "ac",
+        "0a0a"
+      ],
+      "expected": [
+        {
+          "data": "\u20ac"
+        }
+      ]
+    },
+    {
+      "name": "blank_line_without_data_dispatches_nothing",
+      "description": "A field-less blank line resets the buffers without dispatching.",
+      "chunksHex": [
+        "0a0a646174613a206f6e6c790a0a"
+      ],
+      "expected": [
+        {
+          "data": "only"
+        }
+      ]
+    },
+    {
+      "name": "only_one_leading_space_is_stripped",
+      "description": "A single space after the colon is field syntax; any further space is data.",
+      "chunksHex": [
+        "646174613a20207061646465640a0a"
+      ],
+      "expected": [
+        {
+          "data": " padded"
+        }
+      ]
+    },
+    {
+      "name": "field_without_colon_has_empty_value",
+      "description": "A bare field name is the field with an empty value, so a lone 'data' line dispatches an empty-data event.",
+      "chunksHex": [
+        "646174610a0a"
+      ],
+      "expected": [
+        {
+          "data": ""
+        }
+      ]
+    },
+    {
+      "name": "unknown_fields_are_ignored",
+      "description": "Fields outside the SSE vocabulary are dropped rather than treated as errors.",
+      "chunksHex": [
+        "72657472793a20313030300a666f6f3a206261720a646174613a206b6570740a0a"
+      ],
+      "expected": [
+        {
+          "data": "kept"
+        }
+      ]
+    },
+    {
+      "name": "trailing_incomplete_event_is_not_dispatched",
+      "description": "A stream that ends without a blank line leaves the pending event undispatched; a truncated event must never be reported as complete.",
+      "chunksHex": [
+        "646174613a20636f6d706c6574650a0a646174613a207472756e63617465640a"
+      ],
+      "expected": [
+        {
+          "data": "complete"
+        }
+      ]
+    },
+    {
+      "name": "sentinel_data_is_passed_through_verbatim",
+      "description": "The parser frames only; sentinels such as [DONE] are the caller's concern.",
+      "chunksHex": [
+        "646174613a205b444f4e455d0a0a"
+      ],
+      "expected": [
+        {
+          "data": "[DONE]"
+        }
+      ]
+    },
+    {
+      "name": "consecutive_events_in_one_chunk",
+      "description": "One chunk may carry several complete events, all of which dispatch in order.",
+      "chunksHex": [
+        "646174613a20610a0a646174613a20620a0a646174613a20630a0a"
+      ],
+      "expected": [
+        {
+          "data": "a"
+        },
+        {
+          "data": "b"
+        },
+        {
+          "data": "c"
+        }
+      ]
+    }
+  ]
+}

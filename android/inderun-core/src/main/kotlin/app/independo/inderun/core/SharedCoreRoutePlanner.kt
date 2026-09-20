@@ -1,5 +1,6 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.Cancel
 import app.independo.inderun.contracts.Candidate
 import app.independo.inderun.contracts.Capabilities
 import app.independo.inderun.contracts.Code
@@ -7,6 +8,7 @@ import app.independo.inderun.contracts.Descriptor
 import app.independo.inderun.contracts.DescriptorType
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FailureCode
+import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.Provider
 import app.independo.inderun.contracts.Reason
 import app.independo.inderun.contracts.RejectedProvider
@@ -18,6 +20,7 @@ import app.independo.inderun.contracts.RoutePlannerInputTask
 import app.independo.inderun.contracts.Supports
 import app.independo.inderun.contracts.TaskRequest
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 internal typealias SharedPlannerInput = RoutePlannerInput
@@ -35,46 +38,83 @@ internal typealias SharedPlannerRejectedReason = Reason
 internal typealias SharedPlannerReasonCode = Code
 
 internal interface RoutePlanner {
-    fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan?
+    fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan
 }
+
+/**
+ * Why the shared route core could not produce a plan. There is no second planner
+ * behind it, so each of these is a routing failure the caller sees rather than a
+ * signal to fall back — the vocabulary exists so the failure names itself.
+ */
+internal enum class RoutePlannerUnavailableReason(val value: String) {
+    /** The native library could not be loaded; the AAR is missing its jniLibs. */
+    LibraryUnavailable("library_unavailable"),
+
+    /** The JNI call itself failed. Planner-level errors arrive as a plan, not as a throw. */
+    PlanFailed("plan_failed"),
+
+    /** The core returned JSON this build cannot read — a contract skew between the two. */
+    InvalidPlanShape("invalid_plan_shape"),
+}
+
+internal class RoutePlannerUnavailableException(
+    val reason: RoutePlannerUnavailableReason,
+    cause: Throwable? = null,
+) : IllegalStateException("Route planner unavailable (${reason.value}).", cause)
 
 internal object SharedCoreRoutePlanner : RoutePlanner {
     @Volatile
     private var nativeLoaded = false
 
-    override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan? {
-        if (!ensureLoaded()) {
-            return null
+    override fun planRoute(input: SharedPlannerInput): SharedPlannerRoutePlan {
+        ensureLoaded()
+
+        // Serialized outside the try: a failure here is a bug in `toJson`, and
+        // mislabelling it as a JNI failure would send the reader to the wrong
+        // side of the boundary.
+        val inputJson = input.toJson()
+
+        // Only a JNI-level failure throws: the core answers a malformed input with
+        // a plan carrying `failureCode`, which is a routing outcome, not this.
+        val outputJson = try {
+            planRouteJsonNative(inputJson)
+        } catch (error: RuntimeException) {
+            throw RoutePlannerUnavailableException(RoutePlannerUnavailableReason.PlanFailed, error)
         }
 
-        val outputJson = runCatching {
-            planRouteJsonNative(input.toJson())
-        }.getOrNull() ?: return null
-
-        return parseSharedPlannerRoutePlan(outputJson)
+        return try {
+            parseSharedPlannerRoutePlan(outputJson)
+        } catch (error: JSONException) {
+            throw RoutePlannerUnavailableException(RoutePlannerUnavailableReason.InvalidPlanShape, error)
+        }
     }
 
     @JvmStatic
     private external fun planRouteJsonNative(inputJson: String): String
 
+    /**
+     * The library is packaged into the AAR as jniLibs (see
+     * android/inderun-core/build.gradle.kts), and the JVM unit tests get a
+     * host build on `java.library.path`, so both reach it by the same
+     * `System.loadLibrary` call. A failure here is a broken build, not a
+     * degraded mode: it is raised rather than recorded.
+     */
     @Synchronized
-    private fun ensureLoaded(): Boolean {
+    private fun ensureLoaded() {
         if (nativeLoaded) {
-            return true
+            return
         }
 
-        nativeLoaded = runCatching {
-            val explicitPath = System.getProperty("inderun.routeCoreLibPath")
-                ?: System.getenv("INDERUN_ROUTE_CORE_LIB_PATH")
-            if (!explicitPath.isNullOrBlank()) {
-                System.load(explicitPath)
-            } else {
-                System.loadLibrary("inderun_route_core")
-            }
-            true
-        }.getOrDefault(false)
+        try {
+            System.loadLibrary("inderun_route_core")
+        } catch (error: UnsatisfiedLinkError) {
+            throw RoutePlannerUnavailableException(
+                RoutePlannerUnavailableReason.LibraryUnavailable,
+                error,
+            )
+        }
 
-        return nativeLoaded
+        nativeLoaded = true
     }
 }
 
@@ -82,10 +122,12 @@ internal fun buildSharedPlannerInput(
     request: TaskRequest,
     online: Boolean,
     snapshots: List<ProviderSnapshot>,
+    interactionMode: InteractionMode = InteractionMode.Run,
 ): SharedPlannerInput {
     val constraints = request.constraints
     val preferences = request.preferences
     return SharedPlannerInput(
+        interactionMode = interactionMode,
         constraints = SharedPlannerConstraints(
             privacy = constraints?.privacy,
             cloud = constraints?.cloud,
@@ -98,7 +140,15 @@ internal fun buildSharedPlannerInput(
             SharedPlannerProviderInput(
                 descriptor = SharedPlannerProviderDescriptor(
                     id = snapshot.descriptor.id,
-                    supports = SharedPlannerProviderSupports(run = snapshot.descriptor.supports.run),
+                    supports = SharedPlannerProviderSupports(
+                        run = snapshot.descriptor.supports.run,
+                        streaming = snapshot.descriptor.supports.streaming,
+                    ),
+                    cancel = when (snapshot.descriptor.cancel) {
+                        ProviderDescriptor.CancelSemantics.hard -> Cancel.Hard
+                        ProviderDescriptor.CancelSemantics.soft -> Cancel.Soft
+                        ProviderDescriptor.CancelSemantics.none -> Cancel.None
+                    },
                     tasks = snapshot.descriptor.tasks,
                     type = when (snapshot.descriptor.type) {
                         ProviderDescriptor.ProviderType.local -> DescriptorType.Local
@@ -112,18 +162,47 @@ internal fun buildSharedPlannerInput(
                         )
                     },
                 ),
-                capabilities = SharedPlannerCapabilities(
-                    available = snapshot.capabilities.available,
-                    reason = snapshot.capabilities.reason,
-                ),
+                capabilities = streamingAwareCapabilities(snapshot),
             )
         },
         task = SharedPlannerTask(kind = request.task.kind.rawValue),
     )
 }
 
-private fun SharedPlannerInput.toJson(): String = JSONObject()
+/**
+ * Folds the "declares streaming but does not implement it" check into the
+ * dynamic capability the planner sees, so the mismatch is rejected during
+ * planning with an explanation instead of surfacing as an unexplained failure
+ * later. Mirrors `toSharedPlannerCapabilities` in the Web SDK's route planner.
+ */
+private fun streamingAwareCapabilities(snapshot: ProviderSnapshot): SharedPlannerCapabilities {
+    val declaresStreaming = snapshot.capabilities.streamingAvailable ?: snapshot.descriptor.supports.streaming
+    val implementsStream = snapshot.provider is StreamingProviderAdapter
+    val streamingUnavailableReason = snapshot.capabilities.streamingUnavailableReason
+        ?: if (declaresStreaming && !implementsStream) {
+            "Provider '${snapshot.descriptor.id}' declares streaming but does not implement stream()."
+        } else {
+            null
+        }
+
+    return SharedPlannerCapabilities(
+        available = snapshot.capabilities.available,
+        reason = snapshot.capabilities.reason,
+        streamingAvailable = declaresStreaming && implementsStream,
+        streamingUnavailableReason = streamingUnavailableReason,
+        cancellationAvailable = snapshot.capabilities.cancellationAvailable,
+    )
+}
+
+/**
+ * Hand-written serializer for the planner input. It is NOT regenerated with the
+ * contracts, so every field added to `route-planner-input.schema.json` has to be
+ * mirrored here — a field missing from this object is silently dropped on the way
+ * into the shared core and forks this platform's routing from the others.
+ */
+internal fun SharedPlannerInput.toJson(): String = JSONObject()
     .put("task", JSONObject().put("kind", task.kind))
+    .put("interactionMode", interactionMode?.let(::interactionModeValue))
     .put(
         "constraints",
         JSONObject()
@@ -145,6 +224,7 @@ private fun SharedPlannerInput.toJson(): String = JSONObject()
                         JSONObject()
                             .put("id", provider.descriptor.id)
                             .put("type", descriptorTypeValue(provider.descriptor.type))
+                            .put("cancel", provider.descriptor.cancel?.let(::cancelValue))
                             .put(
                                 "privacy",
                                 provider.descriptor.privacy?.let { privacy ->
@@ -158,7 +238,9 @@ private fun SharedPlannerInput.toJson(): String = JSONObject()
                             )
                             .put(
                                 "supports",
-                                JSONObject().put("run", provider.descriptor.supports.run),
+                                JSONObject()
+                                    .put("run", provider.descriptor.supports.run)
+                                    .put("streaming", provider.descriptor.supports.streaming),
                             )
                             .put("tasks", JSONArray(provider.descriptor.tasks)),
                     )
@@ -166,14 +248,23 @@ private fun SharedPlannerInput.toJson(): String = JSONObject()
                         "capabilities",
                         JSONObject()
                             .put("available", provider.capabilities.available)
-                            .put("reason", provider.capabilities.reason),
+                            .put("reason", provider.capabilities.reason)
+                            .put("streamingAvailable", provider.capabilities.streamingAvailable)
+                            .put(
+                                "streamingUnavailableReason",
+                                provider.capabilities.streamingUnavailableReason,
+                            )
+                            .put(
+                                "cancellationAvailable",
+                                provider.capabilities.cancellationAvailable,
+                            ),
                     )
             },
         ),
     )
     .toString()
 
-private fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
+internal fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
     val root = JSONObject(json)
     val explanation = root.getJSONObject("explanation")
     return SharedPlannerRoutePlan(
@@ -189,11 +280,25 @@ private fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
     )
 }
 
+/**
+ * An unknown failure code from a newer native route core is folded into [FailureCode.Unavailable]
+ * rather than thrown: the plan did fail, and the specific class is only a diagnostic refinement.
+ */
 private fun parseFailureCode(value: String): FailureCode = when (value) {
     "capability_mismatch" -> FailureCode.CapabilityMismatch
     "offline" -> FailureCode.Offline
-    "unavailable" -> FailureCode.Unavailable
-    else -> throw IllegalArgumentException("Unknown FailureCode: $value")
+    else -> FailureCode.Unavailable
+}
+
+private fun interactionModeValue(value: InteractionMode): String = when (value) {
+    InteractionMode.Run -> "run"
+    InteractionMode.Stream -> "stream"
+}
+
+private fun cancelValue(value: Cancel): String = when (value) {
+    Cancel.Hard -> "hard"
+    Cancel.Soft -> "soft"
+    Cancel.None -> "none"
 }
 
 private fun descriptorTypeValue(value: DescriptorType): String = when (value) {
@@ -249,20 +354,55 @@ private fun JSONArray?.toRejectedProviders(): List<SharedPlannerRejectedProvider
     }
 }
 
-private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> = List(length()) { index ->
-    val reason = getJSONObject(index)
-    SharedPlannerRejectedReason(
-        code = parseReasonCode(reason.getString("code")),
-        message = reason.getString("message"),
-    )
-}
+/**
+ * Reasons carrying a code this build does not know are dropped rather than fatal: the native
+ * route core can be newer than the Kotlin core it is paired with, and an unrecognized diagnostic
+ * must never turn a successful plan into a crash.
+ */
+private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> = (0 until length())
+    .mapNotNull { index ->
+        val reason = getJSONObject(index)
+        parseReasonCode(reason.getString("code"))?.let { code ->
+            SharedPlannerRejectedReason(
+                code = code,
+                message = reason.getString("message"),
+            )
+        }
+    }
 
-private fun parseReasonCode(value: String): SharedPlannerReasonCode = when (value) {
+private fun parseReasonCode(value: String): SharedPlannerReasonCode? = when (value) {
     "capability_unavailable" -> SharedPlannerReasonCode.CapabilityUnavailable
     "cloud_constraint" -> SharedPlannerReasonCode.CloudConstraint
     "offline" -> SharedPlannerReasonCode.Offline
     "privacy_constraint" -> SharedPlannerReasonCode.PrivacyConstraint
     "run_not_supported" -> SharedPlannerReasonCode.RunNotSupported
+    "streaming_not_supported" -> SharedPlannerReasonCode.StreamingNotSupported
+    "streaming_unavailable" -> SharedPlannerReasonCode.StreamingUnavailable
     "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
-    else -> throw IllegalArgumentException("Unknown ReasonCode: $value")
+    else -> null
+}
+
+/**
+ * The inverses of [parseFailureCode] and [parseReasonCode], for putting a plan's diagnostics back
+ * on the wire when a routing failure carries them out on an exception.
+ *
+ * quicktype generates [FailureCode] and [Code] as bare enums with no `rawValue`, so the wire
+ * spellings have to be written by hand. Both `when`s are exhaustive with no `else`: a future
+ * regeneration that adds a constant must be a compile error here, not a silently wrong string.
+ */
+internal fun failureCodeValue(value: FailureCode): String = when (value) {
+    FailureCode.CapabilityMismatch -> "capability_mismatch"
+    FailureCode.Offline -> "offline"
+    FailureCode.Unavailable -> "unavailable"
+}
+
+internal fun reasonCodeValue(value: SharedPlannerReasonCode): String = when (value) {
+    SharedPlannerReasonCode.CapabilityUnavailable -> "capability_unavailable"
+    SharedPlannerReasonCode.CloudConstraint -> "cloud_constraint"
+    SharedPlannerReasonCode.Offline -> "offline"
+    SharedPlannerReasonCode.PrivacyConstraint -> "privacy_constraint"
+    SharedPlannerReasonCode.RunNotSupported -> "run_not_supported"
+    SharedPlannerReasonCode.StreamingNotSupported -> "streaming_not_supported"
+    SharedPlannerReasonCode.StreamingUnavailable -> "streaming_unavailable"
+    SharedPlannerReasonCode.TaskNotSupported -> "task_not_supported"
 }

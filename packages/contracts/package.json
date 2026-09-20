@@ -1,7 +1,7 @@
 {
   "name": "@independo/inderun-contracts",
   "version": "0.2.2",
-  "description": "Canonical JSON Schemas, generated TypeScript types, and validators for IndeRun contracts.",
+  "description": "Canonical JSON Schemas, generated TypeScript types, and validators for the IndeRun task, streaming, error, and routing contracts.",
   "license": "MIT",
   "author": {
     "name": "Independo GmbH",
@@ -11,7 +11,7 @@
   "bugs": "https://github.com/independo-gmbh/inderun/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/independo-gmbh/inderun.git",
+    "url": "git+https://github.com/independo-gmbh/inderun.git",
     "directory": "packages/contracts"
   },
   "publishConfig": {
@@ -21,9 +21,12 @@
   "keywords": [
     "inderun",
     "ai",
+    "llm",
     "contracts",
     "json-schema",
-    "validation"
+    "validation",
+    "types",
+    "streaming"
   ],
   "engines": {
     "node": ">=24"
@@ -39,18 +42,21 @@
   },
   "files": [
     "dist",
+    "src",
+    "!src/**/*.test.ts",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "verify:packaging": "publint && attw --pack . --profile esm-only",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "ajv": "^8.20.0"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "vitest": "^4.1.10"
+    "@types/node": "^26.5.1",
+    "vitest": "^4.1.11"
   }
 }

@@ -1,4 +1,9 @@
-import type { TaskRequest, TaskResult } from "@independo/inderun-contracts";
+import type {
+  StreamEvent,
+  StreamRunHandle,
+  TaskRequest,
+  TaskResult
+} from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
 
 /**
@@ -89,6 +94,25 @@ export interface ProviderDynamicCapabilities {
    * Detail message if availability check fails.
    */
   reason?: string;
+  /**
+   * Whether the provider can stream (Mode 2) right now on this host. Leave
+   * undefined to inherit the static `descriptor.supports.streaming` value —
+   * only set it when the runtime environment can take streaming away from a
+   * provider that otherwise declares it (e.g. the host has no chunked HTTP
+   * capability).
+   */
+  streamingAvailable?: boolean;
+  /**
+   * Detail message used when `streamingAvailable` is false. Omit to let the
+   * route planner synthesize a generic message.
+   */
+  streamingUnavailableReason?: string;
+  /**
+   * Whether cancellation is honored right now on this host. Leave undefined to
+   * inherit the static `descriptor.cancel` value (anything other than `"none"`
+   * means available).
+   */
+  cancellationAvailable?: boolean;
 }
 
 /**
@@ -129,6 +153,45 @@ export interface RunContext {
 }
 
 /**
+ * Execution context passed to provider stream commands. Extends RunContext with the
+ * caller-driven cancellation signal; the Engine core owns the AbortController and
+ * threads its signal here, so providers never need to construct their own.
+ */
+export interface ProviderStreamContext extends RunContext {
+  /**
+   * Signals caller-driven cancellation of this stream. Providers with `cancel: "hard"`
+   * should tear down their connection immediately on abort; `cancel: "soft"` providers
+   * may stop relaying events without interrupting underlying local work; `cancel:
+   * "none"` providers may ignore it entirely; the engine enforces the caller-visible
+   * cancellation guarantee at the consumer loop regardless of what the provider does.
+   */
+  signal: AbortSignal;
+}
+
+/**
+ * A raw, provider-shaped streaming event yielded by ProviderAdapter.stream(). This is
+ * intentionally distinct from the canonical StreamEvent contract: providers emit
+ * provider-shaped deltas here, and the Engine core's Event Gate normalizes these into
+ * StreamEvent/StreamTerminalOutcome, keeping provider-specific mechanics from leaking
+ * through the public API.
+ */
+export type ProviderStreamEvent =
+  | { kind: "delta"; text: string }
+  | { kind: "snapshot"; text: string }
+  | {
+      kind: "done";
+      finalText: string;
+      /**
+       * How generation ended, when the provider reports it. Mirrors
+       * `TaskResult.finishReason` for Mode 1 and surfaces on the `completed`
+       * terminal outcome; omit when the provider gives no signal.
+       */
+      finishReason?: TaskResult["finishReason"];
+      usage?: TaskResult["usage"];
+    }
+  | { kind: "error"; error: unknown };
+
+/**
  * Pluggable execution adapter contract that wraps a specific model runtime
  * (system frameworks, local runtimes, or cloud APIs) and exposes normalized APIs.
  */
@@ -145,4 +208,24 @@ export interface ProviderAdapter {
    * Executes a task request in Mode 1 (request/response).
    */
   run(req: TaskRequest, ctx: RunContext): Promise<TaskResult>;
+  /**
+   * Executes a task request in Mode 2 (streaming). Optional: only providers declaring
+   * `describe().supports.streaming === true` are expected to implement this.
+   */
+  stream?(req: TaskRequest, ctx: ProviderStreamContext): AsyncIterable<ProviderStreamEvent>;
+}
+
+/**
+ * What `IndeRun.stream()` returns: the run's identity, its canonical event
+ * sequence, and a cancel hook.
+ *
+ * `events` terminates in exactly one terminal `StreamEvent`, per the Event
+ * Gate's guarantee, and is single-use — the run is driven once, not restarted
+ * per consumer. `cancel()` is idempotent: repeated or concurrent calls produce
+ * exactly one `cancelled` terminal outcome.
+ */
+export interface StreamRun {
+  handle: StreamRunHandle;
+  events: AsyncIterable<StreamEvent>;
+  cancel(reason?: string): void;
 }

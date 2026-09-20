@@ -7,6 +7,11 @@ overrides:
   # GHSA-f88m-g3jw-g9cj: sharp <0.35.0 bundles a libvips with several CVEs.
   # Pulled in transitively via @huggingface/transformers.
   sharp@<0.35.0: ">=0.35.0"
+  # GHSA-m283-3h24-438v, GHSA-m5w8-4gq2-6f8x, GHSA-cfcw-xp6x-25gj: vm2 has
+  # unfixable sandbox-escape RCEs and is deprecated. typescript-json-schema
+  # dropped it entirely in 0.68.0; pulled in transitively via quicktype ->
+  # quicktype-typescript-input, which still pins 0.67.4.
+  typescript-json-schema@<0.68.0: ">=0.68.0"
 allowBuilds:
   esbuild: true
   # Node-only extras pulled in by @huggingface/transformers. The demo runs the ONNX provider in the

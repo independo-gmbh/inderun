@@ -12,10 +12,52 @@ It also includes provider-family bootstrap contracts such as `model-package.sche
 provider-neutral `ModelPackage` used by local-model provider families; see
 `docs/architecture/onnx-runtime-provider-family.md`).
 
+It also includes the canonical Mode 2 streaming contracts — `stream-run.schema.json`
+(`StreamRunHandle`), `stream-event.schema.json` (`StreamEvent`), and
+`stream-terminal-outcome.schema.json` (`StreamTerminalOutcome`). The TypeScript Engine core
+implements the Mode 2 orchestrator against these, and `route-planner-input.schema.json` carries
+the requested `interactionMode` plus the static/dynamic streaming capability fields the planner
+needs to route it. The TypeScript, Swift, and Kotlin engines all implement Mode 2, and the
+OpenAI-compatible provider streams on all three (see
+`docs/architecture/architecture.md#streaming-contracts-and-orchestration-mode-2`). What these shapes
+add up to for a consumer — event semantics, ordering, cancellation, fallback — is
+[`docs/streaming.md`](../docs/streaming.md).
+
+`fixtures/streaming/` holds cross-SDK conformance vectors for behavior that is implemented
+separately per platform and so has no generator keeping it in sync: `sse-framing.json` for the
+server-sent events framer in each core, and `openai-responses-transcript.json` for the OpenAI
+event mapping in each adapter. Each is loaded directly by all three test suites.
+
+`engine-conformance.json` sits in the same directory but is a different kind of artifact. The two
+above are fully data-driven — bytes in, events out — while this one is a **scenario catalog** for
+Mode 2 orchestration: the setup and the expected observable outcome are shared data, but the trigger
+(when a cancel lands relative to a provider emit) stays in each platform's own concurrency
+primitives. Each SDK registers one handler per case id and a guard test fails when the handler ids
+and the catalog ids are not equal, so a scenario covered on one platform and not another is a red
+test rather than a review finding. See [`docs/streaming-conformance.md`](../docs/streaming-conformance.md).
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
+
+## Schema evolution and forward compatibility
+
+- **Additive, backward-compatible changes** (new optional properties, a new `StreamEvent.type`
+  variant) do not bump `schemaVersion` or the `$id` version segment. Every schema keeps
+  `additionalProperties: true` for this reason, and `StreamEvent` specifically closes its type
+  union with an open catch-all branch so a consumer built against an older revision of the schema
+  does not hard-fail when a newer, additive revision introduces a new known event type.
+- **Breaking changes** (removing/renaming a required field, changing what a `const`/`enum` value
+  means) require a new `$id` version segment (e.g. `.../2.0/...`) and a new `schemaVersion` const,
+  coexisting with `1.0` during a migration window. The existing "rejects unsupported schema
+  versions" tests in `packages/contracts/src/validators.test.ts` already assert an out-of-range
+  `schemaVersion` is rejected by the current validator — that mechanism is what a version bump
+  relies on.
+- **Consumer-side behavioral policy** (JSON Schema alone can't express this — it's a contract on
+  SDK behavior, not payload shape): SDKs MUST treat an unrecognized `StreamEvent.type` as
+  ignore-or-pass-through-for-diagnostics, never as a hard error/exception. See the `description`
+  field of `stream-event.schema.json` for the schema-level statement of this policy.
 
 ## API surface generation
 

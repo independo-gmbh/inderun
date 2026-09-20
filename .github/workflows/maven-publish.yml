@@ -1,8 +1,18 @@
 name: Maven Publish
 
-# Publishes the Android library modules to Maven Central when a stable GitHub
-# release is created (by the Release workflow / semantic-release). Prereleases
-# (from the dev branch) are skipped — Maven Central hosts stable releases only.
+# Publishes the Android library modules to Maven Central when a GitHub release is
+# created (by the Release workflow / semantic-release), prereleases included: the
+# Capacitor bridge lives in its own repository and consumes these artifacts from
+# Maven Central, so it cannot develop against a `-dev.N` line that npm and SwiftPM
+# have but Maven does not.
+#
+# The published version comes from the tag, NOT from android/gradle.properties.
+# semantic-release only commits the version bump on stable releases (see
+# release.config.js), so on a prerelease tag `inderunVersion` still holds the
+# previous stable version — publishing from it would label the artifacts wrongly.
+# The Publish step therefore passes -PinderunVersion explicitly, overriding the
+# gradle.properties value that android/build.gradle.kts reads.
+#
 # workflow_dispatch allows manually re-running a publish (e.g. against an
 # already-released tag) without cutting a new GitHub release.
 on:
@@ -14,6 +24,10 @@ on:
         description: 'Tag or ref to publish (defaults to the triggering ref)'
         required: false
         type: string
+      version:
+        description: 'Version to publish (defaults to the ref/tag minus its leading "v")'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,7 +35,6 @@ permissions:
 jobs:
   maven-publish:
     name: Publish to Maven Central
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -30,24 +43,62 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.event.release.tag_name || github.ref }}
 
+      # See the header comment: the tag is the version authority, not gradle.properties.
+      # Fails loudly rather than falling back, so a malformed ref can never publish
+      # artifacts under a stale version.
+      - name: Resolve the publish version
+        id: version
+        env:
+          RAW_VERSION: ${{ inputs.version || inputs.ref || github.event.release.tag_name || github.ref_name }}
+        run: |
+          version="${RAW_VERSION#refs/tags/}"
+          version="${version#v}"
+          if [ -z "$version" ]; then
+            echo "Could not resolve a version to publish from '$RAW_VERSION'." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing app.independo.inderun:*:$version"
+
+      # inderun-core packages the shared Rust route core as jniLibs; the Gradle
+      # task shells out to scripts/build-route-core-android.mjs, so both Node and
+      # the pinned Rust toolchain are build dependencies of the published AAR.
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Version, components and targets come from rust-toolchain.toml.
+      - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # the toolchain file decides which compiler actually runs.
+        uses: dtolnay/rust-toolchain@stable
+
+      # The action above only provides rustup. No arguments, so the version still
+      # comes only from rust-toolchain.toml -- see docs/ci.md for why this is a
+      # step rather than left to rustup.
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
+
       - name: Set up JDK 21
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           java-version: '21'
           distribution: zulu
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
 
       # compileSdk (37) is resolved on demand by Gradle/AGP during the Publish step below,
       # same as android.yml -- no manual `sdkmanager platforms;...` install needed (and the
       # android-37 platform package isn't available via sdkmanager's remote repo index yet).
 
       # inderun-onnx-providers declares a CMake native target (see its build.gradle.kts) solely to
-      # get AGP to package libc++_shared.so; publishToMavenCentral reaches those tasks, so the
-      # NDK/CMake must be present -- android-actions/setup-android doesn't install them by default
-      # and AGP does not auto-download a missing NDK in CI.
+      # get AGP to package libc++_shared.so, and inderun-core cross-compiles the route core for the
+      # four Android ABIs; publishToMavenCentral reaches those tasks, so the NDK/CMake must be
+      # present -- android-actions/setup-android doesn't install them by default and AGP does not
+      # auto-download a missing NDK in CI.
       - name: Cache Android NDK and CMake
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -61,7 +112,7 @@ jobs:
 
       - name: Publish to Maven Central
         working-directory: android
-        run: ./gradlew publishToMavenCentral --no-daemon --stacktrace
+        run: ./gradlew publishToMavenCentral --no-daemon --stacktrace -PinderunVersion=${{ steps.version.outputs.version }}
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}

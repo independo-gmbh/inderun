@@ -19,6 +19,8 @@ registered providers:
 - For on-device ML Kit mode:
   - a device or emulator with Gemini Nano/AICore support (most emulator images do not have this;
     expect `Unavailable` there — this is expected, not a bug)
+  - Android 8.0+ (API 26); the ML Kit GenAI Prompt API is not supported on devices with an
+    unlocked bootloader
 - For the ONNX local provider:
   - no setup needed — DistilGPT-2 (quantized, ~84 MB) downloads automatically from Hugging Face on
     first launch (Wi-Fi recommended) into the app's private storage (`context.filesDir`), and is
@@ -40,7 +42,7 @@ registered providers:
 - `android/inderun-demo-app`: this Gradle application module (Jetpack Compose)
 - `MainActivity.kt`, `DemoViewModel.kt`, `DemoScreen.kt`: app entry point, state, and UI
 - `AndroidDemoRuntime.kt`: builds the `ProviderRegistry` (ML Kit + ONNX + cloud) and drives
-  `IndeRun.run()`/`checkCapabilities()`
+  `IndeRun.run()`/`IndeRun.stream()`/`checkCapabilities()`
 - `DemoOnnxModel.kt`: ONNX model catalog and Hugging Face downloader
 
 The module depends on:
@@ -69,6 +71,33 @@ The module depends on:
 7. Review the **Result** panel for generated text or a normalized `IndeRunException`, and the
    **Routing Decision** panel for which provider was selected, why, and which providers (if any)
    were rejected.
+
+## Manual Streaming Test (Mode 2)
+
+Tapping **Stream** instead of **Run** sends the same request through `IndeRun.stream(request)` and
+renders content events in the **Streaming (Mode 2)** panel as they arrive. **Cancel** replaces the
+button while a stream is in flight.
+
+Only two of the three registered providers stream: Android ML Kit GenAI (on-device) and the
+OpenAI-compatible cloud provider. The ONNX Local provider does not, so it is rejected at routing
+time for every stream request. When routing still finds a streaming provider, ONNX shows up under
+**Rejected** in the **Routing Decision** panel (which lists provider ids, not reason codes; the
+underlying code here is `streaming_not_supported`). When routing finds none, it refuses the call
+outright — no run handle and no events, so the streaming panel is never populated.
+
+- **On-device streaming** requires a real device with AICore and Gemini Nano ready. Choose
+  `Local Only` and tap **Stream**: text arrives in incremental `content_delta` events, so the panel
+  grows as chunks land. This path cannot be exercised on most emulator images or in CI — Gemini
+  Nano is unavailable there, and routing correctly refuses the request.
+- **Cloud streaming** works on the emulator against the demo proxy. Choose `Cloud Only` and tap
+  **Stream**: the OpenAI adapter also emits incremental `content_delta` events.
+- **Cancellation**: tap **Cancel** mid-generation. The run ends with a `cancelled` outcome — shown
+  on the panel's title row — carrying whatever text had already been delivered. No event arrives
+  after it, and repeated taps are harmless.
+
+This is the only test that covers ML Kit's real behavior. The unit suites drive a fake runtime, so
+they prove the adapter's event, error and cancellation contract — not that ML Kit chunks
+incrementally, reports finish reasons, or stops generating when cancelled.
 
 ## Demo Proxy Setup
 
@@ -104,6 +133,16 @@ pnpm --filter @independo/inderun-demo-proxy dev
   response
 - `AuthError`: the configured upstream rejected authentication
 - `Internal`: an unexpected runtime or payload-mapping failure occurred
+- `CapabilityMismatch` on **Stream** specifically: no registered provider can stream under the
+  current preference. `Local Only` on an emulator without Gemini Nano always lands here, because
+  the ONNX Local provider does not implement Mode 2. This is a routing refusal, so it rejects the
+  `stream()` call itself — no run handle and no events.
+- `cancelled` terminal outcome: not an error. It is the normal result of tapping **Cancel**, and it
+  carries the partial text delivered before the cancel landed.
+- `CapabilityMismatch` with an empty **Streaming (Mode 2)** panel: Gemini Nano rejected the prompt or
+  the half-generated response on a policy check. The provider retracts what it had already streamed,
+  so the panel clears rather than leaving rejected text on screen — that is the intended behavior,
+  not a lost response.
 
 ## Notes
 
@@ -113,6 +152,8 @@ pnpm --filter @independo/inderun-demo-proxy dev
   machine (`10.0.2.2` is the emulator's alias for the host loopback interface).
 - ML Kit GenAI availability depends on device class, OS version, and Gemini Nano/AICore
   readiness — most emulator images report `Unavailable`, which is expected.
+- ML Kit's stream reports no token usage, and completion is `stop` unless generation hit the token
+  budget (`length`) — that is the runtime's limit, not a gap in the demo.
 - The ONNX Local provider downloads and caches a small real model automatically; until that
   download finishes (or if you explicitly pick the fixture option), it runs against a
   deterministic fixture runtime instead, so the demo still works offline.

@@ -5,14 +5,16 @@
  * (validation, routing, or every attempted provider failing) is surfaced by run() throwing
  * an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
  * are reserved for a provider reporting a non-fatal, degraded outcome on an
- * otherwise-successful result (not currently produced by any provider in this codebase).
+ * otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI
+ * provider; telemetry.errorClass is not currently set by any provider in this codebase).
  */
 export type TaskResult = {
     /**
      * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
      * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
-     * otherwise-returned result — no provider in this codebase currently produces it, since a
-     * full execution failure is instead surfaced by run() throwing an IndeRunError.
+     * otherwise-returned result — the Android ML Kit GenAI provider produces it when Gemini
+     * Nano reports a finish reason that is neither a natural stop nor the token limit. A full
+     * execution failure is instead surfaced by run() throwing an IndeRunError.
      */
     finishReason: FinishReason;
     /**
@@ -41,8 +43,9 @@ export type TaskResult = {
 /**
  * How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
  * 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an
- * otherwise-returned result — no provider in this codebase currently produces it, since a
- * full execution failure is instead surfaced by run() throwing an IndeRunError.
+ * otherwise-returned result — the Android ML Kit GenAI provider produces it when Gemini
+ * Nano reports a finish reason that is neither a natural stop nor the token limit. A full
+ * execution failure is instead surfaced by run() throwing an IndeRunError.
  */
 export type FinishReason = "stop" | "length" | "cancelled" | "error";
 

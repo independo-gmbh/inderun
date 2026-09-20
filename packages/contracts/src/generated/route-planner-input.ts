@@ -1,13 +1,19 @@
 /* This file was generated from JSON Schema using quicktype. Do not edit by hand. */
 
 /**
- * Pure data input contract for deterministic shared-core Mode-1 route planning.
+ * Pure data input contract for deterministic shared-core route planning.
  */
 export type RoutePlannerInput = {
     /**
      * Hard routing constraints evaluated before provider selection.
      */
     constraints: Constraints;
+    /**
+     * Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+     * produced before this field existed keep their exact Mode-1 semantics. The mode filters
+     * eligible providers; it never changes candidate ordering.
+     */
+    interactionMode?: InteractionMode;
     /**
      * Soft route ordering preferences applied after hard filtering.
      */
@@ -53,6 +59,13 @@ export type Cloud = "forbidden" | "allowed" | "required";
 export type PrivacyEnum = "local_required" | "local_preferred" | "cloud_allowed" | "cloud_required";
 
 /**
+ * Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
+ * produced before this field existed keep their exact Mode-1 semantics. The mode filters
+ * eligible providers; it never changes candidate ordering.
+ */
+export type InteractionMode = "run" | "stream";
+
+/**
  * Soft route ordering preferences applied after hard filtering.
  */
 export type Preferences = {
@@ -76,12 +89,32 @@ export type Provider = {
 
 export type Capabilities = {
     available: boolean;
-    reason?:   string;
+    /**
+     * Whether cancellation is honored right now in this host environment. Absent inherits the
+     * static descriptor.cancel value (any value other than 'none' means available).
+     */
+    cancellationAvailable?: boolean;
+    reason?:                string;
+    /**
+     * Whether the provider can stream right now in this host environment. Absent inherits the
+     * static descriptor.supports.streaming value.
+     */
+    streamingAvailable?: boolean;
+    /**
+     * Human-readable explanation used when streamingAvailable is false. Absent lets the planner
+     * synthesize a default message.
+     */
+    streamingUnavailableReason?: string;
     [property: string]: unknown;
 }
 
 export type Descriptor = {
-    id: string;
+    /**
+     * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+     * the planner does not filter on it.
+     */
+    cancel?: Cancel;
+    id:      string;
     /**
      * Descriptor privacy metadata used to enforce local/cloud routing rules.
      */
@@ -91,6 +124,12 @@ export type Descriptor = {
     type:     Type;
     [property: string]: unknown;
 }
+
+/**
+ * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
+ * the planner does not filter on it.
+ */
+export type Cancel = "hard" | "soft" | "none";
 
 /**
  * Descriptor privacy metadata used to enforce local/cloud routing rules.
@@ -103,6 +142,11 @@ export type PrivacyObject = {
 
 export type Supports = {
     run: boolean;
+    /**
+     * Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
+     * descriptor that predates this field cannot be assumed to stream.
+     */
+    streaming?: boolean;
     [property: string]: unknown;
 }
 

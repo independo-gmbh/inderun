@@ -17,7 +17,7 @@ A single repository-wide version is applied to every artifact on each release.
 **Published separately:** `@independo/capacitor-inderun`. CocoaPods is being deprecated and
 Capacitor 8 defaults to SwiftPM, and a repo can only expose one SwiftPM package at its root
 (already the IndeRun Swift SDK here). The Capacitor bridge therefore lives in its own,
-SwiftPM-only repository — [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor) —
+SwiftPM-only repository — [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun) —
 which runs its own release pipeline and consumes the artifacts published here.
 
 ## Branch strategy
@@ -45,13 +45,55 @@ which runs its own release pipeline and consumes the artifacts published here.
      Publishing — no `NPM_TOKEN`);
    - commits the version/changelog files, tags `vX.Y.Z`, and creates the GitHub release.
 4. The published GitHub release triggers `.github/workflows/maven-publish.yml`, which runs
-   `./gradlew publishToMavenCentral` for the library modules (stable releases only).
-5. Swift consumers use the new git tag directly — no separate publish step.
+   `./gradlew publishToMavenCentral` for the library modules — **prereleases included**, so the
+   separately released Capacitor bridge has a `-dev.N` line to build against on Android the way
+   it already does on npm and SwiftPM. The version it publishes comes from the tag, passed as
+   `-PinderunVersion`: on a prerelease semantic-release does not commit the version bump (step 3
+   writes it to the working tree only), so `android/gradle.properties` at a `-dev.N` tag still
+   holds the previous stable version and must not be trusted as the publish version.
+5. Swift consumers use the new git tag directly — no separate publish step. Because the tag is
+   the distribution channel, the release job is gated on a `Verify Apple artifact` job that
+   checks the committed route-core XCFramework against its provenance manifest before anything
+   is tagged (see [ci.md](./ci.md)).
 
 ## Versioning (Conventional Commits)
 
-`feat:` → minor, `fix:` → patch, `BREAKING CHANGE:` (or `!`) → major. Chore/docs/refactor/
-test/build/ci/perf/style all produce a patch (see `.releaserc` for the exact `releaseRules`).
+`feat:` → minor, `fix:` → patch. Chore/docs/refactor/test/build/ci/perf/style all produce a
+patch (see `release.config.js` for the exact `releaseRules`).
+
+`BREAKING CHANGE:` (or `!`) → **minor while the project is pre-1.0**, not major. 0.x is where
+"the surface is still moving" is expressed; letting a `!` commit cut `1.0.0` automatically
+would announce a stability guarantee the project has not made yet. Commits still carry `!` and
+`BREAKING CHANGE:` footers, so the GitHub release notes and CHANGELOG still call the break out
+under its own heading — only the version arithmetic differs. Cutting 1.0.0 is therefore a
+deliberate act: flip `{ breaking: true, release: "minor" }` back to `"major"` in
+`release.config.js` as part of that release.
+
+### Footer order in a commit message
+
+`BREAKING CHANGE:` must be the **last** footer, with nothing after it. Trailers
+(`Co-Authored-By`, `Claude-Session`, `Signed-off-by`) and issue references
+(`Closes #123`) go above it.
+
+semantic-release's parser reads everything after `BREAKING CHANGE:` as part of that
+note and prints it verbatim under the release's ⚠ heading. It does not stop at the
+next trailer, so a trailer placed below the footer is published as if it were part
+of the breaking-change description — `v0.3.0-dev.9`'s iOS entry carries two of them
+for exactly that reason, while the two sibling commits that put the footer last came
+out clean.
+
+`.gitmessage` at the repository root is a template encoding this order. It is not
+active by default, since git keeps `commit.template` in local config:
+
+```sh
+git config commit.template .gitmessage
+```
+
+One trade to know about: GitHub only attributes a `Co-authored-by` trailer when it
+sits in the message's final paragraph, so on a breaking commit the co-author is
+recorded in the message but not shown as a commit author in the GitHub UI. That is
+why the reordering is scoped to breaking commits only — they are the rare case, and
+on them readable release notes are worth more than the avatar.
 
 ## Consuming the packages
 

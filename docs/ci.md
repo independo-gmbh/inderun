@@ -10,22 +10,43 @@ truth for exact steps. This table describes only what each one covers.
 - `JavaScript` (`javascript.yml`): builds and tests the pnpm packages, regenerating the shared contract and Rust→WASM artifacts first.
 - `Rust` (`rust.yml`): builds and tests the `inderun_route_core` crate.
 - `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
-- `Android` (`android.yml`): builds and tests the Gradle modules.
-- The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor), which runs its own web/iOS/Android CI there.
+- `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs.
+- The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
-- `Maven Publish` (`maven-publish.yml`): on a published (non-prerelease) GitHub release, publishes the Android library modules to Maven Central.
-- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
+- `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
+- `Maven Publish` (`maven-publish.yml`): on a published GitHub release — prereleases included — publishes the Android library modules to Maven Central. The version comes from the tag (passed as `-PinderunVersion`), not from `android/gradle.properties`, because semantic-release only commits the version bump on stable releases. Prereleases are published because the Capacitor bridge consumes these artifacts from Maven Central and would otherwise have no `-dev.N` line to develop against, unlike npm and SwiftPM. `workflow_dispatch` takes optional `ref` and `version` inputs for a manual re-run.
+- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21, Node, the Rust toolchain, and the Android SDK/NDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
 
 ## Code Scanning
 
 Code scanning uses **advanced setup** — the committed `codeql.yml` workflow is the source
 of truth, not GitHub's default (UI-managed) setup. The two conflict, so **default setup
 must be set to "Not configured"** under Settings → Code security → Code scanning; otherwise
-the CodeQL runs fail. The compiled languages use explicit manual builds so the autobuilder
-can't lock onto a demo/sample app: Swift builds the SwiftPM package (`swift build` from the
-repository root) rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
-`./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both
-scan the product code, not the sample apps.
+the CodeQL runs fail.
+
+The compiled languages use explicit manual builds so the autobuilder can't lock onto a
+demo/sample app: Swift builds the SwiftPM package (`swift build` from the repository root)
+rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
+`./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both scan
+the product code, not the sample apps.
+
+**`java-kotlin` must stay `build-mode: manual`.** Buildless extraction (`build-mode: none`)
+covers Java only, and this repository's Android source is Kotlin — a buildless run finds nothing
+and fails at database finalize with "CodeQL could not process any code written in Java/Kotlin".
+Kotlin extraction happens through the compiler, so the scan needs a real build.
+
+That build is why this job carries Node and the Rust toolchain alongside JDK 21 and the Android
+SDK/NDK: `assembleDebug` reaches `:inderun-core:buildRouteCoreAndroid`, which shells out to
+`scripts/build-route-core-android.mjs`. Omitting them broke the scan for three weeks once the
+route core moved into the Gradle build (#204) — the cross-compile failed with `can't find crate
+for core`, because the Android rustup targets were never installed, and took the whole analysis
+down with it.
+
+`dtolnay/rust-toolchain` alone is not enough, here or in `android.yml`: it installs rustup with
+`--default-toolchain none`, so nothing from `rust-toolchain.toml` exists yet — including its ten
+`targets`. Both workflows follow it with an explicit `rustup toolchain install --no-self-update`,
+argument-free so the version still comes only from the toolchain file. Dropping that step
+reproduces the same `can't find crate for core` failure with rustup apparently present.
 
 CodeQL's `pull_request` trigger only targets `main` — every PR into `main` gets full
 analysis. `dev` is not PR-gated by CodeQL; it relies on the weekly `schedule` run
@@ -60,10 +81,10 @@ To avoid running, e.g., the Android build for a docs-only or web-only PR, each o
 `javascript.yml`/`android.yml`/`rust.yml`/`swift.yml` runs a `changes` job first and
 skips the real job via `needs`/`if` when nothing relevant changed:
 
-- `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**` (feeds the WASM bindings), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
-- `android.yml`: `android/**`
+- `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**`, `Cargo.toml`, `Cargo.lock`, `scripts/build-route-core-wasm.mjs` (all of these feed the WASM bindings, and the Web SDK has no fallback planner — a dependency-only change can alter the compiled route core and therefore Web routing), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
+- `android.yml`: `android/**`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `scripts/build-route-core-android.mjs`, `scripts/rust-toolchain.mjs` (the Kotlin SDK loads the compiled route core and has no fallback planner, so anything that can change the core changes Android routing)
 - `rust.yml`: `rust/**`, `Cargo.toml`, `Cargo.lock`
-- `swift.yml`: `ios/**`, `Package.swift`
+- `swift.yml`: `ios/**`, `Package.swift`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and the four route-core scripts under `scripts/` (the Swift SDK links the compiled route core and has no fallback planner, so anything that can change the core changes iOS routing — and anything that can change the core's _provenance checks_ has to re-run them)
 
 Each filter also includes the workflow's own file, so editing a workflow always
 re-runs it. This is deliberately done as an in-workflow `changes` job rather than a
@@ -86,6 +107,35 @@ it updates both the SHA and the version comment together. `dtolnay/rust-toolchai
 is the one intentional exception: it tracks whatever Rust's current stable release is,
 which is the point of using it, so pinning it to a SHA would defeat the purpose.
 
+## Rebuilding the XCFramework for Dependabot
+
+Every Cargo bump makes the committed `InderunRouteCoreFFI.xcframework` stale, because its
+provenance manifest hashes `Cargo.lock` and the binary in git was linked against the previous
+dependency set. That is a real failure, not a false alarm — but Dependabot cannot produce a
+macOS artifact, so without help every cargo PR lands red and waits for someone to run
+`pnpm build:route-core-apple` locally.
+
+`route-core-apple-refresh.yml` makes that commit instead. Three things about it are load-bearing:
+
+- **It triggers on `workflow_run`, not `pull_request`.** Runs triggered by Dependabot get a
+  read-only `GITHUB_TOKEN` and no Actions secrets, so they cannot push. A `workflow_run` run
+  executes in the base repository with the normal token and secrets. That privilege is also why
+  the job is gated on the head being a `dependabot/cargo/**` branch _in this repository_ —
+  never a fork.
+- **The provenance check decides whether it acts.** A `Swift` failure can have nothing to do
+  with the artifact, and rewriting a committed executable needs a reason. It is also what keeps
+  the workflow from looping: Rust builds are not byte-reproducible, so an unconditional rebuild
+  would push a new commit on every run indefinitely.
+- **The token is scoped to the push step.** Checkout runs with `persist-credentials: false`, so
+  the bumped crates' build scripts compile with no credential in `.git/config` or in the
+  environment. `GH_TOKEN` (the same PAT/App token `release.yml` uses) is what makes the pushed
+  commit re-run the Swift check; the `GITHUB_TOKEN` fallback still fixes the branch, but pushes
+  made with it do not start workflow runs, so the check has to be re-run by hand.
+
+Two consequences worth knowing: `workflow_run` workflows are read from the default branch, so
+changes to this file only take effect once merged to `main`; and because the workflow pushes to
+Dependabot's branch, Dependabot stops rebasing that PR afterwards.
+
 ## Dependabot major-version bumps
 
 Dependabot groups minor/patch updates per ecosystem, but major-version bumps land as
@@ -104,6 +154,57 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   `sdk=<supported-level>` in that module's `src/test/resources/robolectric.properties`
   (this decouples the Robolectric test SDK from `compileSdk`).
 
+## Public-API packaging checks
+
+Three checks, one per SDK, guard the same defect: a type in a public signature coming from a
+dependency the consumer does not actually get. See
+[#189](https://github.com/independo-gmbh/inderun/issues/189) for how it went unnoticed — it is
+invisible inside this repository and only breaks for someone consuming the published artifacts.
+
+- **Android**, in `android.yml`: `node scripts/verify-android-api-dependencies.mjs` generates the
+  Maven POMs and compares every dependency's scope against `android/published-api-dependencies.txt`.
+  A dependency slipping from `api(...)` back to `implementation(...)` shows up as `compile` →
+  `runtime` and fails the job. Regenerate the baseline with `--update` after an intentional change.
+  Additionally, the `inderun-consumer-smoke` module compiles the README quick start against a single
+  `implementation(project(":inderun-kotlin"))`, so `./gradlew test` alone catches a missing edge.
+  The baseline is what makes an intentional scope change explicit: demoting a dependency that
+  nothing publicly exposes is a legitimate edit, and it has to be re-recorded and reviewed rather
+  than slipping through.
+- **Swift**, in `swift.yml`: two things, guarding two different failures.
+
+  The re-export boundary is guarded by the `IndeRunUmbrellaConsumerTests` and
+  `IndeRunProviderConsumerTests` targets in `Package.swift`, which are the direct counterpart of
+  `inderun-consumer-smoke`. Each depends on exactly one product — `IndeRunSwift` and
+  `IndeRunOpenAIProviders` respectively — and names contract and core types through it, so
+  weakening an `@_exported import` fails `swift test`. `IndeRunTests` cannot catch this: it
+  depends on all six modules directly, which is what hid the problem in the first place.
+
+  Separately, `swift package diagnose-api-breaking-changes` runs against the PR's base branch,
+  scoped to `IndeRunContracts`. That is an ABI check on the generated contract surface, not a
+  packaging check — it would stay green through a re-export regression, since removing
+  `@_exported` changes no declaration in `IndeRunContracts`. The scope is a tool limitation:
+  swift-api-digester cannot build a baseline for any target depending on the `InderunRouteCoreFFI`
+  binary target, which is every other module. Runs on pull requests only, and needs the job's
+  `fetch-depth: 0` checkout to resolve the baseline.
+
+  It is **advisory on a release PR and blocking everywhere else**. The baseline is the PR's base:
+  against `dev` that is the branch's own increment, which is where an unintended break should fail
+  review. Against `main` it is everything since the last stable release, which for a pre-1.0
+  project that takes breaking changes as minor bumps (`release.config.js`) is intentional by
+  definition — v0.3.0 reported 44. A blocking gate there would stop exactly the releases it exists
+  to describe (#206), so the step keeps running and keeps printing: its output is the
+  authoritative breaking-change list for the release notes, and it catches breaks whose commits
+  forgot the `BREAKING CHANGE:` footer.
+- **Web**, in `javascript.yml`: `pnpm verify:packaging` runs `publint` and
+  `attw --pack . --profile esm-only` over the three published npm packages, resolving every
+  `exports` subpath the way a consumer's TypeScript would. The `esm-only` profile drops the node10
+  and CommonJS-consumer resolutions, which these ESM-only packages would always report.
+
+A full ABI dump on Android (binary-compatibility-validator, metalava) is **not** possible today:
+both hook the `KotlinAndroidTarget` registered by the standalone `org.jetbrains.kotlin.android`
+plugin, and AGP 9 refuses that plugin now that Kotlin support is built in. BCV applies without
+error and then registers no tasks at all. Revisit when either tool supports AGP's built-in Kotlin.
+
 ## Notes
 
 - The JavaScript workflow also regenerates the shared contract and WASM artifacts before package builds.
@@ -119,10 +220,105 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   always report spurious formatting drift; `release.yml` runs the full `pnpm generate`
   (Spotless included) and includes that path, since its output is guaranteed
   ktlint-clean.
+- `pnpm build:wasm` (`scripts/build-route-core-wasm.mjs`) is the single definition of the
+  Rust→WASM build: it runs `cargo build --target wasm32-unknown-unknown` plus
+  `wasm-bindgen --target web`. Freshness is left to cargo, which fingerprints every effective
+  input (sources, workspace manifest, lockfile, rustc version); only the wasm-bindgen step is
+  skipped, and only when the existing bindings are newer than the `.wasm` cargo just produced.
+  A hand-rolled mtime check over crate sources alone would serve stale bindings after a
+  dependency bump. Both `pnpm build` and `pnpm test:js` call it, and `javascript.yml`/`release.yml`
+  run it as an explicit step so a missing toolchain fails visibly. Since the Web SDK has no
+  fallback planner, the JS suite genuinely needs those bindings — hence building
+  them is part of `pnpm test:js` rather than a prerequisite contributors are expected to
+  remember. Running the JS tests locally therefore requires `rustup` with the
+  `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (the script prints the install
+  commands when either is missing).
+- `pnpm build:route-core-apple` (`scripts/build-route-core-apple.mjs`) is the equivalent for the
+  Apple platforms: it cross-compiles the route core for iOS device, iOS simulator, and macOS,
+  and packages the results into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`.
+  Freshness is delegated to cargo for the same reason as the WASM build; only the packaging
+  step is skipped, and `--force` disables even that. Unlike the WASM bindings that XCFramework
+  **is committed** — SwiftPM has no publish step, so consumers get whatever the git tag
+  contains, and an artifact injected at release time would leave every prerelease tag
+  unbuildable. The libraries are dynamic (`cdylib` in framework bundles), not static: a
+  `staticlib` archive eliminates nothing until the consumer links, so it weighs ~17 MB per
+  slice against ~400 KB for the same code as a dynamic library — the difference between 87 MB
+  and 2 MB of binary rewritten in git on every planner change. The `apple` cargo profile in the
+  workspace `Cargo.toml` is what buys that.
+- `pnpm build:route-core-android` (`scripts/build-route-core-android.mjs`) builds the same core
+  for Android, in two modes. Without arguments it cross-compiles the four ABIs
+  (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`) using the NDK's per-API-level clang wrappers as
+  linkers; `--host` builds one library for the machine running the build. Gradle drives both:
+  `:inderun-core` registers the ABI build as a _generated_ `jniLibs` source directory via AGP's
+  `addGeneratedSourceDirectory`, so only the variants that package native code pull it in and
+  `./gradlew test` needs neither the NDK nor the Android Rust targets; the root
+  `build.gradle.kts` puts the host build on `java.library.path` for `:inderun-core` and
+  `:inderun-kotlin`'s unit tests. Those tests reach the planner through the same
+  `System.loadLibrary` call the Android runtime makes, so the JNI boundary itself is under test
+  rather than only the two halves of the wire format.
+  - These binaries are **not** committed, unlike the Apple XCFramework. Android consumers
+    resolve `app.independo.inderun:inderun-core` from Maven Central, where `maven-publish.yml`
+    builds the AAR — there is no equivalent of SwiftPM's "the git tag is the artifact", so
+    tracking ~2 MB of `.so` files per planner change would buy nothing. That workflow therefore
+    provisions Node and the Rust toolchain alongside the NDK it already had.
+  - The JNI entry point is behind the crate's `jni-bindings` feature rather than a
+    `cfg(target_os = "android")` gate. With a target gate the symbol exists only in the Android
+    build and no JVM test can reach the real planner; `src/lib.rs` makes an Android build
+    _without_ the feature a `compile_error!`, so the seam cannot be missed in the direction
+    that matters.
+  - `android.yml` runs `assembleRelease` after `test`, because `test` never reaches the ABI
+    cross-compiles — without it the four Android slices would first be built at publish time.
+- **Verifying the committed XCFramework.** It is an executable in git: it is what SwiftPM
+  consumers run, and reviewing the Rust source says nothing about whether that binary came from
+  it. Rust builds are not byte-reproducible, so rebuild-and-diff cannot answer the question.
+  Two mechanisms answer it together:
+  - `ios/IndeRun/Frameworks/InderunRouteCoreFFI.provenance.json`, written by the build script,
+    records the pinned compiler plus SHA-256 hashes of every source the artifact was built from
+    (crate sources and manifest, workspace manifest, lockfile, toolchain pin, the packaged C
+    header, and the build scripts themselves) and of every file inside the XCFramework.
+    `pnpm verify:route-core-apple` (`scripts/verify-route-core-apple.mjs`) recomputes all of it
+    and additionally checks each slice with `lipo`/`otool`/`nm`/`plutil`: architectures, Mach-O
+    platform, deployment target, the two exported FFI symbols, the `@rpath` install name, and
+    that nothing beyond `libSystem` is linked. It runs in `swift.yml` **before** anything is
+    rebuilt, so the committed artifact is what is under test, and `release.yml` gates the
+    release job on it — the tag is the Swift distribution channel, and nothing downstream
+    re-checks it.
+  - `swift.yml` then rebuilds from source with `--force` and runs the Swift suite a second time
+    against the result, which is the behavioural half: the committed binary and a fresh build of
+    the reviewed source must both satisfy the same tests. `swift test` only exercises the macOS
+    slice, so the job also runs the suite on an iOS simulator and builds `ios/SampleApps/IndeRunDemo`
+    for a generic iOS device, which links and embeds the device slice.
+  - Because hashes cover `Cargo.lock`, a Cargo dependency bump fails verification until the
+    XCFramework is rebuilt: a lockfile change can alter the compiled core, so such a PR needs a
+    `pnpm build:route-core-apple` commit on top. On Dependabot's cargo PRs that commit is made
+    by `route-core-apple-refresh.yml` (see below); anywhere else it is the author's to make.
+    `Cargo.lock` is committed for this reason —
+    the stock "libraries don't commit lockfiles" advice assumes consumers resolve their own
+    versions, but this workspace ships a compiled binary and publishes compiled WASM, so the
+    versions that went into those artifacts have to be recorded. The manifest generator refuses
+    to hash an input git does not track, since such an entry would describe a file only the
+    build machine has.
+- The Rust toolchain is pinned in `rust-toolchain.toml` rather than tracking `stable`, because
+  the XCFramework is a committed executable and "whatever stable was that day" is not something
+  a reviewer can check an artifact against. The workflows use the toolchain action only to
+  provide rustup and must not restate the version — a second copy could disagree with the
+  compiler that actually built the artifact. Every job that needs the pin then runs
+  `rustup toolchain install --no-self-update`, with no toolchain argument so the version still
+  comes from the file alone. That step is required, not belt-and-braces: rustup installs the
+  toolchain a `rust-toolchain.toml` selects, but _not_ one named explicitly on the command
+  line, and `scripts/rust-toolchain.mjs` names it explicitly (`rustup run <pin>`,
+  `rustup which --toolchain <pin>`) precisely so a Homebrew rustc on PATH cannot shadow it.
+  Jobs that happen to run cargo from the repo root first — anything with a `Cache Cargo state`
+  step — got the install as a side effect of the toolchain file, which is why the missing step
+  surfaced only in `release.yml`'s macOS verify job, the one job that calls a pinned-toolchain
+  script before any cargo invocation. Note that `rust-toolchain.toml`'s own header still says
+  rustup installs the pin on demand; it is left alone deliberately, because the file is hashed
+  into the XCFramework's provenance manifest and editing even a comment would invalidate the
+  committed artifact and require a rebuild. This section is the accurate one.
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
   exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
   resolve the package's literal `import("../generated/inderun_route_core.js")` without
-  requiring the Rust/wasm-bindgen toolchain locally. CI's `wasm-bindgen --target web` step
+  requiring the Rust/wasm-bindgen toolchain locally. The `wasm-bindgen --target web` step
   overwrites it with the real generated bindings during the build; the stub is not meant to be
   committed back and should only be hand-updated if the Rust route-core API changes.
   `release.yml` reverts this overwrite (`git checkout -- packages/inderun-route-core-wasm/generated`)

@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { once } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveDemoProxyConfig, type DemoProxyConfig } from "./config.js";
@@ -48,7 +49,7 @@ export function createDemoProxyServer(config: DemoProxyConfig = resolveDemoProxy
 
     try {
       logRequest(req, pathname);
-      const request = await toWebRequest(req);
+      const request = await toWebRequest(req, res);
       const response = await handleProxyRequest(request, {
         apiKey: config.apiKey,
         model: config.model,
@@ -74,15 +75,24 @@ function logRequest(req: IncomingMessage, pathname: string): void {
   console.log(`[IndeRun demo proxy] ${req.method ?? "UNKNOWN"} ${pathname}`);
 }
 
-async function toWebRequest(req: IncomingMessage): Promise<Request> {
+async function toWebRequest(req: IncomingMessage, res: ServerResponse): Promise<Request> {
   const origin = `http://${req.headers.host ?? "localhost"}`;
   const url = new URL(req.url ?? DEMO_PROXY_PATH, origin);
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readNodeBody(req);
 
+  // Tying an abort signal to the client hanging up is what lets a cancelled
+  // stream stop the upstream generation. Without it, cancelling in the browser
+  // leaves the model running — and billable — until it finishes on its own.
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  req.once("aborted", abort);
+  res.once("close", abort);
+
   return new Request(url, {
     method: req.method,
     headers: normalizeHeaders(req.headers),
-    body: body ? new Uint8Array(body) : undefined
+    body: body ? new Uint8Array(body) : undefined,
+    signal: controller.signal
   });
 }
 
@@ -100,8 +110,43 @@ async function writeNodeResponse(
 
   writeCorsHeaders(res, config);
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  res.end(buffer);
+  // Relay a streamed body chunk by chunk; buffering it into an ArrayBuffer here
+  // would undo the streaming pass-through in the handler.
+  if (response.body) {
+    const reader = response.body.getReader();
+    let clientGone = res.destroyed || res.writableEnded;
+    const onClose = () => {
+      clientGone = true;
+      // Releases the upstream connection instead of draining a response nobody
+      // is listening to any more.
+      void reader.cancel().catch(() => undefined);
+    };
+    res.once("close", onClose);
+
+    try {
+      while (!clientGone) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        if (!res.write(Buffer.from(value))) {
+          // Respect backpressure: a slow client must not make the proxy buffer
+          // the whole generation in memory.
+          await once(res, "drain");
+        }
+      }
+    } catch {
+      // A read that fails after the client disconnected is the disconnect, not
+      // an error worth reporting to a socket that is already gone.
+      if (!clientGone) throw new Error("The upstream response stream failed mid-relay.");
+    } finally {
+      res.off("close", onClose);
+      reader.releaseLock();
+    }
+  }
+
+  if (!res.writableEnded) {
+    res.end();
+  }
 }
 
 function writeCorsHeaders(res: ServerResponse, config: DemoProxyConfig): void {

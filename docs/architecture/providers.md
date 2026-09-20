@@ -15,6 +15,7 @@ Every provider should define:
 - a stable descriptor
 - a dynamic capability check against the current host
 - the interaction modes it supports
+- whether those modes and its cancellation behavior are actually available on the current host, when the runtime can take them away from a provider that otherwise declares them
 - its cancellation behavior
 - normalized error and telemetry behavior
 
@@ -33,26 +34,51 @@ intentional:
 The class-to-cause mapping lives in code (provider adapters and the error
 factories), not in prose.
 
+The error model does not fork for streaming: `StreamTerminalOutcome`'s
+`error` branch (`contracts/schemas/stream-terminal-outcome.schema.json`)
+reuses the same `errorClass` taxonomy as `IndeRunError` rather than
+introducing a stream-specific error vocabulary. See
+[Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2)
+for the schemas and the orchestrator that now consumes them.
+
+A **routing refusal carries its plan diagnostics on the error**, on every
+platform. Routing fails before any `route_decided` telemetry is emitted, so the
+exception is the only channel through which a caller learns *why* each provider
+was rejected: its `details` carry the plan's `failureCode` and the full
+`rejectedProviders` list, each with the normalized reason codes described under
+[Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2).
+This holds for `run()` and `stream()` alike — the same refusal path serves both.
+
+`ProviderDescriptor.cancel` (`hard` / `soft` / `none`) now has concrete,
+tested engine-level semantics rather than being purely descriptive metadata:
+the Mode 2 orchestrator normalizes all three into one caller-facing
+guarantee — exactly one terminal outcome, idempotent cancellation. See
+[Cancellation And Fallback](./architecture.md#cancellation-and-fallback).
+
 ## Provider Matrix
 
 | Provider family | Web | iOS/macOS | Android | Classification | Task support | Interaction modes | Capability check | Credentials / model loading | Key limitations |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| OpenAI-compatible | Supported | Supported | Supported | Cloud | `text_to_text` | `run` (Mode 1) | Cheap unauthenticated `GET` probe against the configured endpoint, cached (`healthCheckCacheMs`, default 5000ms) | `authContextRef`; no raw secrets in payloads | No dedicated health endpoint; 4xx on the probe still counts as `available: true` |
-| Apple Foundation Models | Not applicable | Supported | Not applicable | Platform-local | `text_to_text` | `run` (Mode 1) | Static host-service check (OS/device support) | None — OS-managed model | iOS/macOS only; model availability gated by OS |
-| Android ML Kit GenAI (Gemini Nano) | Not applicable | Not applicable | Supported | Platform-local | `text_to_text` | `run` (Mode 1) | Static host-service check (device/OS support) | None — OS-managed model | Android only; device-tier gated |
+| OpenAI-compatible | Supported | Supported | Supported | Cloud | `text_to_text` | `run` (Mode 1), `stream` (Mode 2, `tokens`, cancel `hard`) | Cheap unauthenticated `GET` probe against the configured endpoint, cached (`healthCheckCacheMs`, default 5000ms); reports `streamingAvailable: false` when the host has no `HttpStreamingClientService` | `authContextRef`; no raw secrets in payloads | No dedicated health endpoint; 4xx on the probe still counts as `available: true`; streaming requires a Responses-API-compatible SSE endpoint |
+| Apple Foundation Models | Not applicable | Supported | Not applicable | Platform-local | `text_to_text` | `run` (Mode 1), `stream` (Mode 2, `snapshots`, cancel `soft`) | `SystemLanguageModel.default.availability`, re-checked immediately before each attempt; one gate covers both modes, so no separate `streamingAvailable` is reported | None — OS-managed model | iOS/macOS only; model availability gated by OS; the stream reports neither a finish reason nor token usage, so completion is always `stop` with no `usage` |
+| Android ML Kit GenAI (Gemini Nano) | Not applicable | Not applicable | Supported | Platform-local | `text_to_text` | `run` (Mode 1), `stream` (Mode 2, `chunks`, cancel `soft`) | `GenerativeModel.checkStatus()` (`AVAILABLE` / `DOWNLOADABLE` / `DOWNLOADING` / `UNAVAILABLE`), re-checked immediately before each attempt; one gate covers both modes, so no separate `streamingAvailable` is reported — a downloadable or downloading model is reported as provider-unavailable, not as stream-unavailable | None — OS-managed model | Android 8.0+ (API 26), device-tier gated, and unsupported on devices with an unlocked bootloader; the provider never initiates the model download (`download()` / `warmup()` are not called), so a `DOWNLOADABLE` model stays unroutable until the host app fetches it; streamed chunks are incremental and carry no documented token boundary, hence `chunks` rather than `tokens`; the stream reports no token usage, and completion is `stop` unless ML Kit reports `MAX_TOKENS` (→ `length`) or any other reason (→ `error`); a policy rejection is reported as `CapabilityMismatch` and retracts any content already delivered |
 | ONNX Runtime (`local.onnx.genai.*`) | Shipped (`@independo/inderun-web/onnx`) | Shipped (`IndeRunOnnxProviders` SwiftPM, iOS 16+/macOS 14+) | Shipped (`inderun-onnx-providers` Gradle module) | Custom/developer-supplied local | `text_to_text` | `run` (Mode 1) | Static + dynamic host capability check per platform | Developer supplies model + tokenizer files; no Hub network/download APIs called today | Android requires `libc++_shared.so` packaged by the consumer app; see [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md) |
 | Web system-model (`local.system-model.web`) | Shipped (`@independo/inderun-web/system-model`, Chrome Prompt API `LanguageModel`) | Not applicable | Not applicable | Browser-local | `text_to_text` | `run` (Mode 1) | Runtime feature-detection against the browser API | None — browser-managed model/download | Desktop Chrome 138+ only; degrades honestly (`capability_unavailable`) elsewhere; see [web-system-model-provider-family.md](web-system-model-provider-family.md) |
 
-Streaming (`stream`) and realtime sessions (`openSession`) are not implemented by any provider today — see `CONTEXT.md` §3 for current Mode 1/2/3 status. Do not read this table as implying streaming support.
+Three families stream today: OpenAI-compatible on all three platforms, Apple Foundation Models on iOS/macOS, and Android ML Kit GenAI on Android. Every other row still declares `supports.streaming: false`, and neither remaining family is currently scheduled: web system-model streaming was closed as not planned (#146), and ONNX Runtime streaming has no issue filed. Both would be a change to each platform's runtime seam rather than to the adapter, since that is where the generation loop lives. Eligibility for a mode is decided by the shared route planner from the static declaration plus the dynamic capability snapshot, so a stream request that no registered provider can satisfy is refused at routing time with a normalized rejection reason naming each provider, rather than failing later without explanation — see [Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2).
+
+Streaming from a platform-local runtime needs nothing from the host: the Apple and ML Kit providers read their system runtime's partial responses directly. Streaming over the network needs a host capability the buffered `HttpClientService` cannot provide, so hosts may additionally expose an optional `HttpStreamingClientService` that resolves the response head first and delivers the body as incremental byte chunks. All three default host implementations provide it. A host that does not is a supported configuration: Mode 1 keeps working there, and providers report `streamingAvailable: false` with a reason, which the planner surfaces as a `streaming_unavailable` rejection.
+
+Realtime sessions (`openSession`, Mode 3) remain fully unimplemented.
 
 ### Demos & Tests per Family
 
 - **OpenAI-compatible** — `packages/inderun-web/src/providers/openai/provider.test.ts` (reachability, auth, rate-limit/timeout/unavailable/internal error mapping); iOS/Android per-provider suites in `ios/IndeRun/Tests/IndeRunTests` and `android/*/src/test`; live in every sample/demo app below.
-- **Apple Foundation Models** — `ios/IndeRun/Tests/IndeRunTests` (descriptor, unavailable capability, run success, error mapping); demoed in `ios/SampleApps/IndeRunDemo`.
-- **Android ML Kit GenAI** — `AndroidMlKitGenAiProviderTest.kt`; demoed in `android/inderun-demo-app`.
+- **Apple Foundation Models** — `ios/IndeRun/Tests/IndeRunTests` (descriptor, unavailable capability, run success, error mapping; plus Mode 2: snapshot ordering and completion, unavailable-at-stream-time, mid-stream error normalization, cancellation teardown, and two end-to-end engine streams under `local_required` covering the completed and cancelled terminal outcomes); demoed in `ios/SampleApps/IndeRunDemo`, whose Streaming panel is the repository's first Mode 2 demo flow.
+- **Android ML Kit GenAI** — `AndroidMlKitGenAiProviderTest.kt` (capabilities, run success, prompt normalization, availability → `CapabilityMismatch`, error mapping, finish-reason normalization) and `AndroidMlKitGenAiProviderStreamTest.kt` (Mode 2: descriptor and streaming style, delta ordering and completion, finish-reason normalization including the absent-reason fallback, unavailable-at-stream-time, `GenAiException` error-code mapping including policy rejections and the content retraction they trigger, run/stream classification parity, and cancellation teardown), plus three end-to-end engine streams in `IndeRunStreamTest.kt` under `local_required` covering the completed, cancelled and policy-retracted terminal outcomes; demoed in `android/inderun-demo-app`, whose Streaming panel is the Android Mode 2 flow.
 - **ONNX Runtime** — `packages/inderun-web/src/providers/onnx/{provider,transformers-runtime}.test.ts` (capability rejection, `local_required` no-fallback, runtime-error → error-class mapping); Apple/Android equivalents in the same test trees as above; demoed in `ios/SampleApps/IndeRunDemo` and `android/inderun-demo-app`.
 - **Web system-model** — `packages/inderun-web/src/providers/system-model/{provider,chrome-runtime}.test.ts` (availability states, error mapping, `local_required` behavior). Not yet wired into `packages/inderun-web-demo` (tracked as a follow-up) — the web demo currently covers cloud + ONNX only.
-- **Route selection/rejection + normalized errors** — `rust/inderun-route-core/src/tests.rs` is the canonical suite for rejection reasons (`rejected_providers[].reasons[].code`) and deterministic fallback ordering; `packages/inderun-web/src/core/engine.test.ts` covers the same at the TS engine layer (`CapabilityMismatch`/`Offline`/`Unavailable`, telemetry). The iOS and Android demo app READMEs each document an "Expected Failure Modes" section with concrete triggering scenarios per `errorClass`.
+- **Route selection/rejection + normalized errors** — `rust/inderun-route-core/src/tests.rs` is the canonical suite for rejection reasons (`rejected_providers[].reasons[].code`), including the streaming-mode rejections, and deterministic fallback ordering; `packages/inderun-web/src/core/router.stream.test.ts` covers the same rules end to end through the WASM core; `ios/IndeRun/Tests/IndeRunTests/IndeRunTests.swift` and `android/inderun-core/src/test/kotlin/app/independo/inderun/core/` cover the same rules end to end through the linked and JNI-loaded cores respectively; `packages/inderun-web/src/core/engine.test.ts` covers the same at the TS engine layer (`CapabilityMismatch`/`Offline`/`Unavailable`, telemetry). The iOS and Android demo app READMEs each document an "Expected Failure Modes" section with concrete triggering scenarios per `errorClass`.
 
 To run this coverage: `pnpm test:js` (Web/TS provider + engine tests), `cargo test -p inderun_route_core` (routing/rejection), `swift test` (iOS), `cd android && ./gradlew test` (Android). See each package's README for demo-app run instructions.
 
@@ -68,6 +94,22 @@ Implementation nuance not captured by the matrix above:
   mid-request. The result is cached (`healthCheckCacheMs`) because the same `capabilities()` call
   backs both the router (every `run()`) and `checkCapabilities()` (UI introspection) — see
   `docs/architecture/architecture.md`.
+- **ML Kit availability is not a download.** The Android provider maps `checkStatus()` onto four
+  states but never calls `download()` or `warmup()`, so a `DOWNLOADABLE` model is reported as
+  unavailable with its own reason and stays unroutable until the host app fetches it. That one gate
+  covers Mode 1 and Mode 2 alike, which is why the provider reports no separate
+  `streamingAvailable` — reporting one would replace a specific availability reason with a generic
+  `streaming_unavailable` rejection. Device requirements, the runtime seam, and the on-device smoke
+  test: [`android/inderun-mlkit-providers/README.md`](../../android/inderun-mlkit-providers/README.md).
+- **ML Kit policy rejections retract their output.** Gemini Nano can refuse a prompt or a
+  half-generated response on a policy check, and ML Kit documents the response-side codes as able to
+  interrupt streaming with an incomplete result that should be removed from the app's UI. The adapter
+  therefore emits an empty `content_snapshot` before failing, which resets the run's cumulative text
+  (a snapshot replaces rather than appends), so the terminal `error` carries no rejected content and a
+  consumer rendering content events clears with it — see the retraction clause in
+  `contracts/schemas/stream-event.schema.json`. The failure classifies as `CapabilityMismatch`, not
+  `Internal`: the taxonomy has no content-policy class, and `Internal` means an unexpected
+  *engine-side* failure. `details.mlKitErrorCode` still separates the causes.
 - **ONNX Apple platform floor.** Shipping `IndeRunOnnxProviders` raised the whole SDK's Apple
   minimums to iOS 16 / macOS 14, not just for ONNX users — SwiftPM has no per-target platform
   override in a single manifest, so this was a package-wide, breaking bump. Implementation and
@@ -78,26 +120,43 @@ Implementation nuance not captured by the matrix above:
   shipping it. Details: [Android Implementation](onnx-runtime-provider-family.md#android-implementation).
 - **Web system-model** — the browser owns model availability/download/execution, unlike the
   developer-supplied ONNX family. Details: [web-system-model-provider-family.md](web-system-model-provider-family.md).
-- Shared route planning: Rust core used by the TypeScript/Web side and WASM wrapper
-  (`@independo/inderun-route-core-wasm`). The Web SDK's default `WasmRoutePlanner`
-  (`packages/inderun-web/src/route-planner.ts`) loads it via a static, literal dynamic
+- Shared route planning: one Rust core (`rust/inderun-route-core`), reached differently per
+  platform. The Swift SDK links it from `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`,
+  a `binaryTarget` in `Package.swift` built by `scripts/build-route-core-apple.mjs` and
+  committed to git — SwiftPM has no publish step, so a git tag has to contain the binary it
+  needs. Because the symbols are linked rather than loaded, there is no "planner missing" state
+  at runtime on iOS: `SharedCoreRoutePlanner` calls the two C entry points directly, and the
+  build fails if they are absent. The Kotlin SDK packages it as `jniLibs` in `inderun-core`'s
+  AAR, cross-compiled for the four Android ABIs by `scripts/build-route-core-android.mjs`.
+  Those binaries are *not* committed: Android consumers resolve the module from Maven Central,
+  where CI builds the AAR, so there is no equivalent of SwiftPM's "the git tag is the artifact".
+  `SharedCoreRoutePlanner` reaches it with `System.loadLibrary`, so unlike iOS a missing library
+  is a runtime failure — raised as `library_unavailable`, never swallowed. The JNI entry point
+  sits behind the crate's `jni-bindings` feature rather than a `cfg(target_os = "android")`
+  gate, which is what lets the JVM unit tests load a host build of the same library and reach
+  the real planner. On Web the wrapper is the WASM package
+  (`@independo/inderun-route-core-wasm`). The Web SDK's `WasmRoutePlanner`
+  (`packages/inderun-web/src/core/route-planner.ts`) loads it via a static, literal dynamic
   `import()` so bundlers (Vite et al.) can statically resolve and chunk it — see #109 for why
   a variable specifier silently never loads in a bundled browser build. If the module fails to
-  import, initialize, or plan (network failure, unsupported environment, etc.), the planner
-  degrades to the in-process TypeScript fallback planner and reports the reason via the
-  `route_decided` telemetry event's `plannerSource`/`plannerUnavailableReason` fields (see
-  `docs/architecture/architecture.md`) rather than failing the request or staying silent.
+  import, initialize, or plan, routing fails with an `Internal` error naming the reason
+  (`plannerUnavailableReason`) — see `docs/architecture/architecture.md` for why no platform
+  keeps a second planner behind the core. An environment that cannot instantiate WebAssembly — a Content-Security-Policy without
+  `wasm-unsafe-eval`, or an offline app that did not precache the asset — therefore cannot
+  route at all; the package's `./generated/*` export subpath exists so such apps can self-host
+  and precache the `.wasm` explicitly.
 
 ## Provider Authoring Workflow
 
 To add a new provider:
 
-1. Define the static descriptor (`describe`) — provider id, supported task kinds, supported interaction modes (`run` only today; `stream`/`openSession` are descriptor seams, not implementable yet), and declared cancellation behavior (`hard` / `soft` / `none`).
-2. Implement the dynamic capability check (`capabilities(host)`) against the current host — static/OS checks first, then any runtime probe (network reachability, browser feature-detection, etc.), matching the pattern used by the existing providers in the matrix above.
+1. Define the static descriptor (`describe`) — provider id, supported task kinds, supported interaction modes (`run` is implemented by all shipped providers; `stream` is implemented by the OpenAI-compatible, Apple Foundation Models, and Android ML Kit GenAI families, and available to any provider that opts into the streaming adapter type — `ProviderAdapter.stream()` on Web, `StreamingProviderAdapter` on Swift and Kotlin; `openSession`/Mode 3 remains a descriptor seam only), and declared cancellation behavior (`hard` / `soft` / `none`, now enforced by the Mode 2 orchestrator for streaming providers). `supports.streaming` is what makes a provider routable for a stream request at all, so declaring it without implementing `stream()` is a routing-visible mistake, not a harmless one.
+2. Implement the dynamic capability check (`capabilities(host)`) against the current host — static/OS checks first, then any runtime probe (network reachability, browser feature-detection, etc.), matching the pattern used by the existing providers in the matrix above. Report `streamingAvailable` (with a `streamingUnavailableReason`) only when the host can take streaming away from a provider that statically declares it; leaving it unset inherits the descriptor.
 3. Implement `run()` against the normalized `IndeRunApi` request/response shapes. Do not leak provider-specific request/response fields through the public API.
 4. Map provider-specific failures onto the shared `errorClass` taxonomy (`IndeRunException` / `IndeRunError`, see [Error Model](#error-model)) in the adapter — do not invent a parallel error shape.
 5. Resolve any credentials through `authContextRef`; never place raw secrets in request payloads.
 6. Add tests/fixtures that distinguish "provider unavailable" (capability check fails, route rejected) from "provider available but `run()` failed" (normalized error surfaced).
+7. If the provider streams, map its wire events onto the canonical provider event vocabulary against a shared fixture rather than a per-platform test suite. `contracts/fixtures/streaming/` holds those vectors: `sse-framing.json` for the server-sent events framer in each core, and `openai-responses-transcript.json` for the OpenAI event mapping. Each is loaded by the TypeScript, Swift, and Kotlin suites, which is what keeps three separate implementations of one protocol from drifting.
 7. Update this document: add a row to the [Provider Matrix](#provider-matrix) and, if there's implementation nuance worth recording, a bullet under [Provider Notes](#provider-notes). If the provider needs deeper documentation (e.g. a multi-platform family like ONNX Runtime), add a dedicated `docs/architecture/<family>.md` and link it from here.
 
 See CLAUDE.md §5 for the durable version of the contract expectations above.

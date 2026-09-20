@@ -2,13 +2,15 @@
 
 [![npm](https://img.shields.io/npm/v/@independo/inderun-web?logo=npm)](https://www.npmjs.com/package/@independo/inderun-web)
 
-> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — an open-source AI execution
-> framework that gives applications one unified API for running tasks across on-device, edge, and
-> cloud providers. New here? Start with the [IndeRun README](https://github.com/independo-gmbh/inderun#readme).
+> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — on-device AI with automatic
+> cloud fallback, for cross-platform apps. New here? Start with the
+> [IndeRun README](https://github.com/independo-gmbh/inderun#readme).
 
 TypeScript/Web SDK for IndeRun.
 
 This package provides the Web SDK entrypoint, the engine core, routing, telemetry, error normalization, the OpenAI-compatible cloud provider, the Web ONNX Runtime provider for developer-supplied local models, and the Web system-model provider for browser-managed on-device models.
+
+The contract types this SDK's own signatures take and return — `TaskRequest`, `TaskResult`, `StreamEvent`, `StreamRunHandle`, `StreamTerminalOutcome`, `IndeRunError`, the host-service and telemetry interfaces, and (from the `/onnx` subpath) `ModelPackage` — are re-exported here, so a fully typed app does not need to depend on `@independo/inderun-contracts` separately. Import that package directly only if you want the JSON Schemas or the `get*ValidationIssues` validators.
 
 ## Basic Usage
 
@@ -30,9 +32,48 @@ const result = await inderun.run({
 });
 ```
 
+## Streaming
+
+`stream()` returns the run handle, its canonical `StreamEvent` sequence, and a `cancel()` hook:
+
+```ts
+const { handle, events, cancel } = await inderun.stream({
+  schemaVersion: "1.0",
+  task: { kind: "text_to_text" },
+  prompt: "Write a one-sentence summary of IndeRun."
+});
+
+for await (const event of events) {
+  if (event.type === "content_delta") process.stdout.write(event.payload.text);
+  if (event.type === "terminal") console.log(event.payload.outcome);
+}
+```
+
+Streaming over the network needs a host that can deliver a response body incrementally.
+`createBrowserHostServices` provides one; a custom host without a `streamingHttpClient` still runs
+Mode 1, and a stream request is refused at routing time with a `streaming_unavailable` reason rather
+than failing later.
+
+Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
+SDK and documented once, in
+[Streaming (Mode 2)](https://github.com/independo-gmbh/inderun/blob/main/docs/streaming.md).
+
+### Custom OpenAI-compatible endpoints
+
+The adapter speaks the OpenAI **Responses** API, not chat completions. A custom endpoint must
+accept `"stream": true` and emit `text/event-stream` with the Responses event types —
+`response.output_text.delta`, and `response.completed` / `response.incomplete` carrying the
+response object. Unknown event types are ignored, so an endpoint that emits extra events is
+fine; one that emits a different vocabulary entirely is not.
+
 ## Security Model
 
 Browser apps should use a proxy endpoint and keep provider credentials server-side. `createIndeRunWeb` rejects direct calls to the public OpenAI Responses endpoint unless `allowDirectOpenAIEndpoint: true` is set for a controlled environment.
+
+This applies to streaming too, and is the reason `@independo/inderun-demo-proxy` relays event
+streams rather than buffering them: a browser cannot open its own authenticated connection to
+OpenAI without shipping the key in client code. Never embed a developer-owned API key in
+distributed client code — put it behind a trusted backend proxy and point `endpointUrl` at that.
 
 ## Advanced: registering the OpenAI provider directly
 

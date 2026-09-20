@@ -15,6 +15,20 @@ The package is split into public API, core engine, contracts, and provider targe
 Requires iOS 16+ / macOS 14+ (raised from iOS 15 / macOS 12 by `IndeRunOnnxProviders`'s
 dependencies: the official ONNX Runtime SPM bindings and `swift-transformers`).
 
+Every target re-exports what its own public API names — `IndeRunCore` re-exports
+`IndeRunContracts`, and the SDK and provider targets re-export `IndeRunCore` (see each target's
+`Exports.swift`). So one import is always enough for the types in scope: `import IndeRunSwift`
+brings `TaskRequest`, `TaskResult` and `StreamRun`, and `import IndeRunOpenAIProviders` brings
+`ProviderRegistry` and `ProviderAdapter`. This is the Swift counterpart of the Android SDK's
+`api(...)` dependencies, and the two consumer smoke test targets in `Package.swift` hold it in
+place.
+
+Products are a separate question from imports. The `IndeRun` product contains the engine and the
+contract types, and no providers — unlike the Android SDK, where `IndeRun.initialize()` registers
+the on-device provider for you, the Swift initializer takes a registry you built. Add
+`IndeRunAppleProviders`, `IndeRunOpenAIProviders` or `IndeRunOnnxProviders` for the providers you
+intend to register; the usage example below needs the first two.
+
 ## Usage
 
 ```swift
@@ -29,7 +43,9 @@ try registry.register(
     OpenAIProvider(
         options: OpenAIProviderOptions(
             model: "gpt-5.2",
-            endpointURL: "https://api.openai.com/v1/responses",
+            // A backend you control that holds the OpenAI key and relays the
+            // Responses stream — not api.openai.com. See Credentials below.
+            endpointURL: "https://api.example.com/inderun/openai-responses",
             authContextRef: "openai_primary"
         )
     )
@@ -65,12 +81,86 @@ supply a different `OnnxGenAiRuntime` implementation, or `createFixtureOnnxRunti
 and tests. See `docs/architecture/onnx-runtime-provider-family.md#apple-implementation` for the
 model IO contract, source-type support, and error mapping.
 
+## Streaming
+
+`IndeRun.stream(request:)` returns the run handle, its canonical `StreamEvent` sequence, and a
+`cancel(reason:)` hook:
+
+```swift
+let run = try await indeRun.stream(request: request)
+for try await event in run.events {
+    if event.type == "content_delta" { print(event.payload?.text ?? "", terminator: "") }
+    if event.type == "terminal" { print(event.payload?.outcome as Any) }
+}
+```
+
+The HTTP-transport providers need a host that can deliver a response body incrementally.
+`DefaultHostServices.make()` provides one; a host without a `streamingHttpClient` still runs
+Mode 1, and a stream request that can only be served over HTTP is refused at routing time with a
+`streaming_unavailable` reason. The Apple provider does not go through that path — it streams
+from the system model with no host HTTP capability involved, and it emits `content_snapshot`
+rather than `content_delta`.
+
+The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
+must accept `"stream": true` and emit `text/event-stream` with the Responses event types.
+
+Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
+SDK and documented once, in [Streaming (Mode 2)](../../docs/streaming.md).
+
+## Credentials
+
+`authContextRef` names a slot in secure platform storage, so the secret never enters a
+`TaskRequest` and never sits in source. That is worth having, and it is not the same as making
+a key safe to ship: anything an installed app can read, someone with that app can read. A
+developer-owned API key does not become safe by being referenced indirectly.
+
+So `authContextRef` is for credentials that legitimately live on the device — a per-user or
+per-install token your backend issued. For a key you own, put it behind a backend you control
+and point `endpointURL` at that, which is what the example above does. The Web SDK enforces
+this; here it is a convention, because a native app can reach any endpoint it likes.
+
 ## Notes
 
-- Keep credentials behind `authContextRef`.
-- Use the Apple provider for on-device Mode 1 execution when the system runtime is available.
+- Use the Apple provider for on-device Mode 1 and Mode 2 execution when the system runtime is available.
 - Use the OpenAI provider for OpenAI-compatible cloud execution through a host-provided HTTP client.
 - Use the ONNX Runtime provider for developer-supplied/custom local models.
+
+## Route planner
+
+Provider selection is not implemented in Swift. `Router` collects the provider snapshots and
+maps the result back onto adapters, but the ranking, constraint, and rejection rules all come
+from the shared Rust core (`rust/inderun-route-core`), which every platform shares. There is
+no second planner behind it: if the core cannot answer, routing fails with an `Internal`
+error rather than routing by a second set of rules.
+
+The core is linked from `Frameworks/InderunRouteCoreFFI.xcframework`, declared as a
+`binaryTarget` in the root `Package.swift`. That XCFramework is committed to git: SwiftPM has
+no publish step, so consumers resolving `.package(url:from:)` get exactly what the git tag
+contains. `swift build` therefore works on a plain checkout with no Rust toolchain installed.
+
+Rebuild it — and commit the result — whenever the route core changes:
+
+```sh
+pnpm build:route-core-apple
+```
+
+That needs `rustup` (which installs the pinned toolchain from `rust-toolchain.toml` on demand,
+along with the five Apple targets) and the Xcode command line tools. Commit the regenerated
+`InderunRouteCoreFFI.provenance.json` alongside the framework.
+
+Because the framework is an executable in git, CI does not take it on trust:
+
+```sh
+pnpm verify:route-core-apple
+```
+
+checks it against that manifest — the compiler that built it, SHA-256 hashes of every source it
+was built from, hashes of every packaged file — and validates each slice's architectures,
+deployment target, exported FFI symbols, install name, and linked libraries. `swift.yml` runs
+this before rebuilding anything, then rebuilds from source and runs the Swift suite a second
+time against the result; `release.yml` gates the release on it, since the git tag is the Swift
+distribution channel. A Cargo dependency bump alone will fail verification until the framework
+is rebuilt: a lockfile change can alter the compiled core.
 
 ## Commands
 

@@ -72,6 +72,30 @@ The app depends on the local Swift package at `ios/IndeRun` and imports:
    **Routing Decision** panel for which provider was selected, why, and which providers (if
    any) were rejected.
 
+## Manual Streaming Test (Mode 2)
+
+Tapping **Stream** instead of **Run** sends the same request through `IndeRun.stream(request:)`
+and renders content events in the **Streaming (Mode 2)** panel as they arrive. **Cancel**
+replaces the button while a stream is in flight.
+
+Only two of the three registered providers stream: Apple Foundation Models (on-device) and the
+OpenAI-compatible cloud provider. The ONNX Local provider does not, so it is rejected at routing
+time for every stream request. When routing still finds a streaming provider, ONNX shows up under
+**Rejected** in the **Routing Decision** panel (which lists provider ids, not reason codes; the
+underlying code here is `streaming_not_supported`). When routing finds none, it refuses the call
+outright — the panel is not updated at all, because no route was decided.
+
+- **On-device streaming** requires a real Apple-Intelligence-capable device on iOS 26.0+ with the
+  system model ready. Choose `Local Only` and tap **Stream**: text arrives in cumulative
+  `content_snapshot` events, so the panel replaces its contents on each event rather than
+  appending. This path cannot be exercised in the Simulator or in CI — the system model is
+  unavailable there, and routing correctly refuses the request.
+- **Cloud streaming** works in the Simulator against the demo proxy. Choose `Cloud Only` and tap
+  **Stream**: the OpenAI adapter emits incremental `content_delta` events, so the text grows.
+- **Cancellation**: tap **Cancel** mid-generation. The run ends with a `cancelled` outcome —
+  shown on the panel's **Outcome** row — carrying whatever text had already been delivered. No
+  event arrives after it, and repeated taps are harmless.
+
 ## Demo Proxy Setup
 
 The sample app never embeds OpenAI credentials in `TaskRequest`. For cloud testing, the intended path is:
@@ -100,6 +124,12 @@ pnpm --filter @independo/inderun-demo-proxy dev
 - `CapabilityMismatch`: no registered provider satisfies the current privacy preference and
   system state (e.g. `Local Only` selected but Apple Foundation Models are unavailable and the
   ONNX model hasn't finished downloading)
+- `CapabilityMismatch` on **Stream** specifically: no registered provider can stream under the
+  current preference. `Local Only` on the Simulator or on a device without Apple Intelligence
+  always lands here, because the ONNX Local provider does not implement Mode 2. This is a
+  routing refusal, so it rejects the `stream()` call itself — no run handle and no events.
+- `cancelled` terminal outcome: not an error. It is the normal result of tapping **Cancel**, and
+  carries the partial text delivered before the cancel landed.
 - `Offline`: cloud execution was required but the device has no network connection
 - `Unavailable`: the configured cloud endpoint could not be reached or failed before returning a response
 - `AuthError`: the configured upstream rejected authentication
@@ -111,6 +141,9 @@ pnpm --filter @independo/inderun-demo-proxy dev
   providers per the selected Privacy Preference, not a manual on-device/cloud toggle.
 - The default cloud endpoint only works from the simulator against a proxy running on the same machine.
 - Apple availability depends on device class, OS version, locale, Apple Intelligence state, and model readiness.
+- Apple's stream reports neither a finish reason nor token usage, so a completed on-device
+  stream always shows `stop` with no usage figures — that is the runtime's limit, not a gap in
+  the demo.
 - The ONNX Local provider downloads and caches a small real model automatically; until that
   download finishes (or if you explicitly pick the fixture option), it runs against a
   deterministic fixture runtime instead, so the demo still works offline.

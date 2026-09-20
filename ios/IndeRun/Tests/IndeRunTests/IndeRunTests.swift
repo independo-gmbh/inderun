@@ -126,11 +126,34 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
     }
 }
 
+/// Returns a canned plan, or throws to stand in for a core that cannot answer.
 struct MockRoutePlanner: RoutePlanning {
     let plan: SharedPlannerRoutePlan?
 
-    func planRoute(input: SharedPlannerInput) -> SharedPlannerRoutePlan? {
-        plan
+    func planRoute(input: SharedPlannerInput) throws -> SharedPlannerRoutePlan {
+        guard let plan else {
+            throw RoutePlannerUnavailable(reason: .planFailed)
+        }
+        return plan
+    }
+}
+
+/// Captures the planner input so tests can assert what the Swift host actually
+/// hands the shared route core.
+final class CapturingRoutePlanner: RoutePlanning, @unchecked Sendable {
+    let plan: SharedPlannerRoutePlan?
+    private(set) var capturedInput: SharedPlannerInput?
+
+    init(plan: SharedPlannerRoutePlan?) {
+        self.plan = plan
+    }
+
+    func planRoute(input: SharedPlannerInput) throws -> SharedPlannerRoutePlan {
+        capturedInput = input
+        guard let plan else {
+            throw RoutePlannerUnavailable(reason: .planFailed)
+        }
+        return plan
     }
 }
 
@@ -142,8 +165,44 @@ final class MockAppleFoundationModelsRuntime: AppleFoundationModelsRuntime, @unc
     var availabilityValue: AppleFoundationModelsAvailability = .available
     var responseText = "Apple response"
     var thrownError: Error?
+    /// Cumulative snapshots `streamResponse` yields, in order -- Apple's partial
+    /// responses carry the full text so far, not an increment.
+    var streamSnapshots: [String] = ["Apple", "Apple response"]
+    /// Thrown after the scripted snapshots, when set.
+    var streamError: Error?
+    /// Index the stream parks on until `releaseStreamGate()` is called, so a test
+    /// can cancel while the stream is provably still in flight.
+    var streamGateIndex: Int?
+    private let lock = NSLock()
+    private var gateReleased = false
+    private var streamTerminatedFlag = false
     private(set) var receivedPrompt: String?
     private(set) var receivedOptions: AppleFoundationModelsGenerationOptions?
+
+    /// Whether the produced stream was torn down (consumer cancelled or finished).
+    var streamTerminated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return streamTerminatedFlag
+    }
+
+    func releaseStreamGate() {
+        lock.lock()
+        gateReleased = true
+        lock.unlock()
+    }
+
+    private var isGateReleased: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return gateReleased
+    }
+
+    private func markStreamTerminated() {
+        lock.lock()
+        streamTerminatedFlag = true
+        lock.unlock()
+    }
 
     func availability() async -> AppleFoundationModelsAvailability {
         availabilityValue
@@ -156,6 +215,44 @@ final class MockAppleFoundationModelsRuntime: AppleFoundationModelsRuntime, @unc
             throw thrownError
         }
         return responseText
+    }
+
+    func streamResponse(
+        to prompt: String,
+        options: AppleFoundationModelsGenerationOptions
+    ) -> AsyncThrowingStream<String, Error> {
+        receivedPrompt = prompt
+        receivedOptions = options
+        let snapshots = streamSnapshots
+        let error = streamError
+        let gateIndex = streamGateIndex
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                for (index, snapshot) in snapshots.enumerated() {
+                    if index == gateIndex {
+                        // Bounded so a broken cancellation path fails the test
+                        // instead of hanging it.
+                        for _ in 0 ..< 500 where !self.isGateReleased && !Task.isCancelled {
+                            try? await Task.sleep(nanoseconds: 2_000_000)
+                        }
+                    }
+                    if Task.isCancelled {
+                        break
+                    }
+                    continuation.yield(snapshot)
+                }
+                if let error {
+                    continuation.finish(throwing: error)
+                    return
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                self.markStreamTerminated()
+                task.cancel()
+            }
+        }
     }
 }
 
@@ -239,7 +336,10 @@ final class IndeRunTests: XCTestCase {
             registry: registry,
             planner: MockRoutePlanner(
                 plan: SharedPlannerRoutePlan(
-                    candidates: [],
+                    candidates: [
+                        Candidate(order: 0, providerId: "local_b"),
+                        Candidate(order: 1, providerId: "local_a")
+                    ],
                     explanation: SharedPlannerExplanation(
                         selectedProviderId: "local_b",
                         summary: "Selected provider 'local_b' from shared Rust planner."
@@ -261,9 +361,179 @@ final class IndeRunTests: XCTestCase {
         )
 
         XCTAssertEqual(selection.provider.describe().id, "local_b")
+        // The chain comes from the plan's candidate order, not from registration
+        // order: local_b is selected even though local_a registered first.
+        XCTAssertEqual(selection.fallbackProviders.map { $0.describe().id }, ["local_a"])
         XCTAssertTrue(selection.explanation.contains("shared Rust planner"))
     }
     
+    /// The shared planner ranks candidates by placement and preference and only
+    /// then tie-breaks by id. The ids here are picked so that a plain id sort would
+    /// answer "a_cloud" both times -- if this passes, the ordering really came from
+    /// Rust and not from the order the registry happened to hand providers over in.
+    func testSharedPlannerOrdersCandidatesByOptimizeFor() async throws {
+        try registry.register(MockProvider(id: "a_cloud", type: .cloud))
+        try registry.register(MockProvider(id: "z_local", type: .local))
+        let router = Router(registry: registry)
+
+        let privacyFirst = try await router.selectRoute(
+            request: TaskRequest(
+                prompt: "rank by privacy",
+                preferences: TaskRequestPreferences(optimizeFor: .privacy)
+            ),
+            hostServices: hostServices
+        )
+        XCTAssertEqual(privacyFirst.provider.describe().id, "z_local")
+
+        let latencyFirst = try await router.selectRoute(
+            request: TaskRequest(
+                prompt: "rank by latency",
+                preferences: TaskRequestPreferences(optimizeFor: .latency)
+            ),
+            hostServices: hostServices
+        )
+        XCTAssertEqual(latencyFirst.provider.describe().id, "a_cloud")
+    }
+
+    /// Every platform's route explanation is the shared core's: a refused provider
+    /// names itself and why, rather than being silently absent from the chain.
+    func testRoutePlanNamesRejectedProviders() async throws {
+        let unavailable = MockProvider(id: "local_down", type: .local)
+        unavailable.isAvailable = false
+        try registry.register(unavailable)
+        try registry.register(MockProvider(id: "local_up", type: .local))
+
+        let selection = try await Router(registry: registry).selectRoute(
+            request: TaskRequest(prompt: "explain the refusal"),
+            hostServices: hostServices
+        )
+
+        XCTAssertEqual(selection.provider.describe().id, "local_up")
+        XCTAssertEqual(selection.routePlan.rejectedProviders.map { $0.providerId }, ["local_down"])
+        XCTAssertEqual(
+            selection.routePlan.rejectedProviders.first?.reasons.map { $0.code },
+            [.capabilityUnavailable]
+        )
+    }
+
+    /// A planner that cannot answer is a hard failure, not a quieter route: there
+    /// is no second implementation of the ranking rules to fall back to.
+    func testPlannerFailureSurfacesAsInternalError() async throws {
+        try registry.register(MockProvider(id: "local_p", type: .local))
+        let router = Router(registry: registry, planner: MockRoutePlanner(plan: nil))
+
+        do {
+            _ = try await router.selectRoute(
+                request: TaskRequest(prompt: "planner is unavailable"),
+                hostServices: hostServices
+            )
+            XCTFail("Should have thrown rather than routing without the shared planner")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Internal)
+            XCTAssertTrue(error.message.contains("plan_failed"))
+            XCTAssertEqual(
+                error.details?["plannerUnavailableReason"]?.value as? String,
+                "plan_failed"
+            )
+        }
+    }
+
+    /// The only test that exercises the C boundary itself rather than routing
+    /// through it: input encodes, the core answers, the answer decodes, and the
+    /// buffer it allocated is released.
+    func testSharedCoreRoutePlannerRoundTripsThroughTheFfi() throws {
+        let plan = try SharedCoreRoutePlanner.shared.planRoute(
+            input: SharedPlannerInput(
+                constraints: SharedPlannerConstraints(cloud: nil, networkOnline: true, privacy: nil),
+                interactionMode: .run,
+                preferences: SharedPlannerPreferences(optimizeFor: nil),
+                providers: [
+                    SharedPlannerProviderInput(
+                        capabilities: SharedPlannerCapabilities(
+                            available: true,
+                            cancellationAvailable: nil,
+                            reason: nil,
+                            streamingAvailable: nil,
+                            streamingUnavailableReason: nil
+                        ),
+                        descriptor: SharedPlannerProviderDescriptor(
+                            cancel: .soft,
+                            id: "local_p",
+                            privacy: nil,
+                            supports: SharedPlannerProviderSupports(run: true, streaming: false),
+                            tasks: ["text_to_text"],
+                            type: .local
+                        )
+                    )
+                ],
+                task: SharedPlannerTask(kind: "text_to_text")
+            )
+        )
+
+        XCTAssertEqual(plan.selectedProviderId, "local_p")
+        XCTAssertNil(plan.failureCode)
+        XCTAssertEqual(plan.candidates.map { $0.providerId }, ["local_p"])
+    }
+
+    func testPlannerInputCarriesInteractionModeAndStreamingCapability() async throws {
+        let provider = MockProvider(id: "local_a", type: .local)
+        try registry.register(provider)
+
+        let planner = CapturingRoutePlanner(
+            plan: SharedPlannerRoutePlan(
+                candidates: [Candidate(order: 0, providerId: "local_a")],
+                explanation: SharedPlannerExplanation(
+                    selectedProviderId: "local_a",
+                    summary: "Selected provider 'local_a'."
+                ),
+                failureCode: nil,
+                fallbackProviderIds: [],
+                rejectedProviders: [],
+                selectedProviderId: "local_a"
+            )
+        )
+
+        _ = try await Router(registry: registry, planner: planner).selectRoute(
+            request: TaskRequest(prompt: "planner input"),
+            hostServices: hostServices
+        )
+
+        let input = try XCTUnwrap(planner.capturedInput)
+        // Router.selectRoute defaults to Mode 1, and this MockProvider does not stream.
+        XCTAssertEqual(input.interactionMode, .run)
+        let descriptor = try XCTUnwrap(input.providers.first?.descriptor)
+        XCTAssertEqual(descriptor.supports.streaming, false)
+        XCTAssertEqual(descriptor.cancel, .soft)
+    }
+
+    func testRoutePlanDecodesStreamingRejectionReasons() throws {
+        let json = """
+        {
+          "candidates": [],
+          "fallbackProviderIds": [],
+          "failureCode": "capability_mismatch",
+          "explanation": { "summary": "No provider capable of streaming was found." },
+          "rejectedProviders": [
+            {
+              "providerId": "local_a",
+              "reasons": [
+                { "code": "streaming_not_supported", "message": "no streaming" },
+                { "code": "streaming_unavailable", "message": "cannot stream here" }
+              ]
+            }
+          ]
+        }
+        """
+
+        let plan = try SharedPlannerRoutePlan(json)
+
+        XCTAssertEqual(plan.failureCode, .capabilityMismatch)
+        XCTAssertEqual(
+            plan.rejectedProviders.first?.reasons.map(\.code),
+            [.streamingNotSupported, .streamingUnavailable]
+        )
+    }
+
     func testRoutingOnDeviceMismatch() async throws {
         let request = TaskRequest(
             prompt: "Test missing device",
@@ -283,11 +553,12 @@ final class IndeRunTests: XCTestCase {
     
     /// Regression test: a cloud provider must never appear as a *fallback* candidate under
     /// `localRequired`, even when the primary (local) provider fails at execution time and even
-    /// though the cloud provider is otherwise available. The Swift-side fallback route planner
-    /// (`Router.createFallbackPlan`, used whenever the shared Rust route-core dylib isn't loaded --
-    /// which is always true on iOS) previously applied its cloud/privacy constraint filter only
-    /// when picking the primary candidate, not when building the fallback list, so a failing local
-    /// provider could silently fall through to a cloud provider under `Local Only`.
+    /// though the cloud provider is otherwise available.
+    ///
+    /// The whole chain comes from `rust/inderun-route-core`, which enforces the
+    /// cloud/privacy constraint once for every candidate rather than only for the primary --
+    /// so a cloud provider must appear nowhere in the selection, not merely not first.
+    /// Exercised end to end through the FFI.
     func testRoutingLocalRequiredNeverFallsBackToCloudProvider() async throws {
         let local = MockProvider(id: "local_p", type: .local)
         local.shouldFail = true
@@ -458,7 +729,15 @@ final class IndeRunTests: XCTestCase {
         XCTAssertGreaterThan(clock.monotonicNow() ?? 0, 0)
     }
 
-    func testKeychainSecureStorageRoundTripBySlotId() async {
+    func testKeychainSecureStorageRoundTripBySlotId() async throws {
+        // The keychain needs a signed bundle with a keychain-access group. An
+        // xctest bundle running on the simulator has neither, so SecItemAdd fails
+        // with errSecMissingEntitlement regardless of the code under test. The
+        // macOS `swift test` run covers this; the simulator run exists to exercise
+        // the route core's simulator slice, not storage.
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Keychain access is unavailable to an unsigned xctest bundle on the simulator.")
+        #else
         let storage = KeychainSecureStorageService(service: "dev.inderun.tests")
         let slotId = "test-\(UUID().uuidString)"
 
@@ -471,6 +750,7 @@ final class IndeRunTests: XCTestCase {
         await storage.deleteSecret(slotId: slotId)
         let deleted = await storage.getSecret(slotId: slotId)
         XCTAssertNil(deleted)
+        #endif
     }
 
     func testAppleFoundationModelsDescriptor() {
@@ -481,11 +761,16 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(descriptor.type, .local)
         XCTAssertEqual(descriptor.transport, .systemService)
         XCTAssertTrue(descriptor.supports.run)
-        XCTAssertFalse(descriptor.supports.streaming)
+        XCTAssertTrue(descriptor.supports.streaming)
+        // Apple's partial responses are cumulative, so the provider must not
+        // advertise itself as a token/chunk emitter.
+        XCTAssertEqual(descriptor.streamingStyle, .snapshots)
         XCTAssertFalse(descriptor.supports.realtime)
         XCTAssertEqual(descriptor.cancel, .soft)
         XCTAssertEqual(descriptor.tasks, ["text_to_text"])
         XCTAssertEqual(descriptor.privacy?.dataLeavesDevice, false)
+        // Declaring streaming without conforming is a routing-visible mistake.
+        XCTAssertTrue(provider is any StreamingProviderAdapter)
     }
 
     func testAppleFoundationModelsCapabilitiesUnavailable() async {
@@ -582,6 +867,229 @@ final class IndeRunTests: XCTestCase {
         } catch {
             XCTFail("Expected IndeRunException")
         }
+    }
+
+    // MARK: Apple Foundation Models -- Mode 2
+
+    private func makeAppleStreamContext(
+        runId: String,
+        cancellation: StreamCancellationToken = StreamCancellationToken()
+    ) -> ProviderStreamContext {
+        ProviderStreamContext(runId: runId, hostServices: hostServices, cancellation: cancellation)
+    }
+
+    func testAppleFoundationModelsStreamYieldsSnapshotsAndCompletes() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["Bon", "Bonjour", "Bonjour tout"]
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(
+            prompt: "Translate hello",
+            generation: Generation(maxOutputTokens: 32, seed: 123, stop: ["."], temperature: 0.2, topP: 0.9),
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+        )
+
+        var snapshots: [String] = []
+        var finalText: String?
+        var finishReason: FinishReason?
+        for try await event in provider.stream(
+            request: request,
+            context: makeAppleStreamContext(runId: "run_apple_stream")
+        ) {
+            switch event {
+            case let .snapshot(text):
+                snapshots.append(text)
+            case let .done(text, reason, _):
+                finalText = text
+                finishReason = reason
+            case .delta, .failure:
+                XCTFail("Apple streaming must emit snapshots, not \(event)")
+            }
+        }
+
+        XCTAssertEqual(snapshots, ["Bon", "Bonjour", "Bonjour tout"])
+        XCTAssertEqual(finalText, "Bonjour tout")
+        XCTAssertEqual(finishReason, FinishReason.stop)
+        XCTAssertEqual(runtime.receivedPrompt, "Translate hello")
+        XCTAssertEqual(runtime.receivedOptions?.maxOutputTokens, 32)
+        XCTAssertEqual(runtime.receivedOptions?.temperature, 0.2)
+    }
+
+    func testAppleFoundationModelsStreamNormalizesMessages() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let request = TaskRequest(
+            prompt: "ignored when messages exist",
+            messages: [
+                Message(role: .system, content: "Be concise."),
+                Message(role: .user, content: "Summarize this.")
+            ]
+        )
+
+        for try await _ in provider.stream(
+            request: request,
+            context: makeAppleStreamContext(runId: "run_stream_messages")
+        ) {}
+
+        XCTAssertEqual(runtime.receivedPrompt, "system: Be concise.\nuser: Summarize this.")
+    }
+
+    func testAppleFoundationModelsStreamThrowsCapabilityMismatchWhenUnavailable() async {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.availabilityValue = .unavailable(reason: "Apple Intelligence disabled")
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+
+        do {
+            for try await _ in provider.stream(
+                request: TaskRequest(prompt: "Hello"),
+                context: makeAppleStreamContext(runId: "run_stream_unavailable")
+            ) {
+                XCTFail("Should not have produced an event")
+            }
+            XCTFail("Should have thrown CapabilityMismatch")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .CapabilityMismatch)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+            XCTAssertEqual(err.runId, "run_stream_unavailable")
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testAppleFoundationModelsStreamMapsUnexpectedFailureToInternal() async {
+        struct RuntimeFailure: Error {}
+
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["partial"]
+        runtime.streamError = RuntimeFailure()
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+
+        var snapshots: [String] = []
+        do {
+            for try await event in provider.stream(
+                request: TaskRequest(prompt: "Hello"),
+                context: makeAppleStreamContext(runId: "run_stream_failure")
+            ) {
+                if case let .snapshot(text) = event {
+                    snapshots.append(text)
+                }
+            }
+            XCTFail("Should have thrown Internal")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .Internal)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+
+        // The snapshots delivered before the failure are still the caller's, and
+        // the engine reports them as partialText on the terminal event.
+        XCTAssertEqual(snapshots, ["partial"])
+    }
+
+    func testAppleFoundationModelsStreamPreservesAlreadyNormalizedErrors() async {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = []
+        runtime.streamError = createUnavailable(message: "system model went away")
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+
+        do {
+            for try await _ in provider.stream(
+                request: TaskRequest(prompt: "Hello"),
+                context: makeAppleStreamContext(runId: "run_stream_normalized")
+            ) {}
+            XCTFail("Should have thrown Unavailable")
+        } catch let err as IndeRunException {
+            XCTAssertEqual(err.errorClass, .Unavailable)
+            XCTAssertEqual(err.providerId, AppleFoundationModelsProvider.defaultId)
+        } catch {
+            XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+
+    func testAppleFoundationModelsStreamStopsAndTearsDownOnCancellation() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["one", "one two"]
+        // The second snapshot is held until the gate is released, so cancelling
+        // after the first is an ordering guarantee, not a wall-clock race.
+        runtime.streamGateIndex = 1
+        let provider = AppleFoundationModelsProvider(runtime: runtime)
+        let cancellation = StreamCancellationToken()
+
+        var snapshots: [String] = []
+        var sawDone = false
+        for try await event in provider.stream(
+            request: TaskRequest(prompt: "Hello"),
+            context: makeAppleStreamContext(runId: "run_stream_cancel", cancellation: cancellation)
+        ) {
+            switch event {
+            case let .snapshot(text):
+                snapshots.append(text)
+                cancellation.cancel(reason: "user stopped")
+                runtime.releaseStreamGate()
+            case .done:
+                sawDone = true
+            case .delta, .failure:
+                XCTFail("Unexpected event \(event)")
+            }
+        }
+
+        XCTAssertEqual(snapshots, ["one"])
+        XCTAssertFalse(sawDone, "A cancelled stream must not report completion")
+        XCTAssertTrue(runtime.streamTerminated, "The underlying runtime stream must be torn down")
+    }
+
+    func testAppleFoundationModelsStreamsThroughTheEngineUnderLocalRequired() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["Local", "Local first"]
+        try registry.register(AppleFoundationModelsProvider(runtime: runtime))
+        let engine = IndeRun(registry: registry, hostServices: hostServices)
+
+        let run = try await engine.stream(request: TaskRequest(
+            requestId: "req_apple_stream",
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello",
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+        ))
+
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+        }
+
+        XCTAssertEqual(run.handle.providerId, AppleFoundationModelsProvider.defaultId)
+        XCTAssertEqual(events.map { $0.type }, ["content_snapshot", "content_snapshot", "terminal"])
+        XCTAssertEqual(events.compactMap { $0.payload?.text }, ["Local", "Local first"])
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "Local first")
+    }
+
+    func testAppleFoundationModelsEngineCancellationProducesOneTerminalOutcome() async throws {
+        let runtime = MockAppleFoundationModelsRuntime()
+        runtime.streamSnapshots = ["one", "one two"]
+        runtime.streamGateIndex = 1
+        try registry.register(AppleFoundationModelsProvider(runtime: runtime))
+        let engine = IndeRun(registry: registry, hostServices: hostServices)
+
+        let run = try await engine.stream(request: TaskRequest(
+            requestId: "req_apple_cancel",
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello",
+            constraints: TaskRequestConstraints(cloud: nil, privacy: .localRequired, timeoutMs: nil)
+        ))
+
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+            if event.type == "content_snapshot" {
+                run.cancel(reason: "user stopped")
+                runtime.releaseStreamGate()
+            }
+        }
+
+        XCTAssertEqual(events.map { $0.type }, ["content_snapshot", "terminal"])
+        XCTAssertEqual(events.last?.payload?.outcome, .cancelled)
+        XCTAssertEqual(events.last?.payload?.partialText, "one")
+        XCTAssertEqual(events.filter { $0.type == "terminal" }.count, 1)
     }
 
     func testAppleProviderRegistryFactoryRegistersFoundationModelsProvider() throws {
@@ -1032,6 +1540,687 @@ final class IndeRunTests: XCTestCase {
             XCTAssertEqual(err.errorClass, .Timeout)
         } catch {
             XCTFail("Expected IndeRunException, got \(error)")
+        }
+    }
+}
+
+// MARK: - Streaming HTTP Host Service
+
+/// Feeds a scripted response through `URLSession` so the streaming client can be
+/// exercised without a network. Each script entry is delivered as its own
+/// `URLProtocol` data callback, which is what makes "bytes arrive before the
+/// response completes" observable.
+final class ScriptedStreamingURLProtocol: URLProtocol, @unchecked Sendable {
+    struct Script: @unchecked Sendable {
+        var status: Int
+        var headers: [String: String]
+        var chunks: [String]
+        var chunkDelay: TimeInterval
+        /// Never sends the response head, so the caller's head deadline decides.
+        var withholdResponse: Bool = false
+        /// Holds the rest of the response back until `releaseGate()` is called,
+        /// so a test can prove it observed earlier bytes *before* the transfer
+        /// could possibly have completed. This replaces latency measurements:
+        /// a buffering client cannot get past the gate at any machine speed.
+        var gateAfterChunkIndex: Int?
+    }
+
+    private static let lock = NSLock()
+    private static var scriptStorage = Script(status: 200, headers: [:], chunks: [], chunkDelay: 0)
+    private static var stoppedStorage = false
+    private static var gateStorage = DispatchSemaphore(value: 0)
+    /// Liveness backstop only: a wedged test finishes instead of hanging the
+    /// whole job. No assertion depends on this budget.
+    private static var gateDeadline: DispatchTime { .now() + 10 }
+
+    static var script: Script {
+        get { lock.lock(); defer { lock.unlock() }; return scriptStorage }
+        set {
+            lock.lock()
+            scriptStorage = newValue
+            stoppedStorage = false
+            // A fresh gate per script keeps signals from leaking between tests.
+            gateStorage = DispatchSemaphore(value: 0)
+            lock.unlock()
+        }
+    }
+
+    private static var gate: DispatchSemaphore {
+        lock.lock(); defer { lock.unlock() }; return gateStorage
+    }
+
+    /// Lets the scripted response continue past its gated chunk.
+    static func releaseGate() {
+        gate.signal()
+    }
+
+    static var stopped: Bool {
+        lock.lock(); defer { lock.unlock() }; return stoppedStorage
+    }
+
+    static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScriptedStreamingURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let script = Self.script
+        if script.withholdResponse { return }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: script.status,
+            httpVersion: "HTTP/1.1",
+            headerFields: script.headers
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            for (index, chunk) in script.chunks.enumerated() {
+                if Self.stopped { return }
+                if script.chunkDelay > 0 {
+                    Thread.sleep(forTimeInterval: script.chunkDelay)
+                }
+                if Self.stopped { return }
+                self.client?.urlProtocol(self, didLoad: Data(chunk.utf8))
+                if index == script.gateAfterChunkIndex {
+                    _ = Self.gate.wait(timeout: Self.gateDeadline)
+                    // The transfer may have been torn down while we waited.
+                    if Self.stopped { return }
+                }
+            }
+            if Self.stopped { return }
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {
+        Self.lock.lock()
+        Self.stoppedStorage = true
+        Self.lock.unlock()
+    }
+}
+
+/// Bounds an await so a stream that never produces a value fails the test with a
+/// readable error instead of hanging the run. The budget is a liveness backstop,
+/// not a latency assertion — tests must never depend on how long `body` takes.
+/// It stays below `ScriptedStreamingURLProtocol`'s gate budget so a wedged test
+/// reports the timeout rather than a confusing downstream assertion.
+private func withTestTimeout<T: Sendable>(
+    seconds: Double = 5,
+    _ body: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await body() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw TestTimeoutError(seconds: seconds)
+        }
+        guard let result = try await group.next() else {
+            throw TestTimeoutError(seconds: seconds)
+        }
+        group.cancelAll()
+        return result
+    }
+}
+
+private struct TestTimeoutError: Error, CustomStringConvertible {
+    let seconds: Double
+    var description: String {
+        "Timed out after \(seconds)s waiting for a value that should have arrived immediately."
+    }
+}
+
+final class URLSessionStreamingHttpClientServiceTests: XCTestCase {
+    private func makeRequest(timeoutMs: Int? = 5000) -> HttpRequest {
+        HttpRequest(
+            body: nil,
+            headers: nil,
+            method: .get,
+            timeoutMs: timeoutMs,
+            url: "https://example.test/stream"
+        )
+    }
+
+    private func collect(_ body: AsyncThrowingStream<Data, Error>) async throws -> [String] {
+        var out: [String] = []
+        for try await chunk in body {
+            out.append(String(decoding: chunk, as: UTF8.self))
+        }
+        return out
+    }
+
+    func testResolvesHeadWithLowerCasedHeadersBeforeBody() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["data: a\n\n"],
+            chunkDelay: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(response.headers["content-type"], "text/event-stream")
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "data: a\n\n")
+    }
+
+    func testSurfacesBytesBeforeTheResponseCompletes() async throws {
+        // The fixture holds everything after the first chunk until this test
+        // says so, so the first chunk is necessarily observed while the response
+        // is still open. A buffering client would deadlock here rather than pass
+        // slowly, which is why this needs no wall-clock budget.
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["data: one\n\n", "data: two\n\n", "data: three\n\n"],
+            chunkDelay: 0,
+            gateAfterChunkIndex: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        var iterator = response.body.makeAsyncIterator()
+        let first = try await withTestTimeout { try await iterator.next() }
+        // Chunk boundaries are arbitrary by contract — this client flushes at
+        // newlines — so the assertion is on content arriving early, not shape.
+        XCTAssertEqual(String(decoding: first ?? Data(), as: UTF8.self), "data: one\n")
+
+        ScriptedStreamingURLProtocol.releaseGate()
+        var rest = ""
+        while let chunk = try await iterator.next() {
+            rest += String(decoding: chunk, as: UTF8.self)
+        }
+        XCTAssertEqual(rest, "\ndata: two\n\ndata: three\n\n")
+    }
+
+    func testExposesNonSuccessHeadAndErrorBody() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 429,
+            headers: ["Retry-After": "3", "Content-Type": "application/json"],
+            chunks: ["{\"error\":{\"message\":\"slow down\"}}"],
+            chunkDelay: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        XCTAssertEqual(response.status, 429)
+        XCTAssertEqual(response.headers["retry-after"], "3")
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "{\"error\":{\"message\":\"slow down\"}}")
+    }
+
+    func testTimesOutWaitingForTheResponseHead() async throws {
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: [:],
+            chunks: [],
+            chunkDelay: 0,
+            withholdResponse: true
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        do {
+            _ = try await client.stream(request: makeRequest(timeoutMs: 50))
+            XCTFail("Expected a head timeout")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Timeout)
+        }
+    }
+
+    func testDoesNotImposeAnIdleDeadlineOnAnEstablishedStream() async throws {
+        // The head deadline must not survive into the body: a gap longer than
+        // timeoutMs on an established stream is normal, not a failure.
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: ["first\n", "second\n"],
+            chunkDelay: 0.3
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest(timeoutMs: 100))
+
+        let body = try await collect(response.body).joined()
+        XCTAssertEqual(body, "first\nsecond\n")
+    }
+
+    func testCancellingTheConsumingTaskTearsDownTheConnection() async throws {
+        // Gated after the first chunk, so the stream is provably mid-flight when
+        // the consumer is cancelled — no "sleep and hope" window.
+        ScriptedStreamingURLProtocol.script = .init(
+            status: 200,
+            headers: ["Content-Type": "text/event-stream"],
+            chunks: Array(repeating: "data: x\n\n", count: 4),
+            chunkDelay: 0,
+            gateAfterChunkIndex: 0
+        )
+
+        let client = URLSessionStreamingHttpClientService(session: ScriptedStreamingURLProtocol.makeSession())
+        let response = try await client.stream(request: makeRequest())
+
+        let (firstChunkSeen, signalFirstChunk) = AsyncStream<Void>.makeStream()
+        let task = Task { () -> Int in
+            var count = 0
+            for try await _ in response.body {
+                count += 1
+                if count == 1 { signalFirstChunk.yield(()) }
+            }
+            return count
+        }
+
+        var iterator = firstChunkSeen.makeAsyncIterator()
+        _ = try await withTestTimeout { await iterator.next() }
+        task.cancel()
+        _ = try? await task.value
+
+        // stopLoading() is how URLSession reports that the transfer was torn
+        // down rather than left running in the background. Teardown is
+        // asynchronous, so this polls until it lands rather than asserting how
+        // fast it lands.
+        var stopped = false
+        for _ in 0 ..< 250 where !stopped {
+            if ScriptedStreamingURLProtocol.stopped {
+                stopped = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        // Let the fixture's worker unwind regardless of the outcome.
+        ScriptedStreamingURLProtocol.releaseGate()
+        XCTAssertTrue(stopped)
+    }
+}
+
+// MARK: - SSE Framing
+
+/// Drives `SseParser` from the shared cross-SDK vectors so the three
+/// implementations of the protocol cannot drift apart.
+final class SseParserConformanceTests: XCTestCase {
+    private struct FramingCase: Decodable {
+        let name: String
+        let description: String
+        let chunksHex: [String]
+        let expected: [ExpectedEvent]
+    }
+
+    private struct ExpectedEvent: Decodable {
+        let event: String?
+        let data: String
+        let id: String?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [FramingCase]
+    }
+
+    private static func repositoryRoot() -> URL {
+        // .../ios/IndeRun/Tests/IndeRunTests/IndeRunTests.swift -> repository root
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = Self.repositoryRoot()
+            .appendingPathComponent("contracts/fixtures/streaming/sse-framing.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    private func bytes(fromHex hex: String) -> Data {
+        var data = Data()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            data.append(UInt8(hex[index ..< next], radix: 16)!)
+            index = next
+        }
+        return data
+    }
+
+    func testMatchesSharedFramingVectors() throws {
+        let fixture = try loadFixture()
+        XCTAssertFalse(fixture.cases.isEmpty)
+
+        for framingCase in fixture.cases {
+            var parser = SseParser()
+            var received: [SseEvent] = []
+            for hex in framingCase.chunksHex {
+                received.append(contentsOf: parser.consume(bytes(fromHex: hex)))
+            }
+            received.append(contentsOf: parser.finish())
+
+            let expected = framingCase.expected.map {
+                SseEvent(event: $0.event, data: $0.data, id: $0.id)
+            }
+            XCTAssertEqual(received, expected, "\(framingCase.name): \(framingCase.description)")
+        }
+    }
+
+    func testIsUnaffectedByChunking() {
+        let raw = Array("event: a\ndata: one\n\ndata: two\n\n".utf8)
+        var parser = SseParser()
+        var received: [SseEvent] = []
+        for byte in raw {
+            received.append(contentsOf: parser.consume(Data([byte])))
+        }
+        received.append(contentsOf: parser.finish())
+
+        XCTAssertEqual(received, [SseEvent(event: "a", data: "one"), SseEvent(data: "two")])
+    }
+}
+
+// MARK: - Mode 2 Streaming
+
+/// Apple-specific Mode 2 orchestration coverage.
+///
+/// The behavior every engine shares -- ordering, terminal outcomes, cancellation
+/// races, routing rejections, fallback, provider faults and stream telemetry --
+/// lives in `StreamConformanceTests`, driven by the cross-SDK catalog at
+/// `contracts/fixtures/streaming/engine-conformance.json`. Those cases used to be
+/// duplicated here and hand-copied between the three SDKs, which is how they
+/// drifted apart in the first place.
+///
+/// What remains is what only this platform has: reference semantics. The Apple
+/// Foundation Models end-to-end streams live in `IndeRunTests` alongside the rest
+/// of that provider's coverage.
+final class StreamOrchestrationTests: XCTestCase {
+    private func makeHost() -> HostServices {
+        HostServices(
+            connectivity: MockConnectivityService(),
+            clock: MockClockService()
+        )
+    }
+
+    private func makeRequest(requestId: String? = nil) -> TaskRequest {
+        TaskRequest(
+            requestId: requestId,
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello"
+        )
+    }
+
+    private func drain(_ run: StreamRun) async throws -> [StreamEvent] {
+        var events: [StreamEvent] = []
+        for try await event in run.events {
+            events.append(event)
+        }
+        return events
+    }
+
+    func testStillTerminatesWhenTheEngineIsReleased() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(MockStreamProvider(id: "p1", script: [
+            .init(.delta(text: "one"), delayMs: 10),
+            .init(.done(finalText: "one"), delayMs: 10)
+        ]))
+
+        // The caller keeps only the StreamRun; a stream created from a temporary
+        // engine must still produce its terminal event.
+        var engine: IndeRun? = IndeRun(registry: registry, hostServices: makeHost())
+        let run = try await engine!.stream(request: makeRequest())
+        weak var released = engine
+        engine = nil
+
+        let events = try await drain(run)
+
+        XCTAssertEqual(events.last?.payload?.outcome, .completed)
+        XCTAssertEqual(events.last?.payload?.finalText, "one")
+        // The run held the engine while it needed it, and let go afterwards.
+        XCTAssertNil(released)
+    }
+}
+
+// MARK: - OpenAI Streaming
+
+/// Streaming HTTP host service that replays a scripted body, so the OpenAI
+/// adapter's event mapping can be exercised without a network.
+final class MockStreamingHttpClientService: HttpStreamingClientService, @unchecked Sendable {
+    struct Script: @unchecked Sendable {
+        var status: Int = 200
+        var statusText: String = "OK"
+        var headers: [String: String] = ["content-type": "text/event-stream"]
+        var chunks: [String] = []
+        var error: Error?
+    }
+
+    private let lock = NSLock()
+    private let script: Script
+    private var recorded: [HttpRequest] = []
+
+    init(script: Script) {
+        self.script = script
+    }
+
+    var requests: [HttpRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func stream(request: HttpRequest) async throws -> HttpStreamResponse {
+        lock.lock()
+        recorded.append(request)
+        lock.unlock()
+
+        if let error = script.error { throw error }
+
+        let chunks = script.chunks
+        return HttpStreamResponse(
+            status: script.status,
+            statusText: script.statusText,
+            headers: script.headers,
+            body: AsyncThrowingStream { continuation in
+                for chunk in chunks {
+                    continuation.yield(Data(chunk.utf8))
+                }
+                continuation.finish()
+            }
+        )
+    }
+}
+
+final class OpenAIStreamingTests: XCTestCase {
+    private struct TranscriptCase: Decodable {
+        let name: String
+        let description: String
+        let sse: String
+        let expected: [ExpectedEvent]
+    }
+
+    private struct ExpectedEvent: Decodable {
+        let kind: String
+        let text: String?
+        let finalText: String?
+        let finishReason: FinishReason?
+        let usage: ExpectedUsage?
+        let errorClass: ErrorClass?
+        let message: String?
+    }
+
+    private struct ExpectedUsage: Decodable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let totalTokens: Int?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [TranscriptCase]
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("contracts/fixtures/streaming/openai-responses-transcript.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    private func makeProvider() -> OpenAIProvider {
+        OpenAIProvider(options: OpenAIProviderOptions(
+            model: "gpt-5.2",
+            endpointURL: "https://proxy.test/v1/responses"
+        ))
+    }
+
+    private func makeHost(streaming: MockStreamingHttpClientService?) async -> HostServices {
+        let storage = MockSecureStorageService()
+        await storage.setSecret(slotId: "openai_default", secret: "sk-test")
+        return HostServices(
+            connectivity: MockConnectivityService(),
+            secureStorage: storage,
+            clock: MockClockService(),
+            // capabilities() probes endpoint reachability over the unary client
+            // before it reports anything about streaming.
+            httpClient: MockHttpClientService(responses: [
+                .success(HttpResponse(body: "{}", headers: [:], status: 200, statusText: "OK"))
+            ]),
+            streamingHttpClient: streaming
+        )
+    }
+
+    private func makeRequest() -> TaskRequest {
+        TaskRequest(
+            task: TaskDescriptor(kind: .textToText),
+            prompt: "Hello",
+            authContextRef: "openai_default"
+        )
+    }
+
+    private func collect(
+        provider: OpenAIProvider,
+        host: HostServices
+    ) async throws -> [ProviderStreamEvent] {
+        var events: [ProviderStreamEvent] = []
+        let context = ProviderStreamContext(
+            runId: "run-1",
+            hostServices: host,
+            cancellation: StreamCancellationToken()
+        )
+        for try await event in provider.stream(request: makeRequest(), context: context) {
+            events.append(event)
+        }
+        return events
+    }
+
+    func testDeclaresStreamingAndATokenStreamingStyle() {
+        let descriptor = makeProvider().describe()
+        XCTAssertTrue(descriptor.supports.streaming)
+        XCTAssertEqual(descriptor.streamingStyle, .tokens)
+        XCTAssertEqual(descriptor.cancel, .hard)
+    }
+
+    func testReportsStreamingUnavailableWhenTheHostCannotStream() async {
+        let host = await makeHost(streaming: nil)
+        let capabilities = await makeProvider().capabilities(host: host)
+
+        XCTAssertEqual(capabilities.streamingAvailable, false)
+        XCTAssertEqual(
+            capabilities.streamingUnavailableReason,
+            "Host does not provide an HttpStreamingClientService, which OpenAI streaming requires."
+        )
+    }
+
+    func testAsksTheEndpointToStreamAndAuthenticatesWithTheResolvedCredential() async throws {
+        let client = MockStreamingHttpClientService(script: .init(
+            chunks: ["data: {\"type\":\"response.completed\",\"response\":{\"output_text\":\"hi\"}}\n\n"]
+        ))
+        let host = await makeHost(streaming: client)
+        _ = try await collect(provider: makeProvider(), host: host)
+
+        let sent = try XCTUnwrap(client.requests.first)
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data((sent.body ?? "").utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(body["stream"] as? Bool, true)
+        XCTAssertEqual(body["model"] as? String, "gpt-5.2")
+        XCTAssertEqual(sent.headers?["Authorization"], "Bearer sk-test")
+        XCTAssertEqual(sent.headers?["Accept"], "text/event-stream")
+    }
+
+    func testMatchesTheSharedTranscriptVectors() async throws {
+        for transcript in try loadFixture().cases {
+            let host = await makeHost(
+                streaming: MockStreamingHttpClientService(script: .init(chunks: [transcript.sse]))
+            )
+            let events = try await collect(provider: makeProvider(), host: host)
+            let label = "\(transcript.name): \(transcript.description)"
+
+            XCTAssertEqual(events.count, transcript.expected.count, label)
+            for (event, expected) in zip(events, transcript.expected) {
+                switch (event, expected.kind) {
+                case let (.delta(text), "delta"):
+                    XCTAssertEqual(text, expected.text, label)
+
+                case let (.done(finalText, finishReason, usage), "done"):
+                    XCTAssertEqual(finalText, expected.finalText, label)
+                    XCTAssertEqual(finishReason, expected.finishReason, label)
+                    XCTAssertEqual(usage?.totalTokens, expected.usage?.totalTokens, label)
+
+                case let (.failure(error), "error"):
+                    let exception = try XCTUnwrap(error as? IndeRunException, label)
+                    XCTAssertEqual(exception.errorClass, expected.errorClass, label)
+                    XCTAssertEqual(exception.message, expected.message, label)
+
+                default:
+                    XCTFail("Unexpected event \(event) for expected kind \(expected.kind) in \(label)")
+                }
+            }
+        }
+    }
+
+    func testIsUnaffectedByHowTheEventStreamIsChunked() async throws {
+        let transcript = try loadFixture().cases[0]
+        let client = MockStreamingHttpClientService(
+            script: .init(chunks: transcript.sse.map { String($0) })
+        )
+        let host = await makeHost(streaming: client)
+
+        let events = try await collect(provider: makeProvider(), host: host)
+
+        XCTAssertEqual(events.count, transcript.expected.count)
+    }
+
+    func testClassifiesANonSuccessResponseBeforeReadingTheBodyAsAnEventStream() async throws {
+        let client = MockStreamingHttpClientService(script: .init(
+            status: 429,
+            statusText: "Too Many Requests",
+            headers: ["retry-after": "3"],
+            chunks: ["{\"error\":{\"message\":\"Rate limit reached\"}}"]
+        ))
+        let host = await makeHost(streaming: client)
+
+        do {
+            _ = try await collect(provider: makeProvider(), host: host)
+            XCTFail("Expected the stream to fail")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .RateLimited)
+            XCTAssertEqual(error.retryAfterMs, 3000)
+        }
+    }
+
+    func testRefusesToStreamWhenTheHostHasNoStreamingClient() async throws {
+        let host = await makeHost(streaming: nil)
+
+        do {
+            _ = try await collect(provider: makeProvider(), host: host)
+            XCTFail("Expected the stream to fail")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Unavailable)
         }
     }
 }

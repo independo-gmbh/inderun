@@ -36,6 +36,14 @@ jobs:
             swift:
               - 'ios/**'
               - 'Package.swift'
+              - 'rust/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'scripts/build-route-core-apple.mjs'
+              - 'scripts/route-core-apple-provenance.mjs'
+              - 'scripts/verify-route-core-apple.mjs'
+              - 'scripts/rust-toolchain.mjs'
               - '.github/workflows/swift.yml'
 
   swift:
@@ -43,11 +51,128 @@ jobs:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-latest
-    timeout-minutes: 15
+    # Five cross-compiles, two `swift test` runs, a simulator boot, and a device
+    # app build. Slower than a lint job by design: the artifact this verifies is
+    # executable code shipped to consumers.
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # diagnose-api-breaking-changes resolves the base branch as a baseline
+          # treeish, which the default shallow clone does not contain.
+          fetch-depth: 0
+
+      - name: Set up pnpm 11.9.0
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # Version, components and targets all come from rust-toolchain.toml, which
+      # rustup installs on demand -- the pin must not be restated here, or the
+      # artifact could be verified against a compiler that did not build it.
+      - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # the toolchain file decides which compiler actually runs.
+        uses: dtolnay/rust-toolchain@stable
+
+      # The action above only provides rustup. No arguments, so the version still
+      # comes only from rust-toolchain.toml -- see docs/ci.md for why this is a
+      # step rather than left to rustup.
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
+
+      - name: Cache Cargo state
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
+            rust/inderun-route-core -> target
+          cache-on-failure: true
+
+      # The committed XCFramework is an executable in git: it is what SwiftPM
+      # consumers run. This checks it against its provenance manifest -- pinned
+      # compiler, content hashes of every source it was built from, hashes of
+      # every packaged file -- plus the shape of each slice (architectures,
+      # platform, deployment target, exported FFI symbols, install name, dynamic
+      # dependencies). It runs before anything rebuilds, so it is the committed
+      # artifact under test and not a local rebuild of it.
+      - name: Verify the committed route core
+        run: pnpm verify:route-core-apple
+
+      # First test pass: against the artifact as committed, which is what a
+      # consumer resolving this repository by tag would link.
+      - name: Run Swift package tests against the committed route core
+        run: swift test
+
+      # The Swift half of the cross-platform public-API guard (#189). Scoped to
+      # IndeRunContracts on purpose: swift-api-digester cannot load a baseline for
+      # any target that depends on the InderunRouteCoreFFI binary target ("missing
+      # required module 'InderunRouteCoreFFI'"), which is every other module here.
+      # Contracts is the surface worth guarding most anyway -- it is generated from
+      # the shared schemas and is what the other two SDKs mirror. Widen the scope if
+      # SwiftPM ever resolves binary targets for baseline builds.
+      #
+      # Advisory on a release PR, blocking everywhere else. The baseline is the
+      # PR's base: against `dev` that is the branch's own increment, which is
+      # where an *unintended* break should fail review. Against `main` it is
+      # everything since the last stable release -- 44 entries for v0.3.0, all
+      # intentional and all already announced by `!` commits. Pre-1.0 breaking
+      # changes are minor bumps here by policy (release.config.js), so a blocking
+      # gate would stop exactly the releases it exists to describe (#206). The
+      # report still runs and still prints: it is the authoritative list for the
+      # release notes, and it catches breaks whose commits forgot the footer.
+      - name: Diagnose API-breaking changes in IndeRunContracts
+        if: github.event_name == 'pull_request'
+        continue-on-error: ${{ github.base_ref == 'main' }}
+        run: swift package diagnose-api-breaking-changes "origin/${{ github.base_ref }}" --targets IndeRunContracts
+
+      # Second pass: rebuilt from source, which answers the half a manifest
+      # cannot. Rust builds are not byte-reproducible, so the check that the
+      # committed binary behaves like the reviewed source is to build that source
+      # and run the same suite against the result. --force because skipping on an
+      # mtime comparison would leave it ambiguous which binary was tested.
+      - name: Rebuild the route core from source
+        run: pnpm build:route-core-apple --force
+
+      - name: Verify the rebuilt slices
+        run: pnpm verify:route-core-apple --slices-only
+
+      - name: Run Swift package tests against the rebuilt route core
+        run: swift test
+
+      # swift test only ever exercises the macOS slice. These two cover the other
+      # two: the simulator slice by running the same suite on it, and the device
+      # slice by linking and embedding it into a real app bundle.
+      - name: Run Swift package tests on the iOS simulator
+        run: |
+          set -euo pipefail
+          device="$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys; print(next(d['name'] for runtime in json.load(sys.stdin)['devices'].values() for d in runtime if d['name'].startswith('iPhone')))")"
+          echo "Testing on $device"
+          xcodebuild test \
+            -scheme IndeRun-Package \
+            -destination "platform=iOS Simulator,name=$device" \
+            -derivedDataPath "$RUNNER_TEMP/dd-simulator"
+
+      - name: Build the demo app for an iOS device
+        working-directory: ios/SampleApps/IndeRunDemo
+        run: |
+          xcodebuild build \
+            -project IndeRunDemo.xcodeproj \
+            -scheme IndeRunDemo \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd-device" \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Install SwiftLint
         run: brew install swiftlint
@@ -55,6 +180,3 @@ jobs:
       - name: Run SwiftLint
         working-directory: ios/IndeRun
         run: swiftlint lint --strict
-
-      - name: Run Swift package tests
-        run: swift test

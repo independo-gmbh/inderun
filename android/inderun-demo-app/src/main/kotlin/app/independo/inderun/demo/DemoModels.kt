@@ -1,7 +1,9 @@
 package app.independo.inderun.demo
 
+import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.PrivacyEnum
 import app.independo.inderun.contracts.TaskRequestConstraints
+import app.independo.inderun.core.StreamRun
 import java.util.Locale
 
 internal object DemoDefaults {
@@ -76,6 +78,35 @@ internal data class DemoErrorState(
     val metadata: AttemptMetadata?,
 )
 
+/**
+ * What a Mode 2 stream has produced so far.
+ *
+ * [outcome] stays null while the stream is in flight and then carries the terminal
+ * outcome verbatim -- `completed`, `cancelled` or `error` -- so a cancelled run
+ * reads as the normal result it is rather than as a failure.
+ */
+internal data class DemoStreamState(
+    val text: String = "",
+    val outcome: Outcome? = null,
+    val detail: String? = null,
+    val providerUsed: String? = null,
+) {
+    val outcomeLabel: String
+        get() = outcome?.name?.lowercase(Locale.US) ?: "streaming"
+}
+
+/**
+ * The result of asking IndeRun to start a stream. Routing can refuse the call
+ * outright -- no run handle and no events -- when nothing registered can stream
+ * under the selected privacy preference, which is a different thing from a stream
+ * that starts and then fails.
+ */
+internal sealed interface DemoStreamStart {
+    data class Started(val run: StreamRun) : DemoStreamStart
+
+    data class Refused(val error: DemoErrorState) : DemoStreamStart
+}
+
 internal sealed interface DemoExecutionOutcome {
     data class Success(
         val outputText: String,
@@ -99,6 +130,8 @@ internal data class DemoUiState(
     val error: DemoErrorState? = null,
     val lastRouteDecision: RouteDecision? = null,
     val isRunning: Boolean = false,
+    val stream: DemoStreamState? = null,
+    val isStreaming: Boolean = false,
 ) {
     val cloudSettingsHint: String
         get() = "The default emulator endpoint targets the local demo proxy through 10.0.2.2:8787. Physical devices need a LAN IP or remote server URL instead."
@@ -122,6 +155,9 @@ internal data class DemoUiState(
         }
 
     val canRun: Boolean
+        get() = !isRunning && !isStreaming && prompt.trim().isNotEmpty()
+
+    val canStream: Boolean
         get() = !isRunning && prompt.trim().isNotEmpty()
 
     fun toSettings(): DemoSettings = DemoSettings(

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-result.schema.json",
   "title": "TaskResult",
-  "description": "The response payload for a completed text-to-text execution. A full execution failure (validation, routing, or every attempted provider failing) is surfaced by run() throwing an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal, degraded outcome on an otherwise-successful result (not currently produced by any provider in this codebase).",
+  "description": "The response payload for a completed text-to-text execution. A full execution failure (validation, routing, or every attempted provider failing) is surfaced by run() throwing an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal, degraded outcome on an otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI provider; telemetry.errorClass is not currently set by any provider in this codebase).",
   "type": "object",
   "additionalProperties": true,
   "required": ["schemaVersion", "runId", "output", "finishReason", "telemetry"],
@@ -33,7 +33,7 @@
       }
     },
     "finishReason": {
-      "description": "How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an otherwise-returned result — no provider in this codebase currently produces it, since a full execution failure is instead surfaced by run() throwing an IndeRunError.",
+      "description": "How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an otherwise-returned result — the Android ML Kit GenAI provider produces it when Gemini Nano reports a finish reason that is neither a natural stop nor the token limit. A full execution failure is instead surfaced by run() throwing an IndeRunError.",
       "enum": ["stop", "length", "cancelled", "error"]
     },
     "usage": {

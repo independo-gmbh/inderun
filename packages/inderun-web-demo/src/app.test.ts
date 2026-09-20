@@ -1,3 +1,4 @@
+import type { StreamEvent } from "@independo/inderun-contracts";
 import type { ProviderCapabilitySnapshot } from "@independo/inderun-web";
 import { IndeRunException } from "@independo/inderun-web";
 import { describe, expect, it, vi } from "vitest";
@@ -61,6 +62,7 @@ describe("mountApp", () => {
         proxyEndpointUrl: "/api/inderun/openai-responses"
       },
       runPrompt,
+      streamPrompt: vi.fn(),
       checkProviderCapabilities,
       getLastRouteDecision
     });
@@ -109,6 +111,7 @@ describe("mountApp", () => {
         onDeviceModel: "deterministic fixture runtime"
       },
       runPrompt,
+      streamPrompt: vi.fn(),
       checkProviderCapabilities,
       getLastRouteDecision
     });
@@ -165,6 +168,7 @@ describe("mountApp", () => {
         proxyEndpointUrl: "/api/inderun/openai-responses"
       },
       runPrompt,
+      streamPrompt: vi.fn(),
       checkProviderCapabilities,
       getLastRouteDecision
     });
@@ -198,6 +202,7 @@ describe("mountApp", () => {
     mountApp(root, {
       config: { model: "gemma4:latest", proxyEndpointUrl: "/api/inderun/openai-responses" },
       runPrompt,
+      streamPrompt: vi.fn(),
       checkProviderCapabilities,
       getLastRouteDecision
     });
@@ -228,9 +233,7 @@ describe("mountApp", () => {
       ],
       explanation: { summary: "Selected openai because cloud is allowed." },
       constraints: null,
-      preferences: null,
-      plannerSource: null,
-      plannerUnavailableReason: null
+      preferences: null
     };
 
     const runPrompt = vi.fn().mockResolvedValue({
@@ -246,6 +249,7 @@ describe("mountApp", () => {
     mountApp(root, {
       config: { model: "gemma4:latest", proxyEndpointUrl: "/api/inderun/openai-responses" },
       runPrompt,
+      streamPrompt: vi.fn(),
       checkProviderCapabilities,
       getLastRouteDecision
     });
@@ -260,5 +264,102 @@ describe("mountApp", () => {
     expect(root.textContent).toContain("local.system-model.web");
     expect(root.textContent).toContain("capability_unavailable");
     expect(root.textContent).toContain("Prompt API not available");
+  });
+  it("renders streamed text and an ordered event log, then the terminal summary", async () => {
+    document.body.innerHTML = `<div id="app"></div>`;
+    const root = document.querySelector<HTMLElement>("#app");
+    if (!root) {
+      throw new Error("Missing app root for test.");
+    }
+
+    const events: StreamEvent[] = [
+      {
+        schemaVersion: "1.0",
+        runId: "run_stream",
+        sequence: 0,
+        timestamp: 1,
+        type: "content_delta",
+        payload: { text: "Hello" }
+      },
+      {
+        schemaVersion: "1.0",
+        runId: "run_stream",
+        sequence: 1,
+        timestamp: 2,
+        type: "content_delta",
+        payload: { text: " world" }
+      },
+      {
+        schemaVersion: "1.0",
+        runId: "run_stream",
+        sequence: 2,
+        timestamp: 3,
+        type: "terminal",
+        payload: {
+          schemaVersion: "1.0",
+          runId: "run_stream",
+          outcome: "completed",
+          finalText: "Hello world"
+        }
+      }
+    ] as unknown as StreamEvent[];
+
+    const streamPrompt = vi.fn().mockResolvedValue({
+      handle: { schemaVersion: "1.0", runId: "run_stream", startedAt: 0 },
+      events: (async function* () {
+        for (const event of events) yield event;
+      })(),
+      cancel: vi.fn()
+    });
+
+    mountApp(root, {
+      config: { model: "gemma4:latest", proxyEndpointUrl: "/api/inderun/openai-responses" },
+      runPrompt: vi.fn(),
+      streamPrompt,
+      checkProviderCapabilities: vi.fn().mockResolvedValue(SNAPSHOTS),
+      getLastRouteDecision: vi.fn().mockReturnValue(undefined)
+    });
+    await flush();
+
+    root.querySelector<HTMLButtonElement>("#stream-button")?.click();
+    await flush();
+
+    expect(streamPrompt).toHaveBeenCalledWith(expect.any(String), "cloud_allowed");
+    // The terminal summary only lands on the re-render after the iteration ends.
+    await vi.waitFor(() => {
+      expect(root.textContent).toContain("Completed");
+    });
+    expect(root.querySelector("#stream-output")?.textContent).toBe("Hello world");
+    // The log shows sequence numbers, which is how a gap or a reorder is visible.
+    expect(root.querySelector("#stream-log")?.textContent).toContain("content_delta");
+  });
+
+  it("renders a stream() rejection as a refusal rather than a terminal event", async () => {
+    document.body.innerHTML = `<div id="app"></div>`;
+    const root = document.querySelector<HTMLElement>("#app");
+    if (!root) {
+      throw new Error("Missing app root for test.");
+    }
+
+    mountApp(root, {
+      config: { model: "gemma4:latest", proxyEndpointUrl: "/api/inderun/openai-responses" },
+      runPrompt: vi.fn(),
+      streamPrompt: vi.fn().mockRejectedValue(
+        new IndeRunException({
+          errorClass: "CapabilityMismatch",
+          message: "No provider capable of streaming was found."
+        })
+      ),
+      checkProviderCapabilities: vi.fn().mockResolvedValue(SNAPSHOTS),
+      getLastRouteDecision: vi.fn().mockReturnValue(undefined)
+    });
+    await flush();
+
+    root.querySelector<HTMLButtonElement>("#stream-button")?.click();
+    await flush();
+
+    expect(root.textContent).toContain("stream() rejected");
+    expect(root.textContent).toContain("CapabilityMismatch");
+    expect(root.querySelector("#stream-output")).toBeNull();
   });
 });

@@ -8,12 +8,12 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
-#[cfg(target_os = "android")]
-use jni::JNIEnv;
-#[cfg(target_os = "android")]
+#[cfg(feature = "jni-bindings")]
+use jni::EnvUnowned;
+#[cfg(feature = "jni-bindings")]
+use jni::errors::ThrowRuntimeExAndDefault;
+#[cfg(feature = "jni-bindings")]
 use jni::objects::{JClass, JString};
-#[cfg(target_os = "android")]
-use jni::sys::jstring;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -76,27 +76,29 @@ pub unsafe extern "C" fn inderun_free_string(value: *mut c_char) {
     }
 }
 
-#[cfg(target_os = "android")]
+/// JNI boundary for `SharedCoreRoutePlanner.planRouteJsonNative`.
+///
+/// A planner-level failure (unparseable input, unserializable plan) comes back as
+/// the same JSON error shape the C boundary returns, so the Kotlin side sees one
+/// vocabulary. Only a genuine JNI failure -- the JVM refusing to hand over or
+/// allocate a string -- becomes a thrown Java exception, and `with_env` also
+/// turns a panic into one instead of unwinding into the JVM.
+#[cfg(feature = "jni-bindings")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_app_independo_inderun_core_SharedCoreRoutePlanner_planRouteJsonNative(
-    mut env: JNIEnv,
-    _class: JClass,
-    input_json: JString,
-) -> jstring {
-    let input = match env.get_string(&input_json) {
-        Ok(value) => value.to_string_lossy().into_owned(),
-        Err(error) => return new_jstring(&mut env, &error_json(error.to_string())),
-    };
-
-    let output = plan_route_json_string(&input).unwrap_or_else(error_json);
-    new_jstring(&mut env, &output)
-}
-
-#[cfg(target_os = "android")]
-fn new_jstring(env: &mut JNIEnv, value: &str) -> jstring {
-    env.new_string(value)
-        .expect("JNI string conversion must succeed")
-        .into_raw()
+pub extern "system" fn Java_app_independo_inderun_core_SharedCoreRoutePlanner_planRouteJsonNative<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    input_json: JString<'local>,
+) -> JString<'local> {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<JString<'local>> {
+            let input = input_json.try_to_string(env)?;
+            let output = plan_route_json_string(&input).unwrap_or_else(error_json);
+            env.new_string(&output)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[cfg(target_arch = "wasm32")]

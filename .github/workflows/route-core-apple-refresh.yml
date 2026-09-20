@@ -1,0 +1,150 @@
+name: Route core (Apple) refresh
+
+# The committed XCFramework's provenance manifest hashes `Cargo.lock`, so every
+# Cargo dependency bump invalidates it: the binary in git was linked against the
+# crates that were resolved before the bump. That failure is a true positive --
+# the artifact really is stale -- but Dependabot cannot rebuild a macOS binary,
+# so its cargo PRs land red and a human has to run `pnpm build:route-core-apple`
+# and push the result. This workflow performs that push instead, which is the
+# only remediation the provenance design leaves open (see docs/ci.md).
+#
+# Triggered by `workflow_run` rather than `pull_request` on purpose: a run
+# triggered by Dependabot gets a read-only `GITHUB_TOKEN` and no access to
+# Actions secrets, so it cannot push anything. A `workflow_run` run is a
+# base-repository run with the normal token and secrets -- which is also why the
+# `if:` guard below has to be strict about whose head commit it is acting on.
+#
+# `workflow_run` workflows are read from the default branch, so edits here only
+# take effect once merged to `main`.
+
+on:
+  workflow_run:
+    workflows: [Swift]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keyed by branch, and deliberately not cancel-in-progress: this job pushes a
+  # commit, and a half-finished push is worse than a redundant run.
+  group: route-core-apple-refresh-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Rebuild and commit the Apple route core
+    # Dependabot's own cargo branches in this repository only. `workflow_run`
+    # runs with base-repository privileges, so a fork head must never reach it,
+    # and no other ecosystem can move `Cargo.lock`.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/cargo/')
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      # Needed only for the `GITHUB_TOKEN` fallback in the push step below; with
+      # a `GH_TOKEN` PAT/App token configured, that token does the pushing.
+      contents: write
+
+    steps:
+      - name: Check out the pull request branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          # No credentials in .git/config: the steps below compile the bumped
+          # crates, and a dependency's build script runs as part of that. The
+          # push step injects a token into its own environment instead, so no
+          # third-party code ever executes with a writable credential in reach.
+          persist-credentials: false
+
+      - name: Set up pnpm 11.9.0
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # Version, components and targets all come from rust-toolchain.toml -- the
+      # same pin the provenance manifest records. See swift.yml.
+      - name: Set up Rust toolchain
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
+
+      - name: Cache Cargo state
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
+            rust/inderun-route-core -> target
+          cache-on-failure: true
+
+      # The Swift job can fail for reasons that have nothing to do with the
+      # artifact. Only a failing provenance check justifies rewriting a
+      # committed executable, so it decides whether the rest of this job runs.
+      # It is also what stops this workflow looping: Rust builds are not
+      # byte-reproducible, so an unconditional rebuild would produce a fresh
+      # commit on every run forever.
+      - name: Check whether the committed route core is stale
+        id: verify
+        run: |
+          if pnpm verify:route-core-apple; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rebuild the route core from source
+        if: steps.verify.outputs.stale == 'true'
+        run: pnpm build:route-core-apple --force
+
+      # Same check swift.yml runs after its rebuild: architectures, Mach-O
+      # platform, deployment target, exported FFI symbols, install name, linked
+      # libraries. The hash comparison is skipped because the manifest was just
+      # rewritten to describe these bytes.
+      - name: Verify the rebuilt slices
+        if: steps.verify.outputs.stale == 'true'
+        run: pnpm verify:route-core-apple --slices-only
+
+      - name: Commit and push the rebuilt route core
+        if: steps.verify.outputs.stale == 'true'
+        env:
+          # A PAT/App token makes the push retrigger the Swift check, the same
+          # reason release.yml needs one. The fallback still fixes the branch,
+          # but pushes made with GITHUB_TOKEN do not start workflow runs, so the
+          # red check has to be re-run by hand.
+          TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          USING_PAT: ${{ secrets.GH_TOKEN != '' }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          git add ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework \
+                  ios/IndeRun/Frameworks/InderunRouteCoreFFI.provenance.json
+          if git diff --cached --quiet; then
+            echo "The provenance check failed but the rebuild changed nothing; not committing."
+            exit 1
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m 'chore(deps): rebuild the Apple route core for the dependency bump' \
+                     -m 'The XCFramework is committed and its provenance manifest hashes Cargo.lock, so a Cargo bump leaves the binary in git built from the previous dependency set.'
+          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH}"
+          {
+            echo "Rebuilt \`InderunRouteCoreFFI.xcframework\` and pushed it to \`${BRANCH}\`."
+            if [ "$USING_PAT" != "true" ]; then
+              echo
+              echo "> Pushed with \`GITHUB_TOKEN\`, which does not start workflow runs."
+              echo "> Re-run the Swift workflow on the new head commit to clear the check."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

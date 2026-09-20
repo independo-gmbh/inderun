@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/stream-run.schema.json",
+  "title": "StreamRunHandle",
+  "description": "The serializable acknowledgment returned when a Mode 2 stream is opened, before any StreamEvent has arrived. This is the identity/correlation contract only: the live, consumable stream itself is a platform-idiomatic construct (an AsyncIterable<StreamEvent> in TypeScript, a Flow<StreamEvent> in Kotlin, an AsyncThrowingStream<StreamEvent, Error> in Swift) that is never serialized and is out of scope for this schema. Design seam only; no engine or provider implementation exists yet (see docs/architecture/architecture.md).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "runId", "startedAt"],
+  "properties": {
+    "schemaVersion": {
+      "description": "Contract schema version used to interpret this handle payload.",
+      "const": "1.0"
+    },
+    "runId": {
+      "description": "A unique, opaque identifier assigned by the engine for this stream run. Every StreamEvent and the terminal StreamTerminalOutcome for this run carry the same runId, matching the identity convention used by TaskResult.runId and IndeRunError.runId.",
+      "type": "string",
+      "minLength": 1
+    },
+    "startedAt": {
+      "description": "Wall-clock time the stream run was opened, in Unix epoch milliseconds.",
+      "type": "number",
+      "minimum": 0
+    },
+    "providerId": {
+      "description": "Identifier of the provider selected to service this stream, if routing has completed by the time the handle is returned. Absent while route selection is still pending.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

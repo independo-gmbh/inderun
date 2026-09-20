@@ -1,4 +1,5 @@
 export type {
+  AbortSignalLike,
   ClockService,
   ConnectivityService,
   DeviceConstraintsService,
@@ -6,6 +7,8 @@ export type {
   HttpClientService,
   HttpRequest,
   HttpResponse,
+  HttpStreamResponse,
+  HttpStreamingClientService,
   SecureStorageService,
   TelemetryService,
   ThermalState
