@@ -239,7 +239,14 @@ capabilities above and is selected automatically by routing.
 ## Credentials & security
 
 Never place raw API keys in a `TaskRequest`. Providers resolve credentials from secure platform storage via
-`authContextRef`. For web, keep the key server-side behind a proxy endpoint.
+`authContextRef`, so a secret never enters a request payload and never sits in source.
+
+`authContextRef` does not make a key safe to ship, and it is not meant to. Anything a browser or an installed app can
+read, someone with that browser or app can read — a developer-owned API key does not become safe by being referenced
+indirectly. Use `authContextRef` for credentials that legitimately live on the device: a per-user or per-install token
+your backend issued. For a key **you** own, put it behind a backend you control and point the provider's endpoint at
+that. The Web SDK enforces this by refusing the public OpenAI endpoint unless you opt out explicitly for a controlled
+environment; on iOS and Android it is a convention, because a native app can reach any endpoint it likes.
 
 ## Packages
 
