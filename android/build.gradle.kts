@@ -1,6 +1,7 @@
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
@@ -20,6 +21,11 @@ plugins {
 // library on `java.library.path`. Registered on the root project because two
 // modules' tests route: :inderun-core and :inderun-kotlin.
 val routeCoreHostDir = File(rootProject.projectDir.parentFile, "target/route-core-host")
+
+// The cross-SDK conformance vectors live outside every module, so Gradle would
+// otherwise report a test task up to date after the fixtures change and quietly
+// skip the suites that read them -- which is exactly when they most need to run.
+val sharedStreamingFixtures = File(rootProject.projectDir.parentFile, "contracts/fixtures/streaming")
 
 val buildRouteCoreHost = tasks.register<Exec>("buildRouteCoreHost") {
     group = "verification"
@@ -57,6 +63,10 @@ subprojects {
                 languageVersion.set(JavaLanguageVersion.of(21))
             }
         )
+
+        inputs.dir(sharedStreamingFixtures)
+            .withPropertyName("sharedStreamingFixtures")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
 
         // Routing has a single planner, so these modules' tests fail without the
         // native core rather than quietly routing by a second rule set: the library
