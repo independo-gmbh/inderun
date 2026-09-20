@@ -1,3 +1,9 @@
+## [0.2.2](https://github.com/independo-gmbh/inderun/compare/v0.2.1...v0.2.2) (2026-08-16)
+
+### Bug Fixes 🛠️
+
+* **ci:** drop broken sdkmanager platform install in maven-publish ([#143](https://github.com/independo-gmbh/inderun/issues/143)) ([#144](https://github.com/independo-gmbh/inderun/issues/144)) ([e46d26e](https://github.com/independo-gmbh/inderun/commit/e46d26e4679a9f964720168b0e946c4ee34136e1))
+
 ## [0.2.1](https://github.com/independo-gmbh/inderun/compare/v0.2.0...v0.2.1) (2026-08-16)
 
 ### Bug Fixes 🛠️

@@ -1,6 +1,6 @@
 {
   "name": "@independo/inderun-web",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "On-device AI with automatic cloud fallback for web apps. Runs ONNX Runtime or the Chrome Prompt API in the browser and falls back to an OpenAI-compatible endpoint, with streaming and cancellation behind one API.",
   "license": "MIT",
   "author": {
