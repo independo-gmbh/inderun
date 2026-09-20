@@ -15,18 +15,26 @@ truth for exact steps. This table describes only what each one covers.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
 - `Maven Publish` (`maven-publish.yml`): on a published GitHub release — prereleases included — publishes the Android library modules to Maven Central. The version comes from the tag (passed as `-PinderunVersion`), not from `android/gradle.properties`, because semantic-release only commits the version bump on stable releases. Prereleases are published because the Capacitor bridge consumes these artifacts from Maven Central and would otherwise have no `-dev.N` line to develop against, unlike npm and SwiftPM. `workflow_dispatch` takes optional `ref` and `version` inputs for a manual re-run.
-- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
+- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. Only `swift` uses `build-mode: manual` — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`), so the autobuilder can't lock onto the demo Xcode project. Everything else, `java-kotlin` included, uses `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
 
 ## Code Scanning
 
 Code scanning uses **advanced setup** — the committed `codeql.yml` workflow is the source
 of truth, not GitHub's default (UI-managed) setup. The two conflict, so **default setup
 must be set to "Not configured"** under Settings → Code security → Code scanning; otherwise
-the CodeQL runs fail. The compiled languages use explicit manual builds so the autobuilder
-can't lock onto a demo/sample app: Swift builds the SwiftPM package (`swift build` from the
-repository root) rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
-`./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both
-scan the product code, not the sample apps.
+the CodeQL runs fail.
+
+Swift is the one language built manually, so the autobuilder cannot lock onto
+`ios/SampleApps/IndeRunDemo`: it builds the SwiftPM package (`swift build` from the repository
+root), which is the product code.
+
+`java-kotlin` is buildless. It used to run `./gradlew assembleDebug`, which reaches
+`:inderun-core:buildRouteCoreAndroid` and cross-compiles the Rust route core for four ABIs —
+output CodeQL never reads, since it extracts Kotlin source. That coupling broke the Kotlin
+scan for three weeks once the route core moved into the Gradle build (#204): the job had no
+`rustup` setup, so the cross-compile failed with `can't find crate for core` and took the whole
+analysis down with it. Buildless extraction removes both the failure and a four-ABI
+cross-compile from every PR into `main`.
 
 CodeQL's `pull_request` trigger only targets `main` — every PR into `main` gets full
 analysis. `dev` is not PR-gated by CodeQL; it relies on the weekly `schedule` run
@@ -166,6 +174,15 @@ invisible inside this repository and only breaks for someone consuming the publi
   swift-api-digester cannot build a baseline for any target depending on the `InderunRouteCoreFFI`
   binary target, which is every other module. Runs on pull requests only, and needs the job's
   `fetch-depth: 0` checkout to resolve the baseline.
+
+  It is **advisory on a release PR and blocking everywhere else**. The baseline is the PR's base:
+  against `dev` that is the branch's own increment, which is where an unintended break should fail
+  review. Against `main` it is everything since the last stable release, which for a pre-1.0
+  project that takes breaking changes as minor bumps (`release.config.js`) is intentional by
+  definition — v0.3.0 reported 44. A blocking gate there would stop exactly the releases it exists
+  to describe (#206), so the step keeps running and keeps printing: its output is the
+  authoritative breaking-change list for the release notes, and it catches breaks whose commits
+  forgot the `BREAKING CHANGE:` footer.
 - **Web**, in `javascript.yml`: `pnpm verify:packaging` runs `publint` and
   `attw --pack . --profile esm-only` over the three published npm packages, resolving every
   `exports` subpath the way a consumer's TypeScript would. The `esm-only` profile drops the node10
