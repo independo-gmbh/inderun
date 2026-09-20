@@ -41,6 +41,9 @@ jobs:
           # at database finalize. Kotlin extraction happens through the compiler.
           - language: java-kotlin
             build-mode: manual
+            # assembleDebug cross-compiles the route core for four Android ABIs on
+            # top of the Gradle work; android.yml budgets 35 minutes for the same.
+            timeout-minutes: 45
           - language: swift
             build-mode: manual
             # swift build pulls in onnxruntime-swift-package-manager (large prebuilt
@@ -79,6 +82,25 @@ jobs:
         # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
         # the toolchain file decides which compiler actually runs.
         uses: dtolnay/rust-toolchain@stable
+
+      # The action above only provides rustup, installed with
+      # `--default-toolchain none`, so nothing from rust-toolchain.toml exists yet
+      # -- including its ten `targets`. Without this the cross-compile fails with
+      # "can't find crate for `core` ... the aarch64-linux-android target may not
+      # be installed". No arguments, so the version still comes only from the
+      # toolchain file. Mirrors android.yml, which needs it for the same reason.
+      - name: Install the pinned Rust toolchain
+        if: matrix.language == 'java-kotlin'
+        run: rustup toolchain install --no-self-update
+
+      # Four Android cross-compiles on top of the Gradle work, same as android.yml,
+      # which budgets 35 minutes for it.
+      - name: Cache Cargo state
+        if: matrix.language == 'java-kotlin'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
 
       - name: Set up Android SDK
         if: matrix.language == 'java-kotlin'
