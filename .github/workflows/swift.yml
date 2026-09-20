@@ -121,8 +121,19 @@ jobs:
       # Contracts is the surface worth guarding most anyway -- it is generated from
       # the shared schemas and is what the other two SDKs mirror. Widen the scope if
       # SwiftPM ever resolves binary targets for baseline builds.
+      #
+      # Advisory on a release PR, blocking everywhere else. The baseline is the
+      # PR's base: against `dev` that is the branch's own increment, which is
+      # where an *unintended* break should fail review. Against `main` it is
+      # everything since the last stable release -- 44 entries for v0.3.0, all
+      # intentional and all already announced by `!` commits. Pre-1.0 breaking
+      # changes are minor bumps here by policy (release.config.js), so a blocking
+      # gate would stop exactly the releases it exists to describe (#206). The
+      # report still runs and still prints: it is the authoritative list for the
+      # release notes, and it catches breaks whose commits forgot the footer.
       - name: Diagnose API-breaking changes in IndeRunContracts
         if: github.event_name == 'pull_request'
+        continue-on-error: ${{ github.base_ref == 'main' }}
         run: swift package diagnose-api-breaking-changes "origin/${{ github.base_ref }}" --targets IndeRunContracts
 
       # Second pass: rebuilt from source, which answers the half a manifest
