@@ -1,8 +1,18 @@
 name: Maven Publish
 
-# Publishes the Android library modules to Maven Central when a stable GitHub
-# release is created (by the Release workflow / semantic-release). Prereleases
-# (from the dev branch) are skipped — Maven Central hosts stable releases only.
+# Publishes the Android library modules to Maven Central when a GitHub release is
+# created (by the Release workflow / semantic-release), prereleases included: the
+# Capacitor bridge lives in its own repository and consumes these artifacts from
+# Maven Central, so it cannot develop against a `-dev.N` line that npm and SwiftPM
+# have but Maven does not.
+#
+# The published version comes from the tag, NOT from android/gradle.properties.
+# semantic-release only commits the version bump on stable releases (see
+# release.config.js), so on a prerelease tag `inderunVersion` still holds the
+# previous stable version — publishing from it would label the artifacts wrongly.
+# The Publish step therefore passes -PinderunVersion explicitly, overriding the
+# gradle.properties value that android/build.gradle.kts reads.
+#
 # workflow_dispatch allows manually re-running a publish (e.g. against an
 # already-released tag) without cutting a new GitHub release.
 on:
@@ -14,6 +24,10 @@ on:
         description: 'Tag or ref to publish (defaults to the triggering ref)'
         required: false
         type: string
+      version:
+        description: 'Version to publish (defaults to the ref/tag minus its leading "v")'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,7 +35,6 @@ permissions:
 jobs:
   maven-publish:
     name: Publish to Maven Central
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -29,6 +42,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.event.release.tag_name || github.ref }}
+
+      # See the header comment: the tag is the version authority, not gradle.properties.
+      # Fails loudly rather than falling back, so a malformed ref can never publish
+      # artifacts under a stale version.
+      - name: Resolve the publish version
+        id: version
+        env:
+          RAW_VERSION: ${{ inputs.version || inputs.ref || github.event.release.tag_name || github.ref_name }}
+        run: |
+          version="${RAW_VERSION#refs/tags/}"
+          version="${version#v}"
+          if [ -z "$version" ]; then
+            echo "Could not resolve a version to publish from '$RAW_VERSION'." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing app.independo.inderun:*:$version"
 
       # inderun-core packages the shared Rust route core as jniLibs; the Gradle
       # task shells out to scripts/build-route-core-android.mjs, so both Node and
@@ -82,7 +112,7 @@ jobs:
 
       - name: Publish to Maven Central
         working-directory: android
-        run: ./gradlew publishToMavenCentral --no-daemon --stacktrace
+        run: ./gradlew publishToMavenCentral --no-daemon --stacktrace -PinderunVersion=${{ steps.version.outputs.version }}
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
