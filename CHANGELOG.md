@@ -1,3 +1,136 @@
+## [0.3.0](https://github.com/independo-gmbh/inderun/compare/v0.2.2...v0.3.0) (2026-09-20)
+
+### ⚠ BREAKING CHANGES
+
+* **android:** `AndroidMlKitGenAiRuntime` gained `generateTextStream` and
+`generateText` now returns `AndroidMlKitGenAiOutput` instead of `String`, so a
+custom implementation of that seam no longer compiles. The runtime-injecting
+`AndroidMlKitGenAiProvider` constructor is now public rather than internal,
+matching `AndroidOnnxRuntimeProvider`. ML Kit failures that previously all
+surfaced as `Internal` in Mode 1 now classify by `GenAiException.errorCode`, so
+a busy runtime reports `RateLimited`, an incompatible device reports
+`CapabilityMismatch`, and a policy rejection reports `CapabilityMismatch` while
+retracting any content already streamed. A stream consumer must now handle
+`content_snapshot` even from a provider whose declared `streamingStyle` is
+`tokens` or `chunks`, because that is how content retraction is delivered.
+* **web:** `RouteSelection` no longer has a `plannerSource` field, and the
+`route_decided` telemetry payload no longer carries `plannerSource` or
+`plannerUnavailableReason`. Consumers reading either key from that payload were
+reading a constant.
+* **android:** Android routing no longer falls back to a second planner.
+A route request whose plan cannot be produced now fails with an `Internal`
+error instead of being routed by different rules, and `localRequired` no
+longer admits a cloud provider anywhere in the fallback chain. Provider
+selection may differ where the mirror ignored `preferences.optimizeFor`.
+Building the Android SDK now requires Node and `rustup`; assembling an AAR
+additionally requires the Android NDK.
+* **ios:** RoutePlanning.planRoute is now throwing and returns a
+non-optional RoutePlan; returning nil to signal "fall back" no longer has
+a meaning. Routing fails with an Internal error carrying
+plannerUnavailableReason when the shared core cannot produce a plan,
+where it previously fell back to in-process Swift route selection, so
+provider selection and failure summaries now match the Rust core's
+semantics rather than the Swift restatement's.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Jy43ekX3icyfF98cbDPtfP
+* **web:** PlannerOutcome no longer has a `source` field — a null
+`routePlan` is the unavailable signal. RouteSelection.plannerSource is
+narrowed to "wasm" and no longer carries plannerUnavailableReason; the
+route_decided telemetry payload keeps both keys, with
+plannerUnavailableReason always null. Routing now fails with an Internal
+error when the WASM route core cannot be loaded, where it previously fell
+back to in-process TypeScript route selection.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Jy43ekX3icyfF98cbDPtfP
+
+### Features 🚀
+
+* **android:** stream Mode 2 from ML Kit GenAI ([56c1846](https://github.com/independo-gmbh/inderun/commit/56c1846d4e121e307816519f2a2116a4d7e9372b))
+* **contracts:** add canonical Mode 2 streaming contracts ([#145](https://github.com/independo-gmbh/inderun/issues/145)) ([017c1ca](https://github.com/independo-gmbh/inderun/commit/017c1ca51948642d2fb9aeab3f184a655c053ec7))
+* **engine:** add Mode 2 streaming orchestrator, Event Gate, cancellation semantics ([#148](https://github.com/independo-gmbh/inderun/issues/148)) ([76454e8](https://github.com/independo-gmbh/inderun/commit/76454e8d7bffc1ac41c5fed46e86b0592e3010b6))
+* **ios:** stream Mode 2 from Apple Foundation Models ([2e76a21](https://github.com/independo-gmbh/inderun/commit/2e76a21f590c4194eadb3c72f1109e2a37359abc))
+* OpenAI-compatible streaming parity across Web, iOS, and Android ([#165](https://github.com/independo-gmbh/inderun/issues/165)) ([e0dc51e](https://github.com/independo-gmbh/inderun/commit/e0dc51e9781eb4d201ed44387ed2543d46ecc36f))
+* **routing:** make interaction mode a routing input ([#163](https://github.com/independo-gmbh/inderun/issues/163)) ([dc282ee](https://github.com/independo-gmbh/inderun/commit/dc282eefefca4d3e9e969594a738e5367eefb4a1)), closes [152/#153](https://github.com/152/inderun/issues/153) [#150](https://github.com/independo-gmbh/inderun/issues/150)
+* **web-demo:** add a diagnostic Mode 2 stream panel ([eb8eb2f](https://github.com/independo-gmbh/inderun/commit/eb8eb2f66294c900ac25788bdafda0bf9f5c78ec))
+
+### Bug Fixes 🛠️
+
+* **android:** keep coroutines off :inderun-kotlin's published API contract ([dae41d4](https://github.com/independo-gmbh/inderun/commit/dae41d4c3b3b8c981cb3c9fbe8443b96ebe2b829)), closes [#189](https://github.com/independo-gmbh/inderun/issues/189)
+* **android:** put public-API dependencies on consumers' compile classpath ([154461b](https://github.com/independo-gmbh/inderun/commit/154461b27dd4e708b992680ecaf99abb47259748)), closes [#189](https://github.com/independo-gmbh/inderun/issues/189)
+* **ci:** drop broken sdkmanager platform install in maven-publish ([#143](https://github.com/independo-gmbh/inderun/issues/143)) ([04caeb8](https://github.com/independo-gmbh/inderun/commit/04caeb84cb911db87f986d6d2ca0da32a7ed536d))
+* **deps:** override typescript-json-schema to drop vulnerable vm2 transitive dep ([88a4935](https://github.com/independo-gmbh/inderun/commit/88a4935bf499e2c0987abb75cbd7d0844da2d7c5))
+* **ios,android:** carry route-plan diagnostics on routing failures ([ae618b1](https://github.com/independo-gmbh/inderun/commit/ae618b17067c0c33ac0c82981a2c12d6a2b70bfd))
+* **ios:** compile the re-export boundary in CI, not just the ABI ([00e3177](https://github.com/independo-gmbh/inderun/commit/00e31775ab3c33a886381493a3b3ab6451209157)), closes [#189](https://github.com/independo-gmbh/inderun/issues/189)
+* **ios:** re-export the contract types the SDK's own API names ([09f4be7](https://github.com/independo-gmbh/inderun/commit/09f4be7d8b464d59010e4d5f6981461f00033eba)), closes [#189](https://github.com/independo-gmbh/inderun/issues/189)
+* **web:** re-export the contract types the SDK's signatures use ([696bedf](https://github.com/independo-gmbh/inderun/commit/696bedf271d0fd0f0e6bddf77b44370668352f10)), closes [#189](https://github.com/independo-gmbh/inderun/issues/189)
+
+### Documentation 📚
+
+* add the canonical Mode 2 streaming guide ([aaf2e41](https://github.com/independo-gmbh/inderun/commit/aaf2e410c1545e4e4fc5bfb9069dc0a0b1785a34))
+* correct planner references left stale by the mirror deletions ([70f4903](https://github.com/independo-gmbh/inderun/commit/70f490385d86bab09cfd1ae7bd9165f00efc8e52))
+* correct the README's claim that streaming is unimplemented ([c3321ba](https://github.com/independo-gmbh/inderun/commit/c3321ba2c7a63ddb2eeb3b180a17403fa17952a2)), closes [#151](https://github.com/independo-gmbh/inderun/issues/151)
+* describe the Capacitor bridge's Mode 2 behavior ([#198](https://github.com/independo-gmbh/inderun/issues/198)) ([f35f1c6](https://github.com/independo-gmbh/inderun/commit/f35f1c6029d33bb74b55f959c75185d480a93d3f)), closes [#149](https://github.com/independo-gmbh/inderun/issues/149)
+* describe the published packages by what they do ([63eb979](https://github.com/independo-gmbh/inderun/commit/63eb97961455b3a9b159830a4135c12b1bca76dd))
+* document Capacitor coverage and the Milestone 4 boundary ([ff90e54](https://github.com/independo-gmbh/inderun/commit/ff90e5438d3a2ef10f76fa590f70a7f1e0c7893c))
+* document streaming conformance and manual validation ([434b9fd](https://github.com/independo-gmbh/inderun/commit/434b9fda28271d27170507fbf34428097a98f940))
+* explain placement constraints and capability-based routing ([608a0e6](https://github.com/independo-gmbh/inderun/commit/608a0e6ab13743e45be91f7891f5512bb4ea9767))
+* fold the per-SDK streaming prose into the streaming guide ([619e61f](https://github.com/independo-gmbh/inderun/commit/619e61fdaf66bdb06845059edd8cff8c6a1f004f)), closes [#154](https://github.com/independo-gmbh/inderun/issues/154)
+* lead with on-device execution and cloud fallback ([124bf43](https://github.com/independo-gmbh/inderun/commit/124bf43d6d48b066517adc74acac611b7d2d7f6c))
+* put BREAKING CHANGE last in commit messages ([#176](https://github.com/independo-gmbh/inderun/issues/176)) ([58b393b](https://github.com/independo-gmbh/inderun/commit/58b393b065fc3f31d5dab23c938bf7a5d0340eb3))
+* record the packaging-parity rule and the new commands ([6c13250](https://github.com/independo-gmbh/inderun/commit/6c13250a05d38f2e4791a125dde230e83806048f)), closes [#189](https://github.com/independo-gmbh/inderun/issues/189)
+* separate authContextRef from shipping a developer-owned key ([e517f6b](https://github.com/independo-gmbh/inderun/commit/e517f6bb2e99d3333600a914264f55aefd63e73c))
+* separate Swift products from Swift imports ([36d65cc](https://github.com/independo-gmbh/inderun/commit/36d65cc0cb63ab56c0a462260d2ebac9e4341103)), closes [#191](https://github.com/independo-gmbh/inderun/issues/191) [#189](https://github.com/independo-gmbh/inderun/issues/189)
+* **web:** document the published TypeScript entry points with TSDoc ([4c94740](https://github.com/independo-gmbh/inderun/commit/4c94740b7ce89b2beecf0c62e9ea41c92539747b))
+
+### Miscellaneous Chores 🛠️
+
+* **deps-dev:** bump the npm-routine group with 2 updates ([c026232](https://github.com/independo-gmbh/inderun/commit/c026232f242e15e412a477539d3ad68c4771736d))
+* **deps-dev:** bump the npm-routine group with 4 updates ([185a6a9](https://github.com/independo-gmbh/inderun/commit/185a6a9589214cbb7b68a590943cf28799f6ae3e))
+* **deps-dev:** bump the npm-routine group with 4 updates ([0b3797f](https://github.com/independo-gmbh/inderun/commit/0b3797fa730fd9b1f4d13a6dccbdb135065e488b))
+* **deps-dev:** bump the npm-routine group with 4 updates ([7d29ee2](https://github.com/independo-gmbh/inderun/commit/7d29ee2d8409b580627719ed74b5f3b2ff356d6e))
+* **deps:** bump actions/setup-java from 5.7.0 to 6.0.0 ([9100e2b](https://github.com/independo-gmbh/inderun/commit/9100e2b8b6739087a3f758124cae4e0a87021b77))
+* **deps:** bump com.microsoft.onnxruntime:onnxruntime-android ([2dc7140](https://github.com/independo-gmbh/inderun/commit/2dc7140c70ac84ef5c3d6606919f7984976f9ed3))
+* **deps:** bump org.json:json from 20260719 to 20260814 in /android ([9c5dffb](https://github.com/independo-gmbh/inderun/commit/9c5dffba7a6808e05b41e353d053b12624c27329))
+* **deps:** bump the cargo-routine group with 3 updates ([fadbd9a](https://github.com/independo-gmbh/inderun/commit/fadbd9aef95d256f4bf33c20bb8dfd81398e887e))
+* **deps:** bump the github-actions-routine group with 2 updates ([f24adf9](https://github.com/independo-gmbh/inderun/commit/f24adf9f81cc51d3f8f48d290db3093d8024a595))
+* **deps:** bump the github-actions-routine group with 2 updates ([df5477e](https://github.com/independo-gmbh/inderun/commit/df5477e921b8e3ab99dea9fac515b7fab90d0b38))
+* **deps:** bump the github-actions-routine group with 2 updates ([dd4a753](https://github.com/independo-gmbh/inderun/commit/dd4a7533e71b0974795810fcba1c40d1ba47435f))
+* **deps:** bump the gradle-routine group across 1 directory with 4 updates ([5aa7aba](https://github.com/independo-gmbh/inderun/commit/5aa7aba7b449839e2fa3c96ffa5bb58d5453ff43))
+* **deps:** bump the gradle-routine group in /android with 3 updates ([2b47ed0](https://github.com/independo-gmbh/inderun/commit/2b47ed05bc05a2ec8b374adc6e1f9e6d38482721))
+* **deps:** rebuild the Apple route core for the cargo bump ([9847cc9](https://github.com/independo-gmbh/inderun/commit/9847cc96ef47ea5b7428d4894750710beba551d5))
+* **deps:** upgrade dependencies ([471b75d](https://github.com/independo-gmbh/inderun/commit/471b75d5323e51b30f42bbfcae4e374b93fcc88f))
+* merge the 0.2.2 release commit back into dev ([d417f19](https://github.com/independo-gmbh/inderun/commit/d417f1965a0b2707d9b0ac2e820ef638abebae0a)), closes [#201](https://github.com/independo-gmbh/inderun/issues/201) [#202](https://github.com/independo-gmbh/inderun/issues/202)
+
+### Code Refactors 🏗️
+
+* **android:** route only through the shared Rust planner ([c552e64](https://github.com/independo-gmbh/inderun/commit/c552e6448fdd2cd2d47021c98517c71f6b94eeca))
+* **ios:** route only through the shared Rust planner ([db9c157](https://github.com/independo-gmbh/inderun/commit/db9c157c144a0168e15720373d8dfcff63adcdb1)), closes [#171](https://github.com/independo-gmbh/inderun/issues/171)
+* **web:** drop the planner fields left over from the two-planner design ([12053a5](https://github.com/independo-gmbh/inderun/commit/12053a5a1f7481a13f56ffba0fdc0dd137cff5f5))
+* **web:** route only through the shared Rust planner ([6e85cda](https://github.com/independo-gmbh/inderun/commit/6e85cdaca00f1dffba67f720a14c1d10cdeff2f6)), closes [#171](https://github.com/independo-gmbh/inderun/issues/171) [#164](https://github.com/independo-gmbh/inderun/issues/164)
+
+### Tests 🛠️
+
+* add the shared Mode 2 engine conformance catalog ([b6f48b0](https://github.com/independo-gmbh/inderun/commit/b6f48b0ec82cae0305cf5bf50b5686db09e887a6))
+* **android:** drive the engine conformance catalog ([2ec1e94](https://github.com/independo-gmbh/inderun/commit/2ec1e94b0cf896f5e39f646533b06db58b7f9e9f))
+* **ios:** drive the engine conformance catalog ([1f7186b](https://github.com/independo-gmbh/inderun/commit/1f7186b7e22e0da02bb998dd034f1393277a714b))
+* **js:** drive the engine conformance catalog ([5a9e8a5](https://github.com/independo-gmbh/inderun/commit/5a9e8a506d4786ea24dac09830aff2c6e71af626))
+* **swift:** replace wall-clock streaming assertions with deterministic gates ([0cba58b](https://github.com/independo-gmbh/inderun/commit/0cba58b8354ed968fe12843dab84e9bd553e0fb1))
+* **web:** stop the streaming-abort test racing its own fixture ([70da87c](https://github.com/independo-gmbh/inderun/commit/70da87cec8ebfa8bd1e23311f9e2c372cacbdd3d))
+
+### CI/CD 👷
+
+* bump setup-android to v4.0.4 for the removed tools package ([#199](https://github.com/independo-gmbh/inderun/issues/199)) ([ba1a5d6](https://github.com/independo-gmbh/inderun/commit/ba1a5d6873c4792864ef8a630050bfc5d95c8082))
+* give the CodeQL Kotlin scan the toolchain its build needs ([#208](https://github.com/independo-gmbh/inderun/issues/208)) ([588f229](https://github.com/independo-gmbh/inderun/commit/588f229920b98663e9b08cbb92a71f0e44ded39b)), closes [#207](https://github.com/independo-gmbh/inderun/issues/207) [#204](https://github.com/independo-gmbh/inderun/issues/204) [#207](https://github.com/independo-gmbh/inderun/issues/207)
+* guard public-API packaging on all three SDKs ([6d588b6](https://github.com/independo-gmbh/inderun/commit/6d588b6cfb01b5e5dbca14c27066d073ab5c2796)), closes [#189](https://github.com/independo-gmbh/inderun/issues/189)
+* install the pinned Rust toolchain explicitly ([#175](https://github.com/independo-gmbh/inderun/issues/175)) ([ff82fa2](https://github.com/independo-gmbh/inderun/commit/ff82fa29c96500f77210bc7c4b9eb3178575bde0))
+* install the pinned Rust toolchain in the CodeQL Kotlin job ([#209](https://github.com/independo-gmbh/inderun/issues/209)) ([99cd856](https://github.com/independo-gmbh/inderun/commit/99cd85648451a9f31746dd7367aab2cd039f8da5)), closes [#208](https://github.com/independo-gmbh/inderun/issues/208) [#208](https://github.com/independo-gmbh/inderun/issues/208)
+* keep breaking changes at minor bumps while pre-1.0 ([07102e2](https://github.com/independo-gmbh/inderun/commit/07102e22aed8f5e1a87184c52d2548aa29ca474e))
+* publish Android prereleases to Maven Central ([#197](https://github.com/independo-gmbh/inderun/issues/197)) ([cd9dbdf](https://github.com/independo-gmbh/inderun/commit/cd9dbdfaaabd54d25dbd86261b0801be52d94785)), closes [#149](https://github.com/independo-gmbh/inderun/issues/149)
+* rebuild the Apple route core on Dependabot cargo PRs ([1821294](https://github.com/independo-gmbh/inderun/commit/1821294011c5ea7d0b8ceaaf3439507a506370ff))
+* stop the Kotlin scan and the Swift API guard blocking releases ([#207](https://github.com/independo-gmbh/inderun/issues/207)) ([e33d3bb](https://github.com/independo-gmbh/inderun/commit/e33d3bb6eb4629663a98e00264a66642603da579)), closes [#204](https://github.com/independo-gmbh/inderun/issues/204) [#206](https://github.com/independo-gmbh/inderun/issues/206)
+
 ## [0.2.2](https://github.com/independo-gmbh/inderun/compare/v0.2.1...v0.2.2) (2026-08-16)
 
 ### Bug Fixes 🛠️
