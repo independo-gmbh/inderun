@@ -50,11 +50,9 @@ unimplemented. Every platform can always use the OpenAI-compatible **cloud** pro
 automatically by routing when the device supports it (or forced with a `localRequired` privacy constraint). See
 [GitHub Milestones](https://github.com/independo-gmbh/inderun/milestones) for current roadmap status.
 
-Not every provider streams. Whether a stream request can be served depends on the registered providers, so it is
-decided by the route planner and refused up front with a normalized reason when nothing eligible can stream — see the
-[provider matrix](docs/architecture/providers.md#provider-matrix) for per-provider Mode 2 status, and each SDK README
-([web](packages/inderun-web/README.md), [iOS](ios/IndeRun/README.md), [Android](android/README.md)) for the streaming
-API and its event-handling contract.
+Not every provider streams, so whether a stream request can be served depends on the registered providers and is
+decided at routing time rather than discovered partway through. [Streaming (Mode 2)](docs/streaming.md) is the full
+contract — event types, ordering, cancellation, fallback, and what each provider does and does not report.
 
 ## Platforms
 

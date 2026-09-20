@@ -49,14 +49,14 @@ for await (const event of events) {
 }
 ```
 
-Order by `event.sequence`, not by arrival: it is the ordering authority for a run. Treat an
-unrecognized `event.type` as ignore-or-pass-through — the set is open and additive. Exactly one
-`terminal` event is produced per run, and `cancel()` is idempotent.
+Streaming over the network needs a host that can deliver a response body incrementally.
+`createBrowserHostServices` provides one; a custom host without a `streamingHttpClient` still runs
+Mode 1, and a stream request is refused at routing time with a `streaming_unavailable` reason rather
+than failing later.
 
-Streaming needs a host that can deliver a response body incrementally.
-`createBrowserHostServices` provides one; a custom host without a
-`streamingHttpClient` still runs Mode 1, and a stream request is refused at routing
-time with a `streaming_unavailable` reason rather than failing later.
+Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
+SDK and documented once, in
+[Streaming (Mode 2)](https://github.com/independo-gmbh/inderun/blob/main/docs/streaming.md).
 
 ### Custom OpenAI-compatible endpoints
 

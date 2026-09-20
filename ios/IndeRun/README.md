@@ -92,24 +92,18 @@ for try await event in run.events {
 }
 ```
 
-Order by `event.sequence`, not by arrival: it is the ordering authority for a run. Treat an
-unrecognized `event.type` as ignore-or-pass-through — the set is open and additive. Exactly one
-terminal event is produced per run, and `cancel(reason:)` is idempotent.
-
-Two providers stream today, and they emit different content event types. The Apple Foundation
-Models provider is on-device and streams cumulative snapshots, so its content events are
-`content_snapshot` — each payload replaces the previous text rather than appending to it. The
-OpenAI adapter streams tokens as `content_delta`. Handle both if you do not want to pin your app
-to one provider.
-
 The HTTP-transport providers need a host that can deliver a response body incrementally.
 `DefaultHostServices.make()` provides one; a host without a `streamingHttpClient` still runs
 Mode 1, and a stream request that can only be served over HTTP is refused at routing time with a
 `streaming_unavailable` reason. The Apple provider does not go through that path — it streams
-from the system model with no host HTTP capability involved.
+from the system model with no host HTTP capability involved, and it emits `content_snapshot`
+rather than `content_delta`.
 
 The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types.
+
+Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
+SDK and documented once, in [Streaming (Mode 2)](../../docs/streaming.md).
 
 ## Notes
 
