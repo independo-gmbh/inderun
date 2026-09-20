@@ -15,7 +15,7 @@ The separation matters because provider-specific details should remain behind ad
 
 ## Execution Model
 
-The current public execution path is Mode 1 `run()`. The engine validates the request, selects a provider deterministically, executes the request, and normalizes the result or error.
+The public execution paths are Mode 1 `run()` (request/response) and Mode 2 `stream()` (incremental output with cancellation). Both validate the request, select a provider deterministically, execute, and normalize the result or error; they differ in what they hand back and in how narrow fallback is, not in how a provider is chosen.
 
 The same conceptual model is shared across platforms:
 
@@ -31,6 +31,12 @@ For Mode 2 the same rule holds, with one consequence worth stating: a live event
 Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introspection call that returns each registered provider's static descriptor and current dynamic capability check without executing a task or producing side effects. It exists with the same shape on the TypeScript, Swift, and Kotlin engines, and is intended for UI that needs to show live provider availability before a run (for example, the Web demo's provider badges).
 
 `IndeRun`'s method-signature surface (`run`/`checkCapabilities`) across TypeScript, Swift, and Kotlin is now generated from a versioned spec and CI-enforced — each platform's hand-written `IndeRun` class implements/conforms to the generated `IndeRunApi` interface/protocol, and CI fails on regeneration drift. `ProviderAdapter` parity is still kept in sync by convention and review, not generation. See [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and current status.
+
+### Placement Constraints
+
+Routing separates two operations that are easy to conflate. A constraint either **rejects** a provider — removing it from the chain entirely, so fallback cannot reach it either — or **ranks** it, leaving it reachable but later. `local_required` and `cloud_required` reject; `local_preferred` only ranks. That distinction is the whole reason a `local_required` run cannot silently reach the cloud while a `local_preferred` one can and should.
+
+Order among the survivors is the tuple `(placement_rank, preference_rank)` with the provider id as the final tiebreak, so a fixed request, policy, and capability snapshot always produce the same chain — including the same fallback order, which is what makes a routing decision reproducible from its inputs rather than only observable after the fact. Within `placement_rank`, `constraints.cloud` outranks `constraints.privacy`; for rejection the two axes apply independently. The rules live in `rust/inderun-route-core/src/planner.rs` and are exercised by that crate's `tests.rs`; the root `README.md` carries the consumer-facing table.
 
 ### Streaming Contracts And Orchestration (Mode 2)
 

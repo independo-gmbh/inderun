@@ -36,8 +36,9 @@ What that buys an application:
   platform, down to one shared error taxonomy. Secrets stay out of request payloads, referenced via `authContextRef`.
 
 Routing is the mechanism rather than the pitch: one shared planner picks providers from the request's constraints plus
-a live capability snapshot, and records why each rejected provider was rejected. See the
-[architecture overview](docs/architecture/architecture.md).
+a live capability snapshot, and records why each rejected provider was rejected.
+[Choosing where a task runs](#choosing-where-a-task-runs) covers the constraints; the
+[architecture overview](docs/architecture/architecture.md) covers the rest.
 
 IndeRun is built and used in [Independo](https://www.independo.app)'s accessibility products, which is where the
 offline and on-device paths are exercised.
@@ -53,6 +54,30 @@ automatically by routing when the device supports it (or forced with a `localReq
 Not every provider streams, so whether a stream request can be served depends on the registered providers and is
 decided at routing time rather than discovered partway through. [Streaming (Mode 2)](docs/streaming.md) is the full
 contract — event types, ordering, cancellation, fallback, and what each provider does and does not report.
+
+## Choosing where a task runs
+
+Placement is a property of the request, not of the call site. `constraints.privacy` says how strict you are:
+
+| `constraints.privacy`       | Effect on routing                                                                                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local_required`            | Every provider whose data leaves the device is **rejected** — removed from the chain, so no cloud fallback. If none remains, the request is refused. |
+| `local_preferred`           | Nothing is rejected. On-device providers are **ranked first**; cloud stays in the chain as fallback.                                                 |
+| `cloud_allowed` _(default)_ | No preference from privacy. The default ranking still prefers local → edge → cloud.                                                                  |
+| `cloud_required`            | Non-cloud providers are rejected.                                                                                                                    |
+
+`constraints.cloud` (`forbidden` / `allowed` / `required`) is a separate axis. It outranks the privacy axis when
+ordering providers; for rejection the two apply independently.
+
+Everything else is capability. A provider is a candidate only if it declares the task kind and the interaction mode,
+_and_ its live capability check says it can serve them on this host right now. One that cannot is rejected before
+anything is attempted, and the refusal names every rejected provider with a normalized reason code —
+`privacy_constraint`, `streaming_unavailable`, `offline`, `capability_unavailable` — on the thrown error's `details`.
+That is the only channel through which a caller learns why a request could not be placed.
+
+Ordering among the survivors is deterministic for a fixed request and capability snapshot, so the same inputs always
+produce the same provider and the same fallback order. See
+[the architecture overview](docs/architecture/architecture.md#placement-constraints).
 
 ## Platforms
 
