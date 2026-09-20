@@ -182,8 +182,10 @@ val result = indeRun.run(
 
 ### Capacitor (hybrid apps)
 
-A thin Capacitor bridge is used internally to integrate the native iOS and Android SDKs into hybrid applications. It
-is not currently published as a public package or repository.
+A thin Capacitor bridge integrates the Web, Swift, and Kotlin SDKs into hybrid applications. It is published as
+[`@independo/capacitor-inderun`](https://www.npmjs.com/package/@independo/capacitor-inderun); the source lives in its
+own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun). The bridge
+delegates execution to the platform SDKs rather than implementing routing or orchestration of its own.
 
 ## Minimum system requirements
 
