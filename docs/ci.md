@@ -42,6 +42,12 @@ route core moved into the Gradle build (#204) — the cross-compile failed with 
 for core`, because the Android rustup targets were never installed, and took the whole analysis
 down with it.
 
+`dtolnay/rust-toolchain` alone is not enough, here or in `android.yml`: it installs rustup with
+`--default-toolchain none`, so nothing from `rust-toolchain.toml` exists yet — including its ten
+`targets`. Both workflows follow it with an explicit `rustup toolchain install --no-self-update`,
+argument-free so the version still comes only from the toolchain file. Dropping that step
+reproduces the same `can't find crate for core` failure with rustup apparently present.
+
 CodeQL's `pull_request` trigger only targets `main` — every PR into `main` gets full
 analysis. `dev` is not PR-gated by CodeQL; it relies on the weekly `schedule` run
 (`cron: "27 3 * * 1"`), which scans the repository's default branch (`dev`). This
