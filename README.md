@@ -17,16 +17,30 @@
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-IndeRun is an open-source AI execution framework that gives applications one unified API for running tasks across
-on-device, edge, and cloud providers. It ships native SDKs for **web, iOS, and Android** with a shared contract and
-consistent, deterministic behavior.
+**On-device AI with automatic cloud fallback, for cross-platform apps.**
 
-The project is organized around a few stable ideas:
+IndeRun runs a text task on the device when the device can — Apple Foundation Models on iOS and macOS, ML Kit GenAI
+(Gemini Nano) on Android, ONNX Runtime for developer-supplied models, the browser's Prompt API on desktop Chrome — and
+falls back to an OpenAI-compatible cloud provider when it cannot. One API, one normalized result and error shape, on
+**web, Capacitor, iOS, and Android**. Open source, MIT.
 
-- `run()` and `stream()` are the public execution paths — request/response and incremental output.
-- Routing is deterministic and based on request constraints plus host capability snapshots.
-- Provider behavior is normalized so apps do not need provider-specific branching in their own code.
-- Secrets stay out of request payloads and are referenced through `authContextRef`.
+What that buys an application:
+
+- **It keeps working offline**, wherever a local provider is available on the device.
+- **Input can stay on the device.** `privacy: "local_required"` removes every provider whose data leaves the device
+  from the route, so there is no silent cloud fallback.
+- **It degrades rather than fails.** A device that cannot run the local model routes to the cloud; a request no
+  registered provider can serve is refused up front with a reason, not attempted and failed halfway.
+- **No per-call cost when a capability runs locally**, and the same code path when it does not.
+- **`run()` and `stream()`** — request/response and incremental output with cancellation — behave the same on every
+  platform, down to one shared error taxonomy. Secrets stay out of request payloads, referenced via `authContextRef`.
+
+Routing is the mechanism rather than the pitch: one shared planner picks providers from the request's constraints plus
+a live capability snapshot, and records why each rejected provider was rejected. See the
+[architecture overview](docs/architecture/architecture.md).
+
+IndeRun is built and used in [Independo](https://www.independo.app)'s accessibility products, which is where the
+offline and on-device paths are exercised.
 
 ## Status
 
@@ -82,6 +96,14 @@ register the Web ONNX Runtime provider — see the
 [`@independo/inderun-web` README](packages/inderun-web/README.md#on-device-models-onnx-runtime-web)
 and the [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md). The
 provider ships from the `@independo/inderun-web/onnx` subpath.
+
+### Capacitor (hybrid apps)
+
+A thin Capacitor bridge puts the same API in hybrid apps, with the on-device providers of whichever platform the app is
+running on. It is published as
+[`@independo/capacitor-inderun`](https://www.npmjs.com/package/@independo/capacitor-inderun); the source lives in its
+own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun). The bridge
+delegates execution to the platform SDKs below rather than implementing routing or orchestration of its own.
 
 ### iOS / macOS (Swift)
 
@@ -179,13 +201,6 @@ val result = indeRun.run(
 > Need cloud execution too? Register the OpenAI-compatible provider from
 > `inderun-openai-providers` — see the [Kotlin SDK README](android/inderun-kotlin/README.md)
 > and the [provider model](docs/architecture/providers.md).
-
-### Capacitor (hybrid apps)
-
-A thin Capacitor bridge integrates the Web, Swift, and Kotlin SDKs into hybrid applications. It is published as
-[`@independo/capacitor-inderun`](https://www.npmjs.com/package/@independo/capacitor-inderun); the source lives in its
-own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun). The bridge
-delegates execution to the platform SDKs rather than implementing routing or orchestration of its own.
 
 ## Minimum system requirements
 
