@@ -15,7 +15,7 @@ truth for exact steps. This table describes only what each one covers.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
 - `Maven Publish` (`maven-publish.yml`): on a published GitHub release — prereleases included — publishes the Android library modules to Maven Central. The version comes from the tag (passed as `-PinderunVersion`), not from `android/gradle.properties`, because semantic-release only commits the version bump on stable releases. Prereleases are published because the Capacitor bridge consumes these artifacts from Maven Central and would otherwise have no `-dev.N` line to develop against, unlike npm and SwiftPM. `workflow_dispatch` takes optional `ref` and `version` inputs for a manual re-run.
-- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. Only `swift` uses `build-mode: manual` — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`), so the autobuilder can't lock onto the demo Xcode project. Everything else, `java-kotlin` included, uses `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
+- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21, Node, the Rust toolchain, and the Android SDK/NDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
 
 ## Code Scanning
 
@@ -24,17 +24,23 @@ of truth, not GitHub's default (UI-managed) setup. The two conflict, so **defaul
 must be set to "Not configured"** under Settings → Code security → Code scanning; otherwise
 the CodeQL runs fail.
 
-Swift is the one language built manually, so the autobuilder cannot lock onto
-`ios/SampleApps/IndeRunDemo`: it builds the SwiftPM package (`swift build` from the repository
-root), which is the product code.
+The compiled languages use explicit manual builds so the autobuilder can't lock onto a
+demo/sample app: Swift builds the SwiftPM package (`swift build` from the repository root)
+rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
+`./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both scan
+the product code, not the sample apps.
 
-`java-kotlin` is buildless. It used to run `./gradlew assembleDebug`, which reaches
-`:inderun-core:buildRouteCoreAndroid` and cross-compiles the Rust route core for four ABIs —
-output CodeQL never reads, since it extracts Kotlin source. That coupling broke the Kotlin
-scan for three weeks once the route core moved into the Gradle build (#204): the job had no
-`rustup` setup, so the cross-compile failed with `can't find crate for core` and took the whole
-analysis down with it. Buildless extraction removes both the failure and a four-ABI
-cross-compile from every PR into `main`.
+**`java-kotlin` must stay `build-mode: manual`.** Buildless extraction (`build-mode: none`)
+covers Java only, and this repository's Android source is Kotlin — a buildless run finds nothing
+and fails at database finalize with "CodeQL could not process any code written in Java/Kotlin".
+Kotlin extraction happens through the compiler, so the scan needs a real build.
+
+That build is why this job carries Node and the Rust toolchain alongside JDK 21 and the Android
+SDK/NDK: `assembleDebug` reaches `:inderun-core:buildRouteCoreAndroid`, which shells out to
+`scripts/build-route-core-android.mjs`. Omitting them broke the scan for three weeks once the
+route core moved into the Gradle build (#204) — the cross-compile failed with `can't find crate
+for core`, because the Android rustup targets were never installed, and took the whole analysis
+down with it.
 
 CodeQL's `pull_request` trigger only targets `main` — every PR into `main` gets full
 analysis. `dev` is not PR-gated by CodeQL; it relies on the weekly `schedule` run

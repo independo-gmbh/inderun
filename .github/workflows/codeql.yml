@@ -35,14 +35,12 @@ jobs:
             build-mode: none
           - language: rust
             build-mode: none
-          # Buildless. The manual build this replaced ran `./gradlew assembleDebug`,
-          # which reaches :inderun-core:buildRouteCoreAndroid and cross-compiles the
-          # Rust route core for four ABIs -- output CodeQL never reads, since it
-          # extracts Kotlin source. That coupling made a change to the Rust build
-          # silently break the Kotlin security scan (#204), and it put a four-ABI
-          # cross-compile on the critical path of every PR into main.
+          # Must stay `manual`. `build-mode: none` extracts Java only -- the
+          # Android source here is Kotlin, so a buildless run finds nothing and
+          # fails with "CodeQL could not process any code written in Java/Kotlin"
+          # at database finalize. Kotlin extraction happens through the compiler.
           - language: java-kotlin
-            build-mode: none
+            build-mode: manual
           - language: swift
             build-mode: manual
             # swift build pulls in onnxruntime-swift-package-manager (large prebuilt
@@ -52,6 +50,55 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # java-kotlin manual build needs the same toolchain as android.yml -- all of
+      # it. `assembleDebug` reaches :inderun-core:buildRouteCoreAndroid, which
+      # shells out to scripts/build-route-core-android.mjs, so Node and the pinned
+      # Rust toolchain are build dependencies of the Kotlin scan as much as of the
+      # AAR. Omitting them is what broke this job for three weeks (#204): the
+      # cross-compile failed with `can't find crate for core` because the Android
+      # rustup targets were never installed, and took the analysis down with it.
+      - name: Set up Java 21
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Set up Node 24
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Version, components and targets all come from rust-toolchain.toml, which
+      # rustup installs on demand -- the pin must not be restated here.
+      - name: Set up Rust toolchain
+        if: matrix.language == 'java-kotlin'
+        # Intentionally not SHA-pinned: the action only provides rustup/cargo, and
+        # the toolchain file decides which compiler actually runs.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Android SDK
+        if: matrix.language == 'java-kotlin'
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      # inderun-onnx-providers declares a CMake native target (see its build.gradle.kts) solely to
+      # get AGP to package libc++_shared.so; assembleDebug reaches those tasks, so the NDK/CMake
+      # must be present -- android-actions/setup-android doesn't install them by default.
+      - name: Cache Android NDK and CMake
+        if: matrix.language == 'java-kotlin'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: android-ndk-27.2.12479018-cmake-3.22.1
+
+      - name: Install Android NDK and CMake
+        if: matrix.language == 'java-kotlin'
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
@@ -63,6 +110,13 @@ jobs:
           config: |
             paths-ignore:
               - '.build/**'
+
+      # Explicit Gradle build of all Android modules (debug variant, no release
+      # signing, tests skipped), instead of letting autobuild guess a target.
+      - name: Build Android modules
+        if: matrix.language == 'java-kotlin'
+        working-directory: android
+        run: ./gradlew assembleDebug
 
       # Cache SwiftPM checkouts/build artifacts (repo-root .build) keyed on
       # Package.resolved so unchanged dependencies (onnxruntime-swift-package-manager's
