@@ -381,3 +381,28 @@ private fun parseReasonCode(value: String): SharedPlannerReasonCode? = when (val
     "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
     else -> null
 }
+
+/**
+ * The inverses of [parseFailureCode] and [parseReasonCode], for putting a plan's diagnostics back
+ * on the wire when a routing failure carries them out on an exception.
+ *
+ * quicktype generates [FailureCode] and [Code] as bare enums with no `rawValue`, so the wire
+ * spellings have to be written by hand. Both `when`s are exhaustive with no `else`: a future
+ * regeneration that adds a constant must be a compile error here, not a silently wrong string.
+ */
+internal fun failureCodeValue(value: FailureCode): String = when (value) {
+    FailureCode.CapabilityMismatch -> "capability_mismatch"
+    FailureCode.Offline -> "offline"
+    FailureCode.Unavailable -> "unavailable"
+}
+
+internal fun reasonCodeValue(value: SharedPlannerReasonCode): String = when (value) {
+    SharedPlannerReasonCode.CapabilityUnavailable -> "capability_unavailable"
+    SharedPlannerReasonCode.CloudConstraint -> "cloud_constraint"
+    SharedPlannerReasonCode.Offline -> "offline"
+    SharedPlannerReasonCode.PrivacyConstraint -> "privacy_constraint"
+    SharedPlannerReasonCode.RunNotSupported -> "run_not_supported"
+    SharedPlannerReasonCode.StreamingNotSupported -> "streaming_not_supported"
+    SharedPlannerReasonCode.StreamingUnavailable -> "streaming_unavailable"
+    SharedPlannerReasonCode.TaskNotSupported -> "task_not_supported"
+}

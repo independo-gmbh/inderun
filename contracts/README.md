@@ -26,6 +26,14 @@ separately per platform and so has no generator keeping it in sync: `sse-framing
 server-sent events framer in each core, and `openai-responses-transcript.json` for the OpenAI
 event mapping in each adapter. Each is loaded directly by all three test suites.
 
+`engine-conformance.json` sits in the same directory but is a different kind of artifact. The two
+above are fully data-driven — bytes in, events out — while this one is a **scenario catalog** for
+Mode 2 orchestration: the setup and the expected observable outcome are shared data, but the trigger
+(when a cancel lands relative to a provider emit) stays in each platform's own concurrency
+primitives. Each SDK registers one handler per case id and a guard test fails when the handler ids
+and the catalog ids are not equal, so a scenario covered on one platform and not another is a red
+test rather than a review finding. See [`docs/streaming-conformance.md`](../docs/streaming-conformance.md).
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core

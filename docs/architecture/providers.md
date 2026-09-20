@@ -41,6 +41,14 @@ introducing a stream-specific error vocabulary. See
 [Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2)
 for the schemas and the orchestrator that now consumes them.
 
+A **routing refusal carries its plan diagnostics on the error**, on every
+platform. Routing fails before any `route_decided` telemetry is emitted, so the
+exception is the only channel through which a caller learns *why* each provider
+was rejected: its `details` carry the plan's `failureCode` and the full
+`rejectedProviders` list, each with the normalized reason codes described under
+[Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2).
+This holds for `run()` and `stream()` alike — the same refusal path serves both.
+
 `ProviderDescriptor.cancel` (`hard` / `soft` / `none`) now has concrete,
 tested engine-level semantics rather than being purely descriptive metadata:
 the Mode 2 orchestrator normalizes all three into one caller-facing

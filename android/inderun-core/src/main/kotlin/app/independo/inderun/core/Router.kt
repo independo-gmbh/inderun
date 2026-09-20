@@ -95,13 +95,38 @@ class Router private constructor(
         throw routePlanFailure(routePlan)
     }
 
+    /**
+     * Routing failure throws before any `route_decided` telemetry is emitted, so the plan's
+     * diagnostics are attached to the exception -- that is the only channel through which a
+     * caller learns *why* each provider was rejected.
+     */
     private fun routePlanFailure(routePlan: SharedPlannerRoutePlan): Throwable {
         val message = routePlan.explanation.summary
+        val details = routePlanFailureDetails(routePlan)
         return when (routePlan.failureCode) {
-            FailureCode.Offline -> createOffline(message)
-            FailureCode.Unavailable -> createUnavailable(message)
-            FailureCode.CapabilityMismatch, null -> createCapabilityMismatch(message)
+            FailureCode.Offline -> createOffline(message, details = details)
+            FailureCode.Unavailable -> createUnavailable(message, details = details)
+            FailureCode.CapabilityMismatch, null -> createCapabilityMismatch(message, details = details)
         }
+    }
+
+    /**
+     * Flattens the plan's typed diagnostics into the same JSON shape the Web SDK attaches, so a
+     * caller reads one contract across platforms.
+     */
+    private fun routePlanFailureDetails(routePlan: SharedPlannerRoutePlan): Map<String, Any?> = buildMap {
+        routePlan.failureCode?.let { put("failureCode", failureCodeValue(it)) }
+        put(
+            "rejectedProviders",
+            routePlan.rejectedProviders.map { rejected ->
+                mapOf(
+                    "providerId" to rejected.providerId,
+                    "reasons" to rejected.reasons.map { reason ->
+                        mapOf("code" to reasonCodeValue(reason.code), "message" to reason.message)
+                    },
+                )
+            },
+        )
     }
 
     internal companion object {
