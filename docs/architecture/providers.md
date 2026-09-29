@@ -41,6 +41,14 @@ introducing a stream-specific error vocabulary. See
 [Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2)
 for the schemas and the orchestrator that now consumes them.
 
+A **routing refusal carries its plan diagnostics on the error**, on every
+platform. Routing fails before any `route_decided` telemetry is emitted, so the
+exception is the only channel through which a caller learns *why* each provider
+was rejected: its `details` carry the plan's `failureCode` and the full
+`rejectedProviders` list, each with the normalized reason codes described under
+[Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2).
+This holds for `run()` and `stream()` alike — the same refusal path serves both.
+
 `ProviderDescriptor.cancel` (`hard` / `soft` / `none`) now has concrete,
 tested engine-level semantics rather than being purely descriptive metadata:
 the Mode 2 orchestrator normalizes all three into one caller-facing
@@ -57,7 +65,7 @@ guarantee — exactly one terminal outcome, idempotent cancellation. See
 | ONNX Runtime (`local.onnx.genai.*`) | Shipped (`@independo/inderun-web/onnx`) | Shipped (`IndeRunOnnxProviders` SwiftPM, iOS 16+/macOS 14+) | Shipped (`inderun-onnx-providers` Gradle module) | Custom/developer-supplied local | `text_to_text` | `run` (Mode 1) | Static + dynamic host capability check per platform | Developer supplies model + tokenizer files; no Hub network/download APIs called today | Android requires `libc++_shared.so` packaged by the consumer app; see [onnx-runtime-provider-family.md](onnx-runtime-provider-family.md) |
 | Web system-model (`local.system-model.web`) | Shipped (`@independo/inderun-web/system-model`, Chrome Prompt API `LanguageModel`) | Not applicable | Not applicable | Browser-local | `text_to_text` | `run` (Mode 1) | Runtime feature-detection against the browser API | None — browser-managed model/download | Desktop Chrome 138+ only; degrades honestly (`capability_unavailable`) elsewhere; see [web-system-model-provider-family.md](web-system-model-provider-family.md) |
 
-Three families stream today: OpenAI-compatible on all three platforms, Apple Foundation Models on iOS/macOS, and Android ML Kit GenAI on Android. Every other row still declares `supports.streaming: false`, and the remaining local/platform families are tracked separately (see the Milestone 3 issues for ONNX Runtime and web system-model streaming). Eligibility for a mode is decided by the shared route planner from the static declaration plus the dynamic capability snapshot, so a stream request that no registered provider can satisfy is refused at routing time with a normalized rejection reason naming each provider, rather than failing later without explanation — see [Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2).
+Three families stream today: OpenAI-compatible on all three platforms, Apple Foundation Models on iOS/macOS, and Android ML Kit GenAI on Android. Every other row still declares `supports.streaming: false`, and both remaining families are now tracked: ONNX Runtime streaming in #215 and web system-model streaming in #216 (which supersedes #146, closed as not planned during Milestone 3). Both would be a change to each platform's runtime seam rather than to the adapter, since that is where the generation loop lives. Eligibility for a mode is decided by the shared route planner from the static declaration plus the dynamic capability snapshot, so a stream request that no registered provider can satisfy is refused at routing time with a normalized rejection reason naming each provider, rather than failing later without explanation — see [Streaming Contracts And Orchestration (Mode 2)](./architecture.md#streaming-contracts-and-orchestration-mode-2).
 
 Streaming from a platform-local runtime needs nothing from the host: the Apple and ML Kit providers read their system runtime's partial responses directly. Streaming over the network needs a host capability the buffered `HttpClientService` cannot provide, so hosts may additionally expose an optional `HttpStreamingClientService` that resolves the response head first and delivers the body as incremental byte chunks. All three default host implementations provide it. A host that does not is a supported configuration: Mode 1 keeps working there, and providers report `streamingAvailable: false` with a reason, which the planner surfaces as a `streaming_unavailable` rejection.
 

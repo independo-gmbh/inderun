@@ -19,17 +19,48 @@ implements the Mode 2 orchestrator against these, and `route-planner-input.schem
 the requested `interactionMode` plus the static/dynamic streaming capability fields the planner
 needs to route it. The TypeScript, Swift, and Kotlin engines all implement Mode 2, and the
 OpenAI-compatible provider streams on all three (see
-`docs/architecture/architecture.md#streaming-contracts-and-orchestration-mode-2`).
+`docs/architecture/architecture.md#streaming-contracts-and-orchestration-mode-2`). What these shapes
+add up to for a consumer — event semantics, ordering, cancellation, fallback — is
+[`docs/streaming.md`](../docs/streaming.md).
 
 `fixtures/streaming/` holds cross-SDK conformance vectors for behavior that is implemented
 separately per platform and so has no generator keeping it in sync: `sse-framing.json` for the
 server-sent events framer in each core, and `openai-responses-transcript.json` for the OpenAI
 event mapping in each adapter. Each is loaded directly by all three test suites.
 
+`engine-conformance.json` sits in the same directory but is a different kind of artifact. The two
+above are fully data-driven — bytes in, events out — while this one is a **scenario catalog** for
+Mode 2 orchestration: the setup and the expected observable outcome are shared data, but the trigger
+(when a cancel lands relative to a provider emit) stays in each platform's own concurrency
+primitives. Each SDK registers one handler per case id and a guard test fails when the handler ids
+and the catalog ids are not equal, so a scenario covered on one platform and not another is a red
+test rather than a review finding. See [`docs/streaming-conformance.md`](../docs/streaming-conformance.md).
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
+
+## Generated enums carry their wire value
+
+Every generated enum exposes the schema string it serializes to, in every language: Swift as
+`public enum X: String`, TypeScript as a string-literal union, Kotlin as
+`enum class X(val rawValue: String)` with a `fromRawValue` companion. A Kotlin consumer reads
+`Phase.ProviderSelected.rawValue` (`"provider_selected"`), never `name`.
+
+quicktype's plain Kotlin renderer drops the value, so `generate-contracts.mjs` renders the schemas a
+second time with `--framework kotlinx` — the one Kotlin renderer that keeps it — into a temp file it
+reads the values back out of. That output is never shipped: it annotates every class with
+`@Serializable`, which would put kotlinx.serialization on the published `:inderun-contracts` POM.
+Reading the values back from quicktype rather than deriving them from the schemas keeps quicktype the
+only authority on which Kotlin entry name belongs to which schema value, including keyword avoidance
+(`system` becomes `RoleSystem`, because `System` is a reserved name in its Kotlin renderer).
+
+`contracts/scripts/kotlin-enum-wire-values.mjs` holds the single table of enums whose Kotlin type or
+entry names deviate from quicktype's default (`Role` becomes `MessageRole`, `The10` becomes `V1_0`).
+It renames only — whether an enum carries `rawValue` is not a per-enum decision. `pnpm generate` and
+`pnpm verify:enum-wire-parity` both fail when Kotlin and Swift disagree on a wire value, or when any
+Kotlin enum is emitted without one (issue #212).
 
 ## Schema evolution and forward compatibility
 

@@ -215,7 +215,7 @@ internal class LoadedSessionBox(private val context: Context) {
             )
             SourceType.Registry, SourceType.Remote -> throw OnnxRuntimeError(
                 kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "model source unavailable: '${sourceType.name.lowercase()}' model sources are " +
+                message = "model source unavailable: '${sourceType.rawValue}' model sources are " +
                     "deferred on Android.",
             )
         }

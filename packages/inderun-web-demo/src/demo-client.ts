@@ -4,7 +4,11 @@ import type {
   TaskResult,
   TelemetryEvent
 } from "@independo/inderun-contracts";
-import { createIndeRunWeb, type ProviderCapabilitySnapshot } from "@independo/inderun-web";
+import {
+  createIndeRunWeb,
+  type ProviderCapabilitySnapshot,
+  type StreamRun
+} from "@independo/inderun-web";
 import {
   createFixtureOnnxRuntime,
   createTransformersJsRuntime,
@@ -116,6 +120,15 @@ const inderun = createIndeRunWeb({
 
 export async function runPrompt(prompt: string, privacy: Privacy): Promise<TaskResult> {
   return inderun.run({
+    schemaVersion: "1.0",
+    task: { kind: "text_to_text" },
+    prompt,
+    constraints: { privacy }
+  });
+}
+
+export async function streamPrompt(prompt: string, privacy: Privacy): Promise<StreamRun> {
+  return inderun.stream({
     schemaVersion: "1.0",
     task: { kind: "text_to_text" },
     prompt,

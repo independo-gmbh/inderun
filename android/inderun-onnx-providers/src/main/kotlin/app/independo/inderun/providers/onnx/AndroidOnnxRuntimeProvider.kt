@@ -101,12 +101,12 @@ class AndroidOnnxRuntimeProvider(
 
         val sourceType = modelPackage.source?.sourceType
         if (sourceType != null && sourceType !in supportedAndroidOnnxModelSourceTypes) {
-            val supported = supportedAndroidOnnxModelSourceTypes.joinToString(separator = ", ") { it.rawValue() }
+            val supported = supportedAndroidOnnxModelSourceTypes.joinToString(separator = ", ") { it.rawValue }
             val reason = if (sourceType == SourceType.Registry || sourceType == SourceType.Remote) {
-                "model source unavailable: '${sourceType.rawValue()}' model sources are deferred on Android; " +
+                "model source unavailable: '${sourceType.rawValue}' model sources are deferred on Android; " +
                     "supply model files as $supported."
             } else {
-                "model source unavailable: '${sourceType.rawValue()}' model sources are unsupported on Android."
+                "model source unavailable: '${sourceType.rawValue}' model sources are unsupported on Android."
             }
             return ProviderDynamicCapabilities(available = false, reason = reason)
         }
@@ -269,13 +269,4 @@ private fun createMessages(request: TaskRequest): List<AndroidOnnxGenerationMess
 private fun requestTimeoutMs(request: TaskRequest): Long? {
     val timeoutMs = request.constraints?.timeoutMs
     return if (timeoutMs != null && timeoutMs > 0) timeoutMs else null
-}
-
-private fun SourceType.rawValue(): String = when (this) {
-    SourceType.AppManaged -> "app_managed"
-    SourceType.Bundled -> "bundled"
-    SourceType.Filesystem -> "filesystem"
-    SourceType.Programmatic -> "programmatic"
-    SourceType.Registry -> "registry"
-    SourceType.Remote -> "remote"
 }

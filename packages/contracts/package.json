@@ -1,7 +1,7 @@
 {
   "name": "@independo/inderun-contracts",
-  "version": "0.2.1",
-  "description": "Canonical JSON Schemas, generated TypeScript types, and validators for IndeRun contracts.",
+  "version": "0.3.0",
+  "description": "Canonical JSON Schemas, generated TypeScript types, and validators for the IndeRun task, streaming, error, and routing contracts.",
   "license": "MIT",
   "author": {
     "name": "Independo GmbH",
@@ -21,9 +21,12 @@
   "keywords": [
     "inderun",
     "ai",
+    "llm",
     "contracts",
     "json-schema",
-    "validation"
+    "validation",
+    "types",
+    "streaming"
   ],
   "engines": {
     "node": ">=24"
@@ -53,7 +56,7 @@
     "ajv": "^8.20.0"
   },
   "devDependencies": {
-    "@types/node": "^26.4.1",
-    "vitest": "^4.1.11"
+    "@types/node": "^26.6.2",
+    "vitest": "^5.0.1"
   }
 }

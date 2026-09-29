@@ -11,22 +11,42 @@ truth for exact steps. This table describes only what each one covers.
 - `Rust` (`rust.yml`): builds and tests the `inderun_route_core` crate.
 - `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
 - `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs.
-- The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor), which runs its own web/iOS/Android CI there.
+- The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
-- `Maven Publish` (`maven-publish.yml`): on a published (non-prerelease) GitHub release, publishes the Android library modules to Maven Central.
-- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21 + Android SDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
+- `Maven Publish` (`maven-publish.yml`): on a published GitHub release — prereleases included — publishes the Android library modules to Maven Central. The version comes from the tag (passed as `-PinderunVersion`), not from `android/gradle.properties`, because semantic-release only commits the version bump on stable releases. Prereleases are published because the Capacitor bridge consumes these artifacts from Maven Central and would otherwise have no `-dev.N` line to develop against, unlike npm and SwiftPM. `workflow_dispatch` takes optional `ref` and `version` inputs for a manual re-run.
+- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21, Node, the Rust toolchain, and the Android SDK/NDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
 
 ## Code Scanning
 
 Code scanning uses **advanced setup** — the committed `codeql.yml` workflow is the source
 of truth, not GitHub's default (UI-managed) setup. The two conflict, so **default setup
 must be set to "Not configured"** under Settings → Code security → Code scanning; otherwise
-the CodeQL runs fail. The compiled languages use explicit manual builds so the autobuilder
-can't lock onto a demo/sample app: Swift builds the SwiftPM package (`swift build` from the
-repository root) rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
-`./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both
-scan the product code, not the sample apps.
+the CodeQL runs fail.
+
+The compiled languages use explicit manual builds so the autobuilder can't lock onto a
+demo/sample app: Swift builds the SwiftPM package (`swift build` from the repository root)
+rather than the `ios/SampleApps/IndeRunDemo` Xcode project, and Android runs
+`./gradlew assembleDebug` across all modules rather than guessing a variant/target. Both scan
+the product code, not the sample apps.
+
+**`java-kotlin` must stay `build-mode: manual`.** Buildless extraction (`build-mode: none`)
+covers Java only, and this repository's Android source is Kotlin — a buildless run finds nothing
+and fails at database finalize with "CodeQL could not process any code written in Java/Kotlin".
+Kotlin extraction happens through the compiler, so the scan needs a real build.
+
+That build is why this job carries Node and the Rust toolchain alongside JDK 21 and the Android
+SDK/NDK: `assembleDebug` reaches `:inderun-core:buildRouteCoreAndroid`, which shells out to
+`scripts/build-route-core-android.mjs`. Omitting them broke the scan for three weeks once the
+route core moved into the Gradle build (#204) — the cross-compile failed with `can't find crate
+for core`, because the Android rustup targets were never installed, and took the whole analysis
+down with it.
+
+`dtolnay/rust-toolchain` alone is not enough, here or in `android.yml`: it installs rustup with
+`--default-toolchain none`, so nothing from `rust-toolchain.toml` exists yet — including its ten
+`targets`. Both workflows follow it with an explicit `rustup toolchain install --no-self-update`,
+argument-free so the version still comes only from the toolchain file. Dropping that step
+reproduces the same `can't find crate for core` failure with rustup apparently present.
 
 CodeQL's `pull_request` trigger only targets `main` — every PR into `main` gets full
 analysis. `dev` is not PR-gated by CodeQL; it relies on the weekly `schedule` run
@@ -166,6 +186,22 @@ invisible inside this repository and only breaks for someone consuming the publi
   swift-api-digester cannot build a baseline for any target depending on the `InderunRouteCoreFFI`
   binary target, which is every other module. Runs on pull requests only, and needs the job's
   `fetch-depth: 0` checkout to resolve the baseline.
+
+  It is **advisory on a release PR and blocking everywhere else**. The baseline is the PR's base:
+  against `dev` that is the branch's own increment, which is where an unintended break should fail
+  review. Against `main` it is everything since the last stable release, which for a pre-1.0
+  project that takes breaking changes as minor bumps (`release.config.js`) is intentional by
+  definition — v0.3.0 reported 44. A blocking gate there would stop exactly the releases it exists
+  to describe (#206), so the step keeps running and keeps printing: its output is the
+  authoritative breaking-change list for the release notes, and it catches breaks whose commits
+  forgot the `BREAKING CHANGE:` footer.
+- **Contract enums**, in `javascript.yml`: `pnpm verify:enum-wire-parity`
+  (`contracts/scripts/verify-enum-wire-parity.mjs`) reads the committed Kotlin and Swift
+  contracts and asserts that every generated Kotlin enum exposes its schema wire value as
+  `rawValue`, and that both languages spell the same wire values for the same schema enum.
+  The generator asserts the same thing on the sources it writes; this step covers what the
+  generator cannot see, a hand-edit of the committed Kotlin file — which the diff guard below
+  deliberately excludes. Its two files are in the workflow's path filter for that reason.
 - **Web**, in `javascript.yml`: `pnpm verify:packaging` runs `publint` and
   `attw --pack . --profile esm-only` over the three published npm packages, resolving every
   `exports` subpath the way a consumer's TypeScript would. The `esm-only` profile drops the node10
@@ -190,7 +226,8 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   diff, because that step skips the `generate:kotlin` Spotless pass and would otherwise
   always report spurious formatting drift; `release.yml` runs the full `pnpm generate`
   (Spotless included) and includes that path, since its output is guaranteed
-  ktlint-clean.
+  ktlint-clean. `pnpm verify:enum-wire-parity` covers the content of the file
+  `javascript.yml` leaves out of that diff (see the verification steps above).
 - `pnpm build:wasm` (`scripts/build-route-core-wasm.mjs`) is the single definition of the
   Rust→WASM build: it runs `cargo build --target wasm32-unknown-unknown` plus
   `wasm-bindgen --target web`. Freshness is left to cargo, which fingerprints every effective

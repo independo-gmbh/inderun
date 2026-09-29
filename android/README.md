@@ -46,21 +46,8 @@ run.events.collect { event ->
 }
 ```
 
-`events` is cold — the run starts on first collection — and single-use: collecting it twice
-throws rather than re-running the provider. Order by `event.sequence`, not by arrival: it is the
-ordering authority for a run. Treat an unrecognized `event.type` as ignore-or-pass-through, since
-the set is open and additive. Exactly one terminal event is produced per run, and `cancel` is
-idempotent.
-
-Two providers stream on Android: `AndroidMlKitGenAiProvider` on-device and the OpenAI-compatible
-cloud adapter. Both emit incremental text, so their content events are normally `content_delta` and
-each payload appends to what came before.
-
-Handle `content_snapshot` anyway — a snapshot payload *replaces* the text so far rather than
-appending to it. Two reasons it can arrive: the Apple provider emits nothing else on iOS/macOS, and
-a provider of any style may emit an empty snapshot to **retract** content it already delivered. ML
-Kit does exactly that when Gemini Nano rejects a half-generated response on a policy check, so a
-consumer that only implements the delta branch would keep rejected text on screen.
+`events` is cold — the run starts on first collection — and single-use: collecting it twice throws
+rather than re-running the provider.
 
 The HTTP-transport providers need a host that can deliver a response body incrementally.
 `HostServicesFactory.create(context)` provides one; a host without a `streamingHttpClient` still
@@ -72,6 +59,11 @@ The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a 
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types. Keep
 credentials behind `authContextRef`, and never ship a developer-owned API key in a distributed
 app — point `endpointUrl` at a trusted backend proxy that holds the key and relays the stream.
+
+Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
+SDK and documented once, in [Streaming (Mode 2)](../docs/streaming.md). Note in particular that
+`content_snapshot` must be handled even though both Android providers emit `content_delta`: ML Kit
+uses an empty snapshot to retract a response Gemini Nano rejected on a policy check.
 
 ## Route planner
 

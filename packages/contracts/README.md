@@ -2,9 +2,9 @@
 
 [![npm](https://img.shields.io/npm/v/@independo/inderun-contracts?logo=npm)](https://www.npmjs.com/package/@independo/inderun-contracts)
 
-> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — an open-source AI execution
-> framework that gives applications one unified API for running tasks across on-device, edge, and
-> cloud providers. New here? Start with the [IndeRun README](https://github.com/independo-gmbh/inderun#readme).
+> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — on-device AI with automatic
+> cloud fallback, for cross-platform apps. New here? Start with the
+> [IndeRun README](https://github.com/independo-gmbh/inderun#readme).
 
 Canonical JSON Schema-backed contracts for IndeRun.
 

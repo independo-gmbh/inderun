@@ -3,7 +3,8 @@ import {
   checkProviderCapabilities,
   getDemoClientConfig,
   getLastRouteDecision,
-  runPrompt
+  runPrompt,
+  streamPrompt
 } from "./demo-client";
 import "./styles.css";
 
@@ -16,6 +17,7 @@ if (!root) {
 mountApp(root, {
   config: getDemoClientConfig(),
   runPrompt,
+  streamPrompt,
   checkProviderCapabilities,
   getLastRouteDecision
 });

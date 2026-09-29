@@ -1,0 +1,421 @@
+{
+  "$comment": "Cross-SDK conformance catalog for Mode 2 engine orchestration: the scenarios every IndeRun engine (packages/inderun-web/src/core/engine.ts, ios/.../IndeRunSwift/IndeRun.swift, android/.../sdk/IndeRun.kt) must satisfy identically. Unlike sse-framing.json and openai-responses-transcript.json, which are fully data-driven (bytes in, events out), this file is a *scenario catalog*: 'setup' and 'expect' are shared data, but the trigger -- when a cancel lands relative to a provider emit -- stays in each platform's own concurrency primitives, because Swift structured concurrency, a Kotlin cold Flow and JS microtasks do not coordinate identically and encoding that timing here would make the fixture own behavior that belongs to the engines. Each SDK's conformance suite registers one handler per 'id' and a guard test fails when the handler ids and the ids in this file are not equal, so a scenario that exists on one platform and not another is a red test rather than a review finding. 'setup' is prose but is normative: it names the provider ids and the exact texts each fake emits, so the three handlers observe the same run. The provider event vocabulary is already identical across the SDKs (delta / snapshot / done(finalText, finishReason?, usage?) / error|failure), so only the syntax differs. Platform-specific coverage -- the Apple Foundation Models and ML Kit end-to-end engine streams, ML Kit's real policy retraction, Swift's ARC teardown -- deliberately stays out of this catalog and in each platform's own suite. See docs/streaming-conformance.md.",
+  "$expectKeys": {
+    "eventTypes": "The canonical StreamEvent.type of every delivered event, in order.",
+    "sequences": "StreamEvent.sequence of every delivered event, in order.",
+    "contentTexts": "The text carried by each content event, in order, ignoring the terminal.",
+    "terminalCount": "How many events of type 'terminal' were delivered. The Event Gate admits exactly one.",
+    "eventsAfterTerminal": "How many events were delivered after the terminal. Always 0.",
+    "terminal": "Fields of the terminal payload. 'absentFinishReason'/'absentUsage' assert the key is missing rather than null.",
+    "rejectsWith": "stream() threw instead of returning a run. 'reasons' are RoutePlan rejection codes; 'messages' are the provider's own verbatim explanation.",
+    "providerCallCounts": "How many times each provider's stream() was entered.",
+    "providerInterrupted": "The fake provider observed its own cancellation rather than being abandoned.",
+    "runSelectedProviderId": "telemetry.providerUsed of a Mode 1 run() over the same registry.",
+    "streamSelectedProviderId": "StreamRunHandle.providerId.",
+    "handleStartedAtIsUnixEpochMillis": "handle.startedAt falls between wall-clock reads bracketing stream(). Runs against the platform's real clock, not an injected mock.",
+    "telemetryTypes": "Every telemetry event type emitted, in order.",
+    "telemetryTypesContain": "Telemetry types that must be present; others are allowed.",
+    "telemetryForbiddenPayloadKeys": "Keys that must appear in no telemetry payload of this run.",
+    "telemetryForbiddenPayloadValues": "Substrings that must appear in no telemetry payload value of this run.",
+    "telemetryStableMessageEvents": "Telemetry types whose payload 'message' must be the error class's stable message, never the raw provider text.",
+    "noReplayOnSecondIteration": "A second consumer of the same run's events never sees the run again."
+  },
+  "cases": [
+    {
+      "id": "deltas_then_completed",
+      "category": "success_and_ordering",
+      "description": "The common path: incremental deltas, then a completed terminal, numbered from zero with no gaps.",
+      "setup": "One streaming provider `p1` emitting delta 'Hello', delta ' world', done(finalText 'Hello world').",
+      "expect": {
+        "eventTypes": ["content_delta", "content_delta", "terminal"],
+        "sequences": [0, 1, 2],
+        "contentTexts": ["Hello", " world"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "completed", "finalText": "Hello world" }
+      }
+    },
+    {
+      "id": "snapshot_replaces_cumulative_text",
+      "category": "success_and_ordering",
+      "description": "A content_snapshot replaces the run's cumulative text rather than appending to it, so a consumer rendering content events must overwrite.",
+      "setup": "One streaming provider `p1` emitting snapshot 'Loc', snapshot 'Local first', done(finalText 'Local first').",
+      "expect": {
+        "eventTypes": ["content_snapshot", "content_snapshot", "terminal"],
+        "sequences": [0, 1, 2],
+        "contentTexts": ["Loc", "Local first"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "completed", "finalText": "Local first" }
+      }
+    },
+    {
+      "id": "completed_carries_finish_reason_and_usage",
+      "category": "success_and_ordering",
+      "description": "A provider that reports how generation ended and what it cost surfaces both on the completed terminal, mirroring TaskResult for Mode 1.",
+      "setup": "`p1` emits delta 'trunc', done(finalText 'trunc', finishReason 'length', usage inputTokens 2 / outputTokens 1 / totalTokens 3).",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "completed",
+          "finalText": "trunc",
+          "finishReason": "length",
+          "usage": { "inputTokens": 2, "outputTokens": 1, "totalTokens": 3 }
+        }
+      }
+    },
+    {
+      "id": "completed_omits_finish_reason_when_absent",
+      "category": "success_and_ordering",
+      "description": "A provider that reports neither signal leaves both keys absent rather than inventing a default or emitting an explicit null.",
+      "setup": "`p1` emits delta 'a', done(finalText 'a') with no finishReason and no usage.",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "completed",
+          "finalText": "a",
+          "absentFinishReason": true,
+          "absentUsage": true
+        }
+      }
+    },
+    {
+      "id": "handle_started_at_is_unix_epoch_millis",
+      "category": "success_and_ordering",
+      "description": "StreamRunHandle.startedAt is contractually Unix epoch milliseconds. Android's host clock is elapsed-realtime, so an engine that reuses it here would serialize device uptime.",
+      "setup": "`p1` completes immediately. This case runs against the platform's real system clock rather than an injected mock, and brackets the stream() call with wall-clock reads.",
+      "expect": { "handleStartedAtIsUnixEpochMillis": true }
+    },
+    {
+      "id": "terminal_error_carries_error_class",
+      "category": "terminal_outcomes",
+      "description": "A provider failure after content has been committed ends the run as a terminal error event, not a thrown rejection, and preserves the normalized error class.",
+      "setup": "`p1` emits delta 'partial ' then throws a RateLimited error. No other provider is registered.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "error", "partialText": "partial ", "errorClass": "RateLimited" }
+      }
+    },
+    {
+      "id": "all_providers_fail_pre_commit_yields_single_error",
+      "category": "terminal_outcomes",
+      "description": "When the whole chain fails before committing content, the run ends with one Unavailable terminal error rather than one per attempt.",
+      "setup": "Two streaming providers `p1` and `p2`, both throwing before emitting anything.",
+      "expect": {
+        "eventTypes": ["terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "error", "errorClass": "Unavailable", "partialText": "" },
+        "providerCallCounts": { "p1": 1, "p2": 1 }
+      }
+    },
+    {
+      "id": "cancelled_carries_partial_text_and_reason",
+      "category": "terminal_outcomes",
+      "description": "A cancelled run reports what it had already delivered and echoes the caller's reason, so a consumer can distinguish a stop from a failure.",
+      "setup": "`p1` emits delta 'one' then waits for cancellation. The consumer cancels with reason 'user stopped' on the first event.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "cancelled", "partialText": "one", "reason": "user stopped" }
+      }
+    },
+    {
+      "id": "no_events_are_delivered_after_the_terminal",
+      "category": "terminal_outcomes",
+      "description": "The Event Gate is the single-terminal guarantee: anything a provider emits after its own terminal is dropped, not forwarded.",
+      "setup": "A buggy `p1` emits delta 'a', done(finalText 'a'), then delta 'b'.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "eventsAfterTerminal": 0,
+        "terminal": { "outcome": "completed", "finalText": "a" }
+      }
+    },
+    {
+      "id": "cancel_before_first_attempt_forecloses_every_provider",
+      "category": "cancellation",
+      "description": "Cancelling before the chain starts still produces a terminal, and no provider is ever entered.",
+      "setup": "Two streaming providers. cancel() is called immediately after stream() returns, before any event is consumed.",
+      "expect": {
+        "eventTypes": ["terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "cancelled", "partialText": "" },
+        "providerCallCounts": { "p1": 0, "p2": 0 }
+      }
+    },
+    {
+      "id": "cancel_during_emit_stops_further_deltas",
+      "category": "cancellation",
+      "description": "Cancelling mid-generation stops content immediately; the events the provider would have produced afterwards never reach the consumer.",
+      "setup": "`p1` emits delta 'one', blocks until cancelled, and would then emit delta 'two' and done(finalText 'one two'). The consumer cancels on the first event.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "cancelled", "partialText": "one" }
+      }
+    },
+    {
+      "id": "cancel_after_terminal_is_a_no_op",
+      "category": "cancellation",
+      "description": "Cancelling a run that has already ended changes nothing and raises nothing -- a consumer's cleanup path must not have to check first.",
+      "setup": "`p1` emits delta 'done' and done(finalText 'done'). cancel() is called after the events iterable has been fully drained.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "eventsAfterTerminal": 0,
+        "terminal": { "outcome": "completed", "finalText": "done" }
+      }
+    },
+    {
+      "id": "concurrent_cancels_yield_one_outcome_first_reason_wins",
+      "category": "cancellation",
+      "description": "Racing cancels are idempotent: one terminal, the first reason, and no raised error from the later call.",
+      "setup": "`p1` emits delta 'one' then blocks. Two cancel() calls are issued concurrently against the in-flight drain, with reasons 'first' then 'second'.",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": { "outcome": "cancelled", "reason": "first" }
+      }
+    },
+    {
+      "id": "cancel_during_pre_commit_attempt_forecloses_next_route",
+      "category": "cancellation",
+      "description": "Cancellation beats pre-commit fallback. A cancel that lands while an attempt is still pre-commit ends the run instead of advancing to the next provider.",
+      "setup": "`p1` blocks before emitting anything and then throws; cancel() lands while that attempt is still pre-commit. `p2` is registered as the fallback and emits done(finalText 'never').",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": { "outcome": "cancelled" },
+        "providerCallCounts": { "p1": 1, "p2": 0 }
+      }
+    },
+    {
+      "id": "cancel_unblocks_a_provider_waiting_for_output",
+      "category": "cancellation",
+      "description": "Cancellation reaches a provider that is blocked waiting for its backend, rather than leaving it suspended. A hang is the regression this guards.",
+      "setup": "`p1` emits delta 'one' then awaits more output indefinitely, recording whether it observed its own cancellation. The consumer cancels on the first event.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "cancelled", "partialText": "one" },
+        "providerInterrupted": true
+      }
+    },
+    {
+      "id": "no_streaming_capable_provider_rejects_with_run_id",
+      "category": "routing_and_fallback",
+      "description": "A routing refusal rejects the stream() call itself -- no handle and no events -- and carries the run id so the caller can correlate without one.",
+      "setup": "Only a run-only provider is registered. The request carries requestId 'req-42'.",
+      "expect": {
+        "rejectsWith": { "errorClass": "CapabilityMismatch", "runId": "req-42" }
+      }
+    },
+    {
+      "id": "declared_streaming_without_implementation_rejected",
+      "category": "routing_and_fallback",
+      "description": "Declaring supports.streaming without implementing the streaming adapter is a routing-visible mistake, caught before the provider is entered.",
+      "setup": "A single provider `p_declared_only` whose descriptor declares supports.streaming but which does not implement the streaming adapter type.",
+      "expect": {
+        "rejectsWith": {
+          "errorClass": "CapabilityMismatch",
+          "rejectedProviders": [
+            { "providerId": "p_declared_only", "reasons": ["streaming_unavailable"] }
+          ]
+        },
+        "providerCallCounts": { "p_declared_only": 0 }
+      }
+    },
+    {
+      "id": "dynamic_capability_revocation_rejected_with_reason",
+      "category": "routing_and_fallback",
+      "description": "A provider that can stream in principle but not in this host environment is rejected with its own verbatim explanation, not a generic one.",
+      "setup": "A streaming provider `p_revoked` whose capabilities() reports streamingAvailable false with streamingUnavailableReason 'Host has no chunked HTTP capability.'",
+      "expect": {
+        "rejectsWith": {
+          "errorClass": "CapabilityMismatch",
+          "rejectedProviders": [
+            {
+              "providerId": "p_revoked",
+              "reasons": ["streaming_unavailable"],
+              "messages": ["Host has no chunked HTTP capability."]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "routing_rejection_carries_failure_code_and_reason_codes",
+      "category": "routing_and_fallback",
+      "description": "Routing fails before any route_decided telemetry is emitted, so the plan's diagnostics ride the exception. That is the only channel through which a caller learns why each provider was rejected.",
+      "setup": "A run-only provider `p_run_only` is registered and a stream is requested.",
+      "expect": {
+        "rejectsWith": {
+          "errorClass": "CapabilityMismatch",
+          "failureCode": "capability_mismatch",
+          "rejectedProviders": [
+            { "providerId": "p_run_only", "reasons": ["streaming_not_supported"] }
+          ]
+        }
+      }
+    },
+    {
+      "id": "privacy_constraint_enforced_on_stream_routes",
+      "category": "routing_and_fallback",
+      "description": "Streaming does not relax privacy. A cloud provider stays unroutable under local_required whichever interaction mode is requested.",
+      "setup": "Only a cloud streaming provider `p_cloud_streaming` is registered; the request carries constraints.privacy 'local_required'.",
+      "expect": {
+        "rejectsWith": {
+          "errorClass": "CapabilityMismatch",
+          "failureCode": "capability_mismatch",
+          "rejectedProviders": [
+            { "providerId": "p_cloud_streaming", "reasons": ["privacy_constraint"] }
+          ]
+        }
+      }
+    },
+    {
+      "id": "offline_host_with_cloud_stream_provider_reports_offline",
+      "category": "routing_and_fallback",
+      "description": "A stream refused because the device has no network reports Offline, which is actionable, rather than folding into CapabilityMismatch.",
+      "setup": "The host reports offline; only a cloud streaming provider `p_cloud_streaming` is registered.",
+      "expect": {
+        "rejectsWith": { "errorClass": "Offline", "failureCode": "offline" }
+      }
+    },
+    {
+      "id": "offline_host_with_local_stream_provider_reports_capability_mismatch",
+      "category": "routing_and_fallback",
+      "description": "Connectivity is not the cause when nothing local could have streamed anyway, so the refusal stays CapabilityMismatch.",
+      "setup": "The host reports offline; only a local provider `p_local_run_only` that does not stream is registered.",
+      "expect": {
+        "rejectsWith": { "errorClass": "CapabilityMismatch", "failureCode": "capability_mismatch" }
+      }
+    },
+    {
+      "id": "run_and_stream_resolve_different_chains",
+      "category": "routing_and_fallback",
+      "description": "The interaction mode is a routing input, not a filter applied afterwards, so one registry can legitimately select different providers for run() and stream().",
+      "setup": "`a_run_only` (non-streaming, the run-mode selection) and `b_streaming`. The same registry serves a run() and a stream().",
+      "expect": {
+        "runSelectedProviderId": "a_run_only",
+        "streamSelectedProviderId": "b_streaming",
+        "providerCallCounts": { "a_run_only": 0 }
+      }
+    },
+    {
+      "id": "pre_commit_failure_falls_back",
+      "category": "routing_and_fallback",
+      "description": "A provider that fails before delivering content is replaced by the next in the chain, invisibly to the consumer.",
+      "setup": "`p1_failing` throws before emitting anything; `p2_healthy` emits done(finalText 'recovered').",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": { "outcome": "completed", "finalText": "recovered" },
+        "providerCallCounts": { "p1_failing": 1, "p2_healthy": 1 }
+      }
+    },
+    {
+      "id": "post_commit_failure_never_falls_back",
+      "category": "routing_and_fallback",
+      "description": "Once content has been delivered the run is committed: a later failure is a terminal error, never a silent provider swap that would retract or duplicate text.",
+      "setup": "`p1` emits delta 'partial ' then throws; `p2_healthy` is registered as the fallback.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "error", "partialText": "partial " },
+        "providerCallCounts": { "p2_healthy": 0 }
+      }
+    },
+    {
+      "id": "stream_ending_without_terminal_is_a_provider_fault",
+      "category": "provider_faults",
+      "description": "A provider stream that simply stops has not ended the run. The engine supplies the missing terminal as an error rather than completing on the provider's behalf.",
+      "setup": "`p1` emits delta 'a' and its stream ends without a done or failure event.",
+      "expect": {
+        "eventTypes": ["content_delta", "terminal"],
+        "terminalCount": 1,
+        "terminal": { "outcome": "error", "partialText": "a" }
+      }
+    },
+    {
+      "id": "provider_emitted_failure_behaves_like_a_throw",
+      "category": "provider_faults",
+      "description": "A failure a provider emits as an event is handled identically to one it throws, including its effect on pre-commit fallback.",
+      "setup": "`p1`'s first event is an emitted failure carrying a RateLimited error -- pre-commit, so `p2_healthy` takes over with done(finalText 'recovered').",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": { "outcome": "completed", "finalText": "recovered" },
+        "providerCallCounts": { "p1": 1, "p2_healthy": 1 }
+      }
+    },
+    {
+      "id": "duplicate_terminal_suppressed",
+      "category": "provider_faults",
+      "description": "A provider that ends its stream twice still produces one terminal, and it is the first one -- the run does not silently change its own outcome.",
+      "setup": "`p1` emits delta 'first', done(finalText 'first'), then done(finalText 'second').",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": { "outcome": "completed", "finalText": "first" }
+      }
+    },
+    {
+      "id": "empty_snapshot_retracts_delivered_content",
+      "category": "provider_faults",
+      "description": "A provider that must withdraw what it already streamed emits an empty snapshot, which resets the run's cumulative text, so the terminal carries no retracted content and a consumer rendering content events clears with it.",
+      "setup": "`p1` emits delta 'rejected text', then snapshot '' as a retraction, then throws a CapabilityMismatch error.",
+      "expect": {
+        "eventTypes": ["content_delta", "content_snapshot", "terminal"],
+        "contentTexts": ["rejected text", ""],
+        "terminalCount": 1,
+        "terminal": { "outcome": "error", "partialText": "", "errorClass": "CapabilityMismatch" }
+      }
+    },
+    {
+      "id": "telemetry_sequence_for_a_normal_completion",
+      "category": "telemetry",
+      "description": "A completed stream emits one route decision, one attempt, and one completion -- the sequence an operator reads to tell a first-try success from a fallback.",
+      "setup": "`p1` emits delta 'Hello' and done(finalText 'Hello'), with a telemetry sink installed on the host.",
+      "expect": {
+        "telemetryTypes": [
+          "route_decided",
+          "stream_attempt_started",
+          "stream_attempt_succeeded",
+          "stream_completed"
+        ]
+      }
+    },
+    {
+      "id": "stream_cancelled_telemetry_carries_no_raw_error_detail",
+      "category": "telemetry",
+      "description": "Telemetry is diagnostics, not content. A cancellation records that it happened and which providers were attempted, never the caller's reason text or the model output already produced.",
+      "setup": "`p1` emits delta 'one' then blocks. The consumer cancels with reason 'secret user text', with a telemetry sink installed.",
+      "expect": {
+        "telemetryTypesContain": ["stream_cancelled"],
+        "telemetryForbiddenPayloadKeys": [
+          "message",
+          "error",
+          "errorClass",
+          "reason",
+          "partialText",
+          "finalText"
+        ],
+        "telemetryForbiddenPayloadValues": ["secret user text", "one"]
+      }
+    },
+    {
+      "id": "stream_failed_telemetry_carries_a_stable_message",
+      "category": "telemetry",
+      "description": "A failure's telemetry names the error class and a stable per-class message, so an upstream's raw text -- which can quote the prompt or a credential -- never reaches a sink.",
+      "setup": "`p1` emits delta 'partial ' then throws an Unavailable error whose message is 'upstream said: sk-secret leaked', with a telemetry sink installed.",
+      "expect": {
+        "telemetryTypesContain": ["stream_failed"],
+        "telemetryStableMessageEvents": ["stream_failed"],
+        "telemetryForbiddenPayloadValues": ["upstream said: sk-secret leaked", "partial "]
+      }
+    },
+    {
+      "id": "events_are_single_use",
+      "category": "lifecycle",
+      "description": "A run is driven once, not restarted per consumer: a second iteration observes that the run is over rather than replaying it.",
+      "setup": "`p1` emits delta 'a' and done(finalText 'a'). The events sequence is fully consumed, then consumed again.",
+      "expect": { "noReplayOnSecondIteration": true },
+      "$divergence": "Kotlin raises IllegalStateException on a second collect; TypeScript and Swift complete without yielding. The shared guarantee is that the run is never replayed -- not how a second consumer learns that. Recorded rather than forced: unifying it is a behavior decision that belongs upstream of the conformance suite. See docs/streaming-conformance.md."
+    }
+  ]
+}

@@ -17,7 +17,7 @@ A single repository-wide version is applied to every artifact on each release.
 **Published separately:** `@independo/capacitor-inderun`. CocoaPods is being deprecated and
 Capacitor 8 defaults to SwiftPM, and a repo can only expose one SwiftPM package at its root
 (already the IndeRun Swift SDK here). The Capacitor bridge therefore lives in its own,
-SwiftPM-only repository — [independo-gmbh/inderun-capacitor](https://github.com/independo-gmbh/inderun-capacitor) —
+SwiftPM-only repository — [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun) —
 which runs its own release pipeline and consumes the artifacts published here.
 
 ## Branch strategy
@@ -45,7 +45,12 @@ which runs its own release pipeline and consumes the artifacts published here.
      Publishing — no `NPM_TOKEN`);
    - commits the version/changelog files, tags `vX.Y.Z`, and creates the GitHub release.
 4. The published GitHub release triggers `.github/workflows/maven-publish.yml`, which runs
-   `./gradlew publishToMavenCentral` for the library modules (stable releases only).
+   `./gradlew publishToMavenCentral` for the library modules — **prereleases included**, so the
+   separately released Capacitor bridge has a `-dev.N` line to build against on Android the way
+   it already does on npm and SwiftPM. The version it publishes comes from the tag, passed as
+   `-PinderunVersion`: on a prerelease semantic-release does not commit the version bump (step 3
+   writes it to the working tree only), so `android/gradle.properties` at a `-dev.N` tag still
+   holds the previous stable version and must not be trusted as the publish version.
 5. Swift consumers use the new git tag directly — no separate publish step. Because the tag is
    the distribution channel, the release job is gated on a `Verify Apple artifact` job that
    checks the committed route-core XCFramework against its provenance manifest before anything

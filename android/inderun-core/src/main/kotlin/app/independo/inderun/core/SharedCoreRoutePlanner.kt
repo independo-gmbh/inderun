@@ -202,17 +202,17 @@ private fun streamingAwareCapabilities(snapshot: ProviderSnapshot): SharedPlanne
  */
 internal fun SharedPlannerInput.toJson(): String = JSONObject()
     .put("task", JSONObject().put("kind", task.kind))
-    .put("interactionMode", interactionMode?.let(::interactionModeValue))
+    .put("interactionMode", interactionMode?.rawValue)
     .put(
         "constraints",
         JSONObject()
-            .put("privacy", constraints.privacy?.let(::privacyValue))
-            .put("cloud", constraints.cloud?.let(::cloudValue))
+            .put("privacy", constraints.privacy?.rawValue)
+            .put("cloud", constraints.cloud?.rawValue)
             .put("networkOnline", constraints.networkOnline),
     )
     .put(
         "preferences",
-        JSONObject().put("optimizeFor", preferences.optimizeFor?.let(::optimizeForValue)),
+        JSONObject().put("optimizeFor", preferences.optimizeFor?.rawValue),
     )
     .put(
         "providers",
@@ -223,8 +223,8 @@ internal fun SharedPlannerInput.toJson(): String = JSONObject()
                         "descriptor",
                         JSONObject()
                             .put("id", provider.descriptor.id)
-                            .put("type", descriptorTypeValue(provider.descriptor.type))
-                            .put("cancel", provider.descriptor.cancel?.let(::cancelValue))
+                            .put("type", provider.descriptor.type.rawValue)
+                            .put("cancel", provider.descriptor.cancel?.rawValue)
                             .put(
                                 "privacy",
                                 provider.descriptor.privacy?.let { privacy ->
@@ -284,48 +284,7 @@ internal fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
  * An unknown failure code from a newer native route core is folded into [FailureCode.Unavailable]
  * rather than thrown: the plan did fail, and the specific class is only a diagnostic refinement.
  */
-private fun parseFailureCode(value: String): FailureCode = when (value) {
-    "capability_mismatch" -> FailureCode.CapabilityMismatch
-    "offline" -> FailureCode.Offline
-    else -> FailureCode.Unavailable
-}
-
-private fun interactionModeValue(value: InteractionMode): String = when (value) {
-    InteractionMode.Run -> "run"
-    InteractionMode.Stream -> "stream"
-}
-
-private fun cancelValue(value: Cancel): String = when (value) {
-    Cancel.Hard -> "hard"
-    Cancel.Soft -> "soft"
-    Cancel.None -> "none"
-}
-
-private fun descriptorTypeValue(value: DescriptorType): String = when (value) {
-    DescriptorType.Cloud -> "cloud"
-    DescriptorType.Edge -> "edge"
-    DescriptorType.Local -> "local"
-}
-
-private fun cloudValue(value: app.independo.inderun.contracts.Cloud): String = when (value) {
-    app.independo.inderun.contracts.Cloud.Allowed -> "allowed"
-    app.independo.inderun.contracts.Cloud.Forbidden -> "forbidden"
-    app.independo.inderun.contracts.Cloud.Required -> "required"
-}
-
-private fun privacyValue(value: app.independo.inderun.contracts.PrivacyEnum): String = when (value) {
-    app.independo.inderun.contracts.PrivacyEnum.CloudAllowed -> "cloud_allowed"
-    app.independo.inderun.contracts.PrivacyEnum.CloudRequired -> "cloud_required"
-    app.independo.inderun.contracts.PrivacyEnum.LocalPreferred -> "local_preferred"
-    app.independo.inderun.contracts.PrivacyEnum.LocalRequired -> "local_required"
-}
-
-private fun optimizeForValue(value: app.independo.inderun.contracts.OptimizeFor): String = when (value) {
-    app.independo.inderun.contracts.OptimizeFor.Balanced -> "balanced"
-    app.independo.inderun.contracts.OptimizeFor.Cost -> "cost"
-    app.independo.inderun.contracts.OptimizeFor.Latency -> "latency"
-    app.independo.inderun.contracts.OptimizeFor.Privacy -> "privacy"
-}
+private fun parseFailureCode(value: String): FailureCode = FailureCode.fromRawValue(value) ?: FailureCode.Unavailable
 
 private fun JSONArray?.toStringList(): List<String> {
     if (this == null) return emptyList()
@@ -380,4 +339,24 @@ private fun parseReasonCode(value: String): SharedPlannerReasonCode? = when (val
     "streaming_unavailable" -> SharedPlannerReasonCode.StreamingUnavailable
     "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
     else -> null
+}
+
+/**
+ * The inverse of [parseReasonCode], for putting a plan's diagnostics back on the wire when a
+ * routing failure carries them out on an exception.
+ *
+ * [SharedPlannerReasonCode] is declared here rather than generated from the schemas, so this is
+ * the one wire mapping still written by hand -- the generated contract enums carry a `rawValue`.
+ * The `when` is exhaustive with no `else`: a new constant must be a compile error here, not a
+ * silently wrong string.
+ */
+internal fun reasonCodeValue(value: SharedPlannerReasonCode): String = when (value) {
+    SharedPlannerReasonCode.CapabilityUnavailable -> "capability_unavailable"
+    SharedPlannerReasonCode.CloudConstraint -> "cloud_constraint"
+    SharedPlannerReasonCode.Offline -> "offline"
+    SharedPlannerReasonCode.PrivacyConstraint -> "privacy_constraint"
+    SharedPlannerReasonCode.RunNotSupported -> "run_not_supported"
+    SharedPlannerReasonCode.StreamingNotSupported -> "streaming_not_supported"
+    SharedPlannerReasonCode.StreamingUnavailable -> "streaming_unavailable"
+    SharedPlannerReasonCode.TaskNotSupported -> "task_not_supported"
 }

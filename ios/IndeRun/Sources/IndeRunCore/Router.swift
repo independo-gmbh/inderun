@@ -124,16 +124,40 @@ public final class Router: Sendable {
         )
     }
 
+    /// Routing failure throws before any `route_decided` telemetry is emitted, so the
+    /// plan's diagnostics are attached to the exception -- that is the only channel
+    /// through which a caller learns *why* each provider was rejected.
     private func routePlanFailure(_ routePlan: RoutePlan) -> Error {
         let message = routePlan.explanation.summary
+        let details = routePlanFailureDetails(routePlan)
         switch routePlan.failureCode {
         case .some(.offline):
-            return createOffline(message: message)
+            return createOffline(message: message, details: details)
         case .some(.unavailable):
-            return createUnavailable(message: message)
+            return createUnavailable(message: message, details: details)
         case .some(.capabilityMismatch), .none:
-            return createCapabilityMismatch(message: message)
+            return createCapabilityMismatch(message: message, details: details)
         }
+    }
+
+    /// `JSONAny` encodes primitives and nested collections of them, not arbitrary
+    /// `Codable` values, so the plan's typed diagnostics are flattened by hand into
+    /// the same JSON shape the Web SDK attaches.
+    private func routePlanFailureDetails(_ routePlan: RoutePlan) -> [String: JSONAny] {
+        var details: [String: JSONAny] = [
+            "rejectedProviders": JSONAny(routePlan.rejectedProviders.map { rejected in
+                [
+                    "providerId": rejected.providerId,
+                    "reasons": rejected.reasons.map { reason in
+                        ["code": reason.code.rawValue, "message": reason.message]
+                    }
+                ] as [String: Any]
+            })
+        ]
+        if let failureCode = routePlan.failureCode {
+            details["failureCode"] = JSONAny(failureCode.rawValue)
+        }
+        return details
     }
 }
 
