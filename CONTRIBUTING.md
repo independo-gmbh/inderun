@@ -31,11 +31,12 @@ so a fresh clone must generate them once before the first `pnpm build`, otherwis
 `Could not resolve '../generated/inderun_route_core.js'`.
 
 Install the toolchain. The `wasm-bindgen-cli` version must match the `wasm-bindgen` version in `Cargo.lock`,
-or the generated bindings will be rejected at runtime:
+or the generated bindings will be rejected at runtime, so take it from the lockfile rather than pinning a
+copy that a dependency bump can leave behind:
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.127 --locked
+cargo install wasm-bindgen-cli --version "$(node scripts/wasm-bindgen-version.mjs)" --locked
 ```
 
 Then generate the bindings:
