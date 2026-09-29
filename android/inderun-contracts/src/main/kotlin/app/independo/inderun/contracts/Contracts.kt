@@ -85,20 +85,30 @@ data class TaskRequestConstraints(
 /**
  * Cloud execution constraint.
  */
-enum class Cloud {
-    Allowed,
-    Forbidden,
-    Required,
+enum class Cloud(val rawValue: String) {
+    Allowed("allowed"),
+    Forbidden("forbidden"),
+    Required("required"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Cloud? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
  * Privacy requirement or preference for execution placement.
  */
-enum class PrivacyEnum {
-    CloudAllowed,
-    CloudRequired,
-    LocalPreferred,
-    LocalRequired,
+enum class PrivacyEnum(val rawValue: String) {
+    CloudAllowed("cloud_allowed"),
+    CloudRequired("cloud_required"),
+    LocalPreferred("local_preferred"),
+    LocalRequired("local_required"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): PrivacyEnum? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -154,6 +164,11 @@ enum class MessageRole(val rawValue: String) {
     ASSISTANT("assistant"),
     SYSTEM("system"),
     USER("user"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): MessageRole? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -169,15 +184,25 @@ data class TaskRequestPreferences(
 /**
  * Primary optimization goal when multiple providers remain eligible.
  */
-enum class OptimizeFor {
-    Balanced,
-    Cost,
-    Latency,
-    Privacy,
+enum class OptimizeFor(val rawValue: String) {
+    Balanced("balanced"),
+    Cost("cost"),
+    Latency("latency"),
+    Privacy("privacy"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): OptimizeFor? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 enum class SchemaVersion(val rawValue: String) {
     V1_0("1.0"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SchemaVersion? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -194,6 +219,11 @@ data class TaskRequestTask(
 
 enum class TaskKind(val rawValue: String) {
     TEXT_TO_TEXT("text_to_text"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): TaskKind? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -223,6 +253,11 @@ enum class TelemetryLevel(val rawValue: String) {
     DEBUG("debug"),
     MINIMAL("minimal"),
     OFF("off"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): TelemetryLevel? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -287,6 +322,11 @@ enum class FinishReason(val rawValue: String) {
     ERROR("error"),
     LENGTH("length"),
     STOP("stop"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): FinishReason? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -306,6 +346,11 @@ data class Output(
 
 enum class OutputType(val rawValue: String) {
     TEXT("text"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): OutputType? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -357,6 +402,11 @@ enum class IndeRunErrorClass(val rawValue: String) {
     RateLimited("RateLimited"),
     Timeout("Timeout"),
     Unavailable("Unavailable"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): IndeRunErrorClass? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -464,12 +514,17 @@ data class HttpRequest(
 /**
  * HTTP method to use for the request.
  */
-enum class Method {
-    Delete,
-    Get,
-    Patch,
-    Post,
-    Put,
+enum class Method(val rawValue: String) {
+    Delete("DELETE"),
+    Get("GET"),
+    Patch("PATCH"),
+    Post("POST"),
+    Put("PUT"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Method? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -525,16 +580,21 @@ data class TelemetryEvent(
 /**
  * Telemetry event kind emitted by the orchestrator or provider integration.
  */
-enum class TelemetryEventType {
-    AttemptFailed,
-    AttemptSucceeded,
-    RouteDecided,
-    StreamAttemptFailed,
-    StreamAttemptStarted,
-    StreamAttemptSucceeded,
-    StreamCancelled,
-    StreamCompleted,
-    StreamFailed,
+enum class TelemetryEventType(val rawValue: String) {
+    AttemptFailed("attempt_failed"),
+    AttemptSucceeded("attempt_succeeded"),
+    RouteDecided("route_decided"),
+    StreamAttemptFailed("stream_attempt_failed"),
+    StreamAttemptStarted("stream_attempt_started"),
+    StreamAttemptSucceeded("stream_attempt_succeeded"),
+    StreamCancelled("stream_cancelled"),
+    StreamCompleted("stream_completed"),
+    StreamFailed("stream_failed"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): TelemetryEventType? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -594,9 +654,14 @@ data class RoutePlannerInputConstraints(
  * produced before this field existed keep their exact Mode-1 semantics. The mode filters
  * eligible providers; it never changes candidate ordering.
  */
-enum class InteractionMode {
-    Run,
-    Stream,
+enum class InteractionMode(val rawValue: String) {
+    Run("run"),
+    Stream("stream"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): InteractionMode? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -661,10 +726,15 @@ data class Descriptor(
  * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
  * the planner does not filter on it.
  */
-enum class Cancel {
-    Hard,
-    None,
-    Soft,
+enum class Cancel(val rawValue: String) {
+    Hard("hard"),
+    None("none"),
+    Soft("soft"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Cancel? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -685,10 +755,15 @@ data class Supports(
     val streaming: Boolean? = null,
 )
 
-enum class DescriptorType {
-    Cloud,
-    Edge,
-    Local,
+enum class DescriptorType(val rawValue: String) {
+    Cloud("cloud"),
+    Edge("edge"),
+    Local("local"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): DescriptorType? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -749,10 +824,15 @@ data class Explanation(
 /**
  * Normalized routing failure class when no provider is selected.
  */
-enum class FailureCode {
-    CapabilityMismatch,
-    Offline,
-    Unavailable,
+enum class FailureCode(val rawValue: String) {
+    CapabilityMismatch("capability_mismatch"),
+    Offline("offline"),
+    Unavailable("unavailable"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): FailureCode? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 data class RejectedProvider(
@@ -778,15 +858,20 @@ data class Reason(
  * but the dynamic capability snapshot reports it cannot stream in the current host
  * environment.
  */
-enum class Code {
-    CapabilityUnavailable,
-    CloudConstraint,
-    Offline,
-    PrivacyConstraint,
-    RunNotSupported,
-    StreamingNotSupported,
-    StreamingUnavailable,
-    TaskNotSupported,
+enum class Code(val rawValue: String) {
+    CapabilityUnavailable("capability_unavailable"),
+    CloudConstraint("cloud_constraint"),
+    Offline("offline"),
+    PrivacyConstraint("privacy_constraint"),
+    RunNotSupported("run_not_supported"),
+    StreamingNotSupported("streaming_not_supported"),
+    StreamingUnavailable("streaming_unavailable"),
+    TaskNotSupported("task_not_supported"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Code? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -890,10 +975,15 @@ data class Files(
  * graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
  * model package.
  */
-enum class Format {
-    Genai,
-    Onnx,
-    Ort,
+enum class Format(val rawValue: String) {
+    Genai("genai"),
+    Onnx("onnx"),
+    Ort("ort"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Format? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -991,13 +1081,18 @@ data class Source(
  * is a local path where the platform allows it, 'app_managed' is an app-managed
  * cache/storage location, 'remote' is a host-managed download.
  */
-enum class SourceType {
-    AppManaged,
-    Bundled,
-    Filesystem,
-    Programmatic,
-    Registry,
-    Remote,
+enum class SourceType(val rawValue: String) {
+    AppManaged("app_managed"),
+    Bundled("bundled"),
+    Filesystem("filesystem"),
+    Programmatic("programmatic"),
+    Registry("registry"),
+    Remote("remote"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SourceType? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
@@ -1166,18 +1261,28 @@ data class PayloadError(
     val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
 )
 
-enum class Outcome {
-    Cancelled,
-    Completed,
-    Error,
+enum class Outcome(val rawValue: String) {
+    Cancelled("cancelled"),
+    Completed("completed"),
+    Error("error"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Outcome? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 /**
  * The lifecycle phase reached.
  */
-enum class Phase {
-    ProviderSelected,
-    Started,
+enum class Phase(val rawValue: String) {
+    ProviderSelected("provider_selected"),
+    Started("started"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Phase? = entries.firstOrNull { it.rawValue == value }
+    }
 }
 
 data class PayloadTelemetry(

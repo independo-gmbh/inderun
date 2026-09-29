@@ -4,6 +4,13 @@ import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import {
+  collectEnumWireParityProblems,
+  kotlinEnumConstantName,
+  kotlinEnumName,
+  kotlinEnumOverrides,
+  parseKotlinXEnums
+} from "./kotlin-enum-wire-values.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -212,7 +219,109 @@ function normalizeKotlinMessageClass(source) {
   );
 }
 
-function normalizeKotlinContractsSource(source) {
+/**
+ * Renders a Kotlin string literal. Kotlin reads `$` as the start of a template
+ * expression, so it is escaped alongside the usual backslash and quote.
+ *
+ * @param {string} value Value the literal must denote.
+ * @returns {string} Quoted Kotlin string literal.
+ */
+function kotlinStringLiteral(value) {
+  const escaped = value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$");
+  return `"${escaped}"`;
+}
+
+/**
+ * Rewrites every bare `enum class X { A, B }` quicktype's plain Kotlin renderer emits
+ * into one that carries its schema wire value, plus the reverse lookup Swift gets for
+ * free from `RawRepresentable`:
+ *
+ *     enum class Phase(val rawValue: String) {
+ *         ProviderSelected("provider_selected"),
+ *         Started("started"),
+ *         ;
+ *
+ *         companion object {
+ *             fun fromRawValue(value: String): Phase? = entries.firstOrNull { it.rawValue == value }
+ *         }
+ *     }
+ *
+ * One rule for every enum: the wire value is never optional and never hand-written.
+ * `kotlinEnumOverrides` only renames the type or its entries, so which enums get a
+ * `rawValue` is not a per-enum decision (issue #212).
+ *
+ * @param {string} source Generated Kotlin source from the plain (`--just-types`) renderer.
+ * @param {Map<string, Array<{ constant: string, wire: string }>>} wireValues Per-enum
+ *   wire values from the kotlinx renderer, keyed by quicktype's enum name.
+ * @returns {string} Kotlin source whose enums all expose their wire value.
+ */
+function rewriteKotlinEnums(source, wireValues) {
+  const rewritten = new Set();
+
+  const output = source.replace(
+    /^enum class (\w+) \{\n((?: {4}\w+,?\n)+)\}$/gm,
+    (_match, quicktypeName, body) => {
+      const entries = wireValues.get(quicktypeName);
+      if (entries === undefined) {
+        throw new Error(
+          `The kotlinx quicktype run emitted no wire values for enum ${quicktypeName}.`
+        );
+      }
+
+      // The two Kotlin renderers share KotlinRenderer's enum-case namer, including its
+      // keyword avoidance (`system` becomes `RoleSystem`). Pairing the runs up by
+      // position is only sound while that holds, so assert it rather than assume it.
+      const declared = body
+        .trimEnd()
+        .split("\n")
+        .map((line) => line.trim().replace(/,$/, ""));
+      const named = entries.map((entry) => entry.constant);
+      if (declared.join(",") !== named.join(",")) {
+        throw new Error(
+          `quicktype's Kotlin renderers disagree on the entries of enum ${quicktypeName}:\n` +
+            `  --just-types:        ${declared.join(", ")}\n` +
+            `  --framework kotlinx: ${named.join(", ")}`
+        );
+      }
+
+      rewritten.add(quicktypeName);
+      const kotlinName = kotlinEnumName(quicktypeName);
+      const constants = entries
+        .map(
+          ({ constant, wire }) =>
+            `    ${kotlinEnumConstantName(quicktypeName, constant)}(${kotlinStringLiteral(wire)}),`
+        )
+        .join("\n");
+
+      return `enum class ${kotlinName}(val rawValue: String) {
+${constants}
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ${kotlinName}? = entries.firstOrNull { it.rawValue == value }
+    }
+}`;
+    }
+  );
+
+  const unusedOverrides = Object.keys(kotlinEnumOverrides).filter(
+    (quicktypeName) => !rewritten.has(quicktypeName)
+  );
+  if (unusedOverrides.length > 0) {
+    throw new Error(
+      `kotlinEnumOverrides names enums quicktype no longer emits: ${unusedOverrides.join(", ")}`
+    );
+  }
+
+  const bare = [...output.matchAll(/^enum class (\w+) \{$/gm)].map(([, name]) => name);
+  if (bare.length > 0) {
+    throw new Error(`Generated Kotlin enums left without a wire value: ${bare.join(", ")}`);
+  }
+
+  return output;
+}
+
+function normalizeKotlinContractsSource(source, wireValues) {
   let output = `/* This file was generated from JSON Schema using quicktype. Do not edit by hand. */\n\n${source}`;
 
   output = replaceExactly(output, [
@@ -241,87 +350,76 @@ function normalizeKotlinContractsSource(source) {
     "val schemaVersion: SchemaVersion = SchemaVersion.V1_0\n)"
   );
 
-  output = output.replace(
-    /enum class SchemaVersion \{\s+The10\s+\}/m,
-    `enum class SchemaVersion(val rawValue: String) {
-    V1_0("1.0")
-}`
-  );
-  output = output.replace(
-    /enum class Kind \{\s+TextToText\s+\}/m,
-    `enum class TaskKind(val rawValue: String) {
-    TEXT_TO_TEXT("text_to_text")
-}`
-  );
-  output = output.replace(
-    /enum class Role \{\s+Assistant,\s+RoleSystem,\s+User\s+\}/m,
-    `enum class MessageRole(val rawValue: String) {
-    ASSISTANT("assistant"),
-    SYSTEM("system"),
-    USER("user")
-}`
-  );
-  output = output.replace(
-    /enum class Level \{\s+Debug,\s+Minimal,\s+Off\s+\}/m,
-    `enum class TelemetryLevel(val rawValue: String) {
-    DEBUG("debug"),
-    MINIMAL("minimal"),
-    OFF("off")
-}`
-  );
-  output = output.replace(
-    /enum class FinishReason \{\s+Cancelled,\s+Error,\s+Length,\s+Stop\s+\}/m,
-    `enum class FinishReason(val rawValue: String) {
-    CANCELLED("cancelled"),
-    ERROR("error"),
-    LENGTH("length"),
-    STOP("stop")
-}`
-  );
-  output = output.replace(
-    /enum class OutputType \{\s+Text\s+\}/m,
-    `enum class OutputType(val rawValue: String) {
-    TEXT("text")
-}`
-  );
-  output = output.replace(
-    /enum class ErrorClass \{\s+AuthError,\s+CapabilityMismatch,\s+Internal,\s+Offline,\s+RateLimited,\s+Timeout,\s+Unavailable\s+\}/m,
-    `enum class IndeRunErrorClass(val rawValue: String) {
-    AuthError("AuthError"),
-    CapabilityMismatch("CapabilityMismatch"),
-    Internal("Internal"),
-    Offline("Offline"),
-    RateLimited("RateLimited"),
-    Timeout("Timeout"),
-    Unavailable("Unavailable")
-}`
-  );
+  output = rewriteKotlinEnums(output, wireValues);
 
   return `${output}\n`;
+}
+
+const kotlinQuicktypeArgs = [
+  "--lang",
+  "kotlin",
+  "--src-lang",
+  "schema",
+  "--acronym-style",
+  "original",
+  "--package",
+  "app.independo.inderun.contracts"
+];
+
+/**
+ * Collects the schema wire value of every Kotlin enum from a throwaway second
+ * quicktype run.
+ *
+ * The shipped file is generated with `--just-types`, whose renderer drops the JSON
+ * value (`enum class Phase { ProviderSelected, Started }`) — the defect in issue #212.
+ * The kotlinx renderer is the one Kotlin renderer that keeps it, but its output cannot
+ * be shipped: it annotates every class with `@Serializable`/`@SerialName`, which would
+ * put kotlinx.serialization on the published `:inderun-contracts` POM. So it is
+ * rendered to a temp file and read for its enums alone.
+ *
+ * Reading the values back out of quicktype rather than deriving them from the schemas
+ * keeps quicktype the single authority on which Kotlin entry name belongs to which
+ * schema value, including its keyword avoidance and acronym styling.
+ *
+ * @param {string} tempDir Scratch directory for the throwaway render.
+ * @returns {Promise<Map<string, Array<{ constant: string, wire: string }>>>} Per-enum
+ *   entries, keyed by quicktype's enum name.
+ */
+async function readKotlinEnumWireValues(tempDir) {
+  // No `--just-types` here: quicktype's renderer factory lets it win over `--framework`.
+  const quicktypeOutputPath = join(tempDir, "ContractsKotlinX.kt");
+  await execFileAsync(quicktypeBinary(), [
+    ...kotlinQuicktypeArgs,
+    "--framework",
+    "kotlinx",
+    ...schemas.map((schema) => join(schemasDir, schema.input)),
+    "--out",
+    quicktypeOutputPath
+  ]);
+
+  return parseKotlinXEnums(await readFile(quicktypeOutputPath, "utf8"));
 }
 
 async function generateKotlinContracts(tempDir) {
   const quicktypeOutputPath = join(tempDir, "Contracts.kt");
 
   await execFileAsync(quicktypeBinary(), [
-    "--lang",
-    "kotlin",
-    "--src-lang",
-    "schema",
+    ...kotlinQuicktypeArgs,
     "--just-types",
-    "--acronym-style",
-    "original",
-    "--package",
-    "app.independo.inderun.contracts",
     ...schemas.map((schema) => join(schemasDir, schema.input)),
     "--out",
     quicktypeOutputPath
   ]);
 
-  const kotlinSource = normalizeKotlinContractsSource(await readFile(quicktypeOutputPath, "utf8"));
+  const kotlinSource = normalizeKotlinContractsSource(
+    await readFile(quicktypeOutputPath, "utf8"),
+    await readKotlinEnumWireValues(tempDir)
+  );
 
   await mkdir(dirname(kotlinContractsPath), { recursive: true });
   await writeFile(kotlinContractsPath, kotlinSource);
+
+  return kotlinSource;
 }
 
 // The Rust shared route-planning core only consumes the route-planner contracts,
@@ -414,7 +512,7 @@ const quicktypeOutputPath = join(tempDir, "Contracts.swift");
 
 try {
   await generateTypeScriptContracts();
-  await generateKotlinContracts(tempDir);
+  const kotlinSource = await generateKotlinContracts(tempDir);
   await generateRustContracts(tempDir);
 
   await execFileAsync(quicktypeBinary(), [
@@ -454,6 +552,17 @@ try {
   ]);
 
   await writeFile(swiftContractsPath, swiftSource);
+
+  // Kotlin and Swift are generated from the same schemas, so a wire value one of them
+  // carries and the other does not is a generator defect, not a platform difference.
+  // Checked here so `pnpm generate:code` can never emit a divergent pair; the same
+  // comparison runs against the committed files in verify-enum-wire-parity.mjs.
+  const parityProblems = collectEnumWireParityProblems(kotlinSource, swiftSource);
+  if (parityProblems.length > 0) {
+    throw new Error(
+      `Kotlin and Swift disagree on generated enum wire values:\n\n${parityProblems.join("\n")}`
+    );
+  }
 } finally {
   await rm(tempDir, { recursive: true, force: true });
 }

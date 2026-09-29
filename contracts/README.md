@@ -41,6 +41,27 @@ The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
 
+## Generated enums carry their wire value
+
+Every generated enum exposes the schema string it serializes to, in every language: Swift as
+`public enum X: String`, TypeScript as a string-literal union, Kotlin as
+`enum class X(val rawValue: String)` with a `fromRawValue` companion. A Kotlin consumer reads
+`Phase.ProviderSelected.rawValue` (`"provider_selected"`), never `name`.
+
+quicktype's plain Kotlin renderer drops the value, so `generate-contracts.mjs` renders the schemas a
+second time with `--framework kotlinx` — the one Kotlin renderer that keeps it — into a temp file it
+reads the values back out of. That output is never shipped: it annotates every class with
+`@Serializable`, which would put kotlinx.serialization on the published `:inderun-contracts` POM.
+Reading the values back from quicktype rather than deriving them from the schemas keeps quicktype the
+only authority on which Kotlin entry name belongs to which schema value, including keyword avoidance
+(`system` becomes `RoleSystem`, because `System` is a reserved name in its Kotlin renderer).
+
+`contracts/scripts/kotlin-enum-wire-values.mjs` holds the single table of enums whose Kotlin type or
+entry names deviate from quicktype's default (`Role` becomes `MessageRole`, `The10` becomes `V1_0`).
+It renames only — whether an enum carries `rawValue` is not a per-enum decision. `pnpm generate` and
+`pnpm verify:enum-wire-parity` both fail when Kotlin and Swift disagree on a wire value, or when any
+Kotlin enum is emitted without one (issue #212).
+
 ## Schema evolution and forward compatibility
 
 - **Additive, backward-compatible changes** (new optional properties, a new `StreamEvent.type`
