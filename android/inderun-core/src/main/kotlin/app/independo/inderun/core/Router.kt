@@ -115,7 +115,7 @@ class Router private constructor(
      * caller reads one contract across platforms.
      */
     private fun routePlanFailureDetails(routePlan: SharedPlannerRoutePlan): Map<String, Any?> = buildMap {
-        routePlan.failureCode?.let { put("failureCode", failureCodeValue(it)) }
+        routePlan.failureCode?.let { put("failureCode", it.rawValue) }
         put(
             "rejectedProviders",
             routePlan.rejectedProviders.map { rejected ->

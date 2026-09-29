@@ -28,7 +28,7 @@ class URLConnectionHttpClientService : HttpClientService {
         currentCoroutineContext().job.invokeOnCompletion { connection.disconnect() }
 
         try {
-            connection.requestMethod = request.method.name.uppercase()
+            connection.requestMethod = request.method.rawValue
             connection.instanceFollowRedirects = true
             connection.doInput = true
 
@@ -86,7 +86,7 @@ class URLConnectionStreamingHttpClientService : HttpStreamingClientService {
         currentCoroutineContext().ensureActive()
 
         val head = try {
-            connection.requestMethod = request.method.name.uppercase()
+            connection.requestMethod = request.method.rawValue
             connection.instanceFollowRedirects = true
             connection.doInput = true
 

@@ -36,6 +36,11 @@ jobs:
             js:
               - 'packages/**'
               - 'contracts/**'
+              # The committed Kotlin and Swift data contracts: `pnpm verify:enum-wire-parity`
+              # reads both, and it is the only check that sees a hand-edit of the Kotlin one
+              # (the regenerate-and-diff step below excludes it).
+              - 'android/inderun-contracts/src/main/kotlin/**'
+              - 'ios/IndeRun/Sources/IndeRunContracts/**'
               # The Web SDK has no fallback planner, so anything that can change
               # the compiled route core changes Web behaviour: the crate, the
               # workspace manifest, the lockfile (a dependency bump alone can
@@ -130,6 +135,12 @@ jobs:
       # Spotless included) covers real content drift for it.
       - name: Verify generated contracts and API surface are up to date
         run: git diff --exit-code -- packages/contracts/src/generated ios/IndeRun/Sources/IndeRunContracts rust/inderun-route-core/src/generated packages/inderun-web/src/core/generated android/inderun-kotlin/src/main/kotlin/app/independo/inderun/sdk/generated ios/IndeRun/Sources/IndeRunSwift/Generated
+
+      # Covers the one generated file the diff above cannot: the Kotlin data
+      # contract is excluded there, so this is what keeps a hand-edit of its enum
+      # wire values from reaching main. See contracts/scripts/verify-enum-wire-parity.mjs.
+      - name: Verify Kotlin and Swift enum wire values agree
+        run: pnpm verify:enum-wire-parity
 
       # `pnpm build` and `pnpm test:js` both call this too; running it explicitly
       # keeps the toolchain failure mode visible as its own step.

@@ -375,7 +375,7 @@ class IndeRun(
                     runId = runId,
                     timestamp = now(),
                     payload = buildMap {
-                        put("errorClass", exception.errorClass.name)
+                        put("errorClass", exception.errorClass.rawValue)
                         put("message", getStableMessage(exception.errorClass))
                         put("attemptedProviderIds", attempted)
                         providerId?.let { put("providerId", it) }
@@ -551,7 +551,7 @@ class IndeRun(
                             timestamp = now(),
                             payload = mapOf(
                                 "providerId" to providerId,
-                                "errorClass" to exception.errorClass.name,
+                                "errorClass" to exception.errorClass.rawValue,
                                 "message" to getStableMessage(exception.errorClass),
                             ),
                         ),
