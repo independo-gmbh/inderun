@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
     "@independo/inderun-contracts": "workspace:^",
     "@independo/inderun-web": "workspace:^"
   },
@@ -19,6 +19,6 @@
     "happy-dom": "^20.14.5",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   }
 }
