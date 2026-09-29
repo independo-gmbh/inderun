@@ -49,7 +49,7 @@ dependencies {
     // ONNX Runtime and the tokenizer are reached only through `internal` declarations
     // (LoadedSession, runOnnxSession), and this module publishes no `Flow` of its own.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.29.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.30.0")
     implementation("ai.djl.huggingface:tokenizers:0.38.0")
     implementation("ai.djl.android:tokenizer-native:0.33.0")
     implementation("org.json:json:20260814")
