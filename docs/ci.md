@@ -240,7 +240,11 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   them is part of `pnpm test:js` rather than a prerequisite contributors are expected to
   remember. Running the JS tests locally therefore requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (the script prints the install
-  commands when either is missing).
+  commands when either is missing). The CLI's version is not a free choice: it shares a schema
+  version with the `wasm-bindgen` crate and rejects a `.wasm` built by one it does not match.
+  `scripts/wasm-bindgen-version.mjs` reads that version out of `Cargo.lock` and is what the
+  install hint, both workflows' `cargo install` step, and their cache key use, so a Dependabot
+  cargo bump cannot leave the CLI pin behind (#192).
 - `pnpm build:route-core-apple` (`scripts/build-route-core-apple.mjs`) is the equivalent for the
   Apple platforms: it cross-compiles the route core for iOS device, iOS simulator, and macOS,
   and packages the results into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`.

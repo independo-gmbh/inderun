@@ -98,6 +98,14 @@ jobs:
             rust/inderun-route-core -> target
           cache-on-failure: true
 
+      # The wasm-bindgen CLI and the wasm-bindgen crate share a schema version, so
+      # the CLI that runs here is not a free choice -- it is whatever Cargo.lock
+      # resolved. Read it from the lockfile rather than restating it, or a cargo
+      # bump silently leaves the two disagreeing (#192).
+      - name: Resolve the pinned wasm-bindgen version
+        id: wasm-bindgen-version
+        run: echo "version=$(node scripts/wasm-bindgen-version.mjs)" >> "$GITHUB_OUTPUT"
+
       - name: Cache wasm-bindgen CLI
         id: cache-wasm-bindgen
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -107,11 +115,11 @@ jobs:
             ~/.cargo/bin/wasm-bindgen-test-runner
             ~/.cargo/.crates.toml
             ~/.cargo/.crates2.json
-          key: ${{ runner.os }}-wasm-bindgen-cli-0.2.125
+          key: ${{ runner.os }}-wasm-bindgen-cli-${{ steps.wasm-bindgen-version.outputs.version }}
 
       - name: Install wasm-bindgen CLI
         if: steps.cache-wasm-bindgen.outputs.cache-hit != 'true'
-        run: cargo install wasm-bindgen-cli --version 0.2.125 --locked
+        run: cargo install wasm-bindgen-cli --version ${{ steps.wasm-bindgen-version.outputs.version }} --locked
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
