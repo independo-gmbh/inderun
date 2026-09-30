@@ -1,3 +1,29 @@
+## [0.3.1](https://github.com/independo-gmbh/inderun/compare/v0.3.0...v0.3.1) (2026-09-30)
+
+### Bug Fixes 🛠️
+
+* **contracts:** give every generated Kotlin enum its schema wire value ([#221](https://github.com/independo-gmbh/inderun/issues/221)) ([dfe50fc](https://github.com/independo-gmbh/inderun/commit/dfe50fcd0bea3a305b3f233482622a55d6c97fe6)), closes [#212](https://github.com/independo-gmbh/inderun/issues/212)
+
+### Documentation 📚
+
+* track both non-streaming provider families in the provider matrix ([#217](https://github.com/independo-gmbh/inderun/issues/217)) ([90e795d](https://github.com/independo-gmbh/inderun/commit/90e795d0aa4b1e79c37f3d44d1e2866bcc52063b)), closes [#146](https://github.com/independo-gmbh/inderun/issues/146)
+
+### Miscellaneous Chores 🛠️
+
+* **deps-dev:** bump vitest from 4.1.11 to 5.0.0 ([#194](https://github.com/independo-gmbh/inderun/issues/194)) ([8ea36a8](https://github.com/independo-gmbh/inderun/commit/8ea36a88bdae930c43d0e7a38a573e372b5e3195))
+* **deps:** bump com.microsoft.onnxruntime:onnxruntime-android ([28cf5d3](https://github.com/independo-gmbh/inderun/commit/28cf5d30337175619f94a8810bd8f47121a62c6f))
+* **deps:** bump the github-actions-routine group across 1 directory with 4 updates ([#196](https://github.com/independo-gmbh/inderun/issues/196)) ([c5dfb7d](https://github.com/independo-gmbh/inderun/commit/c5dfb7db5d1684533dd5896e17f6a7f4d1a6459f))
+* **deps:** bump the github-actions-routine group with 2 updates ([0f9c104](https://github.com/independo-gmbh/inderun/commit/0f9c104c550e9d908776da06a1a6cb1bbb7e9f9b))
+* **deps:** bump the gradle-routine group across 1 directory with 6 updates ([#195](https://github.com/independo-gmbh/inderun/issues/195)) ([ead6b11](https://github.com/independo-gmbh/inderun/commit/ead6b1102e4b871b82ee3b07b7eb8cf5c8561d1d))
+* **deps:** bump the npm-routine group with 5 updates ([0e08511](https://github.com/independo-gmbh/inderun/commit/0e08511262c898b91979568b47d5b1003f350173))
+* **deps:** bump wasm-bindgen in the cargo-routine group ([519c793](https://github.com/independo-gmbh/inderun/commit/519c793b3eed69200d127bac9b391f0eaece1d34))
+* **deps:** rebuild the Apple route core for the dependency bump ([5df8f4f](https://github.com/independo-gmbh/inderun/commit/5df8f4f38c46dd04b958f9602020af0d92a2b9a9))
+* **deps:** upgrade dependencies ([d79ded7](https://github.com/independo-gmbh/inderun/commit/d79ded76cb1ba66323a5d92e04732dc158155c9a))
+
+### CI/CD 👷
+
+* derive the wasm-bindgen CLI version from Cargo.lock ([d716a5f](https://github.com/independo-gmbh/inderun/commit/d716a5f64d7925726b9084574bd29300c9513541)), closes [#192](https://github.com/independo-gmbh/inderun/issues/192)
+
 ## [0.3.0](https://github.com/independo-gmbh/inderun/compare/v0.2.2...v0.3.0) (2026-09-20)
 
 ### ⚠ BREAKING CHANGES
