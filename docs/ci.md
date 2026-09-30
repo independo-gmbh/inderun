@@ -195,6 +195,13 @@ invisible inside this repository and only breaks for someone consuming the publi
   to describe (#206), so the step keeps running and keeps printing: its output is the
   authoritative breaking-change list for the release notes, and it catches breaks whose commits
   forgot the `BREAKING CHANGE:` footer.
+- **Contract enums**, in `javascript.yml`: `pnpm verify:enum-wire-parity`
+  (`contracts/scripts/verify-enum-wire-parity.mjs`) reads the committed Kotlin and Swift
+  contracts and asserts that every generated Kotlin enum exposes its schema wire value as
+  `rawValue`, and that both languages spell the same wire values for the same schema enum.
+  The generator asserts the same thing on the sources it writes; this step covers what the
+  generator cannot see, a hand-edit of the committed Kotlin file — which the diff guard below
+  deliberately excludes. Its two files are in the workflow's path filter for that reason.
 - **Web**, in `javascript.yml`: `pnpm verify:packaging` runs `publint` and
   `attw --pack . --profile esm-only` over the three published npm packages, resolving every
   `exports` subpath the way a consumer's TypeScript would. The `esm-only` profile drops the node10
@@ -219,7 +226,8 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   diff, because that step skips the `generate:kotlin` Spotless pass and would otherwise
   always report spurious formatting drift; `release.yml` runs the full `pnpm generate`
   (Spotless included) and includes that path, since its output is guaranteed
-  ktlint-clean.
+  ktlint-clean. `pnpm verify:enum-wire-parity` covers the content of the file
+  `javascript.yml` leaves out of that diff (see the verification steps above).
 - `pnpm build:wasm` (`scripts/build-route-core-wasm.mjs`) is the single definition of the
   Rust→WASM build: it runs `cargo build --target wasm32-unknown-unknown` plus
   `wasm-bindgen --target web`. Freshness is left to cargo, which fingerprints every effective
@@ -232,7 +240,11 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   them is part of `pnpm test:js` rather than a prerequisite contributors are expected to
   remember. Running the JS tests locally therefore requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (the script prints the install
-  commands when either is missing).
+  commands when either is missing). The CLI's version is not a free choice: it shares a schema
+  version with the `wasm-bindgen` crate and rejects a `.wasm` built by one it does not match.
+  `scripts/wasm-bindgen-version.mjs` reads that version out of `Cargo.lock` and is what the
+  install hint, both workflows' `cargo install` step, and their cache key use, so a Dependabot
+  cargo bump cannot leave the CLI pin behind (#192).
 - `pnpm build:route-core-apple` (`scripts/build-route-core-apple.mjs`) is the equivalent for the
   Apple platforms: it cross-compiles the route core for iOS device, iOS simulator, and macOS,
   and packages the results into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`.

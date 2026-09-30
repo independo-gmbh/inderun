@@ -21,6 +21,7 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pinnedRustcPath, pinnedToolchain } from "./rust-toolchain.mjs";
+import { wasmBindgenVersion } from "./wasm-bindgen-version.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(repoRoot, "packages", "inderun-route-core-wasm", "generated");
@@ -70,7 +71,7 @@ const TOOLCHAIN_HINT =
   "pinned Rust toolchain and the wasm-bindgen CLI, then retry:\n" +
   `  rustup toolchain install ${toolchain}\n` +
   `  rustup target add --toolchain ${toolchain} wasm32-unknown-unknown\n` +
-  "  cargo install wasm-bindgen-cli --version 0.2.125 --locked\n" +
+  `  cargo install wasm-bindgen-cli --version ${wasmBindgenVersion()} --locked\n` +
   "See packages/inderun-route-core-wasm/README.md.";
 
 // RUSTC is resolved explicitly so the build cannot pick up whatever rustc happens
