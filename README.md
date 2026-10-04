@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@independo/inderun-web"><img alt="npm: @independo/inderun-web" src="https://img.shields.io/npm/v/@independo/inderun-web?logo=npm&label=inderun-web"></a>
-  <a href="https://central.sonatype.com/artifact/app.independo.inderun/inderun-kotlin"><img alt="Maven Central: app.independo.inderun:inderun-kotlin" src="https://img.shields.io/maven-central/v/app.independo.inderun/inderun-kotlin?logo=apachemaven&label=inderun-kotlin"></a>
+  <a href="https://central.sonatype.com/artifact/app.independo.inderun/inderun-kotlin"><img alt="Maven Central: app.independo.inderun:inderun-kotlin" src="https://img.shields.io/maven-metadata/v?metadataUrl=https%3A%2F%2Frepo1.maven.org%2Fmaven2%2Fapp%2Findependo%2Finderun%2Finderun-kotlin%2Fmaven-metadata.xml&filter=%21*-*&logo=apachemaven&label=inderun-kotlin"></a>
   <a href="https://github.com/independo-gmbh/inderun/releases"><img alt="Swift Package Manager" src="https://img.shields.io/github/v/release/independo-gmbh/inderun?logo=swift&label=SwiftPM"></a>
 </p>
 
