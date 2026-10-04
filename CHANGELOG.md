@@ -1,3 +1,22 @@
+## [0.3.2](https://github.com/independo-gmbh/inderun/compare/v0.3.1...v0.3.2) (2026-10-04)
+
+### Bug Fixes 🛠️
+
+* **deps:** restore rolldown native bindings in lockfile ([#228](https://github.com/independo-gmbh/inderun/issues/228)) ([71aa9f5](https://github.com/independo-gmbh/inderun/commit/71aa9f5a66019441d519958d56a629a3e298a6a7))
+
+### Miscellaneous Chores 🛠️
+
+* **deps-dev:** bump the npm-routine group with 5 updates ([0a83076](https://github.com/independo-gmbh/inderun/commit/0a83076e0aa92ce9c688d3d72088fad19f79c02c))
+* **deps:** bump the github-actions-routine group with 2 updates ([8d022da](https://github.com/independo-gmbh/inderun/commit/8d022dab439bf7e566eb674bec9e1bf4526b8eda))
+* **deps:** bump the gradle-routine group in /android with 4 updates ([a341d59](https://github.com/independo-gmbh/inderun/commit/a341d594150ecef23c2026e749056db37772c651))
+* **deps:** bump wasm-bindgen ([285db2e](https://github.com/independo-gmbh/inderun/commit/285db2e3f59300cd3a5372e45ec79f99e8ab44d9))
+* **deps:** rebuild the Apple route core for the dependency bump ([c9d2ea0](https://github.com/independo-gmbh/inderun/commit/c9d2ea007161d0fa1d21d9e468b629e72e4006dd))
+* **deps:** upgrade dependencies ([94b0e46](https://github.com/independo-gmbh/inderun/commit/94b0e46eefd638c7d0e5599341248b96fcb04f82))
+
+### CI/CD 👷
+
+* **release:** cut prereleases as -rc.N so Maven ranks them below releases ([#229](https://github.com/independo-gmbh/inderun/issues/229)) ([2428616](https://github.com/independo-gmbh/inderun/commit/2428616a1351809df33eff0c788a996dd4c10bac))
+
 ## [0.3.1](https://github.com/independo-gmbh/inderun/compare/v0.3.0...v0.3.1) (2026-09-30)
 
 ### Bug Fixes 🛠️
