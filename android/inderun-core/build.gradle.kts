@@ -88,9 +88,9 @@ dependencies {
     // the signature a consumer implements against. Declared explicitly rather than leaned
     // on through core-ktx, which stays `implementation` -- only `SecureStorageService`
     // uses it, and nothing from it reaches this module's API.
-    api("androidx.annotation:annotation:1.10.0")
+    api("androidx.annotation:annotation:1.11.0")
 
-    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.core:core-ktx:1.19.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
