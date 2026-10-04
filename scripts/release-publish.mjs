@@ -18,11 +18,11 @@ import { join } from "node:path";
 const packages = ["packages/contracts", "packages/inderun-route-core-wasm", "packages/inderun-web"];
 
 // npm rejects publishing a prerelease version to the default `latest` dist-tag,
-// so derive the tag from the version: `0.1.1-dev.1` -> `dev`, `0.1.1` -> `latest`.
-// This mirrors semantic-release's channel-based dist-tags for prerelease branches.
+// so derive the tag from the version: `0.1.1-rc.1` -> `dev`, `0.1.1` -> `latest`.
+// Prereleases come only from the `dev` branch, and the dist-tag follows the branch
+// (semantic-release's channel), not the `rc` prerelease identifier in the version.
 function distTag(version) {
-  const prerelease = version.split("-")[1];
-  return prerelease ? prerelease.split(".")[0] : "latest";
+  return version.includes("-") ? "dev" : "latest";
 }
 
 function run(cmd, args, cwd) {

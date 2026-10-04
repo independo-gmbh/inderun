@@ -4,7 +4,7 @@
 // release commit are produced ONLY for stable releases on `main`. Prerelease runs
 // on `dev` still version, tag, publish (under the `dev` npm dist-tag), and create a
 // GitHub pre-release — they just don't write CHANGELOG.md or commit a release commit,
-// keeping the changelog free of `-dev.N` entries.
+// keeping the changelog free of `-rc.N` entries.
 const branch = (process.env.GITHUB_REF_NAME || "").trim();
 const isStable = branch === "main";
 
@@ -103,7 +103,13 @@ plugins.push([
 module.exports = {
   branches: [
     { name: "main", prerelease: false },
-    { name: "dev", prerelease: true }
+    // Prereleases are `X.Y.Z-rc.N`, not `-dev.N`. Maven has no dist-tags, so the
+    // version string alone marks a prerelease there, and only the qualifiers
+    // alpha/beta/milestone/rc/snapshot sort below the release. Maven and Dependabot
+    // rank an unknown qualifier like `dev` *above* the release (`0.3.1-dev.5` >
+    // `0.3.1`), which offered prereleases to consumers on stable versions. The npm
+    // dist-tag and GitHub channel stay `dev` (the branch name).
+    { name: "dev", prerelease: "rc" }
   ],
   plugins
 };

@@ -3,7 +3,7 @@ name: Maven Publish
 # Publishes the Android library modules to Maven Central when a GitHub release is
 # created (by the Release workflow / semantic-release), prereleases included: the
 # Capacitor bridge lives in its own repository and consumes these artifacts from
-# Maven Central, so it cannot develop against a `-dev.N` line that npm and SwiftPM
+# Maven Central, so it cannot develop against an `-rc.N` line that npm and SwiftPM
 # have but Maven does not.
 #
 # The published version comes from the tag, NOT from android/gradle.properties.

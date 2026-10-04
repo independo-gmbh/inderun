@@ -23,8 +23,16 @@ which runs its own release pipeline and consumes the artifacts published here.
 ## Branch strategy
 
 - `main` — stable releases (`X.Y.Z`).
-- `dev` — prereleases (`X.Y.Z-dev.N`). Use `dev` to smoke-test the pipeline before a stable cut.
+- `dev` — prereleases (`X.Y.Z-rc.N`, npm dist-tag `dev`). Use `dev` to smoke-test the pipeline
+  before a stable cut. Releases up to `v0.3.2-dev.1` used a `-dev.N` suffix instead.
 - After a stable release, `main` is automatically back-merged into `dev`.
+
+Why `rc` and not `dev`: Maven Central has no dist-tags, so on Maven the version string is the
+only prerelease marker. Maven's version ordering and Dependabot's Maven/Gradle updater treat
+only `alpha`, `beta`, `milestone`, `rc`, and `snapshot` as prerelease qualifiers. An unknown
+qualifier such as `dev` sorts *after* the release (`0.3.1-dev.5` > `0.3.1`), so Dependabot
+offered `-dev.N` builds to consumers on stable versions. `-rc.N` sorts below its release in
+Maven, Gradle, Dependabot, npm, and SwiftPM alike.
 
 > ⚠️ **Before the first stable release:** `main` must actually contain the implementation.
 > The codebase currently lives on `dev`; merge `dev → main` before expecting the `Release`
@@ -46,10 +54,10 @@ which runs its own release pipeline and consumes the artifacts published here.
    - commits the version/changelog files, tags `vX.Y.Z`, and creates the GitHub release.
 4. The published GitHub release triggers `.github/workflows/maven-publish.yml`, which runs
    `./gradlew publishToMavenCentral` for the library modules — **prereleases included**, so the
-   separately released Capacitor bridge has a `-dev.N` line to build against on Android the way
+   separately released Capacitor bridge has an `-rc.N` line to build against on Android the way
    it already does on npm and SwiftPM. The version it publishes comes from the tag, passed as
    `-PinderunVersion`: on a prerelease semantic-release does not commit the version bump (step 3
-   writes it to the working tree only), so `android/gradle.properties` at a `-dev.N` tag still
+   writes it to the working tree only), so `android/gradle.properties` at an `-rc.N` tag still
    holds the previous stable version and must not be trusted as the publish version.
 5. Swift consumers use the new git tag directly — no separate publish step. Because the tag is
    the distribution channel, the release job is gated on a `Verify Apple artifact` job that
@@ -114,6 +122,9 @@ pnpm add @independo/inderun-web   # pulls in contracts + route-core-wasm
 ```kotlin
 implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
+
+Gradle assigns every non-SNAPSHOT Maven version the `release` status, so `latest.release` can
+also resolve to an `-rc.N` prerelease when one is newer than the latest stable release.
 
 ## Registry configuration requirements (one-time setup)
 
