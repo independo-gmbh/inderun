@@ -4,14 +4,22 @@ overrides:
   # GHSA-xcpc-8h2w-3j85: adm-zip <0.6.0 allows a crafted ZIP to trigger a 4GB
   # allocation. Pulled in transitively via onnxruntime-node.
   adm-zip@<0.6.0: ">=0.6.0"
-  # GHSA-f88m-g3jw-g9cj: sharp <0.35.0 bundles a libvips with several CVEs.
-  # Pulled in transitively via @huggingface/transformers.
-  sharp@<0.35.0: ">=0.35.0"
+  # GHSA-f88m-g3jw-g9cj: sharp <0.35.0 bundles a libvips with several CVEs, and
+  # sharp <0.35.5 bundles a librsvg affected by CVE-2026-96889. Pulled in
+  # transitively via @huggingface/transformers.
+  sharp@<0.35.5: ">=0.35.5"
   # GHSA-m283-3h24-438v, GHSA-m5w8-4gq2-6f8x, GHSA-cfcw-xp6x-25gj: vm2 has
   # unfixable sandbox-escape RCEs and is deprecated. typescript-json-schema
   # dropped it entirely in 0.68.0; pulled in transitively via quicktype ->
   # quicktype-typescript-input, which still pins 0.67.4.
   typescript-json-schema@<0.68.0: ">=0.68.0"
+  # stream-json <3.6.0: prototype pollution in Assembler, plus quadratic re-scan
+  # of JSONC comments (<=3.5.0). quicktype pins exactly 3.5.0.
+  stream-json@<3.6.0: ">=3.6.0"
+  # handlebars <=4.7.9: several template-compilation JavaScript-injection
+  # advisories. Pulled in by semantic-release via conventional-changelog-writer,
+  # which accepts ^4.7.7.
+  handlebars@<4.7.10: ">=4.7.10"
 allowBuilds:
   esbuild: true
   # Node-only extras pulled in by @huggingface/transformers. The demo runs the ONNX provider in the
