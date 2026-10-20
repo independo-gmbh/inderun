@@ -1,3 +1,18 @@
+## [0.3.3](https://github.com/independo-gmbh/inderun/compare/v0.3.2...v0.3.3) (2026-10-20)
+
+### Bug Fixes 🛠️
+
+* **deps:** patch sharp, handlebars and stream-json advisories ([49d1f98](https://github.com/independo-gmbh/inderun/commit/49d1f9841c59ea668e90723cf10b44c48f475031))
+
+### Miscellaneous Chores 🛠️
+
+* **deps-dev:** bump the npm-routine group with 7 updates ([01bd92f](https://github.com/independo-gmbh/inderun/commit/01bd92fd5d56cffb509bf8c091bd51d18d84f6ae))
+* **deps:** bump serde_json ([2581218](https://github.com/independo-gmbh/inderun/commit/25812182e7f900cad751fe71dfb59e990c48bd17))
+* **deps:** bump the github-actions-routine group with 3 updates ([d27d726](https://github.com/independo-gmbh/inderun/commit/d27d726cdc4042d56e6aab9e26a9326aabf99907))
+* **deps:** bump the gradle-routine group in /android with 4 updates ([b29059a](https://github.com/independo-gmbh/inderun/commit/b29059a409fce88254687a0e390fb1660dd3c6c0))
+* **deps:** bump the npm-routine group with 6 updates ([4acf5fe](https://github.com/independo-gmbh/inderun/commit/4acf5fed45a2ecf73d0d569148e92cbb89be5044))
+* **deps:** rebuild the Apple route core for the dependency bump ([0bd435e](https://github.com/independo-gmbh/inderun/commit/0bd435ea960a56ac22785a70d7f0e535c492088d))
+
 ## [0.3.2](https://github.com/independo-gmbh/inderun/compare/v0.3.1...v0.3.2) (2026-10-04)
 
 ### Bug Fixes 🛠️
