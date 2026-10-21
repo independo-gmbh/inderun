@@ -119,9 +119,14 @@ applications and bridges never need telemetry or provider-id parsing to show it.
 ## Future Capabilities
 
 New task kinds extend the canonical layer first, because routing needs the task. The primary layer then gains a
-capability-specific entry point (for example `generateSpeech()` for `text_to_speech`) that follows the same rules:
-one canonical request per call, the same `execution` object, the same profile mechanism (a profile can list text or
-speech targets), and the same provenance. Nothing about the layering assumes chat-completion semantics.
+capability-specific entry point for the task that follows the same rules: one canonical request per call, the same
+`execution` object, the same profile mechanism (a profile can list text or speech targets), and the same provenance.
+Nothing about the layering assumes chat-completion semantics.
+
+[ADR 016](./decisions/016-modality-extensible-task-contracts.md) fixes how the canonical contract grows for
+`text_to_speech`: task, modalities, interaction mode, output delivery and execution policy are separate axes; each
+task owns one payload object in an otherwise shared envelope; and the change stays additive within schema version
+1.0.
 
 ## Package Entry Points
 
@@ -144,6 +149,6 @@ The [migration guide](../migration.md) lists what moved when the Web entry point
 
 ## Non-Goals
 
-Mode 3 sessions, text-to-speech, speech-to-text, realtime voice, tools and agents, a hosted gateway, a model
-marketplace, and broad provider expansion are outside this layering decision. The layering leaves room for them; it
+Mode 3 sessions, speech-to-text, realtime voice, tools and agents, a hosted gateway, a model marketplace, and broad
+provider expansion are outside this layering decision; text-to-speech is specified separately in ADR 016. The layering leaves room for them; it
 does not specify them.

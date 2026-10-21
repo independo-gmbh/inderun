@@ -26,6 +26,11 @@ The same conceptual model is shared across platforms:
 - provider adapters advertise static and dynamic capability information
 - routing stays deterministic for a fixed request, policy, and capability snapshot
 
+What a request asks for is described along five separate axes — the task, the input and output modalities the task
+implies, the interaction mode, the output delivery (inline content, managed playback, or a retrievable artifact),
+and the execution policy — so that adding a modality never makes text or audio assumptions universal. [ADR
+016](./decisions/016-modality-extensible-task-contracts.md) records that decision and the contract shapes it implies.
+
 Capacitor is treated as an app-facing bridge layer over the existing platform SDKs, not as a separate execution engine. The Capacitor package should forward canonical requests into the existing Web, Swift, and Kotlin SDKs and return the same normalized result and error shapes.
 
 For Mode 2 the same rule holds, with one consequence worth stating: a live event sequence is not serializable, so the bridge cannot hand one across the JS boundary the way it hands back a `TaskResult`. It instead carries the run's canonical `StreamEvent` sequence across as serialized events correlated by the run, and reassembles them on the app-facing side into the same stream shape the platform SDKs return directly. That reassembly is transport plumbing only — `sequence` remains the ordering authority the bridge must respect rather than reinterpret, and the single-terminal guarantee remains the engines' Event Gate. A bridge never synthesizes a terminal outcome, retries, or applies fallback; where events are lost in transit it reports a transport failure rather than inventing an ending. See the [Capacitor bridge repository](https://github.com/independo-gmbh/capacitor-inderun) for the mechanics.

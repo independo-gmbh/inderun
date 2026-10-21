@@ -1,0 +1,25 @@
+{
+  "$comment": "ADR 016 example 3: a non-text input, kept as a contract-only test vector. It checks that the envelope admits a task whose input is not text without a universal text field: the image travels in its own payload object, the instruction reuses prompt, and the result reuses output.type 'text' because output.type describes the content representation, not the task. status 'contract_only' means no issue plans to implement it; the request is expected to be rejected at /task/kind. The image object is a placeholder until #244 fixes the artifact reference shape.",
+  "task": "image_to_text",
+  "status": "contract_only",
+  "cases": [
+    {
+      "id": "describe_image",
+      "description": "An image plus an instruction, answered with inline text.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "image_to_text" },
+        "image": { "mediaType": "image/jpeg", "ref": "placeholder-until-244" },
+        "prompt": "Describe what is on this sign."
+      },
+      "result": {
+        "schemaVersion": "1.0",
+        "runId": "run_image_1",
+        "output": { "type": "text", "text": "A sign saying the lift is out of order." },
+        "finishReason": "stop",
+        "telemetry": { "providerUsed": "onnx_runtime_web", "totalMs": 1520 }
+      },
+      "planner": { "kind": "image_to_text", "inputs": ["image", "text"] }
+    }
+  ]
+}
