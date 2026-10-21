@@ -147,6 +147,22 @@ export {
 } from "./core/browser-host.js";
 
 /**
+ * The primary text API: one canonical request per call, over any `IndeRunApi`.
+ * See `docs/architecture/api-layering.md`.
+ */
+export {
+  generateText,
+  streamText,
+  toTaskRequest,
+  TextStreamRetractedError,
+  type GeneratedText,
+  type StreamedText,
+  type TextExecutionOptions,
+  type TextGenerationOptions,
+  type TextStream
+} from "./facade/text.js";
+
+/**
  * The recommended way in: builds host services, registers the providers named in
  * the options, and returns a ready engine.
  */

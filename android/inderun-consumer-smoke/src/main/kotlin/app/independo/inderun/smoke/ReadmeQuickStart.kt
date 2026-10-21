@@ -8,7 +8,14 @@ import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TaskResult
+import app.independo.inderun.sdk.GeneratedText
 import app.independo.inderun.sdk.IndeRun
+import app.independo.inderun.sdk.TextExecutionOptions
+import app.independo.inderun.sdk.TextGenerationOptions
+import app.independo.inderun.sdk.TextStream
+import app.independo.inderun.sdk.generateText
+import app.independo.inderun.sdk.streamText
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -16,6 +23,24 @@ import kotlinx.coroutines.flow.Flow
  * nothing but `implementation(project(":inderun-kotlin"))`.
  */
 object ReadmeQuickStart {
+    fun options(): TextGenerationOptions = TextGenerationOptions(
+        prompt = "Translate 'Hello' to Spanish",
+        execution = TextExecutionOptions(privacy = PrivacyEnum.LocalRequired),
+    )
+
+    /** The primary text API, as the README's quick start uses it. */
+    suspend fun generate(context: Context): GeneratedText = IndeRun.initialize(context).generateText(options())
+
+    /**
+     * `streamText` takes a `CoroutineScope` and returns `Flow`s and a `Deferred`, so it is only
+     * usable when kotlinx-coroutines reaches the consumer's compile classpath from this module.
+     */
+    suspend fun streamText(context: Context, scope: CoroutineScope): Flow<String> {
+        val stream: TextStream = IndeRun.initialize(context).streamText(options(), scope)
+        return stream.textStream
+    }
+
+    /** The advanced API's equivalent request. */
     fun request(): TaskRequest = TaskRequest(
         schemaVersion = SchemaVersion.V1_0,
         prompt = "Translate 'Hello' to Spanish",

@@ -14,7 +14,7 @@ by shared fixtures rather than restated here.
 | Layer definitions and compatibility contract | Specified (this document) |
 | Model profiles | Implemented on Web, iOS/macOS, and Android |
 | Execution provenance | Implemented on Web, iOS/macOS, and Android |
-| Primary text API (`generateText` / `streamText`) | Specified, not yet implemented |
+| Primary text API (`generateText` / `streamText`) | Implemented on Web, iOS/macOS, and Android; translation pinned by `contracts/fixtures/facade/text-generation.json` |
 | Package surface restructuring along these layers | Not started; the current exports are classified below |
 
 ## Layers
@@ -128,7 +128,7 @@ speech targets), and the same provenance. Nothing about the layering assumes cha
 The Web SDK entry point (`packages/inderun-web/src/index.ts`) currently exports every layer from one barrel. Until the
 package surface is restructured, this is how its exports map onto the layers:
 
-- **Primary:** the text facade, `createIndeRunWeb`.
+- **Primary:** `generateText`, `streamText`, `toTaskRequest` and their option/result types, `createIndeRunWeb`.
 - **Advanced:** `IndeRun`, `IndeRunApi`, the re-exported contract types, `IndeRunException` and its helpers,
   telemetry types.
 - **Provider authoring:** the provider contract types, `ProviderRegistry`, the host-service interfaces and browser

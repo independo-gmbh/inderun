@@ -36,6 +36,11 @@ primitives. Each SDK registers one handler per case id and a guard test fails wh
 and the catalog ids are not equal, so a scenario covered on one platform and not another is a red
 test rather than a review finding. See [`docs/streaming-conformance.md`](../docs/streaming-conformance.md).
 
+`fixtures/facade/text-generation.json` is a fully data-driven vector like `sse-framing.json`, for the primary text API: facade
+options in, the exact canonical `TaskRequest` out. All three SDKs run every case through their own
+`generateText`/`streamText` translation, which is what holds the facades to one mapping without
+declaring them on the generated `IndeRunApi`.
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core

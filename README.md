@@ -55,10 +55,10 @@ Not every provider streams, so whether a stream request can be served depends on
 decided at routing time rather than discovered partway through. [Streaming (Mode 2)](docs/streaming.md) is the full
 contract — event types, ordering, cancellation, fallback, and what each provider does and does not report.
 
-`run()` and `stream()` are the canonical `v0.3.0` execution API, and deliberately not the final developer ergonomics:
-they are task-shaped because routing needs the task and its constraints, which is a different thing from being pleasant
-to call. [Milestone 4](https://github.com/independo-gmbh/inderun/milestones) adds a familiar text-generation facade and
-ecosystem adapters on top of them. Documentation here describes what ships today rather than anticipating that.
+`generateText()` and `streamText()` are the primary API: familiar prompt-and-options calls that each compile to one
+canonical `TaskRequest`. `run()` and `stream()` stay public as the advanced, task-shaped execution API — reach for them
+when you build requests programmatically or need the full event sequence. Both layers share one engine, so routing,
+fallback, cancellation, and errors behave identically. See [API layering](docs/architecture/api-layering.md).
 
 ## Choosing where a task runs
 
@@ -127,19 +127,24 @@ pnpm add @independo/inderun-web
 Quick start:
 
 ```ts
-import { createIndeRunWeb } from "@independo/inderun-web";
+import { createIndeRunWeb, generateText, streamText } from "@independo/inderun-web";
 
 const inderun = createIndeRunWeb({
   // Point at a same-origin proxy that holds the OpenAI key server-side.
   openAI: { models: ["gpt-5.2"], endpointUrl: "/api/inderun/openai-responses", auth: "none" }
 });
 
-const result = await inderun.run({
-  schemaVersion: "1.0",
-  task: { kind: "text_to_text" },
+const { text, provenance } = await generateText(inderun, {
   prompt: "Write a one-sentence summary of IndeRun."
 });
+console.log(text, provenance?.locality); // e.g. "cloud"
+
+const stream = await streamText(inderun, { prompt: "Explain routing.", execution: { privacy: "local_preferred" } });
+for await (const delta of stream.textStream) console.log(delta);
 ```
+
+The same request through the advanced API is
+`inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt: "…" })`.
 
 > Browser apps must route OpenAI calls through a same-origin proxy that keeps the key server-side — never ship
 > provider credentials to the browser.
@@ -200,11 +205,15 @@ let hostServices = DefaultHostServices.make()
 let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
 let inderun = IndeRun(registry: registry, hostServices: hostServices)
 
-let result = try await inderun.run(request: TaskRequest(
-    prompt: "Translate 'Hello' to Spanish",
-    constraints: TaskRequestConstraints(privacy: .localRequired)
+let result = try await inderun.generateText(TextGenerationOptions(
+    .prompt("Translate 'Hello' to Spanish"),
+    execution: TextExecutionOptions(privacy: .localRequired)
 ))
+print(result.text, result.provenance?.locality ?? .unknown)
 ```
+
+`streamText` returns a `TextStream` with `textStream`, `fullStream`, and `result()`; `run(request:)` and
+`stream(request:)` remain available as the advanced API.
 
 > Need cloud execution too? Register the OpenAI-compatible provider from
 > `IndeRunOpenAIProviders` — see the [iOS SDK README](ios/IndeRun/README.md) and the
@@ -234,8 +243,8 @@ implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
 
 That one line is enough for a fully typed app: `inderun-kotlin` exposes `inderun-contracts`,
-`inderun-core` and `kotlinx-coroutines-core` as `api` dependencies, so `TaskRequest`, `TaskResult`
-and the `Flow<StreamEvent>` returned by `stream()` are on your compile classpath. Cloud execution
+`inderun-core` and `kotlinx-coroutines-core` as `api` dependencies, so `TaskRequest`, `TaskResult`,
+the text facade's `Flow`s, and the `Flow<StreamEvent>` returned by `stream()` are on your compile classpath. Cloud execution
 additionally needs `app.independo.inderun:inderun-openai-providers`.
 
 > For reproducible builds, pin an explicit version instead — the Maven Central badge above shows the current release.
@@ -246,16 +255,18 @@ Quick start — on-device by default:
 // initialize() registers the ML Kit GenAI on-device provider.
 val indeRun = IndeRun.initialize(this) // `this` is a Context
 
-// run() is a suspend function — call it from a coroutine.
-val result = indeRun.run(
-    TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+// generateText() is a suspend function — call it from a coroutine.
+val result = indeRun.generateText(
+    TextGenerationOptions(
         prompt = "Translate 'Hello' to Spanish",
-        task = TaskRequestTask(), // defaults to text_to_text
-        constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+        execution = TextExecutionOptions(privacy = PrivacyEnum.LocalRequired),
     )
 )
+println("${result.text} (${result.provenance?.locality})")
 ```
+
+`streamText(options, scope)` returns a `TextStream` with `textStream`, `fullStream`, and a `result` deferred;
+`run(TaskRequest)` and `stream(TaskRequest)` remain available as the advanced API.
 
 > Need cloud execution too? Register the OpenAI-compatible provider from
 > `inderun-openai-providers` — see the [Kotlin SDK README](android/inderun-kotlin/README.md)
