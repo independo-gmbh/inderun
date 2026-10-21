@@ -25,6 +25,14 @@ export type TaskRequest = {
      */
     messages?: [Message, ...Message[]];
     /**
+     * Name of the model profile to route within, as configured on the engine. Absent or 'auto'
+     * means every registered target, ranked by constraints and preferences alone. A profile is
+     * an application-defined, ordered allow-list of targets (provider instances bound to one
+     * model each); raw model or provider identifiers are never accepted here. An unknown
+     * profile name fails request validation.
+     */
+    modelProfile?: string;
+    /**
      * Soft routing preferences used for deterministic provider ordering.
      */
     preferences?: Preferences;

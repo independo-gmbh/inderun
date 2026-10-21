@@ -88,6 +88,11 @@ public struct ProviderDescriptor: Codable, Sendable {
 
     public let id: String
     public let type: ProviderType
+    /// The model this provider instance is bound to, when it can name one. A
+    /// provider instance bound to one model is a *target* that model profiles
+    /// list by `id`. Cloud providers report the model id they send;
+    /// platform-managed models report nothing rather than a guessed weight name.
+    public let model: String?
     public let transport: TransportType
     public let streamingStyle: StreamingStyle?
     public let supports: SupportsCapabilities
@@ -99,6 +104,7 @@ public struct ProviderDescriptor: Codable, Sendable {
     public init(
         id: String,
         type: ProviderType,
+        model: String? = nil,
         transport: TransportType,
         streamingStyle: StreamingStyle? = nil,
         supports: SupportsCapabilities,
@@ -109,6 +115,7 @@ public struct ProviderDescriptor: Codable, Sendable {
     ) {
         self.id = id
         self.type = type
+        self.model = model
         self.transport = transport
         self.streamingStyle = streamingStyle
         self.supports = supports

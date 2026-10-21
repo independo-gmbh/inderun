@@ -48,7 +48,58 @@ public struct OpenAIProviderOptions: Sendable {
     }
 }
 
+/// Options for `AppleCloudProviderRegistryFactory.makeOpenAIRegistry`: the provider
+/// options with `models` in place of the single `model`. One target is registered per
+/// model, with id `<id>:<model>`, so model profiles can list each model separately.
+public struct OpenAIFactoryOptions: Sendable {
+    public let id: String
+    public let models: [String]
+    public let endpointURL: String
+    public let auth: OpenAIAuthMode
+    public let authContextRef: String?
+    public let timeoutMs: Int?
+    public let healthCheckTimeoutMs: Int?
+    public let healthCheckCacheMs: Int64?
+
+    public init(
+        id: String = "openai",
+        models: [String],
+        endpointURL: String = defaultOpenAIResponsesEndpoint,
+        auth: OpenAIAuthMode = .authContextRef,
+        authContextRef: String? = nil,
+        timeoutMs: Int? = nil,
+        healthCheckTimeoutMs: Int? = nil,
+        healthCheckCacheMs: Int64? = nil
+    ) {
+        self.id = id
+        self.models = models
+        self.endpointURL = endpointURL
+        self.auth = auth
+        self.authContextRef = authContextRef
+        self.timeoutMs = timeoutMs
+        self.healthCheckTimeoutMs = healthCheckTimeoutMs
+        self.healthCheckCacheMs = healthCheckCacheMs
+    }
+
+    /// The provider options for one target of this factory configuration.
+    public func providerOptions(model: String) -> OpenAIProviderOptions {
+        OpenAIProviderOptions(
+            id: "\(id):\(model)",
+            model: model,
+            endpointURL: endpointURL,
+            auth: auth,
+            authContextRef: authContextRef,
+            timeoutMs: timeoutMs,
+            healthCheckTimeoutMs: healthCheckTimeoutMs,
+            healthCheckCacheMs: healthCheckCacheMs
+        )
+    }
+}
+
 private struct OpenAIResponseBody {
+    /// The model id the Responses API echoes on the response object: the model that
+    /// served the request, which can be a dated snapshot of the configured alias.
+    let model: String?
     let outputText: String?
     let output: [[String: Any]]
     let status: String?
@@ -58,6 +109,7 @@ private struct OpenAIResponseBody {
     let totalTokens: Int?
 
     init(json: [String: Any]) {
+        model = (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         outputText = json["output_text"] as? String
         output = json["output"] as? [[String: Any]] ?? []
         status = json["status"] as? String
@@ -96,6 +148,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         ProviderDescriptor(
             id: options.id,
             type: .cloud,
+            model: options.model,
             transport: .http,
             streamingStyle: .tokens,
             supports: ProviderDescriptor.SupportsCapabilities(
@@ -263,9 +316,14 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         var result = TaskResult(
             finishReason: finishReason(responseBody: responseBody),
             output: Output(text: outputText, type: .text),
+            provenance: nil,
             runId: context.runId,
             schemaVersion: .the10,
-            telemetry: TaskResultTelemetry(errorClass: nil, providerUsed: options.id, totalMs: 0),
+            telemetry: TaskResultTelemetry(
+                providerUsed: options.id,
+                totalMs: 0,
+                reportedModel: responseBody.model
+            ),
             usage: nil
         )
 
@@ -417,7 +475,8 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
             continuation.yield(.done(
                 finalText: extractOutputText(responseBody: body) ?? "",
                 finishReason: finishReason(responseBody: body),
-                usage: usage(responseBody: body)
+                usage: usage(responseBody: body),
+                reportedModel: body.model
             ))
             return true
 
@@ -646,9 +705,17 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
 }
 
 public enum AppleCloudProviderRegistryFactory {
-    public static func makeOpenAIRegistry(options: OpenAIProviderOptions) throws -> ProviderRegistry {
+    /// Registers one OpenAI-compatible target per configured model.
+    /// - Throws: `IndeRunError` (`Internal`) when `models` is empty, or a registry
+    ///   error when two models produce the same target id.
+    public static func makeOpenAIRegistry(options: OpenAIFactoryOptions) throws -> ProviderRegistry {
+        guard !options.models.isEmpty else {
+            throw createInternal(message: "makeOpenAIRegistry requires at least one model.")
+        }
         let registry = ProviderRegistry()
-        try registry.register(OpenAIProvider(options: options))
+        for model in options.models {
+            try registry.register(OpenAIProvider(options: options.providerOptions(model: model)))
+        }
         return registry
     }
 }

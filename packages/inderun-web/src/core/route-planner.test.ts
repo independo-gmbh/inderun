@@ -274,4 +274,17 @@ describe("planner input projection", () => {
       "stream"
     );
   });
+
+  it("carries a resolved model profile and omits it for auto", async () => {
+    const snapshots = await collectProviderRuntimeSnapshots(
+      [createFakeProvider("p1", { streaming: false })],
+      createHostServices()
+    );
+
+    expect(buildSharedPlannerInput(request, snapshots, true)).not.toHaveProperty("modelProfile");
+    expect(
+      buildSharedPlannerInput(request, snapshots, true, "run", { name: "smart", targetIds: ["p1"] })
+        .modelProfile
+    ).toEqual({ name: "smart", targetIds: ["p1"] });
+  });
 });

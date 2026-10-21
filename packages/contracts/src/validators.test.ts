@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getExecutionProvenanceValidationIssues,
   getHttpRequestValidationIssues,
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
@@ -9,6 +10,7 @@ import {
   getStreamRunHandleValidationIssues,
   getTaskRequestValidationIssues,
   getTelemetryEventValidationIssues,
+  validateExecutionProvenance,
   validateHttpRequest,
   validateHttpResponse,
   validateIndeRunError,
@@ -610,5 +612,119 @@ describe("StreamTerminalOutcome validation", () => {
         error: errorFixture
       })
     ).toBe(true);
+  });
+});
+
+describe("ExecutionProvenance validation", () => {
+  const provenance = {
+    schemaVersion: "1.0" as const,
+    modelProfile: "auto",
+    providerId: "openai:gpt-5.2",
+    locality: "cloud" as const,
+    configuredModel: "gpt-5.2",
+    reportedModel: "gpt-5.2-2026-08-01",
+    attemptCount: 2,
+    fallbackOccurred: true,
+    attempts: [
+      {
+        providerId: "local.onnx.genai.web",
+        outcome: "failed" as const,
+        errorClass: "Unavailable" as const
+      },
+      { providerId: "openai:gpt-5.2", outcome: "succeeded" as const }
+    ],
+    routeRejections: [
+      { providerId: "local.system-model.web", codes: ["capability_unavailable" as const] }
+    ]
+  };
+
+  it("accepts a fallback record with rejections", () => {
+    expect(getExecutionProvenanceValidationIssues(provenance)).toEqual([]);
+  });
+
+  it("accepts the unknown-locality record of a run that reached no provider", () => {
+    expect(
+      validateExecutionProvenance({
+        schemaVersion: "1.0",
+        modelProfile: "smart",
+        locality: "unknown",
+        attemptCount: 0,
+        fallbackOccurred: false,
+        attempts: [],
+        routeRejections: [{ providerId: "local_a", codes: ["not_in_model_profile"] }]
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a locality outside the closed vocabulary", () => {
+    expect(validateExecutionProvenance({ ...provenance, locality: "local" })).toBe(false);
+  });
+
+  it("rejects a record missing the attempt list", () => {
+    const { attempts: _attempts, ...withoutAttempts } = provenance;
+    expect(validateExecutionProvenance(withoutAttempts)).toBe(false);
+  });
+
+  it("is the same shape on every payload that carries it", () => {
+    const invalid = { ...provenance, locality: "local" };
+    const result = (value: object) => ({
+      schemaVersion: "1.0" as const,
+      runId: "run_123",
+      output: { type: "text" as const, text: "Hi" },
+      finishReason: "stop" as const,
+      telemetry: { providerUsed: "openai:gpt-5.2", totalMs: 10 },
+      provenance: value
+    });
+    const error = (value: object) => ({
+      schemaVersion: "1.0" as const,
+      errorClass: "Unavailable" as const,
+      message: "All eligible providers failed.",
+      provenance: value
+    });
+    const outcomes = (value: object) => [
+      {
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "completed",
+        finalText: "Hi",
+        provenance: value
+      },
+      {
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "error",
+        error: error(value),
+        provenance: value
+      },
+      {
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "cancelled",
+        partialText: "",
+        provenance: value
+      }
+    ];
+    const terminalEvent = (payload: object) => ({
+      schemaVersion: "1.0",
+      runId: "run_123",
+      sequence: 0,
+      timestamp: 1,
+      type: "terminal",
+      payload
+    });
+
+    expect(validateTaskResult(result(provenance))).toBe(true);
+    expect(validateTaskResult(result(invalid))).toBe(false);
+    expect(validateIndeRunError(error(provenance))).toBe(true);
+    expect(validateIndeRunError(error(invalid))).toBe(false);
+    for (const [valid, broken] of outcomes(provenance).map((outcome, index) => [
+      outcome,
+      outcomes(invalid)[index]!
+    ])) {
+      expect(validateStreamTerminalOutcome(valid)).toBe(true);
+      expect(validateStreamTerminalOutcome(broken)).toBe(false);
+      expect(validateStreamEvent(terminalEvent(valid!))).toBe(true);
+      expect(validateStreamEvent(terminalEvent(broken!))).toBe(false);
+    }
   });
 });

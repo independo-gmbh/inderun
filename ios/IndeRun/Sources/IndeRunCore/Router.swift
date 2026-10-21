@@ -42,10 +42,14 @@ public final class Router: Sendable {
     /// `run` request over the same registry may legitimately produce different
     /// provider chains while remaining under identical privacy, locality and
     /// availability constraints.
+    ///
+    /// `modelProfile` is a planning input in the same way: the planner rejects
+    /// targets outside it with `not_in_model_profile`. `nil` means `auto`.
     public func selectRoute(
         request: TaskRequest,
         hostServices: HostServices,
-        interactionMode: InteractionMode = .run
+        interactionMode: InteractionMode = .run,
+        modelProfile: ModelProfile? = nil
     ) async throws -> RouteSelection {
         let online = await hostServices.connectivity.isOnline()
         let snapshots = await collectProviderSnapshots(hostServices: hostServices)
@@ -53,7 +57,8 @@ public final class Router: Sendable {
             request: request,
             online: online,
             snapshots: snapshots,
-            interactionMode: interactionMode
+            interactionMode: interactionMode,
+            modelProfile: modelProfile
         )
 
         let routePlan: SharedPlannerRoutePlan
@@ -165,7 +170,8 @@ private func buildSharedPlannerInput(
     request: TaskRequest,
     online: Bool,
     snapshots: [ProviderSnapshot],
-    interactionMode: InteractionMode
+    interactionMode: InteractionMode,
+    modelProfile: ModelProfile?
 ) -> SharedPlannerInput {
     let constraints = request.constraints
     let preferences = request.preferences
@@ -177,6 +183,7 @@ private func buildSharedPlannerInput(
             privacy: constraints?.privacy
         ),
         interactionMode: interactionMode,
+        modelProfile: modelProfile,
         preferences: SharedPlannerPreferences(
             optimizeFor: preferences?.optimizeFor
         ),

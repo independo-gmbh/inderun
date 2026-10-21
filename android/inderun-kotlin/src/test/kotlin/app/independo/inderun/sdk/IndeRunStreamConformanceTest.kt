@@ -203,6 +203,40 @@ private fun check(label: String, expected: JSONObject, observed: Observation): L
         }
     }
 
+    expected.optJSONObject("provenance")?.let { wanted ->
+        val provenance = events.firstOrNull { it.type == "terminal" }?.payload?.provenance
+        require(provenance != null) { "expected terminal provenance" }
+        if (provenance != null) {
+            wanted.optStringOrNull("providerId")?.let { same("provenance.providerId", it, provenance.providerId) }
+            if (wanted.optBoolean("absentProviderId")) {
+                require(provenance.providerId == null) { "provenance.providerId must be absent" }
+            }
+            wanted.optStringOrNull("locality")?.let {
+                same("provenance.locality", it, provenance.locality.rawValue)
+            }
+            wanted.optStringOrNull("modelProfile")?.let {
+                same("provenance.modelProfile", it, provenance.modelProfile)
+            }
+            if (wanted.has("attemptCount")) {
+                same("provenance.attemptCount", wanted.getLong("attemptCount"), provenance.attemptCount)
+            }
+            if (wanted.has("fallbackOccurred")) {
+                same(
+                    "provenance.fallbackOccurred",
+                    wanted.getBoolean("fallbackOccurred"),
+                    provenance.fallbackOccurred,
+                )
+            }
+            wanted.optJSONArray("attempts")?.let { attempts ->
+                same(
+                    "provenance.attempts",
+                    (0 until attempts.length()).map { attempts.getJSONArray(it).strings() },
+                    provenance.attempts.map { listOf(it.providerId, it.outcome.rawValue) },
+                )
+            }
+        }
+    }
+
     expected.optJSONObject("rejectsWith")?.let { wanted ->
         val rejection = observed.rejection
         require(rejection != null) { "expected stream() to reject" }

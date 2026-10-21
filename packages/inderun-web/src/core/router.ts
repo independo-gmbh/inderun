@@ -14,6 +14,7 @@ import {
   type InteractionMode,
   type ProviderRuntimeSnapshot,
   type RoutePlanner,
+  type SharedPlannerInput,
   type SharedPlannerRoutePlan,
   WasmRoutePlanner
 } from "./route-planner.js";
@@ -63,17 +64,25 @@ export class Router {
    *
    * The requested `interactionMode` is a planning input, not a post-filter: the
    * shared planner rejects providers that cannot satisfy it and says why, so the
-   * whole returned chain is mode-compatible.
+   * whole returned chain is mode-compatible. The resolved model profile is a
+   * planning input in the same way: the planner rejects targets outside it.
    */
   async selectRoute(
     request: TaskRequest,
     hostServices: HostServices,
-    interactionMode: InteractionMode = "run"
+    interactionMode: InteractionMode = "run",
+    modelProfile?: SharedPlannerInput["modelProfile"]
   ): Promise<RouteSelection> {
     const online = await hostServices.connectivity.isOnline();
     const snapshots = await collectProviderRuntimeSnapshots(this.registry.list(), hostServices);
 
-    const planInput = buildSharedPlannerInput(request, snapshots, online, interactionMode);
+    const planInput = buildSharedPlannerInput(
+      request,
+      snapshots,
+      online,
+      interactionMode,
+      modelProfile
+    );
     const outcome = await this.planner.planRoute(planInput);
 
     if (!outcome.routePlan) {

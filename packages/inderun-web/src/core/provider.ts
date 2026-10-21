@@ -20,6 +20,14 @@ export interface ProviderDescriptor {
    */
   type: "local" | "edge" | "cloud";
   /**
+   * The model this provider instance is bound to, when it can name one. A provider
+   * instance bound to one model is a *target* that model profiles list by `id`.
+   * Cloud providers report the model id they send; platform-managed models report
+   * an opaque platform alias rather than a guessed weight name. Absent means the
+   * provider cannot name its model.
+   */
+  model?: string;
+  /**
    * Connection transport layer protocol.
    */
   transport: "in_process" | "system_service" | "http" | "sse" | "realtime";
@@ -188,6 +196,11 @@ export type ProviderStreamEvent =
        */
       finishReason?: TaskResult["finishReason"];
       usage?: TaskResult["usage"];
+      /**
+       * The model identifier the provider's backend reported for this run, when it reports
+       * one. Carried into the terminal outcome's provenance; never inferred from configuration.
+       */
+      reportedModel?: string;
     }
   | { kind: "error"; error: unknown };
 

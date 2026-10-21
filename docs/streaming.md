@@ -69,13 +69,18 @@ Three, mutually exclusive, and unlike `type` this set is **closed** — it will 
 
 | `outcome` | Carries | Means |
 | --- | --- | --- |
-| `completed` | `finalText`, `telemetry`, optional `finishReason` and `usage` | The run finished |
-| `error` | `error` (an `IndeRunError`, same `errorClass` taxonomy as `run()`) | The run failed after starting |
-| `cancelled` | `partialText`, optional `reason` | The run was cancelled |
+| `completed` | `finalText`, `telemetry`, `provenance`, optional `finishReason` and `usage` | The run finished |
+| `error` | `error` (an `IndeRunError`, same `errorClass` taxonomy as `run()`), `provenance` | The run failed after starting |
+| `cancelled` | `partialText`, `provenance`, optional `reason` | The run was cancelled |
 
 `finalText` and `partialText` are the run's cumulative text, so a consumer that only wants the
-result can ignore every content event and read the terminal. `telemetry.providerUsed` is how you
-learn which provider actually served the run.
+result can ignore every content event and read the terminal. `provenance` says how the run played
+out: the target it is attributed to and that target's declared locality, the configured and reported
+model, every attempt and how it ended (so `fallbackOccurred` is a reported fact rather than something
+to infer by comparing `handle.providerId` with `telemetry.providerUsed`), and why the planner rejected
+the other candidates. On an `error` outcome it is attributed to the provider the run had committed to,
+or to none when the whole chain failed before content. See
+[execution provenance](architecture/architecture.md#execution-provenance).
 
 `finishReason` is `stop`, `length`, or `error` — the last meaning the provider reported a non-fatal
 issue on an otherwise completed run, not that the run failed. Both `finishReason` and `usage` are
@@ -94,7 +99,8 @@ Conflating these is the easiest mistake to make, because two of them are not exc
 So a run that fails *after starting* ends your loop normally. Branch on the terminal's `outcome` to
 tell completion from failure from cancellation.
 
-A rejection carries its diagnostics: the error's `details` hold the plan's `failureCode` and the
+A rejection carries its diagnostics: the error's `provenance` holds the normalized rejection codes
+(with `attemptCount: 0` and `locality: "unknown"`), and its `details` hold the plan's `failureCode` and the
 full `rejectedProviders` list, each with normalized reason codes such as `streaming_not_supported`,
 `streaming_unavailable`, `privacy_constraint`, or `offline`. That is the only channel through which
 a caller learns *why* each provider was refused, on every platform.

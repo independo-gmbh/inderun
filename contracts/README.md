@@ -36,10 +36,24 @@ primitives. Each SDK registers one handler per case id and a guard test fails wh
 and the catalog ids are not equal, so a scenario covered on one platform and not another is a red
 test rather than a review finding. See [`docs/streaming-conformance.md`](../docs/streaming-conformance.md).
 
+`fixtures/facade/text-generation.json` is a fully data-driven vector like `sse-framing.json`, for the primary text API: facade
+options in, the exact canonical `TaskRequest` out. All three SDKs run every case through their own
+`generateText`/`streamText` translation, which is what holds the facades to one mapping without
+declaring them on the generated `IndeRunApi`.
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
+
+`execution-provenance.schema.json` (`ExecutionProvenance`) is the one shape shared by `$ref` rather than
+duplicated by value. It is carried on six payloads — `TaskResult`, `IndeRunError`, every `StreamTerminalOutcome`
+branch, and the terminal `StreamEvent` payload — and by-value copies made quicktype emit six unrelated Swift and
+Kotlin types for one concept. The referencing schemas point at it with a relative `$ref`, which quicktype resolves
+from the file and Ajv resolves against the shared `$id` base; `validators.ts` compiles it first so Ajv knows it.
+The generator leaves it out of the Swift/Kotlin root list (it arrives through the references) and restores its
+title as the type name. What provenance means is in
+[`docs/architecture/architecture.md`](../docs/architecture/architecture.md#execution-provenance).
 
 ## Generated enums carry their wire value
 
@@ -92,6 +106,7 @@ emits the `IndeRunApi` interface/protocol for TypeScript, Swift, and Kotlin, and
 each platform implements/conforms to the generated declaration. CI fails if regenerating produces an uncommitted
 diff.
 
-Scoped for now to `IndeRunApi` (`run` and `checkCapabilities`) only. See
+Scoped for now to `IndeRunApi` (`run`, `stream`, and `checkCapabilities`) only. The primary text API is written
+against this interface rather than declared on it, and stays outside the spec. See
 [`docs/architecture/api-surface-generation.md`](../docs/architecture/api-surface-generation.md) for the research
-pass, options considered, and remaining scope (`ProviderAdapter`, streaming/session operations).
+pass, options considered, and remaining scope (`ProviderAdapter`, session operations).

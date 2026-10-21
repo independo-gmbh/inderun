@@ -4,7 +4,7 @@
     {
       "name": "deltas_then_completed",
       "description": "The common path: text deltas, then a completed response carrying the final text and usage.",
-      "sse": "event: response.created\ndata: {\"type\": \"response.created\", \"response\": {\"status\": \"in_progress\"}}\n\nevent: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \"Hello\"}\n\nevent: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \" world\"}\n\nevent: response.completed\ndata: {\"type\": \"response.completed\", \"response\": {\"status\": \"completed\", \"output_text\": \"Hello world\", \"usage\": {\"input_tokens\": 4, \"output_tokens\": 2, \"total_tokens\": 6}}}\n\ndata: [DONE]\n\n",
+      "sse": "event: response.created\ndata: {\"type\": \"response.created\", \"response\": {\"status\": \"in_progress\"}}\n\nevent: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \"Hello\"}\n\nevent: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \" world\"}\n\nevent: response.completed\ndata: {\"type\": \"response.completed\", \"response\": {\"model\": \"gpt-5.2-2026-08-01\", \"status\": \"completed\", \"output_text\": \"Hello world\", \"usage\": {\"input_tokens\": 4, \"output_tokens\": 2, \"total_tokens\": 6}}}\n\ndata: [DONE]\n\n",
       "expected": [
         {
           "kind": "delta",
@@ -17,6 +17,7 @@
         {
           "kind": "done",
           "finalText": "Hello world",
+          "reportedModel": "gpt-5.2-2026-08-01",
           "finishReason": "stop",
           "usage": {
             "inputTokens": 4,

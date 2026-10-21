@@ -1,5 +1,6 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.IndeRunError
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.SchemaVersion
@@ -12,6 +13,8 @@ class IndeRunException(
     val retryable: Boolean? = null,
     val retryAfterMs: Long? = null,
     val details: Map<String, Any?>? = null,
+    /** How the failed execution played out: attempts, rejections, the provider committed to. */
+    val provenance: ExecutionProvenance? = null,
 ) : Exception(message) {
     val schemaVersion: SchemaVersion = SchemaVersion.V1_0
 
@@ -23,7 +26,23 @@ class IndeRunException(
         retryable = retryable,
         retryAfterMs = retryAfterMs,
         details = details,
+        provenance = provenance,
         schemaVersion = schemaVersion,
+    )
+
+    /**
+     * A copy carrying [provenance]. The engine attaches provenance once it knows how the whole
+     * execution ended, replacing anything set earlier.
+     */
+    fun withProvenance(provenance: ExecutionProvenance): IndeRunException = IndeRunException(
+        errorClass = errorClass,
+        message = message,
+        runId = runId,
+        providerId = providerId,
+        retryable = retryable,
+        retryAfterMs = retryAfterMs,
+        details = details,
+        provenance = provenance,
     )
 }
 
@@ -168,6 +187,7 @@ fun toIndeRunException(
             retryable = error.retryable ?: fallbackRetryable,
             retryAfterMs = error.retryAfterMs ?: fallbackRetryAfterMs,
             details = mergedDetails,
+            provenance = error.provenance,
         )
     }
 

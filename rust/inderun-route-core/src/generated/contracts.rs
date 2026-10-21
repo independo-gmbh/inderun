@@ -14,6 +14,13 @@ pub struct RoutePlannerInput {
     /// eligible providers; it never changes candidate ordering.
     pub interaction_mode: Option<InteractionMode>,
 
+    /// The resolved model profile the request routes within. Absent means the built-in 'auto'
+    /// profile: no allow-list, and ordering by placement and preference alone. When present,
+    /// providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+    /// position in targetIds ranks the survivors after placement and before preferences. Ids
+    /// that name no registered provider are ignored.
+    pub model_profile: Option<ModelProfile>,
+
     /// Soft route ordering preferences applied after hard filtering.
     pub preferences: Preferences,
 
@@ -75,6 +82,21 @@ pub enum InteractionMode {
     Run,
 
     Stream,
+}
+
+/// The resolved model profile the request routes within. Absent means the built-in 'auto'
+/// profile: no allow-list, and ordering by placement and preference alone. When present,
+/// providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+/// position in targetIds ranks the survivors after placement and before preferences. Ids
+/// that name no registered provider are ignored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProfile {
+    /// Profile name, carried for explanations.
+    pub name: String,
+
+    /// Provider ids in profile order.
+    pub target_ids: Vec<String>,
 }
 
 /// Soft route ordering preferences applied after hard filtering.
@@ -256,7 +278,8 @@ pub struct Reason {
     /// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
     /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
     /// but the dynamic capability snapshot reports it cannot stream in the current host
-    /// environment.
+    /// environment. 'not_in_model_profile' means the request named a model profile that does not
+    /// list this provider.
     pub code: Code,
 
     pub message: String,
@@ -265,7 +288,8 @@ pub struct Reason {
 /// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
 /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
 /// but the dynamic capability snapshot reports it cannot stream in the current host
-/// environment.
+/// environment. 'not_in_model_profile' means the request named a model profile that does not
+/// list this provider.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
@@ -274,6 +298,9 @@ pub enum Code {
 
     #[serde(rename = "cloud_constraint")]
     CloudConstraint,
+
+    #[serde(rename = "not_in_model_profile")]
+    NotInModelProfile,
 
     Offline,
 

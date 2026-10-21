@@ -2,6 +2,7 @@ package app.independo.inderun.core
 
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
+import app.independo.inderun.contracts.ModelProfile
 import app.independo.inderun.contracts.TaskRequest
 
 data class RouteSelection(
@@ -31,6 +32,7 @@ class Router private constructor(
         request: TaskRequest,
         hostServices: HostServices,
         interactionMode: InteractionMode = InteractionMode.Run,
+        modelProfile: ModelProfile? = null,
     ): RouteSelection {
         val online = hostServices.connectivity.isOnline()
         val snapshots = collectProviderSnapshots(hostServices)
@@ -42,6 +44,7 @@ class Router private constructor(
                     online = online,
                     snapshots = snapshots,
                     interactionMode = interactionMode,
+                    modelProfile = modelProfile,
                 ),
             )
         } catch (failure: RoutePlannerUnavailableException) {

@@ -106,7 +106,7 @@ const routeDecisionTelemetry = new RouteDecisionTelemetryService();
 
 const inderun = createIndeRunWeb({
   openAI: {
-    model: getDemoModel(),
+    models: [getDemoModel()],
     endpointUrl: getDemoProxyEndpointUrl(),
     auth: "none"
   },

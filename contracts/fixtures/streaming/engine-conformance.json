@@ -18,7 +18,8 @@
     "telemetryForbiddenPayloadKeys": "Keys that must appear in no telemetry payload of this run.",
     "telemetryForbiddenPayloadValues": "Substrings that must appear in no telemetry payload value of this run.",
     "telemetryStableMessageEvents": "Telemetry types whose payload 'message' must be the error class's stable message, never the raw provider text.",
-    "noReplayOnSecondIteration": "A second consumer of the same run's events never sees the run again."
+    "noReplayOnSecondIteration": "A second consumer of the same run's events never sees the run again.",
+    "provenance": "Fields of the terminal payload's provenance. 'attempts' lists [providerId, outcome] pairs in attempt order; 'absentProviderId' asserts the key is missing."
   },
   "cases": [
     {
@@ -31,7 +32,15 @@
         "sequences": [0, 1, 2],
         "contentTexts": ["Hello", " world"],
         "terminalCount": 1,
-        "terminal": { "outcome": "completed", "finalText": "Hello world" }
+        "terminal": { "outcome": "completed", "finalText": "Hello world" },
+        "provenance": {
+          "providerId": "p1",
+          "locality": "on_device",
+          "modelProfile": "auto",
+          "attemptCount": 1,
+          "fallbackOccurred": false,
+          "attempts": [["p1", "succeeded"]]
+        }
       }
     },
     {
@@ -104,7 +113,17 @@
         "eventTypes": ["terminal"],
         "terminalCount": 1,
         "terminal": { "outcome": "error", "errorClass": "Unavailable", "partialText": "" },
-        "providerCallCounts": { "p1": 1, "p2": 1 }
+        "providerCallCounts": { "p1": 1, "p2": 1 },
+        "provenance": {
+          "absentProviderId": true,
+          "locality": "unknown",
+          "attemptCount": 2,
+          "fallbackOccurred": true,
+          "attempts": [
+            ["p1", "failed"],
+            ["p2", "failed"]
+          ]
+        }
       }
     },
     {
@@ -115,7 +134,13 @@
       "expect": {
         "eventTypes": ["content_delta", "terminal"],
         "terminalCount": 1,
-        "terminal": { "outcome": "cancelled", "partialText": "one", "reason": "user stopped" }
+        "terminal": { "outcome": "cancelled", "partialText": "one", "reason": "user stopped" },
+        "provenance": {
+          "providerId": "p1",
+          "locality": "on_device",
+          "attemptCount": 1,
+          "attempts": [["p1", "cancelled"]]
+        }
       }
     },
     {
@@ -139,7 +164,14 @@
         "eventTypes": ["terminal"],
         "terminalCount": 1,
         "terminal": { "outcome": "cancelled", "partialText": "" },
-        "providerCallCounts": { "p1": 0, "p2": 0 }
+        "providerCallCounts": { "p1": 0, "p2": 0 },
+        "provenance": {
+          "absentProviderId": true,
+          "locality": "unknown",
+          "attemptCount": 0,
+          "fallbackOccurred": false,
+          "attempts": []
+        }
       }
     },
     {
@@ -307,7 +339,16 @@
       "expect": {
         "terminalCount": 1,
         "terminal": { "outcome": "completed", "finalText": "recovered" },
-        "providerCallCounts": { "p1_failing": 1, "p2_healthy": 1 }
+        "providerCallCounts": { "p1_failing": 1, "p2_healthy": 1 },
+        "provenance": {
+          "providerId": "p2_healthy",
+          "attemptCount": 2,
+          "fallbackOccurred": true,
+          "attempts": [
+            ["p1_failing", "failed"],
+            ["p2_healthy", "succeeded"]
+          ]
+        }
       }
     },
     {
@@ -319,7 +360,14 @@
         "eventTypes": ["content_delta", "terminal"],
         "terminalCount": 1,
         "terminal": { "outcome": "error", "partialText": "partial " },
-        "providerCallCounts": { "p2_healthy": 0 }
+        "providerCallCounts": { "p2_healthy": 0 },
+        "provenance": {
+          "providerId": "p1",
+          "locality": "on_device",
+          "attemptCount": 1,
+          "fallbackOccurred": false,
+          "attempts": [["p1", "failed"]]
+        }
       }
     },
     {

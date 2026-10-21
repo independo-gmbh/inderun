@@ -62,7 +62,8 @@ export type Reason = {
      * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
      * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
      * but the dynamic capability snapshot reports it cannot stream in the current host
-     * environment.
+     * environment. 'not_in_model_profile' means the request named a model profile that does not
+     * list this provider.
      */
     code:    Code;
     message: string;
@@ -73,6 +74,7 @@ export type Reason = {
  * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
  * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
  * but the dynamic capability snapshot reports it cannot stream in the current host
- * environment.
+ * environment. 'not_in_model_profile' means the request named a model profile that does not
+ * list this provider.
  */
-export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable";
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile";

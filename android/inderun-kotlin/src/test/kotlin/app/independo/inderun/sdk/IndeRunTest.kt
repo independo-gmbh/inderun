@@ -2,7 +2,11 @@ package app.independo.inderun.sdk
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import app.independo.inderun.contracts.AttemptOutcome
+import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.IndeRunErrorClass
+import app.independo.inderun.contracts.Locality
 import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.PrivacyEnum
 import app.independo.inderun.contracts.SchemaVersion
@@ -16,6 +20,8 @@ import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
+import app.independo.inderun.core.IndeRunException
+import app.independo.inderun.core.ModelProfiles
 import app.independo.inderun.core.ProviderAdapter
 import app.independo.inderun.core.ProviderDescriptor
 import app.independo.inderun.core.ProviderDynamicCapabilities
@@ -23,6 +29,7 @@ import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
 import app.independo.inderun.core.TelemetryService
+import app.independo.inderun.core.createUnavailable
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -144,6 +151,219 @@ class IndeRunTest {
         assertEquals("unavailable-provider", snapshots[1].providerId)
         assertEquals(false, snapshots[1].capabilities.available)
         assertEquals("not configured", snapshots[1].capabilities.reason)
+    }
+
+    private fun profileHostServices() = HostServices(
+        connectivity = object : ConnectivityService {
+            override fun isOnline(): Boolean = true
+        },
+        secureStorage = object : SecureStorageService {
+            override fun get(authContextRef: String): String? = null
+            override fun put(authContextRef: String, value: String) = Unit
+            override fun remove(authContextRef: String) = Unit
+        },
+        clock = object : ClockService {
+            override fun elapsedRealtimeMillis(): Long = 0L
+        },
+    )
+
+    private fun profileEngine(
+        profiles: Map<String, List<String>>,
+        telemetry: TelemetryService? = null,
+    ): IndeRun {
+        val registry = ProviderRegistry().apply {
+            register(NamedProvider("local_a", ProviderDescriptor.ProviderType.local))
+            register(NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud))
+            register(NamedProvider("cloud_b", ProviderDescriptor.ProviderType.cloud))
+        }
+        return IndeRun(registry, profileHostServices(), telemetry, ModelProfiles(profiles))
+    }
+
+    private fun profileRequest(modelProfile: String? = null) = TaskRequest(
+        schemaVersion = SchemaVersion.V1_0,
+        prompt = "Hello",
+        task = TaskRequestTask(),
+        modelProfile = modelProfile,
+    )
+
+    @Test
+    fun requestWithoutModelProfileRoutesAcrossEveryTarget() = runTest {
+        val result = profileEngine(mapOf("smart" to listOf("cloud_b"))).run(profileRequest())
+
+        assertEquals("local_a", result.telemetry.providerUsed)
+    }
+
+    @Test
+    fun autoModelProfileBehavesLikeAnAbsentOne() = runTest {
+        val result = profileEngine(mapOf("smart" to listOf("cloud_b"))).run(profileRequest("auto"))
+
+        assertEquals("local_a", result.telemetry.providerUsed)
+    }
+
+    @Test
+    fun namedModelProfileRoutesOnlyWithinTheProfileInProfileOrder() = runTest {
+        val events = mutableListOf<TelemetryEvent>()
+        val telemetry = object : TelemetryService {
+            override fun emit(event: TelemetryEvent) {
+                events += event
+            }
+        }
+        val engine = profileEngine(mapOf("smart" to listOf("cloud_b", "cloud_a")), telemetry)
+
+        val result = engine.run(profileRequest("smart"))
+
+        assertEquals("cloud_b", result.telemetry.providerUsed)
+        val routeDecided = events.first { it.type == TelemetryEventType.RouteDecided }
+        assertEquals("smart", routeDecided.payload["modelProfile"])
+        assertEquals(listOf("cloud_a"), routeDecided.payload["fallbackProviderIds"])
+        assertEquals(listOf("local_a"), routeDecided.payload["rejectedProviderIds"])
+    }
+
+    @Test
+    fun unknownModelProfileIsAValidationFailureInRunAndStream() = runTest {
+        val engine = profileEngine(mapOf("smart" to listOf("cloud_b")))
+
+        val runError = runCatching { engine.run(profileRequest("fast")) }.exceptionOrNull()
+        assertTrue(runError is IndeRunException)
+        assertEquals(IndeRunErrorClass.Internal, (runError as IndeRunException).errorClass)
+        assertTrue(runError.message.contains("modelProfile"))
+
+        val streamError = runCatching { engine.stream(profileRequest("fast")) }.exceptionOrNull()
+        assertTrue(streamError is IndeRunException)
+        assertTrue((streamError as IndeRunException).message.contains("modelProfile"))
+    }
+
+    @Test
+    fun malformedModelProfilesAreRefusedAtConfiguration() {
+        listOf(
+            mapOf("auto" to listOf("cloud_a")),
+            mapOf("smart" to emptyList()),
+            mapOf("smart" to listOf("cloud_a", "cloud_a")),
+        ).forEach { profiles ->
+            assertTrue(runCatching { ModelProfiles(profiles) }.exceptionOrNull() is IllegalArgumentException)
+        }
+    }
+
+    private fun provenanceEngine(vararg providers: ProviderAdapter): IndeRun = IndeRun(
+        ProviderRegistry().apply { providers.forEach { register(it) } },
+        profileHostServices(),
+    )
+
+    @Test
+    fun provenanceAttributesADirectSuccessToTheProviderThatRan() = runTest {
+        val result = provenanceEngine(NamedProvider("local_a", ProviderDescriptor.ProviderType.local))
+            .run(profileRequest())
+
+        val provenance = result.provenance!!
+        assertEquals("local_a", provenance.providerId)
+        assertEquals(Locality.OnDevice, provenance.locality)
+        assertEquals("auto", provenance.modelProfile)
+        assertEquals(1L, provenance.attemptCount)
+        assertEquals(false, provenance.fallbackOccurred)
+        assertEquals(listOf(AttemptOutcome.Succeeded), provenance.attempts.map { it.outcome })
+        assertEquals(null, provenance.configuredModel)
+        assertEquals(null, provenance.reportedModel)
+    }
+
+    @Test
+    fun provenanceRecordsALocalToCloudFallback() = runTest {
+        val result = provenanceEngine(
+            NamedProvider("local_a", ProviderDescriptor.ProviderType.local, fails = true),
+            NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud),
+        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalPreferred)))
+
+        val provenance = result.provenance!!
+        assertEquals("cloud_a", provenance.providerId)
+        assertEquals(Locality.Cloud, provenance.locality)
+        assertEquals(2L, provenance.attemptCount)
+        assertEquals(true, provenance.fallbackOccurred)
+        assertEquals(listOf(AttemptOutcome.Failed, AttemptOutcome.Succeeded), provenance.attempts.map { it.outcome })
+        assertEquals(IndeRunErrorClass.Unavailable, provenance.attempts.first().errorClass)
+    }
+
+    @Test
+    fun provenanceReportsCloudOnlyExecutionWithTheRejectedLocalCandidate() = runTest {
+        val result = provenanceEngine(
+            NamedProvider("local_a", ProviderDescriptor.ProviderType.local),
+            NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud),
+        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)))
+
+        val provenance = result.provenance!!
+        assertEquals(Locality.Cloud, provenance.locality)
+        assertEquals(listOf("local_a"), provenance.routeRejections.map { it.providerId })
+        assertEquals(listOf(Code.PrivacyConstraint), provenance.routeRejections.first().codes)
+    }
+
+    @Test
+    fun provenanceOnARoutingRefusalIsAttributedToNoProvider() = runTest {
+        val error = runCatching {
+            provenanceEngine(NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud))
+                .run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)))
+        }.exceptionOrNull() as IndeRunException
+
+        val provenance = error.provenance!!
+        assertEquals(null, provenance.providerId)
+        assertEquals(Locality.Unknown, provenance.locality)
+        assertEquals(0L, provenance.attemptCount)
+        assertEquals(listOf("cloud_a"), provenance.routeRejections.map { it.providerId })
+        assertEquals(listOf(Code.PrivacyConstraint), provenance.routeRejections.first().codes)
+        assertEquals(provenance, error.toContractError().provenance)
+    }
+
+    @Test
+    fun provenanceCarriesEveryFailedAttemptWhenTheChainFails() = runTest {
+        val error = runCatching {
+            provenanceEngine(
+                NamedProvider("local_a", ProviderDescriptor.ProviderType.local, fails = true),
+                NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud, fails = true),
+            ).run(profileRequest())
+        }.exceptionOrNull() as IndeRunException
+
+        val provenance = error.provenance!!
+        assertEquals(null, provenance.providerId)
+        assertEquals(Locality.Unknown, provenance.locality)
+        assertEquals(2L, provenance.attemptCount)
+        assertEquals(true, provenance.fallbackOccurred)
+        assertEquals(listOf(AttemptOutcome.Failed, AttemptOutcome.Failed), provenance.attempts.map { it.outcome })
+    }
+
+    private class NamedProvider(
+        private val id: String,
+        private val type: ProviderDescriptor.ProviderType,
+        private val fails: Boolean = false,
+    ) : ProviderAdapter {
+        override fun describe(): ProviderDescriptor = ProviderDescriptor(
+            id = id,
+            type = type,
+            transport = ProviderDescriptor.TransportType.in_process,
+            supports = ProviderDescriptor.SupportsCapabilities(
+                run = true,
+                streaming = false,
+                realtime = false,
+                tools = false,
+                reasoningEvents = false,
+                structuredOutput = false,
+                multimodal = false,
+            ),
+            cancel = ProviderDescriptor.CancelSemantics.soft,
+            tasks = listOf("text_to_text"),
+        )
+
+        override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities = ProviderDynamicCapabilities(available = true)
+
+        override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = if (fails) {
+            throw createUnavailable("runtime crashed")
+        } else {
+            succeed(context)
+        }
+
+        private fun succeed(context: RunContext): TaskResult = TaskResult(
+            finishReason = FinishReason.STOP,
+            output = Output(text = "Hello from $id"),
+            runId = context.runId,
+            schemaVersion = SchemaVersion.V1_0,
+            telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
+        )
     }
 
     private class FakeProvider : ProviderAdapter {

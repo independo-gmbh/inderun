@@ -248,6 +248,35 @@ describe("OpenAIResponsesProvider", () => {
     });
   });
 
+  it("reports the model the Responses API names into the result's provenance", async () => {
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ model: "gpt-5.2-2026-08-01", output_text: "Hi.", status: "completed" })
+    ]);
+
+    const result = await runWithProvider(createRequest(), httpClient);
+
+    expect(result.telemetry.reportedModel).toBe("gpt-5.2-2026-08-01");
+    expect(result.provenance).toMatchObject({
+      providerId: "openai",
+      locality: "cloud",
+      configuredModel: "gpt-5.2",
+      reportedModel: "gpt-5.2-2026-08-01"
+    });
+  });
+
+  it("leaves reportedModel absent when the response names no model", async () => {
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ output_text: "Hi.", status: "completed" })
+    ]);
+
+    const result = await runWithProvider(createRequest(), httpClient);
+
+    expect(result.telemetry).not.toHaveProperty("reportedModel");
+    expect(result.provenance).not.toHaveProperty("reportedModel");
+  });
+
   it("aggregates text from Responses output items when output_text is not present", async () => {
     const httpClient = new MockHttpClient([
       jsonResponse({}, 200),
@@ -302,7 +331,7 @@ describe("OpenAIResponsesProvider", () => {
     ]);
     const engine = createIndeRunWeb({
       openAI: {
-        model: "gpt-5.2",
+        models: ["gpt-5.2"],
         endpointUrl: "/api/inderun/openai-responses",
         auth: "none"
       },
@@ -323,6 +352,39 @@ describe("OpenAIResponsesProvider", () => {
     expect(httpClient.requests[1]?.headers?.Authorization).toBeUndefined();
   });
 
+  it("registers one target per configured model with createIndeRunWeb", async () => {
+    const engine = createIndeRunWeb({
+      openAI: {
+        models: ["gpt-5.2", "gpt-5-mini"],
+        endpointUrl: "/api/inderun/openai-responses",
+        auth: "none"
+      },
+      hostServices: {
+        httpClient: new MockHttpClient([jsonResponse({}, 200), jsonResponse({}, 200)]),
+        connectivity: {
+          async isOnline() {
+            return true;
+          }
+        }
+      }
+    });
+
+    const snapshots = await engine.checkCapabilities();
+
+    expect(snapshots.map((snapshot) => [snapshot.providerId, snapshot.descriptor.model])).toEqual([
+      ["openai:gpt-5.2", "gpt-5.2"],
+      ["openai:gpt-5-mini", "gpt-5-mini"]
+    ]);
+  });
+
+  it("refuses an empty model list in createIndeRunWeb", () => {
+    expect(() =>
+      createIndeRunWeb({
+        openAI: { models: [], endpointUrl: "/api/inderun/openai-responses", auth: "none" }
+      })
+    ).toThrowError(/at least one model/);
+  });
+
   it("requires explicit opt-in before createIndeRunWeb uses the direct OpenAI endpoint with browser credentials", () => {
     const directEndpointVariants = [
       undefined,
@@ -336,11 +398,11 @@ describe("OpenAIResponsesProvider", () => {
         createIndeRunWeb({
           openAI: endpointUrl
             ? {
-                model: "gpt-5.2",
+                models: ["gpt-5.2"],
                 endpointUrl
               }
             : {
-                model: "gpt-5.2"
+                models: ["gpt-5.2"]
               },
           hostServices: {
             httpClient: new MockHttpClient([])

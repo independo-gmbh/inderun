@@ -90,6 +90,7 @@ export interface OpenAIProviderOptions {
 }
 
 type OpenAIResponseBody = {
+  model?: unknown;
   output_text?: unknown;
   output?: unknown;
   status?: unknown;
@@ -146,6 +147,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     return {
       id: this.id,
       type: "cloud",
+      model: this.options.model,
       transport: "http",
       streamingStyle: "tokens",
       supports: {
@@ -324,6 +326,11 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
       }
     };
 
+    const reportedModel = getReportedModel(responseBody);
+    if (reportedModel !== undefined) {
+      result.telemetry.reportedModel = reportedModel;
+    }
+
     const usage = getUsage(responseBody);
     if (usage) {
       result.usage = usage;
@@ -439,6 +446,10 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
         const usage = getUsage(body);
         if (usage) {
           done.usage = usage;
+        }
+        const reportedModel = getReportedModel(body);
+        if (reportedModel !== undefined) {
+          done.reportedModel = reportedModel;
         }
         yield done;
         return;
@@ -684,6 +695,16 @@ function getFinishReason(response: OpenAIResponseBody): TaskResult["finishReason
   }
 
   return "stop";
+}
+
+/**
+ * The model id the Responses API echoes on the response object. It names the model that
+ * served the request, which can be a dated snapshot of the configured alias.
+ */
+function getReportedModel(responseBody: OpenAIResponseBody): string | undefined {
+  return typeof responseBody.model === "string" && responseBody.model.length > 0
+    ? responseBody.model
+    : undefined;
 }
 
 function getUsage(response: OpenAIResponseBody): TaskResult["usage"] | undefined {

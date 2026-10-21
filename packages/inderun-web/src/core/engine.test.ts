@@ -12,7 +12,8 @@ import {
   type HttpResponse,
   type ProviderAdapter,
   Router,
-  type RoutePlanner
+  type RoutePlanner,
+  type TelemetryEvent
 } from "../index.js";
 
 function createMockLocalProvider(id: string, available = true): ProviderAdapter {
@@ -688,7 +689,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
 
       const host = createMockHostServices(true);
       const telemetry = new MockTelemetryService();
-      const engine = new IndeRun(registry, host, telemetry);
+      const engine = new IndeRun(registry, host, { telemetryService: telemetry });
 
       const req: TaskRequest = {
         schemaVersion: "1.0",
@@ -726,7 +727,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
 
       const host = createMockHostServices(false); // offline
       const telemetry = new MockTelemetryService();
-      const engine = new IndeRun(registry, host, telemetry);
+      const engine = new IndeRun(registry, host, { telemetryService: telemetry });
 
       const req: TaskRequest = {
         schemaVersion: "1.0",
@@ -782,7 +783,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
 
       const host = createMockHostServices(true);
       const telemetry = new MockTelemetryService();
-      const engine = new IndeRun(registry, host, telemetry);
+      const engine = new IndeRun(registry, host, { telemetryService: telemetry });
 
       const req: TaskRequest = {
         schemaVersion: "1.0",
@@ -824,7 +825,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
           throw new Error("Simulated telemetry service failure");
         }
       };
-      const engine = new IndeRun(registry, host, throwingTelemetry);
+      const engine = new IndeRun(registry, host, { telemetryService: throwingTelemetry });
 
       const req: TaskRequest = {
         schemaVersion: "1.0",
@@ -888,6 +889,229 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         descriptor: unavailable.describe(),
         capabilities: { available: false, reason: "not configured" }
       });
+    });
+  });
+
+  describe("model profiles", () => {
+    const request: TaskRequest = {
+      schemaVersion: "1.0",
+      task: { kind: "text_to_text" },
+      prompt: "Hello"
+    };
+
+    function createProfileEngine(modelProfiles?: Record<string, string[]>): IndeRun {
+      const registry = new ProviderRegistry();
+      registry.register(createMockLocalProvider("local-a"));
+      registry.register(createMockCloudProvider("cloud-a"));
+      registry.register(createMockCloudProvider("cloud-b"));
+      return new IndeRun(registry, createMockHostServices(true), { modelProfiles });
+    }
+
+    it("routes across every target when the request names no profile", async () => {
+      const engine = createProfileEngine({ smart: ["cloud-b"] });
+
+      const result = await engine.run(request);
+
+      expect(result.telemetry.providerUsed).toBe("local-a");
+    });
+
+    it("treats an explicit auto profile like an absent one", async () => {
+      const engine = createProfileEngine({ smart: ["cloud-b"] });
+
+      const result = await engine.run({ ...request, modelProfile: "auto" });
+
+      expect(result.telemetry.providerUsed).toBe("local-a");
+    });
+
+    it("routes only within the named profile, in profile order", async () => {
+      const telemetry: TelemetryEvent[] = [];
+      const registry = new ProviderRegistry();
+      registry.register(createMockLocalProvider("local-a"));
+      registry.register(createMockCloudProvider("cloud-a"));
+      registry.register(createMockCloudProvider("cloud-b"));
+      const engine = new IndeRun(registry, createMockHostServices(true), {
+        telemetryService: { emit: (event) => telemetry.push(event) },
+        modelProfiles: { smart: ["cloud-b", "cloud-a"] }
+      });
+
+      const result = await engine.run({ ...request, modelProfile: "smart" });
+
+      expect(result.telemetry.providerUsed).toBe("cloud-b");
+      const routeDecided = telemetry.find((event) => event.type === "route_decided");
+      expect(routeDecided?.payload).toMatchObject({
+        modelProfile: "smart",
+        fallbackProviderIds: ["cloud-a"],
+        rejectedProviders: [
+          {
+            providerId: "local-a",
+            reasons: [expect.objectContaining({ code: "not_in_model_profile" })]
+          }
+        ]
+      });
+    });
+
+    it("rejects an unknown profile as a validation failure in run()", async () => {
+      const engine = createProfileEngine({ smart: ["cloud-b"] });
+
+      await expect(engine.run({ ...request, modelProfile: "fast" })).rejects.toMatchObject({
+        errorClass: "Internal",
+        details: {
+          validationIssues: [expect.objectContaining({ path: "/modelProfile" })]
+        }
+      });
+    });
+
+    it("rejects an unknown profile as a validation failure in stream()", async () => {
+      const engine = createProfileEngine({ smart: ["cloud-b"] });
+
+      await expect(engine.stream({ ...request, modelProfile: "fast" })).rejects.toMatchObject({
+        errorClass: "Internal",
+        details: {
+          validationIssues: [expect.objectContaining({ path: "/modelProfile" })]
+        }
+      });
+    });
+
+    it.each([
+      [{ auto: ["cloud-a"] }, /built-in/],
+      [{ smart: [] }, /at least one/],
+      [{ smart: ["cloud-a", "cloud-a"] }, /more than once/]
+    ])("refuses malformed profile configuration %j", (modelProfiles, message) => {
+      expect(() => createProfileEngine(modelProfiles)).toThrowError(message);
+    });
+  });
+
+  describe("execution provenance", () => {
+    const request: TaskRequest = {
+      schemaVersion: "1.0",
+      task: { kind: "text_to_text" },
+      prompt: "Hello"
+    };
+
+    function withModel(provider: ProviderAdapter, model: string, reportedModel?: string) {
+      return {
+        ...provider,
+        describe: () => ({ ...provider.describe(), model }),
+        async run(req: TaskRequest, ctx: Parameters<ProviderAdapter["run"]>[1]) {
+          const result = await provider.run(req, ctx);
+          if (reportedModel !== undefined) result.telemetry.reportedModel = reportedModel;
+          return result;
+        }
+      } satisfies ProviderAdapter;
+    }
+
+    function failing(provider: ProviderAdapter): ProviderAdapter {
+      return {
+        ...provider,
+        async run() {
+          throw createUnavailable("runtime crashed");
+        }
+      };
+    }
+
+    it("attributes a direct success to the provider that ran", async () => {
+      registry.register(withModel(createMockLocalProvider("local-a"), "phi-3", "phi-3-q4"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run(request);
+
+      expect(result.provenance).toEqual({
+        schemaVersion: "1.0",
+        modelProfile: "auto",
+        providerId: "local-a",
+        locality: "on_device",
+        configuredModel: "phi-3",
+        reportedModel: "phi-3-q4",
+        attemptCount: 1,
+        fallbackOccurred: false,
+        attempts: [{ providerId: "local-a", outcome: "succeeded" }],
+        routeRejections: []
+      });
+    });
+
+    it("records a local-to-cloud fallback and the failed attempt's error class", async () => {
+      registry.register(failing(createMockLocalProvider("local-a")));
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run({ ...request, constraints: { privacy: "local_preferred" } });
+
+      expect(result.provenance).toMatchObject({
+        providerId: "cloud-a",
+        locality: "cloud",
+        attemptCount: 2,
+        fallbackOccurred: true,
+        attempts: [
+          { providerId: "local-a", outcome: "failed", errorClass: "Unavailable" },
+          { providerId: "cloud-a", outcome: "succeeded" }
+        ]
+      });
+    });
+
+    it("reports cloud-only execution with the rejected local candidate", async () => {
+      registry.register(createMockLocalProvider("local-a"));
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run({ ...request, constraints: { privacy: "cloud_required" } });
+
+      expect(result.provenance).toMatchObject({
+        providerId: "cloud-a",
+        locality: "cloud",
+        attemptCount: 1,
+        routeRejections: [{ providerId: "local-a", codes: ["privacy_constraint"] }]
+      });
+    });
+
+    it("leaves unknown model metadata absent rather than inferring it", async () => {
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run(request);
+
+      expect(result.provenance).not.toHaveProperty("configuredModel");
+      expect(result.provenance).not.toHaveProperty("reportedModel");
+    });
+
+    it("carries provenance on a routing refusal, attributed to no provider", async () => {
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const error = await engine
+        .run({ ...request, constraints: { privacy: "local_required" } })
+        .catch((caught: unknown) => caught as IndeRunException);
+
+      expect(error.provenance).toEqual({
+        schemaVersion: "1.0",
+        modelProfile: "auto",
+        locality: "unknown",
+        attemptCount: 0,
+        fallbackOccurred: false,
+        attempts: [],
+        routeRejections: [{ providerId: "cloud-a", codes: ["privacy_constraint"] }]
+      });
+      expect(error.toContractError().provenance).toEqual(error.provenance);
+    });
+
+    it("carries every failed attempt when the whole chain fails", async () => {
+      registry.register(failing(createMockLocalProvider("local-a")));
+      registry.register(failing(createMockCloudProvider("cloud-a")));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const error = await engine
+        .run(request)
+        .catch((caught: unknown) => caught as IndeRunException);
+
+      expect(error.provenance).toMatchObject({
+        locality: "unknown",
+        attemptCount: 2,
+        fallbackOccurred: true,
+        attempts: [
+          { providerId: "local-a", outcome: "failed", errorClass: "Unavailable" },
+          { providerId: "cloud-a", outcome: "failed", errorClass: "Unavailable" }
+        ]
+      });
+      expect(error.provenance).not.toHaveProperty("providerId");
     });
   });
 });

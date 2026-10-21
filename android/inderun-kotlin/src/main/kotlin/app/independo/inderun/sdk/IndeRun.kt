@@ -1,8 +1,12 @@
 package app.independo.inderun.sdk
 
 import android.content.Context
+import app.independo.inderun.contracts.AttemptOutcome
+import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.InteractionMode
+import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.RoutePlan
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
@@ -18,6 +22,7 @@ import app.independo.inderun.core.EventGate
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.IndeRunException
+import app.independo.inderun.core.ModelProfiles
 import app.independo.inderun.core.ProviderAdapter
 import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderRegistry
@@ -60,14 +65,23 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @param registry Registry filled with active providers.
  * @param hostServices Platform services wrapping OS interfaces (connectivity, secure storage, clock, HTTP).
  * @param telemetry Optional telemetry sink. Falls back to [HostServices.telemetry] when not provided.
+ * @param modelProfiles Named model profiles requests can route within (`TaskRequest.modelProfile`).
+ *   Defaults to none, so every request routes within the built-in `auto` profile.
  */
 class IndeRun(
     private val registry: ProviderRegistry,
     private val hostServices: HostServices,
     telemetry: TelemetryService? = null,
+    private val modelProfiles: ModelProfiles = ModelProfiles(),
 ) : IndeRunApi {
     private val router = Router(registry)
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
+
+    /**
+     * The planner input for the request's model profile; null means `auto`. An unknown name never
+     * reaches here: [validateRequest] rejects it first.
+     */
+    private fun plannerModelProfile(request: TaskRequest): ModelProfile? = (modelProfiles.resolve(request.modelProfile) as? ModelProfiles.Resolution.Profile)?.profile
 
     /**
      * Orchestrates a [TaskRequest]: validates it, selects a provider chain via
@@ -79,13 +93,19 @@ class IndeRun(
     override suspend fun run(request: TaskRequest): TaskResult {
         val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
+        val provenance = ProvenanceRecorder(request.modelProfile)
 
         try {
             validateRequest(request, runId)
 
-            val routeSelection = router.selectRoute(request, hostServices)
+            val routeSelection = router.selectRoute(
+                request,
+                hostServices,
+                modelProfile = plannerModelProfile(request),
+            )
             val providers = listOf(routeSelection.provider) + routeSelection.fallbackProviders
             val attemptedProviderIds = mutableListOf<String>()
+            provenance.routed(routeSelection.routePlan)
 
             safeEmit(
                 TelemetryEvent(
@@ -98,6 +118,7 @@ class IndeRun(
                         "rejectedProviderIds" to routeSelection.routePlan.rejectedProviders.map { it.providerId },
                         "fallbackAvailable" to (providers.size > 1),
                         "taskKind" to request.task.kind.rawValue,
+                        "modelProfile" to (request.modelProfile ?: ModelProfiles.AUTO),
                         "explanation" to routeSelection.explanation,
                     ),
                 ),
@@ -114,6 +135,7 @@ class IndeRun(
                     )
 
                     val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
+                    provenance.attempted(providerId, AttemptOutcome.Succeeded)
 
                     safeEmit(
                         TelemetryEvent(
@@ -135,22 +157,23 @@ class IndeRun(
                             providerUsed = providerId,
                             totalMs = totalMs,
                         ),
+                        provenance = provenance.build(provider.describe(), result.telemetry.reportedModel),
                     )
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
-                    if (index == providers.lastIndex) {
-                        throw toIndeRunException(
-                            error,
-                            fallbackRunId = runId,
-                            fallbackProviderId = providerId,
-                            fallbackDetails = mapOf(
-                                "attemptedProviderIds" to attemptedProviderIds,
-                                "fallbackOccurred" to (providers.size > 1),
-                                "routePlan" to routeSelection.routePlan,
-                            ),
-                        )
-                    }
+                    val attemptError = toIndeRunException(
+                        error,
+                        fallbackRunId = runId,
+                        fallbackProviderId = providerId,
+                        fallbackDetails = mapOf(
+                            "attemptedProviderIds" to attemptedProviderIds.toList(),
+                            "fallbackOccurred" to (attemptedProviderIds.size > 1),
+                            "routePlan" to routeSelection.routePlan,
+                        ),
+                    )
+                    provenance.attempted(providerId, AttemptOutcome.Failed, attemptError.errorClass)
+                    if (index == providers.lastIndex) throw attemptError
                 }
             }
 
@@ -165,13 +188,17 @@ class IndeRun(
             throw error
         } catch (error: Throwable) {
             val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
-            val exception = toIndeRunException(
+            val normalized = toIndeRunException(
                 error,
                 fallbackRunId = runId,
                 fallbackDetails = mapOf(
                     "totalMs" to totalMs,
                 ),
             )
+            // A routing refusal throws before any attempt; its rejections travel on the details.
+            // No attempt produced a result, so the outcome is attributed to no provider.
+            provenance.routingFailed(normalized.details)
+            val exception = normalized.withProvenance(provenance.build())
 
             safeEmit(
                 TelemetryEvent(
@@ -246,15 +273,27 @@ class IndeRun(
         val startElapsedMs = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val startedAtEpochMs = System.currentTimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
+        val preRunProvenance = ProvenanceRecorder(request.modelProfile)
 
-        validateRequest(request, runId)
+        try {
+            validateRequest(request, runId)
+        } catch (error: IndeRunException) {
+            throw error.withProvenance(preRunProvenance.build())
+        }
 
         val routeSelection = try {
-            router.selectRoute(request, hostServices, InteractionMode.Stream)
+            router.selectRoute(
+                request,
+                hostServices,
+                InteractionMode.Stream,
+                plannerModelProfile(request),
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            throw toIndeRunException(error, fallbackRunId = runId)
+            val exception = toIndeRunException(error, fallbackRunId = runId)
+            preRunProvenance.routingFailed(exception.details)
+            throw exception.withProvenance(preRunProvenance.build())
         }
         val providers = listOf(routeSelection.provider) + routeSelection.fallbackProviders
 
@@ -269,6 +308,7 @@ class IndeRun(
                     "rejectedProviderIds" to routeSelection.routePlan.rejectedProviders.map { it.providerId },
                     "fallbackAvailable" to (providers.size > 1),
                     "taskKind" to request.task.kind.rawValue,
+                    "modelProfile" to (request.modelProfile ?: ModelProfiles.AUTO),
                     "explanation" to routeSelection.explanation,
                 ),
             ),
@@ -299,6 +339,7 @@ class IndeRun(
                 runId = runId,
                 startTime = startElapsedMs,
                 providers = providers,
+                routePlan = routeSelection.routePlan,
                 gate = gate,
                 cancellation = cancellation,
             )
@@ -321,15 +362,27 @@ class IndeRun(
         runId: String,
         startTime: Double,
         providers: List<ProviderAdapter>,
+        routePlan: RoutePlan,
         gate: EventGate,
         cancellation: StreamCancellationToken,
     ) {
         fun now(): Double = System.currentTimeMillis().toDouble()
         fun elapsed(): Double = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
 
-        suspend fun emitCancelled(partialText: String, providerId: String?, attempted: List<String>) {
+        val provenance = ProvenanceRecorder(request.modelProfile).apply { routed(routePlan) }
+
+        // `provider` is the one running when cancellation landed, if any; the outcome is
+        // attributed to it.
+        suspend fun emitCancelled(partialText: String, provider: ProviderAdapter?, attempted: List<String>) {
+            val providerId = provider?.describe()?.id
+            providerId?.let { provenance.attempted(it, AttemptOutcome.Cancelled) }
             val terminal = gate.terminate(
-                cancelledOutcome(runId = runId, partialText = partialText, reason = cancellation.reason),
+                cancelledOutcome(
+                    runId = runId,
+                    partialText = partialText,
+                    reason = cancellation.reason,
+                    provenance = provenance.build(provider?.describe()),
+                ),
                 now(),
             )
             safeEmit(
@@ -351,6 +404,7 @@ class IndeRun(
             partialText: String,
             providerId: String?,
             attempted: List<String>,
+            outcomeProvenance: ExecutionProvenance,
         ) {
             val contractError = exception.toContractError()
             val terminal = gate.terminate(
@@ -360,12 +414,14 @@ class IndeRun(
                         details = contractError.details,
                         errorClass = contractError.errorClass,
                         message = contractError.message,
+                        provenance = contractError.provenance,
                         providerId = contractError.providerId,
                         retryable = contractError.retryable,
                         retryAfterMs = contractError.retryAfterMs,
                         schemaVersion = contractError.schemaVersion,
                     ),
                     partialText = partialText,
+                    provenance = outcomeProvenance,
                 ),
                 now(),
             )
@@ -467,6 +523,7 @@ class IndeRun(
                             }
 
                             is ProviderStreamEvent.Done -> {
+                                provenance.attempted(providerId, AttemptOutcome.Succeeded)
                                 val terminal = gate.terminate(
                                     completedOutcome(
                                         runId = runId,
@@ -483,6 +540,7 @@ class IndeRun(
                                             providerUsed = providerId,
                                             totalMs = elapsed(),
                                         ),
+                                        provenance = provenance.build(provider.describe(), event.reportedModel),
                                     ),
                                     now(),
                                 )
@@ -511,7 +569,7 @@ class IndeRun(
                 if (terminated) return
 
                 if (cancellation.isCancelled) {
-                    emitCancelled(partialText, providerId, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, attemptedProviderIds.toList())
                     return
                 }
 
@@ -526,13 +584,13 @@ class IndeRun(
                 // outcome it is owed; only cancellation of the collector itself
                 // propagates.
                 if (cancellation.isCancelled && currentCoroutineContext().isActive) {
-                    emitCancelled(partialText, providerId, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, attemptedProviderIds.toList())
                     return
                 }
                 throw error
             } catch (error: Throwable) {
                 if (cancellation.isCancelled) {
-                    emitCancelled(partialText, providerId, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, attemptedProviderIds.toList())
                     return
                 }
 
@@ -542,6 +600,7 @@ class IndeRun(
                     fallbackProviderId = providerId,
                     fallbackDetails = mapOf("attemptedProviderIds" to attemptedProviderIds.toList()),
                 )
+                provenance.attempted(providerId, AttemptOutcome.Failed, exception.errorClass)
 
                 if (!committed) {
                     safeEmit(
@@ -559,7 +618,14 @@ class IndeRun(
                     continue
                 }
 
-                emitFailure(exception, partialText, providerId, attemptedProviderIds.toList())
+                // Committed: the failure belongs to this provider, not to the chain.
+                emitFailure(
+                    exception,
+                    partialText,
+                    providerId,
+                    attemptedProviderIds.toList(),
+                    provenance.build(provider.describe()),
+                )
                 return
             }
         }
@@ -580,6 +646,7 @@ class IndeRun(
             partialText = "",
             providerId = null,
             attempted = attemptedProviderIds.toList(),
+            outcomeProvenance = provenance.build(),
         )
     }
 
@@ -624,6 +691,9 @@ class IndeRun(
         if (!hasPrompt && !hasMessages) {
             validationIssues += "Either prompt or messages must be provided and non-empty."
         }
+        if (modelProfiles.resolve(request.modelProfile) == ModelProfiles.Resolution.Unknown) {
+            validationIssues += "modelProfile '${request.modelProfile}' is not a configured model profile."
+        }
 
         if (validationIssues.isNotEmpty()) {
             throw createInternal(
@@ -641,17 +711,20 @@ class IndeRun(
          *
          * @param context The application or activity context.
          * @param registry Optional provider registry override.
+         * @param modelProfiles Named model profiles requests can route within.
          * @return A new [IndeRun] instance.
          */
         @JvmStatic
+        @JvmOverloads
         fun initialize(
             context: Context,
             registry: ProviderRegistry? = null,
+            modelProfiles: ModelProfiles = ModelProfiles(),
         ): IndeRun {
             val appContext = context.applicationContext
             val services = HostServicesFactory.create(appContext)
             val providerRegistry = registry ?: AndroidProviderRegistryFactory.makeDefaultRegistry(appContext)
-            return IndeRun(providerRegistry, services)
+            return IndeRun(providerRegistry, services, modelProfiles = modelProfiles)
         }
     }
 }

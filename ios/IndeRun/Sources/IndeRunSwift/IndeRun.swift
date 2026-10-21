@@ -7,16 +7,31 @@ public final class IndeRun: IndeRunApi {
     private let hostServices: HostServices
     private let telemetryService: (any TelemetryService)?
     private let router: Router
+    private let modelProfiles: ModelProfiles
 
+    /// - Parameter modelProfiles: Named model profiles requests can route within
+    ///   (`TaskRequest.modelProfile`). Defaults to none, so every request routes
+    ///   within the built-in `auto` profile.
     public init(
         registry: ProviderRegistry,
         hostServices: HostServices,
-        telemetryService: (any TelemetryService)? = nil
+        telemetryService: (any TelemetryService)? = nil,
+        modelProfiles: ModelProfiles = .none
     ) {
         self.registry = registry
         self.hostServices = hostServices
         self.telemetryService = telemetryService ?? hostServices.telemetry
         self.router = Router(registry: registry)
+        self.modelProfiles = modelProfiles
+    }
+
+    /// The planner input for the request's model profile; `nil` means `auto`.
+    /// An unknown name never reaches here: `validate(request:)` rejects it first.
+    private func plannerModelProfile(for request: TaskRequest) -> ModelProfile? {
+        if case .profile(let profile) = modelProfiles.resolve(request.modelProfile) {
+            return profile
+        }
+        return nil
     }
 
     private func safeEmit(_ event: TelemetryEvent) {
@@ -73,6 +88,11 @@ public final class IndeRun: IndeRunApi {
         if !hasPrompt && !hasMessages {
             validationIssues.append("Either prompt or messages must be provided and non-empty.")
         }
+        if case .unknown = modelProfiles.resolve(request.modelProfile) {
+            validationIssues.append(
+                "modelProfile '\(request.modelProfile ?? "")' is not a configured model profile."
+            )
+        }
 
         return validationIssues
     }
@@ -91,6 +111,7 @@ public final class IndeRun: IndeRunApi {
         let startTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
 
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
+        var provenance = ProvenanceRecorder(modelProfile: request.modelProfile)
 
         do {
             // 1. Structural request validation
@@ -105,8 +126,13 @@ public final class IndeRun: IndeRunApi {
             }
 
             // 2. Select route
-            let routeSelection = try await router.selectRoute(request: request, hostServices: hostServices)
+            let routeSelection = try await router.selectRoute(
+                request: request,
+                hostServices: hostServices,
+                modelProfile: plannerModelProfile(for: request)
+            )
             let providers = [routeSelection.provider] + routeSelection.fallbackProviders
+            provenance.routed(routeSelection.routePlan)
 
             let routeTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
             safeEmit(TelemetryEvent(
@@ -119,6 +145,7 @@ public final class IndeRun: IndeRunApi {
                     "rejectedProviderIds": JSONAny(routeSelection.routePlan.rejectedProviders.map { $0.providerId }),
                     "fallbackAvailable": JSONAny(providers.count > 1),
                     "taskKind": JSONAny(request.task.kind.rawValue),
+                    "modelProfile": JSONAny(request.modelProfile ?? ModelProfiles.auto),
                     "explanation": JSONAny(routeSelection.explanation)
                 ]
             ))
@@ -141,6 +168,11 @@ public final class IndeRun: IndeRunApi {
                     result.runId = runId
                     result.telemetry.providerUsed = providerId
                     result.telemetry.totalMs = totalMs
+                    provenance.attempted(providerId, .succeeded)
+                    result.provenance = provenance.build(
+                        attributedTo: provider.describe(),
+                        reportedModel: result.telemetry.reportedModel
+                    )
 
                     safeEmit(TelemetryEvent(
                         type: "attempt_succeeded",
@@ -158,17 +190,19 @@ public final class IndeRun: IndeRunApi {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    let attemptError = toIndeRunException(
+                        error,
+                        fallbackRunId: runId,
+                        fallbackProviderId: providerId,
+                        fallbackDetails: [
+                            "attemptedProviderIds": JSONAny(attemptedIds),
+                            "fallbackOccurred": JSONAny(attemptedIds.count > 1),
+                            "routePlanSummary": JSONAny(routeSelection.routePlan.explanation.summary)
+                        ]
+                    )
+                    provenance.attempted(providerId, .failed, errorClass: attemptError.errorClass)
                     if index == providers.count - 1 {
-                        throw toIndeRunException(
-                            error,
-                            fallbackRunId: runId,
-                            fallbackProviderId: providerId,
-                            fallbackDetails: [
-                                "attemptedProviderIds": JSONAny(attemptedIds),
-                                "fallbackOccurred": JSONAny(providers.count > 1),
-                                "routePlanSummary": JSONAny(routeSelection.routePlan.explanation.summary)
-                            ]
-                        )
+                        throw attemptError
                     }
                 }
             }
@@ -179,11 +213,15 @@ public final class IndeRun: IndeRunApi {
             let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
             let totalMs = Double(endTime - startTime)
 
-            let exception = toIndeRunException(
+            let normalized = toIndeRunException(
                 error,
                 fallbackRunId: runId,
                 fallbackDetails: ["totalMs": JSONAny(totalMs) ]
             )
+            // A routing refusal throws before any attempt; its rejections travel on the
+            // details. No attempt produced a result, so the outcome is attributed to no one.
+            provenance.routingFailed(normalized.details)
+            let exception = normalized.withProvenance(provenance.build())
 
             safeEmit(TelemetryEvent(
                 type: "attempt_failed",
@@ -233,13 +271,15 @@ public final class IndeRun: IndeRunApi {
         let startTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
 
+        var provenance = ProvenanceRecorder(modelProfile: request.modelProfile)
+
         let validationIssues = validate(request: request)
         if !validationIssues.isEmpty {
             throw createInternal(
                 message: "Validation failed for TaskRequest: " + validationIssues.joined(separator: "; "),
                 runId: runId,
                 details: ["validationIssues": JSONAny(validationIssues.joined(separator: ", "))]
-            )
+            ).withProvenance(provenance.build())
         }
 
         let routeSelection: RouteSelection
@@ -247,10 +287,13 @@ public final class IndeRun: IndeRunApi {
             routeSelection = try await router.selectRoute(
                 request: request,
                 hostServices: hostServices,
-                interactionMode: .stream
+                interactionMode: .stream,
+                modelProfile: plannerModelProfile(for: request)
             )
         } catch {
-            throw toIndeRunException(error, fallbackRunId: runId)
+            let exception = toIndeRunException(error, fallbackRunId: runId)
+            provenance.routingFailed(exception.details)
+            throw exception.withProvenance(provenance.build())
         }
         let providers = [routeSelection.provider] + routeSelection.fallbackProviders
 
@@ -264,6 +307,7 @@ public final class IndeRun: IndeRunApi {
                 "rejectedProviderIds": JSONAny(routeSelection.routePlan.rejectedProviders.map { $0.providerId }),
                 "fallbackAvailable": JSONAny(providers.count > 1),
                 "taskKind": JSONAny(request.task.kind.rawValue),
+                "modelProfile": JSONAny(request.modelProfile ?? ModelProfiles.auto),
                 "explanation": JSONAny(routeSelection.explanation)
             ]
         ))
@@ -308,6 +352,7 @@ public final class IndeRun: IndeRunApi {
                 runId: runId,
                 startTime: startTime,
                 providers: providers,
+                routePlan: routeSelection.routePlan,
                 gate: gate,
                 cancellation: cancellation,
                 continuation: continuation
@@ -326,6 +371,7 @@ public final class IndeRun: IndeRunApi {
         runId: String,
         startTime: Int64,
         providers: [any ProviderAdapter],
+        routePlan: RoutePlan,
         gate: EventGate,
         cancellation: StreamCancellationToken,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
@@ -333,11 +379,19 @@ public final class IndeRun: IndeRunApi {
         func now() -> Int64 { hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000) }
         func elapsed() -> Double { Double(now() - startTime) }
 
-        func emitCancelled(partialText: String, providerId: String?, attempted: [String]) {
+        var provenance = ProvenanceRecorder(modelProfile: request.modelProfile)
+        provenance.routed(routePlan)
+
+        /// `provider` is the one running when cancellation landed, if any; the outcome
+        /// is attributed to it.
+        func emitCancelled(partialText: String, provider: (any ProviderAdapter)?, attempted: [String]) {
+            let providerId = provider?.describe().id
+            if let providerId { provenance.attempted(providerId, .cancelled) }
             let outcome = StreamTerminalOutcome.cancelled(
                 runId: runId,
                 partialText: partialText,
-                reason: cancellation.reason
+                reason: cancellation.reason,
+                provenance: provenance.build(attributedTo: provider?.describe())
             )
             let terminal = gate.terminate(outcome: outcome, timestamp: Double(now()))
             var payload: [String: TelemetryValue] = ["attemptedProviderIds": JSONAny(attempted)]
@@ -371,6 +425,7 @@ public final class IndeRun: IndeRunApi {
                     runId: runId,
                     providerId: providerId
                 )
+                provenance.attempted(providerId, .failed, errorClass: exception.errorClass)
                 if !committed {
                     safeEmit(TelemetryEvent(
                         type: "stream_attempt_failed",
@@ -387,7 +442,8 @@ public final class IndeRun: IndeRunApi {
                 emitFailure(
                     exception: exception, partialText: "", providerId: providerId,
                     attempted: attemptedProviderIds, runId: runId, gate: gate,
-                    continuation: continuation, timestamp: now()
+                    continuation: continuation, timestamp: now(),
+                    provenance: provenance.build(attributedTo: provider.describe())
                 )
                 return
             }
@@ -434,7 +490,8 @@ public final class IndeRun: IndeRunApi {
                             continuation.yield(admitted)
                         }
 
-                    case let .done(finalText, finishReason, usage):
+                    case let .done(finalText, finishReason, usage, reportedModel):
+                        provenance.attempted(providerId, .succeeded)
                         let outcome = StreamTerminalOutcome.completed(
                             runId: runId,
                             finalText: finalText,
@@ -443,6 +500,10 @@ public final class IndeRun: IndeRunApi {
                             telemetry: StreamTerminalOutcomeTelemetry(
                                 providerUsed: providerId,
                                 totalMs: elapsed()
+                            ),
+                            provenance: provenance.build(
+                                attributedTo: provider.describe(),
+                                reportedModel: reportedModel
                             )
                         )
                         let terminal = gate.terminate(outcome: outcome, timestamp: Double(now()))
@@ -466,7 +527,7 @@ public final class IndeRun: IndeRunApi {
                 if cancellation.isCancelled {
                     emitCancelled(
                         partialText: partialText,
-                        providerId: providerId,
+                        provider: provider,
                         attempted: attemptedProviderIds
                     )
                     return
@@ -481,7 +542,7 @@ public final class IndeRun: IndeRunApi {
                 if cancellation.isCancelled {
                     emitCancelled(
                         partialText: partialText,
-                        providerId: providerId,
+                        provider: provider,
                         attempted: attemptedProviderIds
                     )
                     return
@@ -493,6 +554,7 @@ public final class IndeRun: IndeRunApi {
                     fallbackProviderId: providerId,
                     fallbackDetails: ["attemptedProviderIds": JSONAny(attemptedProviderIds)]
                 )
+                provenance.attempted(providerId, .failed, errorClass: exception.errorClass)
 
                 if !committed {
                     safeEmit(TelemetryEvent(
@@ -508,10 +570,12 @@ public final class IndeRun: IndeRunApi {
                     continue
                 }
 
+                // Committed: the failure belongs to this provider, not to the chain.
                 emitFailure(
                     exception: exception, partialText: partialText, providerId: providerId,
                     attempted: attemptedProviderIds, runId: runId, gate: gate,
-                    continuation: continuation, timestamp: now()
+                    continuation: continuation, timestamp: now(),
+                    provenance: provenance.build(attributedTo: provider.describe())
                 )
                 return
             }
@@ -520,7 +584,7 @@ public final class IndeRun: IndeRunApi {
         // Every provider failed pre-commit, or cancellation landed before any
         // attempt started.
         if cancellation.isCancelled {
-            emitCancelled(partialText: "", providerId: nil, attempted: attemptedProviderIds)
+            emitCancelled(partialText: "", provider: nil, attempted: attemptedProviderIds)
             return
         }
 
@@ -532,7 +596,8 @@ public final class IndeRun: IndeRunApi {
         emitFailure(
             exception: exception, partialText: "", providerId: nil,
             attempted: attemptedProviderIds, runId: runId, gate: gate,
-            continuation: continuation, timestamp: now()
+            continuation: continuation, timestamp: now(),
+            provenance: provenance.build()
         )
     }
 
@@ -545,12 +610,14 @@ public final class IndeRun: IndeRunApi {
         runId: String,
         gate: EventGate,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation,
-        timestamp: Int64
+        timestamp: Int64,
+        provenance: ExecutionProvenance
     ) {
         let outcome = StreamTerminalOutcome.failed(
             runId: runId,
             error: exception.toContractError(),
-            partialText: partialText
+            partialText: partialText,
+            provenance: provenance
         )
         let terminal = gate.terminate(outcome: outcome, timestamp: Double(timestamp))
         var payload: [String: TelemetryValue] = [

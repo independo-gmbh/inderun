@@ -164,6 +164,11 @@ class OpenAIProviderStreamTest {
                             wantUsage?.getLong("totalTokens"),
                             got.usage?.totalTokens,
                         )
+                        assertEquals(
+                            label,
+                            if (want.has("reportedModel")) want.getString("reportedModel") else null,
+                            got.reportedModel,
+                        )
                     }
 
                     is ProviderStreamEvent.Failure -> {

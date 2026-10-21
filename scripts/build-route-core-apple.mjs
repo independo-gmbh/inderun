@@ -157,6 +157,11 @@ function buildFramework(slice) {
     run("lipo", ["-create", ...slice.rustTargets.map(libraryFor), "-output", binary]);
   }
 
+  // Local symbols only: the exported FFI entry points must survive. Done here with
+  // the Xcode tools rather than through the cargo profile, whose rustc-driven strip
+  // yields a LINKEDIT layout the Xcode 27 linker rejects (see Cargo.toml).
+  run("strip", ["-x", binary]);
+
   // Rust emits an install name of the raw dylib path. dyld resolves the framework
   // through the embedding app's rpath, so it has to say so.
   run("install_name_tool", ["-id", `@rpath/${NAME}.framework/${NAME}`, binary]);

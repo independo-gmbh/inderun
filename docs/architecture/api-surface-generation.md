@@ -190,6 +190,13 @@ this doc originally estimated.
 Option B remains not recommended — it saves nothing over Option A and blurs the
 data/behavior boundary the issue explicitly calls out as a hard constraint.
 
+**Update.** `stream` has since been added to the spec alongside `run` and
+`checkCapabilities`. The primary text API (`generateText` / `streamText`, see
+[`api-layering.md`](./api-layering.md)) is deliberately *not* part of the spec: it is
+written against the generated `IndeRunApi` interface rather than declared on it, so it
+cannot change what the engine implements. Its cross-platform parity is held by a shared
+request-mapping fixture instead of by generation.
+
 **Implemented.** The MVP scoped above is built: the versioned spec lives at
 [`contracts/api/inderun-api.json`](../../contracts/api/inderun-api.json) and the
 generator at

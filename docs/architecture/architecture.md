@@ -13,6 +13,8 @@ IndeRun is organized into four layers:
 
 The separation matters because provider-specific details should remain behind adapter boundaries whenever a normalized IndeRun shape exists.
 
+The public SDK surface is itself split into a primary familiar API, the advanced task-based execution API, and a provider-authoring surface, with the engine internals behind them carrying no compatibility promise. [api-layering.md](./api-layering.md) defines those layers, model profiles, and the mapping from the familiar API onto the canonical contract.
+
 ## Execution Model
 
 The public execution paths are Mode 1 `run()` (request/response) and Mode 2 `stream()` (incremental output with cancellation). Both validate the request, select a provider deterministically, execute, and normalize the result or error; they differ in what they hand back and in how narrow fallback is, not in how a provider is chosen.
@@ -30,13 +32,15 @@ For Mode 2 the same rule holds, with one consequence worth stating: a live event
 
 Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introspection call that returns each registered provider's static descriptor and current dynamic capability check without executing a task or producing side effects. It exists with the same shape on the TypeScript, Swift, and Kotlin engines, and is intended for UI that needs to show live provider availability before a run (for example, the Web demo's provider badges).
 
-`IndeRun`'s method-signature surface (`run`/`checkCapabilities`) across TypeScript, Swift, and Kotlin is now generated from a versioned spec and CI-enforced — each platform's hand-written `IndeRun` class implements/conforms to the generated `IndeRunApi` interface/protocol, and CI fails on regeneration drift. `ProviderAdapter` parity is still kept in sync by convention and review, not generation. See [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and current status.
+`IndeRun`'s method-signature surface (`run`/`stream`/`checkCapabilities`) across TypeScript, Swift, and Kotlin is now generated from a versioned spec and CI-enforced — each platform's hand-written `IndeRun` class implements/conforms to the generated `IndeRunApi` interface/protocol, and CI fails on regeneration drift. `ProviderAdapter` parity is still kept in sync by convention and review, not generation. See [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and current status.
 
 ### Placement Constraints
 
 Routing separates two operations that are easy to conflate. A constraint either **rejects** a provider — removing it from the chain entirely, so fallback cannot reach it either — or **ranks** it, leaving it reachable but later. `local_required` and `cloud_required` reject; `local_preferred` only ranks. That distinction is the whole reason a `local_required` run cannot silently reach the cloud while a `local_preferred` one can and should.
 
-Order among the survivors is the tuple `(placement_rank, preference_rank)` with the provider id as the final tiebreak, so a fixed request, policy, and capability snapshot always produce the same chain — including the same fallback order, which is what makes a routing decision reproducible from its inputs rather than only observable after the fact. Within `placement_rank`, `constraints.cloud` outranks `constraints.privacy`; for rejection the two axes apply independently. The rules live in `rust/inderun-route-core/src/planner.rs` and are exercised by that crate's `tests.rs`; the root `README.md` carries the consumer-facing table.
+Order among the survivors is the tuple `(placement_rank, profile_rank, preference_rank)` with the provider id as the final tiebreak, so a fixed request, policy, and capability snapshot always produce the same chain — including the same fallback order, which is what makes a routing decision reproducible from its inputs rather than only observable after the fact. Within `placement_rank`, `constraints.cloud` outranks `constraints.privacy`; for rejection the two axes apply independently.
+
+A request's model profile (see [api-layering.md](./api-layering.md#model-profiles)) is a third input of the same kind: it **rejects** every target it does not list (`not_in_model_profile`) and **ranks** the ones it does by their position in the profile. That rank sits after placement on purpose — a profile expresses which models an application considers interchangeable, not where its data may go, so it can never pull a cloud target ahead of a local one that placement puts first. Because profile positions are unique, `optimizeFor` only orders targets within a named profile when placement and profile position tie, which in practice means only under `auto`. The engines resolve the profile name; an unknown name is a request validation failure, raised before any provider is probed, rather than a routing outcome. The rules live in `rust/inderun-route-core/src/planner.rs` and are exercised by that crate's `tests.rs`; the root `README.md` carries the consumer-facing table.
 
 ### Streaming Contracts And Orchestration (Mode 2)
 
@@ -51,6 +55,16 @@ The requested interaction mode is a **routing input**, not a filter applied afte
 Two asymmetries in those shapes are deliberate. `StreamEvent.type` is an **open** set — the schema closes with a catch-all branch, and SDKs must treat an unrecognized type as ignore-or-pass-through rather than an error — so an additive revision does not break a consumer built against an older one. `StreamTerminalOutcome` is a **closed** set of three, because how a run ended is an architectural guarantee rather than a vocabulary that grows. `sequence`, not delivery order, is the ordering authority, because a bridge hop can reorder events in transit. See `contracts/README.md` for the schema evolution policy, and [streaming.md](../streaming.md) for the consumer-facing contract these shapes add up to.
 
 An **Event Gate** (`packages/inderun-web/src/core/event-gate.ts`), one instance per run, is the structural mechanism behind the guarantees below: it assigns each run's `sequence` numbers and enforces, via a first-writer-wins terminate operation, that exactly one terminal `StreamEvent` is ever produced and that no event is admitted after it.
+
+## Execution Provenance
+
+Every completed `TaskResult`, every `StreamTerminalOutcome` branch, and every normalized error carries an `ExecutionProvenance` record (`contracts/schemas/execution-provenance.schema.json`): the model profile the request routed within, the target the outcome is attributed to, that target's declared locality (`on_device`, `edge`, `cloud`, or `unknown`), the model it is configured with and the model its backend reported, every attempt with how it ended, and the planner's rejection codes for the targets it never tried. It exists so that applications — and out-of-process hosts such as the Capacitor bridge, which cannot observe in-process telemetry — can show what actually happened without parsing provider identifiers or subscribing to telemetry.
+
+What it proves: which providers the engine attempted and in what order, how each attempt ended, which target produced the result (or which one a stream was committed to when it failed, or which one was running when it was cancelled), and why the planner rejected the others. Those are engine observations.
+
+What it does not prove: locality is the attributed provider's *declaration* (`ProviderDescriptor.type`), not a measurement of where computation ran; `configuredModel` is the descriptor's declaration; `reportedModel` is whatever the provider's backend named in its response and is absent when the backend names nothing. The record never infers a model or locality a provider did not state — an unknown stays absent, or `unknown` for locality — and it never carries request content, credentials, provider messages, or provider payloads. There is no separate route identifier: one plan is made per run, so the run id that every carrying payload already has is the correlation key.
+
+The engines build it with one recorder per run (`ProvenanceRecorder` in each engine's directory). Providers contribute only the reported model, through `TaskResult.telemetry.reportedModel` for Mode 1 and the `done` stream event for Mode 2.
 
 ## Cancellation And Fallback
 

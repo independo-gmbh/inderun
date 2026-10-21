@@ -69,6 +69,11 @@
           "type": "string",
           "minLength": 1
         },
+        "reportedModel": {
+          "description": "The model identifier the provider reported in its own response, set by the provider when its backend reports one. The engine carries it into provenance.reportedModel; it is never inferred from configuration.",
+          "type": "string",
+          "minLength": 1
+        },
         "totalMs": {
           "description": "Measured execution duration in milliseconds, including route selection and result processing.",
           "type": "number",
@@ -87,6 +92,10 @@
           ]
         }
       }
+    },
+    "provenance": {
+      "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+      "$ref": "execution-provenance.schema.json"
     }
   }
 }

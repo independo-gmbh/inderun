@@ -87,7 +87,13 @@ export {
 } from "./core/errors.js";
 
 /** The engine itself, and the app-facing API surface it implements. */
-export { IndeRun, type StreamHandleResult } from "./core/engine.js";
+export { IndeRun, type IndeRunOptions, type StreamHandleResult } from "./core/engine.js";
+
+/**
+ * Model profiles: application-defined names for ordered sets of targets that a
+ * request can route within. `"auto"` is built in.
+ */
+export { AUTO_MODEL_PROFILE, type ModelProfiles } from "./core/model-profiles.js";
 export type { IndeRunApi } from "./core/generated/inderun-api.js";
 
 /**
@@ -141,7 +147,27 @@ export {
 } from "./core/browser-host.js";
 
 /**
+ * The primary text API: one canonical request per call, over any `IndeRunApi`.
+ * See `docs/architecture/api-layering.md`.
+ */
+export {
+  generateText,
+  streamText,
+  toTaskRequest,
+  TextStreamRetractedError,
+  type GeneratedText,
+  type StreamedText,
+  type TextExecutionOptions,
+  type TextGenerationOptions,
+  type TextStream
+} from "./facade/text.js";
+
+/**
  * The recommended way in: builds host services, registers the providers named in
  * the options, and returns a ready engine.
  */
-export { createIndeRunWeb, type CreateIndeRunWebOptions } from "./web-sdk.js";
+export {
+  createIndeRunWeb,
+  type CreateIndeRunWebOptions,
+  type OpenAIFactoryOptions
+} from "./web-sdk.js";

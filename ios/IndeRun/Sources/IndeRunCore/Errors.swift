@@ -10,6 +10,8 @@ public struct IndeRunException: Error, CustomStringConvertible, Sendable {
     public let retryable: Bool?
     public let retryAfterMs: Int?
     public let details: [String: JSONAny]?
+    /// How the failed execution played out: attempts, rejections, the provider committed to.
+    public let provenance: ExecutionProvenance?
 
     public var description: String {
         return "[\(errorClass.rawValue)] \(message)"
@@ -22,7 +24,8 @@ public struct IndeRunException: Error, CustomStringConvertible, Sendable {
         providerId: String? = nil,
         retryable: Bool? = nil,
         retryAfterMs: Int? = nil,
-        details: [String: JSONAny]? = nil
+        details: [String: JSONAny]? = nil,
+        provenance: ExecutionProvenance? = nil
     ) {
         self.errorClass = errorClass
         self.message = message
@@ -31,6 +34,22 @@ public struct IndeRunException: Error, CustomStringConvertible, Sendable {
         self.retryable = retryable
         self.retryAfterMs = retryAfterMs
         self.details = details
+        self.provenance = provenance
+    }
+
+    /// A copy carrying `provenance`. The engine attaches provenance once it knows how the
+    /// whole execution ended, replacing anything set earlier.
+    public func withProvenance(_ provenance: ExecutionProvenance) -> IndeRunException {
+        IndeRunException(
+            errorClass: errorClass,
+            message: message,
+            runId: runId,
+            providerId: providerId,
+            retryable: retryable,
+            retryAfterMs: retryAfterMs,
+            details: details,
+            provenance: provenance
+        )
     }
 
     public func toContractError() -> IndeRunError {
@@ -42,7 +61,8 @@ public struct IndeRunException: Error, CustomStringConvertible, Sendable {
             providerId: providerId,
             retryable: retryable,
             retryAfterMs: retryAfterMs,
-            details: details
+            details: details,
+            provenance: provenance
         )
     }
 }
@@ -202,7 +222,8 @@ public func toIndeRunException(
             providerId: exc.providerId ?? fallbackProviderId,
             retryable: exc.retryable ?? fallbackRetryable,
             retryAfterMs: exc.retryAfterMs ?? fallbackRetryAfterMs,
-            details: mergedDetails.isEmpty ? nil : mergedDetails
+            details: mergedDetails.isEmpty ? nil : mergedDetails,
+            provenance: exc.provenance
         )
     }
 

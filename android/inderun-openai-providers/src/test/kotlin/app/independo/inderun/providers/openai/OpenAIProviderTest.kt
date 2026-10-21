@@ -111,7 +111,7 @@ class OpenAIProviderTest {
         val httpClient = FakeHttpClient(
             listOf(
                 HttpResponse(
-                    body = """{"output_text":"Hello from Responses.","status":"completed","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}""",
+                    body = """{"model":"gpt-5.2-2026-08-01","output_text":"Hello from Responses.","status":"completed","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}""",
                     headers = emptyMap(),
                     status = 200,
                     statusText = "OK",
@@ -136,6 +136,8 @@ class OpenAIProviderTest {
         assertEquals(3L, result.usage?.inputTokens)
         assertEquals(4L, result.usage?.outputTokens)
         assertEquals(7L, result.usage?.totalTokens)
+        assertEquals("gpt-5.2-2026-08-01", result.telemetry.reportedModel)
+        assertEquals("gpt-5.2", provider.describe().model)
         assertEquals(10.0, result.telemetry.totalMs, 0.0)
 
         val request = httpClient.requests.single()
@@ -236,13 +238,19 @@ class OpenAIProviderTest {
     }
 
     @Test
-    fun registryFactoryRegistersProvider() {
+    fun registryFactoryRegistersOneTargetPerModel() {
         val registry = AndroidCloudProviderRegistryFactory.makeOpenAIRegistry(
-            OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none),
+            OpenAIFactoryOptions(models = listOf("gpt-5.2", "gpt-5-mini"), auth = OpenAIAuthMode.none),
         )
 
-        assertEquals(1, registry.list().size)
-        assertEquals("openai", registry.get("openai")?.describe()?.id)
+        assertEquals(2, registry.list().size)
+        assertEquals("gpt-5.2", registry.get("openai:gpt-5.2")?.describe()?.model)
+        assertEquals("gpt-5-mini", registry.get("openai:gpt-5-mini")?.describe()?.model)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun registryFactoryRefusesAnEmptyModelList() {
+        AndroidCloudProviderRegistryFactory.makeOpenAIRegistry(OpenAIFactoryOptions(models = emptyList()))
     }
 
     private fun fakeHostServices(

@@ -136,6 +136,10 @@
                     "providerUsed": { "type": "string", "minLength": 1 },
                     "totalMs": { "type": "number", "minimum": 0 }
                   }
+                },
+                "provenance": {
+                  "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                  "$ref": "execution-provenance.schema.json"
                 }
               }
             },
@@ -168,8 +172,16 @@
                     "providerId": { "type": "string", "minLength": 1 },
                     "retryable": { "type": "boolean" },
                     "retryAfterMs": { "type": "integer", "minimum": 0 },
-                    "details": { "type": "object", "additionalProperties": true }
+                    "details": { "type": "object", "additionalProperties": true },
+                    "provenance": {
+                      "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                      "$ref": "execution-provenance.schema.json"
+                    }
                   }
+                },
+                "provenance": {
+                  "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                  "$ref": "execution-provenance.schema.json"
                 }
               }
             },
@@ -182,7 +194,11 @@
                 "runId": { "type": "string", "minLength": 1 },
                 "outcome": { "const": "cancelled" },
                 "partialText": { "type": "string" },
-                "reason": { "type": "string" }
+                "reason": { "type": "string" },
+                "provenance": {
+                  "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                  "$ref": "execution-provenance.schema.json"
+                }
               }
             }
           ]

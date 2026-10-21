@@ -15,6 +15,7 @@ extension Payload {
             finalText: nil,
             finishReason: nil,
             outcome: nil,
+            provenance: nil,
             runId: nil,
             schemaVersion: nil,
             telemetry: nil,
@@ -33,6 +34,7 @@ extension Payload {
             finalText: outcome.finalText,
             finishReason: outcome.finishReason,
             outcome: outcome.outcome,
+            provenance: outcome.provenance,
             runId: outcome.runId,
             schemaVersion: outcome.schemaVersion,
             telemetry: outcome.telemetry.map {
@@ -50,6 +52,7 @@ extension Payload {
                     details: $0.details,
                     errorClass: $0.errorClass,
                     message: $0.message,
+                    provenance: $0.provenance,
                     providerId: $0.providerId,
                     retryable: $0.retryable,
                     retryAfterMs: $0.retryAfterMs,
@@ -64,17 +67,19 @@ extension Payload {
 
 extension StreamTerminalOutcome {
     /// The `completed` outcome: the provider delivered every event it was going to.
-    public static func completed(
+    public static func completed( // swiftlint:disable:this function_parameter_count
         runId: String,
         finalText: String,
         finishReason: FinishReason?,
         usage: TaskResultUsage?,
-        telemetry: StreamTerminalOutcomeTelemetry
+        telemetry: StreamTerminalOutcomeTelemetry,
+        provenance: ExecutionProvenance
     ) -> StreamTerminalOutcome {
         StreamTerminalOutcome(
             finalText: finalText,
             finishReason: finishReason,
             outcome: .completed,
+            provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
             telemetry: telemetry,
@@ -92,11 +97,17 @@ extension StreamTerminalOutcome {
     }
 
     /// The `error` outcome: validation, routing, or every attempted provider failing.
-    public static func failed(runId: String, error: IndeRunError, partialText: String) -> StreamTerminalOutcome {
+    public static func failed(
+        runId: String,
+        error: IndeRunError,
+        partialText: String,
+        provenance: ExecutionProvenance
+    ) -> StreamTerminalOutcome {
         StreamTerminalOutcome(
             finalText: nil,
             finishReason: nil,
             outcome: .error,
+            provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
             telemetry: nil,
@@ -105,6 +116,7 @@ extension StreamTerminalOutcome {
                 details: error.details,
                 errorClass: error.errorClass,
                 message: error.message,
+                provenance: error.provenance,
                 providerId: error.providerId,
                 retryable: error.retryable,
                 retryAfterMs: error.retryAfterMs,
@@ -116,11 +128,17 @@ extension StreamTerminalOutcome {
     }
 
     /// The `cancelled` outcome, carrying whatever content was delivered first.
-    public static func cancelled(runId: String, partialText: String, reason: String?) -> StreamTerminalOutcome {
+    public static func cancelled(
+        runId: String,
+        partialText: String,
+        reason: String?,
+        provenance: ExecutionProvenance
+    ) -> StreamTerminalOutcome {
         StreamTerminalOutcome(
             finalText: nil,
             finishReason: nil,
             outcome: .cancelled,
+            provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
             telemetry: nil,

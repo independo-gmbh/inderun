@@ -15,26 +15,35 @@ The contract types this SDK's own signatures take and return — `TaskRequest`, 
 ## Basic Usage
 
 ```ts
-import { createIndeRunWeb } from "@independo/inderun-web";
+import { createIndeRunWeb, generateText, streamText } from "@independo/inderun-web";
 
 const inderun = createIndeRunWeb({
   openAI: {
-    model: "gpt-5.2",
+    models: ["gpt-5.2"],
     endpointUrl: "/api/inderun/openai-responses",
     auth: "none"
   }
 });
 
-const result = await inderun.run({
-  schemaVersion: "1.0",
-  task: { kind: "text_to_text" },
-  prompt: "Write a one-sentence summary of IndeRun."
+const { text, provenance } = await generateText(inderun, {
+  prompt: "Write a one-sentence summary of IndeRun.",
+  execution: { privacy: "local_preferred" }
 });
+
+const stream = await streamText(inderun, { system: "Use plain language.", prompt: "Explain routing." });
+for await (const delta of stream.textStream) process.stdout.write(delta);
+const { finishReason } = await stream.result;
 ```
+
+`generateText` and `streamText` take `prompt` or `messages`, an optional `system`, `model` (a
+[model profile](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/api-layering.md#model-profiles),
+default `"auto"`), the usual sampling options, and an `execution` policy that reuses the canonical
+constraint values. Each call compiles to one `TaskRequest` — `toTaskRequest(options)` shows which —
+and runs through the engine below, so errors, fallback, and cancellation match the advanced API.
 
 ## Streaming
 
-`stream()` returns the run handle, its canonical `StreamEvent` sequence, and a `cancel()` hook:
+For the full event sequence, use the advanced API. `stream()` returns the run handle, its canonical `StreamEvent` sequence, and a `cancel()` hook:
 
 ```ts
 const { handle, events, cancel } = await inderun.stream({

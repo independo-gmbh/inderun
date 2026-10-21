@@ -68,6 +68,34 @@ data class OpenAIProviderOptions(
 )
 
 /**
+ * Options for [AndroidCloudProviderRegistryFactory.makeOpenAIRegistry]: the provider options with
+ * [models] in place of the single `model`. One target is registered per model, with id
+ * `<id>:<model>`, so model profiles can list each model separately.
+ */
+data class OpenAIFactoryOptions(
+    val id: String = "openai",
+    val models: List<String>,
+    val endpointUrl: String = DEFAULT_OPENAI_RESPONSES_ENDPOINT,
+    val auth: OpenAIAuthMode = OpenAIAuthMode.authContextRef,
+    val authContextRef: String? = null,
+    val timeoutMs: Long? = null,
+    val healthCheckTimeoutMs: Long? = null,
+    val healthCheckCacheMs: Long? = null,
+) {
+    /** The provider options for one target of this factory configuration. */
+    fun providerOptions(model: String): OpenAIProviderOptions = OpenAIProviderOptions(
+        id = "$id:$model",
+        model = model,
+        endpointUrl = endpointUrl,
+        auth = auth,
+        authContextRef = authContextRef,
+        timeoutMs = timeoutMs,
+        healthCheckTimeoutMs = healthCheckTimeoutMs,
+        healthCheckCacheMs = healthCheckCacheMs,
+    )
+}
+
+/**
  * Unwinds the collection loop once a terminal event has been produced. Kotlin
  * flows have no `break`, and abandoning the collector by throwing is the
  * documented way to stop consuming one early.
@@ -82,6 +110,7 @@ class OpenAIProvider(
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = options.id,
         type = ProviderDescriptor.ProviderType.cloud,
+        model = options.model,
         transport = ProviderDescriptor.TransportType.http,
         streamingStyle = ProviderDescriptor.StreamingStyle.tokens,
         supports = ProviderDescriptor.SupportsCapabilities(
@@ -232,7 +261,11 @@ class OpenAIProvider(
             output = Output(text = outputText),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
-            telemetry = TaskResultTelemetry(providerUsed = options.id, totalMs = totalMs),
+            telemetry = TaskResultTelemetry(
+                providerUsed = options.id,
+                reportedModel = reportedModel(json),
+                totalMs = totalMs,
+            ),
             usage = usage,
         )
     }
@@ -370,6 +403,7 @@ class OpenAIProvider(
                         finalText = extractOutputText(body).orEmpty(),
                         finishReason = finishReason(body),
                         usage = usage(body),
+                        reportedModel = reportedModel(body),
                     ),
                 )
                 return true
@@ -597,6 +631,12 @@ class OpenAIProvider(
         return fragments.ifBlank { null }
     }
 
+    /**
+     * The model id the Responses API echoes on the response object: the model that served the
+     * request, which can be a dated snapshot of the configured alias.
+     */
+    private fun reportedModel(json: JSONObject): String? = json.optStringOrNull("model")?.takeIf { it.isNotEmpty() }
+
     private fun finishReason(json: JSONObject): FinishReason {
         if (json.optString("status") == "incomplete") {
             val reason = json.optJSONObject("incomplete_details")?.optString("reason")
@@ -608,8 +648,16 @@ class OpenAIProvider(
 }
 
 object AndroidCloudProviderRegistryFactory {
-    fun makeOpenAIRegistry(options: OpenAIProviderOptions): ProviderRegistry = ProviderRegistry().apply {
-        register(OpenAIProvider(options))
+    /**
+     * Registers one OpenAI-compatible target per configured model.
+     *
+     * @throws IllegalArgumentException when [OpenAIFactoryOptions.models] is empty.
+     */
+    fun makeOpenAIRegistry(options: OpenAIFactoryOptions): ProviderRegistry {
+        require(options.models.isNotEmpty()) { "makeOpenAIRegistry requires at least one model." }
+        return ProviderRegistry().apply {
+            options.models.forEach { model -> register(OpenAIProvider(options.providerOptions(model))) }
+        }
     }
 }
 

@@ -99,12 +99,14 @@ sealed interface ProviderStreamEvent {
 
     /**
      * Terminal success. [finishReason] and [usage] are reported when the provider
-     * exposes them.
+     * exposes them; [reportedModel] is the model id the provider's backend named for
+     * this run, never one inferred from configuration.
      */
     data class Done(
         val finalText: String,
         val finishReason: FinishReason? = null,
         val usage: TaskResultUsage? = null,
+        val reportedModel: String? = null,
     ) : ProviderStreamEvent
 
     /** Terminal failure. Handled identically to the flow throwing. */
