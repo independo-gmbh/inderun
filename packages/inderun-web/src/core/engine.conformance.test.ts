@@ -3,16 +3,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { StreamEvent } from "@independo/inderun-contracts";
+import { IndeRun, IndeRunException } from "../index.js";
 import {
-  IndeRun,
-  IndeRunException,
   ProviderRegistry,
   createCapabilityMismatch,
   createRateLimited,
   createUnavailable,
   type ProviderStreamContext,
   type ProviderStreamEvent
-} from "../index.js";
+} from "../provider.js";
 import {
   MockTelemetryService,
   createFakeStreamProvider,

@@ -1,12 +1,7 @@
 import type { ModelPackage, TaskRequest } from "@independo/inderun-contracts";
 import { describe, expect, it } from "vitest";
-import {
-  IndeRun,
-  IndeRunException,
-  ProviderRegistry,
-  type HostServices,
-  type ProviderAdapter
-} from "../../index.js";
+import { IndeRun, IndeRunException } from "../../index.js";
+import { ProviderRegistry, type HostServices, type ProviderAdapter } from "../../provider.js";
 import {
   DEFAULT_ONNX_WEB_PROVIDER_ID,
   OnnxRuntimeError,

@@ -10,7 +10,7 @@ import type {
   HttpStreamingClientService,
   ProviderStreamEvent,
   SecureStorageService
-} from "../../index.js";
+} from "../../provider.js";
 import { IndeRunException } from "../../index.js";
 import { OpenAIResponsesProvider } from "../../openai.js";
 

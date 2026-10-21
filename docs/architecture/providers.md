@@ -149,6 +149,9 @@ Implementation nuance not captured by the matrix above:
 
 ## Provider Authoring Workflow
 
+The provider-authoring types come from `@independo/inderun-web/provider` on the Web, `IndeRunCore` on Swift, and
+`inderun-core` on Kotlin — see [Package Entry Points](./api-layering.md#package-entry-points).
+
 To add a new provider:
 
 1. Define the static descriptor (`describe`) — provider id, supported task kinds, supported interaction modes (`run` is implemented by all shipped providers; `stream` is implemented by the OpenAI-compatible, Apple Foundation Models, and Android ML Kit GenAI families, and available to any provider that opts into the streaming adapter type — `ProviderAdapter.stream()` on Web, `StreamingProviderAdapter` on Swift and Kotlin; `openSession`/Mode 3 remains a descriptor seam only), and declared cancellation behavior (`hard` / `soft` / `none`, now enforced by the Mode 2 orchestrator for streaming providers). `supports.streaming` is what makes a provider routable for a stream request at all, so declaring it without implementing `stream()` is a routing-visible mistake, not a harmless one.

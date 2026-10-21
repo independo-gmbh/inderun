@@ -3,17 +3,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TaskRequest } from "@independo/inderun-contracts";
 import { describe, expect, it } from "vitest";
+import { IndeRun, IndeRunException, createIndeRunWeb } from "../../index.js";
 import {
-  IndeRun,
-  IndeRunException,
   ProviderRegistry,
-  createIndeRunWeb,
   type HostServices,
   type HttpClientService,
   type HttpRequest,
   type HttpResponse,
   type SecureStorageService
-} from "../../index.js";
+} from "../../provider.js";
 import { DEFAULT_OPENAI_RESPONSES_ENDPOINT, OpenAIResponsesProvider } from "../../openai.js";
 
 interface RunCase {

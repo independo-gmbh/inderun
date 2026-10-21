@@ -60,6 +60,25 @@ canonical `TaskRequest`. `run()` and `stream()` stay public as the advanced, tas
 when you build requests programmatically or need the full event sequence. Both layers share one engine, so routing,
 fallback, cancellation, and errors behave identically. See [API layering](docs/architecture/api-layering.md).
 
+### When to use the advanced API
+
+Start with `generateText()` / `streamText()`. Switch to `TaskRequest` with `run()` / `stream()` when you need
+something the facade deliberately leaves out:
+
+- **The raw event sequence.** `stream()` hands back every canonical `StreamEvent` — lifecycle phases, snapshots that
+  retract delivered text, the terminal outcome — where `streamText()` reduces them to text increments and a result.
+  `streamText()`'s `fullStream` carries the same events when you need both.
+- **Requests built by code rather than by hand**, such as a request id you correlate with your own logs, or a
+  request assembled from stored configuration.
+- **Capability checks before a request.** `checkCapabilities()` reports what every registered target can do on this
+  device right now, for UI that should not offer an on-device option the device cannot serve.
+- **Hosts that speak the contract**, such as a bridge that forwards `TaskRequest` and `StreamEvent` across a process
+  boundary.
+
+On the Web the advanced API lives in the same entry point as the facade. Provider authoring — custom adapters, host
+services, building an engine from a `ProviderRegistry` — has its own entry point, `@independo/inderun-web/provider`;
+the [migration guide](docs/migration.md) lists what moved there in 0.4.
+
 ## Choosing where a task runs
 
 Placement is a property of the request, not of the call site. `constraints.privacy` says how strict you are:
@@ -297,6 +316,14 @@ your backend issued. For a key **you** own, put it behind a backend you control 
 that. The Web SDK enforces this by refusing the public OpenAI and OpenRouter endpoints unless you opt out explicitly for a controlled
 environment; on iOS and Android it is a convention, because a native app can reach any endpoint it likes.
 
+## Ecosystem
+
+- **OpenRouter** — reach many model vendors through one cloud target with the OpenAI-compatible provider. See
+  [OpenRouter](docs/openrouter.md).
+- **Reference demo** — [`packages/inderun-web-demo`](packages/inderun-web-demo/README.md) simplifies text with
+  `generateText()` or `streamText()`, runs on the device first when the browser can, falls back to the cloud only
+  when the chosen privacy allows it, and shows the run's provenance.
+
 ## Packages
 
 | Package                                    | Registry                    |
@@ -312,7 +339,9 @@ environment; on iOS and Android it is a convention, because a native app can rea
 - [Project brief](docs/architecture/technical-brief.md)
 - [Architecture overview](docs/architecture/architecture.md)
 - [Provider model](docs/architecture/providers.md)
+- [Public API layering](docs/architecture/api-layering.md)
 - [Streaming (Mode 2)](docs/streaming.md)
+- [Migration guide](docs/migration.md)
 - [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
 - [Streaming conformance and cross-platform validation](docs/streaming-conformance.md)
 - [CI behavior](docs/ci.md)

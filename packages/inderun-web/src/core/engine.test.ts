@@ -1,20 +1,18 @@
 import type { TaskRequest, TaskResult } from "@independo/inderun-contracts";
 import { describe, it, expect, beforeEach } from "vitest";
+import { IndeRun, IndeRunException, type TelemetryEvent } from "../index.js";
 import {
-  IndeRun,
   ProviderRegistry,
-  IndeRunException,
   createAuthError,
   createUnavailable,
   type HostServices,
   type HttpClientService,
   type HttpRequest,
   type HttpResponse,
-  type ProviderAdapter,
-  Router,
-  type RoutePlanner,
-  type TelemetryEvent
-} from "../index.js";
+  type ProviderAdapter
+} from "../provider.js";
+import { Router } from "./router.js";
+import { type RoutePlanner } from "./route-planner.js";
 
 function createMockLocalProvider(id: string, available = true): ProviderAdapter {
   return {
