@@ -1,6 +1,6 @@
 {
   "name": "@independo/inderun-contracts",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Canonical JSON Schemas, generated TypeScript types, and validators for the IndeRun task, streaming, error, and routing contracts.",
   "license": "MIT",
   "author": {

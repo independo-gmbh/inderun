@@ -1,3 +1,47 @@
+## [0.4.0](https://github.com/independo-gmbh/inderun/compare/v0.3.3...v0.4.0) (2026-10-21)
+
+### ⚠ BREAKING CHANGES
+
+* **web:** @independo/inderun-web no longer exports provider-authoring
+APIs from its root. Import ProviderAdapter, ProviderDescriptor,
+ProviderDynamicCapabilities, RunContext, ProviderStreamContext,
+ProviderStreamEvent, ProviderRegistry, HostServices and the host-service
+interfaces, createBrowserHostServices and the browser host services, and
+the create* error constructors (with IndeRunExceptionParams) from
+@independo/inderun-web/provider. Router, RouteSelection, RoutePlanner,
+WasmRoutePlanner, PlannerOutcome, WasmUnavailableReason,
+SharedPlannerInput, SharedPlannerRoutePlan and EventGate are no longer
+exported. See docs/migration.md.
+* **contracts:** the provider-authoring stream `done` event gains a
+`reportedModel` field. Swift pattern matches on
+`ProviderStreamEvent.done` must bind four values. The Swift and Kotlin
+StreamTerminalOutcome builders (`completed`/`failed`/`cancelled`,
+`completedOutcome`/`errorOutcome`/`cancelledOutcome`) take a required
+`provenance` argument. The generated Swift memberwise initializers of
+TaskResult, IndeRunError and StreamTerminalOutcome gain a
+`provenance` parameter.
+* **routing:** the OpenAI-compatible factories (createIndeRunWeb
+`openAI`, Swift and Kotlin makeOpenAIRegistry) take `models` instead
+of `model` and register target ids `<id>:<model>`. The Web IndeRun
+constructor's third argument is now an options object
+`{ telemetryService?, modelProfiles? }`.
+
+### Features 🚀
+
+* **contracts:** add normalized execution provenance ([5f4b458](https://github.com/independo-gmbh/inderun/commit/5f4b458007898a077a6f1d305b326f6176331ae3)), closes [#184](https://github.com/independo-gmbh/inderun/issues/184)
+* **providers:** accept OpenRouter's Responses dialect in the OpenAI-compatible provider ([d2fdaed](https://github.com/independo-gmbh/inderun/commit/d2fdaed48a930c1fa158027cdb84ed94072d9190)), closes [#186](https://github.com/independo-gmbh/inderun/issues/186)
+* **routing:** add model profiles and model-bound targets ([ee15f97](https://github.com/independo-gmbh/inderun/commit/ee15f9729b43f6539d7a049756323df1f715535f)), closes [#238](https://github.com/independo-gmbh/inderun/issues/238)
+* **sdk:** add generateText/streamText facade over IndeRunApi ([d64c743](https://github.com/independo-gmbh/inderun/commit/d64c743964d9e17a0dcede1729d48cc8722fb372)), closes [#183](https://github.com/independo-gmbh/inderun/issues/183)
+* **web:** split the Web SDK into application and provider entry points ([08e1e5f](https://github.com/independo-gmbh/inderun/commit/08e1e5f132b436a4167f6c4edae33296c490f04d)), closes [#187](https://github.com/independo-gmbh/inderun/issues/187)
+
+### Documentation 📚
+
+* **architecture:** define public API layering and compatibility contract ([ccd61b6](https://github.com/independo-gmbh/inderun/commit/ccd61b6b4dbcc7e818cc14c00d7f6ea63b9d4e2e)), closes [#182](https://github.com/independo-gmbh/inderun/issues/182)
+
+### CI/CD 👷
+
+* make the Swift API guard advisory for announced breaks ([5dd697e](https://github.com/independo-gmbh/inderun/commit/5dd697e3963ba042c1d79e5359317abde6e33699))
+
 ## [0.3.3](https://github.com/independo-gmbh/inderun/compare/v0.3.2...v0.3.3) (2026-10-20)
 
 ### Bug Fixes 🛠️
