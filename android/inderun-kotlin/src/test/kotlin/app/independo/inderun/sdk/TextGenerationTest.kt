@@ -1,6 +1,7 @@
 package app.independo.inderun.sdk
 
 import app.independo.inderun.contracts.AttemptOutcome
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Cloud
 import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.ExecutionProvenanceAttempt
@@ -12,7 +13,13 @@ import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OptimizeFor
 import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.Payload
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
@@ -28,9 +35,6 @@ import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderCapabilitySnapshot
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
@@ -132,7 +136,7 @@ class TextGenerationTest {
         seed = if (json.has("seed")) json.getLong("seed") else null,
         execution = json.optJSONObject("execution")?.let { execution ->
             TextExecutionOptions(
-                privacy = execution.stringOrNull("privacy")?.let(PrivacyEnum::fromRawValue),
+                privacy = execution.stringOrNull("privacy")?.let(Privacy::fromRawValue),
                 cloud = execution.stringOrNull("cloud")?.let(Cloud::fromRawValue),
                 timeoutMs = if (execution.has("timeoutMs")) execution.getLong("timeoutMs") else null,
                 optimizeFor = execution.stringOrNull("optimizeFor")?.let(OptimizeFor::fromRawValue),
@@ -255,9 +259,9 @@ class TextGenerationTest {
         val provider = object : ProviderAdapter {
             override fun describe() = ProviderDescriptor(
                 id = "local_a",
-                type = ProviderDescriptor.ProviderType.local,
-                transport = ProviderDescriptor.TransportType.in_process,
-                supports = ProviderDescriptor.SupportsCapabilities(
+                type = ProviderType.Local,
+                transport = ProviderTransport.InProcess,
+                supports = ProviderSupports(
                     run = true,
                     streaming = false,
                     realtime = false,
@@ -266,7 +270,7 @@ class TextGenerationTest {
                     structuredOutput = false,
                     multimodal = false,
                 ),
-                cancel = ProviderDescriptor.CancelSemantics.none,
+                cancel = CancelSemantics.None,
                 tasks = listOf("text_to_text"),
             )
 

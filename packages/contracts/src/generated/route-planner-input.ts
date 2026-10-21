@@ -27,7 +27,9 @@ export type RoutePlannerInput = {
      */
     preferences: Preferences;
     /**
-     * Static descriptors plus dynamic capability snapshots for planning.
+     * Static descriptors plus dynamic capability checks for planning. Both shapes are the
+     * provider schemas themselves, shared by $ref, so the planner reads exactly what
+     * checkCapabilities() reports.
      */
     providers: Provider[];
     /**
@@ -52,7 +54,7 @@ export type Constraints = {
     /**
      * Privacy requirement or preference for execution placement.
      */
-    privacy?: PrivacyEnum;
+    privacy?: Privacy;
     [property: string]: unknown;
 }
 
@@ -64,7 +66,7 @@ export type Cloud = "forbidden" | "allowed" | "required";
 /**
  * Privacy requirement or preference for execution placement.
  */
-export type PrivacyEnum = "local_required" | "local_preferred" | "cloud_allowed" | "cloud_required";
+export type Privacy = "local_required" | "local_preferred" | "cloud_allowed" | "cloud_required";
 
 /**
  * Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs
@@ -109,75 +111,216 @@ export type Preferences = {
 export type OptimizeFor = "privacy" | "latency" | "cost" | "balanced";
 
 export type Provider = {
-    capabilities: Capabilities;
-    descriptor:   Descriptor;
+    /**
+     * The provider's live capability check, already folded by the engine (for example,
+     * streamingAvailable is false when the provider declares streaming but does not implement
+     * it).
+     */
+    capabilities: ProviderDynamicCapabilities;
+    /**
+     * The provider's static capability declaration.
+     */
+    descriptor: ProviderDescriptor;
     [property: string]: unknown;
 }
 
-export type Capabilities = {
+/**
+ * The provider's live capability check, already folded by the engine (for example,
+ * streamingAvailable is false when the provider declares streaming but does not implement
+ * it).
+ *
+ * A provider's live capability check, evaluated on the current host when routing or when
+ * checkCapabilities() is called. Unlike the descriptor it can change between calls.
+ */
+export type ProviderDynamicCapabilities = {
+    /**
+     * Whether the provider is available and functional on this host right now.
+     */
     available: boolean;
     /**
-     * Whether cancellation is honored right now in this host environment. Absent inherits the
-     * static descriptor.cancel value (any value other than 'none' means available).
+     * Whether cancellation is honored on this host right now. Absent inherits the static
+     * descriptor.cancel value: any value other than 'none' means available. Never null.
      */
     cancellationAvailable?: boolean;
-    reason?:                string;
     /**
-     * Whether the provider can stream right now in this host environment. Absent inherits the
-     * static descriptor.supports.streaming value.
+     * Why the provider is unavailable, when available is false.
+     */
+    reason?: string;
+    /**
+     * Whether the provider can stream (Mode 2) on this host right now. Absent inherits the
+     * static descriptor.supports.streaming value; only set it when the host takes streaming
+     * away from a provider that otherwise declares it. Never null.
      */
     streamingAvailable?: boolean;
     /**
-     * Human-readable explanation used when streamingAvailable is false. Absent lets the planner
-     * synthesize a default message.
+     * Why streaming is unavailable, when streamingAvailable is false. Absent lets the route
+     * planner synthesize a default message.
      */
     streamingUnavailableReason?: string;
     [property: string]: unknown;
 }
 
-export type Descriptor = {
+/**
+ * The provider's static capability declaration.
+ *
+ * A provider's static capability declaration: identity, placement, transport, supported
+ * interaction modes and tasks, cancellation guarantee, resource limits and privacy posture.
+ * It does not change while the provider is registered. The route planner,
+ * checkCapabilities() and execution provenance all read this one shape.
+ */
+export type ProviderDescriptor = {
     /**
-     * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
-     * the planner does not filter on it.
+     * Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+     * reading locally while remote work may continue, 'none' means cancellation is unsupported.
+     * Independently of this value, the engine delivers no event after a cancel.
      */
-    cancel?: Cancel;
-    id:      string;
+    cancel: CancelSemantics;
     /**
-     * Descriptor privacy metadata used to enforce local/cloud routing rules.
+     * Unique identifier of the provider instance (a target), e.g. 'apple_foundation_models' or
+     * 'openai_compatible_cloud:gpt-5-mini'. Model profiles list targets by this id.
      */
-    privacy?: PrivacyObject;
-    supports: Supports;
-    tasks:    string[];
-    type:     Type;
+    id: string;
+    /**
+     * Optional input and output resource limits.
+     */
+    limits?: ProviderLimits;
+    /**
+     * The model this provider instance is bound to, when it can name one. Cloud providers
+     * report the model id they send; platform-managed models report an opaque platform alias
+     * rather than a guessed weight name. Absent means the provider cannot name its model.
+     */
+    model?: string;
+    /**
+     * Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+     * or edge provider is treated as keeping data on the device and a cloud provider as sending
+     * it off.
+     */
+    privacy?: ProviderPrivacy;
+    /**
+     * How a streaming provider delivers incremental output: individual tokens, larger chunks,
+     * or whole snapshots. Absent for providers that do not stream.
+     */
+    streamingStyle?: StreamingStyle;
+    /**
+     * Interaction modes and features the provider statically declares.
+     */
+    supports: ProviderSupports;
+    /**
+     * Task kinds the provider supports, e.g. 'text_to_text'.
+     */
+    tasks: string[];
+    /**
+     * How the engine reaches the provider: in-process runtime, operating-system service,
+     * buffered HTTP, server-sent events, or a realtime connection.
+     */
+    transport: ProviderTransport;
+    /**
+     * Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+     */
+    type: ProviderType;
     [property: string]: unknown;
 }
 
 /**
- * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
- * the planner does not filter on it.
+ * Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+ * reading locally while remote work may continue, 'none' means cancellation is unsupported.
+ * Independently of this value, the engine delivers no event after a cancel.
  */
-export type Cancel = "hard" | "soft" | "none";
+export type CancelSemantics = "hard" | "soft" | "none";
 
 /**
- * Descriptor privacy metadata used to enforce local/cloud routing rules.
+ * Optional input and output resource limits.
  */
-export type PrivacyObject = {
+export type ProviderLimits = {
+    /**
+     * Longest accepted or produced audio, in seconds.
+     */
+    maxAudioSeconds?: number;
+    /**
+     * Largest accepted image, in bytes.
+     */
+    maxImageBytes?: number;
+    /**
+     * Largest accepted input, in tokens.
+     */
+    maxInputTokens?: number;
+    /**
+     * Largest output the provider produces, in tokens.
+     */
+    maxOutputTokens?: number;
+    [property: string]: unknown;
+}
+
+/**
+ * Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+ * or edge provider is treated as keeping data on the device and a cloud provider as sending
+ * it off.
+ */
+export type ProviderPrivacy = {
+    /**
+     * Whether request content leaves the device.
+     */
     dataLeavesDevice: boolean;
-    regions?:         string[];
+    /**
+     * Geographic regions where a cloud provider processes data.
+     */
+    regions?: string[];
     [property: string]: unknown;
 }
 
-export type Supports = {
+/**
+ * How a streaming provider delivers incremental output: individual tokens, larger chunks,
+ * or whole snapshots. Absent for providers that do not stream.
+ */
+export type StreamingStyle = "tokens" | "chunks" | "snapshots";
+
+/**
+ * Interaction modes and features the provider statically declares.
+ */
+export type ProviderSupports = {
+    /**
+     * Whether the provider accepts non-text inputs such as images or audio.
+     */
+    multimodal: boolean;
+    /**
+     * Whether the provider supports Mode 3 realtime sessions. Reserved; no engine implements
+     * Mode 3 yet.
+     */
+    realtime: boolean;
+    /**
+     * Whether the provider emits reasoning events alongside content.
+     */
+    reasoningEvents: boolean;
+    /**
+     * Whether the provider supports Mode 1 run (request/response).
+     */
     run: boolean;
     /**
-     * Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
-     * descriptor that predates this field cannot be assumed to stream.
+     * Whether the provider supports Mode 2 stream. A provider that declares it must also
+     * implement the streaming adapter; the engines report it as unavailable otherwise.
      */
-    streaming?: boolean;
+    streaming: boolean;
+    /**
+     * Whether the provider supports structured output constrained by a JSON schema.
+     */
+    structuredOutput: boolean;
+    /**
+     * Whether the provider supports tool calling.
+     */
+    tools: boolean;
     [property: string]: unknown;
 }
 
-export type Type = "local" | "edge" | "cloud";
+/**
+ * How the engine reaches the provider: in-process runtime, operating-system service,
+ * buffered HTTP, server-sent events, or a realtime connection.
+ */
+export type ProviderTransport = "in_process" | "system_service" | "http" | "sse" | "realtime";
+
+/**
+ * Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+ */
+export type ProviderType = "local" | "edge" | "cloud";
 
 /**
  * Minimal task descriptor for provider task matching.

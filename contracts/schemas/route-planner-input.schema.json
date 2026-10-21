@@ -76,7 +76,7 @@
       }
     },
     "providers": {
-      "description": "Static descriptors plus dynamic capability snapshots for planning.",
+      "description": "Static descriptors plus dynamic capability checks for planning. Both shapes are the provider schemas themselves, shared by $ref, so the planner reads exactly what checkCapabilities() reports.",
       "type": "array",
       "items": {
         "type": "object",
@@ -84,88 +84,12 @@
         "required": ["descriptor", "capabilities"],
         "properties": {
           "descriptor": {
-            "type": "object",
-            "additionalProperties": true,
-            "required": ["id", "type", "supports", "tasks"],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "type": {
-                "enum": ["local", "edge", "cloud"]
-              },
-              "supports": {
-                "type": "object",
-                "additionalProperties": true,
-                "required": ["run"],
-                "properties": {
-                  "run": {
-                    "type": "boolean"
-                  },
-                  "streaming": {
-                    "description": "Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a descriptor that predates this field cannot be assumed to stream.",
-                    "type": "boolean"
-                  }
-                }
-              },
-              "cancel": {
-                "description": "Cancellation guarantee the provider offers. Carried for route explanations and telemetry; the planner does not filter on it.",
-                "enum": ["hard", "soft", "none"]
-              },
-              "tasks": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "privacy": {
-                "description": "Descriptor privacy metadata used to enforce local/cloud routing rules.",
-                "type": "object",
-                "additionalProperties": true,
-                "required": ["dataLeavesDevice"],
-                "properties": {
-                  "dataLeavesDevice": {
-                    "type": "boolean"
-                  },
-                  "regions": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
+            "description": "The provider's static capability declaration.",
+            "$ref": "provider-descriptor.schema.json"
           },
           "capabilities": {
-            "type": "object",
-            "additionalProperties": true,
-            "required": ["available"],
-            "properties": {
-              "available": {
-                "type": "boolean"
-              },
-              "reason": {
-                "type": "string",
-                "minLength": 1
-              },
-              "streamingAvailable": {
-                "description": "Whether the provider can stream right now in this host environment. Absent inherits the static descriptor.supports.streaming value.",
-                "type": "boolean"
-              },
-              "streamingUnavailableReason": {
-                "description": "Human-readable explanation used when streamingAvailable is false. Absent lets the planner synthesize a default message.",
-                "type": "string",
-                "minLength": 1
-              },
-              "cancellationAvailable": {
-                "description": "Whether cancellation is honored right now in this host environment. Absent inherits the static descriptor.cancel value (any value other than 'none' means available).",
-                "type": "boolean"
-              }
-            }
+            "description": "The provider's live capability check, already folded by the engine (for example, streamingAvailable is false when the provider declares streaming but does not implement it).",
+            "$ref": "provider-dynamic-capabilities.schema.json"
           }
         }
       }

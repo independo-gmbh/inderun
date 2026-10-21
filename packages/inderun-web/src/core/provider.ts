@@ -1,4 +1,6 @@
 import type {
+  ProviderDescriptor,
+  ProviderDynamicCapabilities,
   StreamEvent,
   StreamRunHandle,
   TaskRequest,
@@ -7,143 +9,17 @@ import type {
 import type { HostServices } from "./host.js";
 
 /**
- * Static metadata descriptor defining the capabilities, requirements, and constraints
- * of a provider. This is used by the routing engine and Router to select candidate providers.
+ * A provider's static declaration, live capability check, and the pair as
+ * `checkCapabilities()` returns it. All three are schema-backed contracts
+ * (`contracts/schemas/provider-*.schema.json`), shared with the Swift and Kotlin
+ * SDKs and with the route planner, so they are re-exported here rather than
+ * declared.
  */
-export interface ProviderDescriptor {
-  /**
-   * Unique identifier of the provider (e.g., 'openai', 'apple-foundation-models').
-   */
-  id: string;
-  /**
-   * Execution target type: 'local' (on-device), 'edge', or 'cloud'.
-   */
-  type: "local" | "edge" | "cloud";
-  /**
-   * The model this provider instance is bound to, when it can name one. A provider
-   * instance bound to one model is a *target* that model profiles list by `id`.
-   * Cloud providers report the model id they send; platform-managed models report
-   * an opaque platform alias rather than a guessed weight name. Absent means the
-   * provider cannot name its model.
-   */
-  model?: string;
-  /**
-   * Connection transport layer protocol.
-   */
-  transport: "in_process" | "system_service" | "http" | "sse" | "realtime";
-  /**
-   * Optional streaming style, if token or chunk streaming is supported.
-   */
-  streamingStyle?: "tokens" | "chunks" | "snapshots";
-
-  /**
-   * Flags representing the features and modes supported by this provider.
-   */
-  supports: {
-    /** Whether the provider supports Mode 1 run (request/response). */
-    run: boolean;
-    /** Whether the provider supports Mode 2 stream. */
-    streaming: boolean;
-    /** Whether the provider supports Mode 3 realtime session. */
-    realtime: boolean;
-    /** Whether the provider supports tool calling definition. */
-    tools: boolean;
-    /** Whether the provider outputs reasoning events alongside contents. */
-    reasoningEvents: boolean;
-    /** Whether the provider supports structured outputs (JSON schema constraints). */
-    structuredOutput: boolean;
-    /** Whether the provider supports multimodal inputs (images, audio, etc.). */
-    multimodal: boolean;
-  };
-
-  /**
-   * Cancellation capabilities support:
-   * - 'hard': fully stops processing and interrupts remote operations.
-   * - 'soft': stops reading the stream locally, but the remote execution continues.
-   * - 'none': cancellation is unsupported.
-   */
-  cancel: "hard" | "soft" | "none";
-
-  /**
-   * List of supported task kinds (e.g., 'text_to_text', 'embeddings').
-   */
-  tasks: string[];
-
-  /**
-   * Optional input/output resource boundaries.
-   */
-  limits?: {
-    maxInputTokens?: number;
-    maxOutputTokens?: number;
-    maxImageBytes?: number;
-    maxAudioSeconds?: number;
-  };
-
-  /**
-   * Privacy settings regarding data egress.
-   */
-  privacy?: {
-    /** Set to true if the model input leaves the host device. */
-    dataLeavesDevice: boolean;
-    /** Geographic regions where the cloud service executes. */
-    regions?: string[];
-  };
-}
-
-/**
- * Dynamic capability snapshot evaluated at runtime.
- */
-export interface ProviderDynamicCapabilities {
-  /**
-   * Whether the provider is available and functional on the host device now.
-   */
-  available: boolean;
-  /**
-   * Detail message if availability check fails.
-   */
-  reason?: string;
-  /**
-   * Whether the provider can stream (Mode 2) right now on this host. Leave
-   * undefined to inherit the static `descriptor.supports.streaming` value —
-   * only set it when the runtime environment can take streaming away from a
-   * provider that otherwise declares it (e.g. the host has no chunked HTTP
-   * capability).
-   */
-  streamingAvailable?: boolean;
-  /**
-   * Detail message used when `streamingAvailable` is false. Omit to let the
-   * route planner synthesize a generic message.
-   */
-  streamingUnavailableReason?: string;
-  /**
-   * Whether cancellation is honored right now on this host. Leave undefined to
-   * inherit the static `descriptor.cancel` value (anything other than `"none"`
-   * means available).
-   */
-  cancellationAvailable?: boolean;
-}
-
-/**
- * One registered provider's identity, fixed capabilities, and live availability,
- * as of the moment checkCapabilities() was called.
- */
-export interface ProviderCapabilitySnapshot {
-  /**
-   * Stable identifier for this provider, matching the value used in routing
-   * preferences/constraints.
-   */
-  providerId: string;
-  /**
-   * The provider's static, unchanging capability declaration (supported modes,
-   * privacy posture, model info).
-   */
-  descriptor: ProviderDescriptor;
-  /**
-   * The provider's current dynamic availability (e.g. whether it's reachable/loaded
-   * right now) — this is the part that can change between calls.
-   */
-  capabilities: ProviderDynamicCapabilities;
-}
+export type {
+  ProviderCapabilitySnapshot,
+  ProviderDescriptor,
+  ProviderDynamicCapabilities
+} from "@independo/inderun-contracts";
 
 /**
  * Execution context passed to provider run commands.

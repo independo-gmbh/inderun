@@ -93,7 +93,7 @@ public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Send
             type: .local,
             transport: .systemService,
             streamingStyle: .snapshots,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: true,
                 realtime: false,
@@ -104,7 +104,7 @@ public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Send
             ),
             cancel: .soft,
             tasks: ["text_to_text"],
-            privacy: ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice: false)
+            privacy: ProviderPrivacy(dataLeavesDevice: false)
         )
     }
 

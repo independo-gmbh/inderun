@@ -5,8 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.StreamEvent
-import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.StreamRun
 import app.independo.inderun.providers.onnx.AndroidOnnxRuntimeProvider
 import kotlinx.coroutines.CoroutineDispatcher

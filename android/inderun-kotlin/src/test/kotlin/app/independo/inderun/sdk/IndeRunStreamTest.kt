@@ -3,7 +3,7 @@ package app.independo.inderun.sdk
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Outcome
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.providers.mlkit.AndroidMlKitGenAiAvailability
@@ -39,7 +39,7 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class IndeRunStreamTest {
-    private fun localRequiredRequest() = conformanceRequest(privacy = PrivacyEnum.LocalRequired)
+    private fun localRequiredRequest() = conformanceRequest(privacy = Privacy.LocalRequired)
 
     @Test
     fun streamsMlKitDeltasThroughTheEngineUnderLocalRequired() = runTest {

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/provider-capability-snapshot.schema.json",
+  "title": "ProviderCapabilitySnapshot",
+  "description": "One registered provider's identity, static declaration and live capability check, as returned by checkCapabilities(). A read-only snapshot: producing it executes no task and has no side effects.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["providerId", "descriptor", "capabilities"],
+  "properties": {
+    "providerId": {
+      "description": "Identifier of the provider; equal to descriptor.id.",
+      "type": "string",
+      "minLength": 1
+    },
+    "descriptor": {
+      "description": "The provider's static capability declaration.",
+      "$ref": "provider-descriptor.schema.json"
+    },
+    "capabilities": {
+      "description": "The provider's live capability check at the time of the call.",
+      "$ref": "provider-dynamic-capabilities.schema.json"
+    }
+  }
+}

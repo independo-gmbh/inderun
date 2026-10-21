@@ -111,6 +111,24 @@ const schemas = [
     constName: "streamTerminalOutcomeSchema"
   },
   {
+    input: "provider-capability-snapshot.schema.json",
+    typeOutput: "provider-capability-snapshot.ts",
+    constName: "providerCapabilitySnapshotSchema"
+  },
+  {
+    input: "provider-descriptor.schema.json",
+    typeOutput: "provider-descriptor.ts",
+    constName: "providerDescriptorSchema",
+    // Reached through `$ref` from the capability snapshot and the route-planner input.
+    nativeRoot: false
+  },
+  {
+    input: "provider-dynamic-capabilities.schema.json",
+    typeOutput: "provider-dynamic-capabilities.ts",
+    constName: "providerDynamicCapabilitiesSchema",
+    nativeRoot: false
+  },
+  {
     input: "execution-provenance.schema.json",
     typeOutput: "execution-provenance.ts",
     constName: "executionProvenanceSchema",

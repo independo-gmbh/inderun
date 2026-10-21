@@ -46,7 +46,7 @@ public extension TaskRequest {
 /// floor, a timeout), so this mirrors the other convenience initializers here and
 /// lets callers name only what they are constraining.
 public extension TaskRequestConstraints {
-    init(privacy: PrivacyEnum? = nil, cloud: Cloud? = nil, timeoutMs: Int? = nil) {
+    init(privacy: Privacy? = nil, cloud: Cloud? = nil, timeoutMs: Int? = nil) {
         self.init(cloud: cloud, privacy: privacy, timeoutMs: timeoutMs)
     }
 }
@@ -153,5 +153,111 @@ public extension TelemetryEvent {
             timestamp: Double(timestamp),
             type: TelemetryEventType(rawValue: type) ?? .routeDecided
         )
+    }
+}
+
+// MARK: - Provider capability contracts
+
+// The generated memberwise initializers take every field in alphabetical order with no
+// defaults. These keep provider declarations in the order a descriptor is read — identity,
+// placement, transport, modes, cancellation, tasks — and let optional fields be omitted.
+
+public extension ProviderDescriptor {
+    init(
+        id: String,
+        type: ProviderType,
+        model: String? = nil,
+        transport: ProviderTransport,
+        streamingStyle: StreamingStyle? = nil,
+        supports: ProviderSupports,
+        cancel: CancelSemantics,
+        tasks: [String],
+        limits: ProviderLimits? = nil,
+        privacy: ProviderPrivacy? = nil
+    ) {
+        self.init(
+            cancel: cancel,
+            id: id,
+            limits: limits,
+            model: model,
+            privacy: privacy,
+            streamingStyle: streamingStyle,
+            supports: supports,
+            tasks: tasks,
+            transport: transport,
+            type: type
+        )
+    }
+}
+
+public extension ProviderSupports {
+    init(
+        run: Bool,
+        streaming: Bool,
+        realtime: Bool,
+        tools: Bool,
+        reasoningEvents: Bool,
+        structuredOutput: Bool,
+        multimodal: Bool
+    ) {
+        self.init(
+            multimodal: multimodal,
+            realtime: realtime,
+            reasoningEvents: reasoningEvents,
+            run: run,
+            streaming: streaming,
+            structuredOutput: structuredOutput,
+            tools: tools
+        )
+    }
+}
+
+public extension ProviderLimits {
+    init(
+        maxInputTokens: Int? = nil,
+        maxOutputTokens: Int? = nil,
+        maxImageBytes: Int? = nil,
+        maxAudioSeconds: Int? = nil
+    ) {
+        self.init(
+            maxAudioSeconds: maxAudioSeconds,
+            maxImageBytes: maxImageBytes,
+            maxInputTokens: maxInputTokens,
+            maxOutputTokens: maxOutputTokens
+        )
+    }
+}
+
+public extension ProviderPrivacy {
+    /// A privacy declaration without regions. The generated initializer already takes
+    /// `(dataLeavesDevice:regions:)` in that order, so only the shorter form is added here.
+    init(dataLeavesDevice: Bool) {
+        self.init(dataLeavesDevice: dataLeavesDevice, regions: nil)
+    }
+}
+
+public extension ProviderDynamicCapabilities {
+    /// Omitted tri-state fields stay `nil`, which encodes as an absent key: absent
+    /// `streamingAvailable` / `cancellationAvailable` inherit the static declaration.
+    init(
+        available: Bool,
+        reason: String? = nil,
+        streamingAvailable: Bool? = nil,
+        streamingUnavailableReason: String? = nil,
+        cancellationAvailable: Bool? = nil
+    ) {
+        self.init(
+            available: available,
+            cancellationAvailable: cancellationAvailable,
+            reason: reason,
+            streamingAvailable: streamingAvailable,
+            streamingUnavailableReason: streamingUnavailableReason
+        )
+    }
+}
+
+public extension ProviderCapabilitySnapshot {
+    init(providerId: String, descriptor: ProviderDescriptor, capabilities: ProviderDynamicCapabilities) {
+        self.init(capabilities: capabilities, descriptor: descriptor, providerId: providerId)
     }
 }

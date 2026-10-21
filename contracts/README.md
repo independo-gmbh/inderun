@@ -52,7 +52,7 @@ The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
 
-`execution-provenance.schema.json` (`ExecutionProvenance`) is the one shape shared by `$ref` rather than
+`execution-provenance.schema.json` (`ExecutionProvenance`) was the first shape shared by `$ref` rather than
 duplicated by value. It is carried on six payloads — `TaskResult`, `IndeRunError`, every `StreamTerminalOutcome`
 branch, and the terminal `StreamEvent` payload — and by-value copies made quicktype emit six unrelated Swift and
 Kotlin types for one concept. The referencing schemas point at it with a relative `$ref`, which quicktype resolves
@@ -60,6 +60,14 @@ from the file and Ajv resolves against the shared `$id` base; `validators.ts` co
 The generator leaves it out of the Swift/Kotlin root list (it arrives through the references) and restores its
 title as the type name. What provenance means is in
 [`docs/architecture/architecture.md`](../docs/architecture/architecture.md#execution-provenance).
+
+The provider capability contracts follow the same pattern. `provider-descriptor.schema.json` (`ProviderDescriptor`)
+and `provider-dynamic-capabilities.schema.json` (`ProviderDynamicCapabilities`) are referenced by
+`provider-capability-snapshot.schema.json` (`ProviderCapabilitySnapshot`, what `checkCapabilities()` returns) and by
+`route-planner-input.schema.json`, so the planner reads exactly the shape providers declare and the snapshot
+reports. Each nested object and enum carries a `title`, which is what quicktype names the generated type after.
+`fixtures/provider/capability-snapshots.json` holds valid and invalid snapshots; the TypeScript validators and a
+Swift decode/re-encode test both run it, the latter to prove an absent tri-state flag stays absent.
 
 ## Generated enums carry their wire value
 

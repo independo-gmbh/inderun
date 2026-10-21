@@ -55,21 +55,11 @@ describe("WasmRoutePlanner (real WASM module)", () => {
       preferences: { optimizeFor: "balanced" },
       providers: [
         {
-          descriptor: {
-            id: "provider_b",
-            type: "local",
-            supports: { run: true },
-            tasks: ["text_to_text"]
-          },
+          descriptor: localDescriptor("provider_b"),
           capabilities: { available: true }
         },
         {
-          descriptor: {
-            id: "provider_a",
-            type: "local",
-            supports: { run: true },
-            tasks: ["text_to_text"]
-          },
+          descriptor: localDescriptor("provider_a"),
           capabilities: { available: true }
         }
       ]
@@ -86,3 +76,22 @@ describe("WasmRoutePlanner (real WASM module)", () => {
     expect(outcome.routePlan?.fallbackProviderIds).toEqual(["provider_b"]);
   });
 });
+
+function localDescriptor(id: string): SharedPlannerInput["providers"][number]["descriptor"] {
+  return {
+    id,
+    type: "local",
+    transport: "in_process",
+    supports: {
+      run: true,
+      streaming: false,
+      realtime: false,
+      tools: false,
+      reasoningEvents: false,
+      structuredOutput: false,
+      multimodal: false
+    },
+    cancel: "soft",
+    tasks: ["text_to_text"]
+  };
+}

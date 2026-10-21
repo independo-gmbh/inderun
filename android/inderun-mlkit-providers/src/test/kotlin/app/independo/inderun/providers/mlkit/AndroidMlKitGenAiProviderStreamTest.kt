@@ -1,12 +1,14 @@
 package app.independo.inderun.providers.mlkit
 
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Generation
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.StreamingStyle
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
@@ -15,7 +17,6 @@ import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderDescriptor
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
 import app.independo.inderun.core.RunContext
@@ -57,8 +58,8 @@ class AndroidMlKitGenAiProviderStreamTest {
         val descriptor = adapter.describe()
 
         assertTrue(descriptor.supports.streaming)
-        assertEquals(ProviderDescriptor.StreamingStyle.chunks, descriptor.streamingStyle)
-        assertEquals(ProviderDescriptor.CancelSemantics.soft, descriptor.cancel)
+        assertEquals(StreamingStyle.Chunks, descriptor.streamingStyle)
+        assertEquals(CancelSemantics.Soft, descriptor.cancel)
         // Declaring streaming without implementing it is a routing-visible
         // mistake, so the type is asserted alongside the flag.
         assertTrue(adapter is StreamingProviderAdapter)
@@ -124,7 +125,7 @@ class AndroidMlKitGenAiProviderStreamTest {
                 Message(MessageRole.USER, "Hello"),
             ),
             task = TaskRequestTask(),
-            constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+            constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             generation = Generation(maxOutputTokens = 64, temperature = 0.5, seed = 7),
         )
 
@@ -467,7 +468,7 @@ class AndroidMlKitGenAiProviderStreamTest {
         schemaVersion = SchemaVersion.V1_0,
         prompt = "Hello",
         task = TaskRequestTask(),
-        constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+        constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
     )
 
     private fun streamContext(

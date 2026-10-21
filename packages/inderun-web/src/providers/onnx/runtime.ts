@@ -8,12 +8,12 @@ import type { ModelPackage, TaskRequest, TaskResult } from "@independo/inderun-c
  * flattens every failure into a single `capability_unavailable` route rejection and carries the
  * reason as human-readable text.
  */
-export interface OnnxRuntimeAvailability {
+export type OnnxRuntimeAvailability = {
   /** Whether the runtime can execute the given model package on this host right now. */
   available: boolean;
   /** Human-readable detail describing why the runtime is unavailable. */
   reason?: string;
-}
+};
 
 /**
  * Normalized conversation turn handed to an ONNX text generation runtime.

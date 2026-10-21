@@ -8,6 +8,26 @@ const wasmBytes = await readFile(
 
 await initSharedCore(wasmBytes);
 
+// The planner reads the full provider-descriptor contract; only the fields under test vary.
+function localDescriptor(id, { streaming = false } = {}) {
+  return {
+    id,
+    type: "local",
+    transport: "in_process",
+    supports: {
+      run: true,
+      streaming,
+      realtime: false,
+      tools: false,
+      reasoningEvents: false,
+      structuredOutput: false,
+      multimodal: false
+    },
+    cancel: "soft",
+    tasks: ["text_to_text"]
+  };
+}
+
 const outputJson = await planRouteJson(
   JSON.stringify({
     task: { kind: "text_to_text" },
@@ -20,23 +40,13 @@ const outputJson = await planRouteJson(
     },
     providers: [
       {
-        descriptor: {
-          id: "provider_b",
-          type: "local",
-          supports: { run: true },
-          tasks: ["text_to_text"]
-        },
+        descriptor: localDescriptor("provider_b"),
         capabilities: {
           available: true
         }
       },
       {
-        descriptor: {
-          id: "provider_a",
-          type: "local",
-          supports: { run: true },
-          tasks: ["text_to_text"]
-        },
+        descriptor: localDescriptor("provider_a"),
         capabilities: {
           available: true
         }
@@ -61,23 +71,13 @@ const streamOutputJson = await planRouteJson(
     preferences: {},
     providers: [
       {
-        descriptor: {
-          id: "provider_b",
-          type: "local",
-          supports: { run: true, streaming: true },
-          tasks: ["text_to_text"]
-        },
+        descriptor: localDescriptor("provider_b", { streaming: true }),
         capabilities: {
           available: true
         }
       },
       {
-        descriptor: {
-          id: "provider_a",
-          type: "local",
-          supports: { run: true, streaming: false },
-          tasks: ["text_to_text"]
-        },
+        descriptor: localDescriptor("provider_a", { streaming: false }),
         capabilities: {
           available: true
         }

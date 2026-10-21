@@ -7,9 +7,10 @@ import app.independo.inderun.contracts.ExecutionProvenanceAttempt
 import app.independo.inderun.contracts.ExecutionProvenanceRouteRejection
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Locality
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.RoutePlan
 import app.independo.inderun.core.ModelProfiles
-import app.independo.inderun.core.ProviderDescriptor
 
 /**
  * Accumulates what one execution did -- each attempt and how it ended -- and renders it as the
@@ -79,8 +80,8 @@ internal class ProvenanceRecorder(modelProfile: String?) {
     )
 
     private fun localityOf(descriptor: ProviderDescriptor): Locality = when (descriptor.type) {
-        ProviderDescriptor.ProviderType.local -> Locality.OnDevice
-        ProviderDescriptor.ProviderType.edge -> Locality.Edge
-        ProviderDescriptor.ProviderType.cloud -> Locality.Cloud
+        ProviderType.Local -> Locality.OnDevice
+        ProviderType.Edge -> Locality.Edge
+        ProviderType.Cloud -> Locality.Cloud
     }
 }

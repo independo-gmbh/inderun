@@ -12,7 +12,7 @@
  * themselves or the runtime validators.
  */
 
-/** The generated request/response, streaming, routing, and telemetry models. */
+/** The generated request/response, streaming, routing, provider-capability, and telemetry models. */
 export type * from "./generated/index.js";
 
 /** The JSON Schemas those models were generated from, for runtime use. */
@@ -22,6 +22,9 @@ export {
   httpResponseSchema,
   inderunErrorSchema,
   modelPackageSchema,
+  providerCapabilitySnapshotSchema,
+  providerDescriptorSchema,
+  providerDynamicCapabilitiesSchema,
   routePlanSchema,
   routePlannerInputSchema,
   streamEventSchema,
@@ -42,6 +45,9 @@ export {
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
   getModelPackageValidationIssues,
+  getProviderCapabilitySnapshotValidationIssues,
+  getProviderDescriptorValidationIssues,
+  getProviderDynamicCapabilitiesValidationIssues,
   getRoutePlanValidationIssues,
   getRoutePlannerInputValidationIssues,
   getStreamEventValidationIssues,
@@ -55,6 +61,9 @@ export {
   validateHttpResponse,
   validateIndeRunError,
   validateModelPackage,
+  validateProviderCapabilitySnapshot,
+  validateProviderDescriptor,
+  validateProviderDynamicCapabilities,
   validateRoutePlan,
   validateRoutePlannerInput,
   validateStreamEvent,
@@ -70,10 +79,13 @@ export {
  * and the routing input/output shapes under the names the engines use.
  */
 export type {
+  CancelSemantics,
   FinishReason,
   IndeRunErrorClass,
   ModelPackageFormat,
   ModelSourceType,
+  ProviderTransport,
+  ProviderType,
   SchemaVersion,
   SharedRoutePlan,
   SharedRoutePlannerInput,

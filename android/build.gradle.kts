@@ -22,10 +22,12 @@ plugins {
 // modules' tests route: :inderun-core and :inderun-kotlin.
 val routeCoreHostDir = File(rootProject.projectDir.parentFile, "target/route-core-host")
 
-// The cross-SDK conformance vectors live outside every module, so Gradle would
-// otherwise report a test task up to date after the fixtures change and quietly
-// skip the suites that read them -- which is exactly when they most need to run.
-val sharedStreamingFixtures = File(rootProject.projectDir.parentFile, "contracts/fixtures/streaming")
+// The cross-SDK conformance vectors and the schemas some tests walk live outside
+// every module, so Gradle would otherwise report a test task up to date after they
+// change and quietly skip the suites that read them -- which is exactly when they
+// most need to run.
+val sharedContractFixtures = File(rootProject.projectDir.parentFile, "contracts/fixtures")
+val sharedContractSchemas = File(rootProject.projectDir.parentFile, "contracts/schemas")
 
 val buildRouteCoreHost = tasks.register<Exec>("buildRouteCoreHost") {
     group = "verification"
@@ -64,8 +66,11 @@ subprojects {
             }
         )
 
-        inputs.dir(sharedStreamingFixtures)
-            .withPropertyName("sharedStreamingFixtures")
+        inputs.dir(sharedContractFixtures)
+            .withPropertyName("sharedContractFixtures")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.dir(sharedContractSchemas)
+            .withPropertyName("sharedContractSchemas")
             .withPathSensitivity(PathSensitivity.RELATIVE)
 
         // Routing has a single planner, so these modules' tests fail without the

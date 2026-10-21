@@ -4,7 +4,7 @@ import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
@@ -65,7 +65,7 @@ class AndroidMlKitGenAiProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             ),
             context = RunContext("run_123", fakeHostServices()),
         )
@@ -90,7 +90,7 @@ class AndroidMlKitGenAiProviderTest {
                     Message(MessageRole.USER, "Hello"),
                 ),
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             ),
             context = RunContext("run_123", fakeHostServices()),
         )
@@ -113,7 +113,7 @@ class AndroidMlKitGenAiProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                    constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
                 ),
                 context = RunContext("run_123", fakeHostServices()),
             )
@@ -141,7 +141,7 @@ class AndroidMlKitGenAiProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                    constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
                 ),
                 context = RunContext("run_123", fakeHostServices()),
             )
@@ -168,7 +168,7 @@ class AndroidMlKitGenAiProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             ),
             context = RunContext("run_123", fakeHostServices()),
         )
@@ -191,7 +191,7 @@ class AndroidMlKitGenAiProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             ),
             context = RunContext("run_123", fakeHostServices()),
         )
@@ -211,7 +211,7 @@ class AndroidMlKitGenAiProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             ),
             context = RunContext("run_123", fakeHostServices()),
         )

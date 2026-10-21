@@ -46,12 +46,13 @@ const banner =
 // read from the spec) to mirror generate-contracts.mjs's convention of hardcoding
 // output paths in the generator rather than the spec.
 //
-// Note on "core"-sourced types (currently only ProviderCapabilitySnapshot): this
-// generator references them by name only. Unlike "contracts"-sourced types, which
-// get cross-language payload-shape parity from the separate JSON-Schema/quicktype
-// pipeline (contracts/schemas/*.schema.json + generate-contracts.mjs), "core" types
-// are handwritten independently per language and their shape is NOT verified to
-// match across TS/Kotlin/Swift by this generator or any other check.
+// Note on "core"-sourced types (currently only StreamRun): this generator references
+// them by name only. Unlike "contracts"-sourced types, which get cross-language
+// payload-shape parity from the separate JSON-Schema/quicktype pipeline
+// (contracts/schemas/*.schema.json + generate-contracts.mjs), "core" types are
+// handwritten per language because they are not payloads — StreamRun carries a live
+// event sequence and a cancel hook in each platform's idiom. Their shape is NOT
+// verified to match across TS/Kotlin/Swift by this generator or any other check.
 const tsSourceModules = {
   contracts: "@independo/inderun-contracts",
   core: "../provider.js"

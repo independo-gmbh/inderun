@@ -20,6 +20,8 @@ Every provider should define:
 - normalized error and telemetry behavior
 - the model its backend reports for a run, when the backend names one (`TaskResult.telemetry.reportedModel` for `run`, the `done` stream event for `stream`); the engine carries it into [execution provenance](./architecture.md#execution-provenance) and never infers it
 
+The static descriptor, the dynamic capability check and the pair `checkCapabilities()` returns are schema-backed contracts (`ProviderDescriptor`, `ProviderDynamicCapabilities` and `ProviderCapabilitySnapshot` in `contracts/schemas/provider-*.schema.json`). Every SDK uses the generated types, the route planner reads the same two shapes through `$ref`, and bridges can import them instead of mirroring them. In the dynamic check, an absent `streamingAvailable` or `cancellationAvailable` means "inherit the static declaration"; it is a distinct state from `false` and is never encoded as `null`.
+
 The code and public types should define the exact field shapes and behavior. This document only records the concept and the repository-level mapping.
 
 ## Error Model

@@ -11,8 +11,10 @@
 //!   The stream-mode candidate list is therefore always a subsequence of the
 //!   run-mode one for the same input, which is what keeps Mode 1 stable while
 //!   Mode 2 evolves.
-//! - Absent capability flags mean "not capable". A descriptor written before
-//!   `supports.streaming` existed cannot be assumed to stream.
+//! - The descriptor and dynamic capabilities are the provider schemas
+//!   themselves (`provider-descriptor`, `provider-dynamic-capabilities`), so
+//!   every static flag is present. Absent dynamic flags inherit the static
+//!   declaration; they never mean "capable" on their own.
 //! - A static rejection wins over a dynamic one: a provider that never declared
 //!   streaming is reported as `streaming_not_supported`, and only a provider
 //!   that did declare it can be reported as `streaming_unavailable`. Emitting
@@ -152,35 +154,31 @@ fn placement_rank(provider: &Provider, constraints: &Constraints) -> u8 {
 
     match constraints.cloud {
         Some(Cloud::Required) => {
-            if descriptor.descriptor_type == Type::Cloud {
+            if descriptor.provider_descriptor_type == ProviderType::Cloud {
                 0
             } else {
                 1
             }
         }
         Some(Cloud::Forbidden) => {
-            if descriptor.descriptor_type == Type::Cloud {
+            if descriptor.provider_descriptor_type == ProviderType::Cloud {
                 1
             } else {
                 0
             }
         }
         Some(Cloud::Allowed) | None => match constraints.privacy {
-            Some(PrivacyEnum::LocalRequired) | Some(PrivacyEnum::LocalPreferred) => {
-                if is_data_private(descriptor) {
+            Some(Privacy::LocalRequired) | Some(Privacy::LocalPreferred) => {
+                if is_data_private(descriptor) { 0 } else { 1 }
+            }
+            Some(Privacy::CloudRequired) => {
+                if descriptor.provider_descriptor_type == ProviderType::Cloud {
                     0
                 } else {
                     1
                 }
             }
-            Some(PrivacyEnum::CloudRequired) => {
-                if descriptor.descriptor_type == Type::Cloud {
-                    0
-                } else {
-                    1
-                }
-            }
-            Some(PrivacyEnum::CloudAllowed) | None => 0,
+            Some(Privacy::CloudAllowed) | None => 0,
         },
     }
 }
@@ -194,27 +192,27 @@ fn preference_rank(provider: &Provider, preferences: &Preferences) -> u8 {
                 1
             }
         }
-        Some(OptimizeFor::Latency) => match provider.descriptor.descriptor_type {
-            Type::Cloud => 0,
-            Type::Edge => 1,
-            Type::Local => 2,
+        Some(OptimizeFor::Latency) => match provider.descriptor.provider_descriptor_type {
+            ProviderType::Cloud => 0,
+            ProviderType::Edge => 1,
+            ProviderType::Local => 2,
         },
         Some(OptimizeFor::Cost) | Some(OptimizeFor::Balanced) | None => {
-            match provider.descriptor.descriptor_type {
-                Type::Local => 0,
-                Type::Edge => 1,
-                Type::Cloud => 2,
+            match provider.descriptor.provider_descriptor_type {
+                ProviderType::Local => 0,
+                ProviderType::Edge => 1,
+                ProviderType::Cloud => 2,
             }
         }
     }
 }
 
-fn is_data_private(descriptor: &Descriptor) -> bool {
+fn is_data_private(descriptor: &ProviderDescriptor) -> bool {
     descriptor
         .privacy
         .as_ref()
         .map(|privacy| !privacy.data_leaves_device)
-        .unwrap_or(descriptor.descriptor_type != Type::Cloud)
+        .unwrap_or(descriptor.provider_descriptor_type != ProviderType::Cloud)
 }
 
 fn wants_stream(input: &RoutePlannerInput) -> bool {
@@ -257,7 +255,7 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
     }
 
     if wants_stream {
-        if !descriptor.supports.streaming.unwrap_or(false) {
+        if !descriptor.supports.streaming {
             reasons.push(Reason {
                 code: Code::StreamingNotSupported,
                 message: format!(
@@ -281,7 +279,7 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
         }
     }
 
-    if matches!(input.constraints.privacy, Some(PrivacyEnum::LocalRequired))
+    if matches!(input.constraints.privacy, Some(Privacy::LocalRequired))
         && !is_data_private(descriptor)
     {
         reasons.push(Reason {
@@ -293,8 +291,8 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
         });
     }
 
-    if matches!(input.constraints.privacy, Some(PrivacyEnum::CloudRequired))
-        && descriptor.descriptor_type != Type::Cloud
+    if matches!(input.constraints.privacy, Some(Privacy::CloudRequired))
+        && descriptor.provider_descriptor_type != ProviderType::Cloud
     {
         reasons.push(Reason {
             code: Code::PrivacyConstraint,
@@ -306,7 +304,7 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
     }
 
     if matches!(input.constraints.cloud, Some(Cloud::Forbidden))
-        && descriptor.descriptor_type == Type::Cloud
+        && descriptor.provider_descriptor_type == ProviderType::Cloud
     {
         reasons.push(Reason {
             code: Code::CloudConstraint,
@@ -318,7 +316,7 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
     }
 
     if matches!(input.constraints.cloud, Some(Cloud::Required))
-        && descriptor.descriptor_type != Type::Cloud
+        && descriptor.provider_descriptor_type != ProviderType::Cloud
     {
         reasons.push(Reason {
             code: Code::CloudConstraint,
@@ -330,7 +328,7 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
     }
 
     if matches!(input.constraints.network_online, Some(false))
-        && descriptor.descriptor_type == Type::Cloud
+        && descriptor.provider_descriptor_type == ProviderType::Cloud
     {
         reasons.push(Reason {
             code: Code::Offline,
@@ -367,7 +365,7 @@ fn infer_failure_code(
     }
 
     if matches!(constraints.cloud, Some(Cloud::Required))
-        || matches!(constraints.privacy, Some(PrivacyEnum::CloudRequired))
+        || matches!(constraints.privacy, Some(Privacy::CloudRequired))
     {
         return FailureCode::Unavailable;
     }

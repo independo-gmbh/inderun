@@ -8,7 +8,7 @@ import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OptimizeFor
 import app.independo.inderun.contracts.Outcome
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.TaskRequest
@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
  * facade and `run` never changes what a constraint means.
  */
 data class TextExecutionOptions(
-    val privacy: PrivacyEnum? = null,
+    val privacy: Privacy? = null,
     val cloud: Cloud? = null,
     val timeoutMs: Long? = null,
     val optimizeFor: OptimizeFor? = null,

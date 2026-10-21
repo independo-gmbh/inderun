@@ -278,7 +278,7 @@ val indeRun = IndeRun.initialize(this) // `this` is a Context
 val result = indeRun.generateText(
     TextGenerationOptions(
         prompt = "Translate 'Hello' to Spanish",
-        execution = TextExecutionOptions(privacy = PrivacyEnum.LocalRequired),
+        execution = TextExecutionOptions(privacy = Privacy.LocalRequired),
     )
 )
 println("${result.text} (${result.provenance?.locality})")
