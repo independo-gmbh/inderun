@@ -41,6 +41,12 @@ options in, the exact canonical `TaskRequest` out. All three SDKs run every case
 `generateText`/`streamText` translation, which is what holds the facades to one mapping without
 declaring them on the generated `IndeRunApi`.
 
+`fixtures/task-contracts/` holds the three examples ADR 016 is checked against: text generation, text-to-speech
+(managed playback and a retrievable artifact), and a contract-only image-to-text case. Each file's `status` says
+what the committed schemas must do with it — `current` cases must validate, `proposed` and `contract_only` cases
+must be rejected at `/task/kind` until the schema change that admits them lands —
+and `packages/contracts/src/task-contract-fixtures.test.ts` enforces that.
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
@@ -83,6 +89,12 @@ Kotlin enum is emitted without one (issue #212).
   `additionalProperties: true` for this reason, and `StreamEvent` specifically closes its type
   union with an open catch-all branch so a consumer built against an older revision of the schema
   does not hard-fail when a newer, additive revision introduces a new known event type.
+- **Widening a discriminator** from a `const` to an `enum`, with the new value's requirements expressed as an
+  `if`/`then` branch, is additive too: every existing payload stays valid, and a consumer built against the narrower
+  schema rejects the new value through validation instead of misreading it. This is how new task kinds enter the
+  1.0 contracts ([ADR 016](../docs/architecture/decisions/016-modality-extensible-task-contracts.md)). quicktype does
+  not read `if`/`then`, so the per-value requirements live only in the validators; the generated types carry every
+  branch's fields as optional properties.
 - **Breaking changes** (removing/renaming a required field, changing what a `const`/`enum` value
   means) require a new `$id` version segment (e.g. `.../2.0/...`) and a new `schemaVersion` const,
   coexisting with `1.0` during a migration window. The existing "rejects unsupported schema

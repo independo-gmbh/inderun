@@ -1,0 +1,46 @@
+{
+  "$comment": "ADR 016 example 1 (docs/architecture/decisions/016-modality-extensible-task-contracts.md): text generation, the only task the 1.0 schemas accept today. status 'current' means every request, result and terminal here must validate against the committed schemas; packages/contracts/src/task-contract-fixtures.test.ts enforces it. The planner object is the projection of the request onto route-planner-input's task (#243): a text request carries no requirement beyond its kind.",
+  "task": "text_to_text",
+  "status": "current",
+  "cases": [
+    {
+      "id": "prompt_run",
+      "description": "A single-turn prompt resolved with inline text.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "prompt": "Explain this sign in plain language.",
+        "modelProfile": "auto",
+        "constraints": { "privacy": "local_preferred" }
+      },
+      "result": {
+        "schemaVersion": "1.0",
+        "runId": "run_text_1",
+        "output": { "type": "text", "text": "This sign means the lift is out of order." },
+        "finishReason": "stop",
+        "telemetry": { "providerUsed": "apple_foundation_models", "totalMs": 412 }
+      },
+      "planner": { "kind": "text_to_text" }
+    },
+    {
+      "id": "messages_stream",
+      "description": "A conversation streamed to completion; the terminal outcome carries finalText.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "messages": [
+          { "role": "system", "content": "Use plain language." },
+          { "role": "user", "content": "What does this sign mean?" }
+        ]
+      },
+      "terminal": {
+        "schemaVersion": "1.0",
+        "runId": "run_text_2",
+        "outcome": "completed",
+        "finalText": "It means the lift is out of order.",
+        "finishReason": "stop"
+      },
+      "planner": { "kind": "text_to_text" }
+    }
+  ]
+}

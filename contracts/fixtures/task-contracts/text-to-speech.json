@@ -1,0 +1,100 @@
+{
+  "$comment": "ADR 016 example 2: text_to_speech with managed playback and with a retrievable audio artifact. status 'proposed' means the shapes are decided but the 1.0 schemas do not accept them yet: the request schema change lands with #245, the artifact reference with #244. Until then packages/contracts/src/task-contract-fixtures.test.ts asserts every request here is rejected at /task/kind, which is also how an older consumer treats an unknown task. When #245 lands this file flips to 'current' and the same test validates it. The artifact object is a placeholder until #244 fixes its shape. The planner object is the projection onto route-planner-input's task (#243).",
+  "task": "text_to_speech",
+  "status": "proposed",
+  "cases": [
+    {
+      "id": "playback_run",
+      "description": "Managed playback: run() resolves when audible playback has finished. The result holds no bytes. The region in de-AT is a preference (localeMatch 'language'); the provider reports it used de-DE, which is a success.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Der Bus kommt in fünf Minuten.",
+          "locale": "de-AT",
+          "localeMatch": "language",
+          "voice": { "gender": "female", "requirement": "preferred" }
+        },
+        "delivery": { "mode": "playback" },
+        "constraints": { "privacy": "local_required" },
+        "modelProfile": "speech"
+      },
+      "result": {
+        "schemaVersion": "1.0",
+        "runId": "run_tts_1",
+        "output": {
+          "type": "playback",
+          "playback": { "durationMs": 2140 },
+          "speech": { "locale": "de-DE", "voice": { "gender": "female" } }
+        },
+        "finishReason": "stop",
+        "telemetry": { "providerUsed": "apple_system_speech", "totalMs": 2310 }
+      },
+      "planner": {
+        "kind": "text_to_speech",
+        "inputs": ["text"],
+        "delivery": { "mode": "playback" },
+        "locale": { "tag": "de-AT", "match": "language" },
+        "voice": { "gender": "female", "requirement": "preferred" }
+      }
+    },
+    {
+      "id": "playback_cancelled",
+      "description": "Cancelling a playback stream stops the audio; the terminal outcome is cancelled and carries the normalized output instead of partialText.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Bitte steigen Sie an der nächsten Haltestelle aus.",
+          "locale": "de-AT"
+        },
+        "delivery": { "mode": "playback" }
+      },
+      "terminal": {
+        "schemaVersion": "1.0",
+        "runId": "run_tts_2",
+        "outcome": "cancelled",
+        "output": { "type": "playback", "playback": { "durationMs": 640 } },
+        "reason": "consumer_cancelled"
+      },
+      "planner": {
+        "kind": "text_to_speech",
+        "inputs": ["text"],
+        "delivery": { "mode": "playback" },
+        "locale": { "tag": "de-AT", "match": "language" }
+      }
+    },
+    {
+      "id": "artifact_run",
+      "description": "Retrievable audio: run() resolves once the artifact is fully materialized and nothing is played. The media types and the exact locale are hard requirements.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Your appointment is at 3 pm.",
+          "locale": "en-GB",
+          "localeMatch": "exact"
+        },
+        "delivery": { "mode": "artifact", "mediaTypes": ["audio/wav", "audio/mpeg"] },
+        "constraints": { "privacy": "cloud_allowed" }
+      },
+      "result": {
+        "schemaVersion": "1.0",
+        "runId": "run_tts_3",
+        "output": {
+          "type": "artifact",
+          "artifact": { "mediaType": "audio/wav", "ref": "placeholder-until-244" },
+          "speech": { "locale": "en-GB" }
+        },
+        "finishReason": "stop",
+        "telemetry": { "providerUsed": "openai_compatible_cloud:tts", "totalMs": 980 }
+      },
+      "planner": {
+        "kind": "text_to_speech",
+        "inputs": ["text"],
+        "delivery": { "mode": "artifact", "mediaTypes": ["audio/wav", "audio/mpeg"] },
+        "locale": { "tag": "en-GB", "match": "exact" }
+      }
+    }
+  ]
+}
