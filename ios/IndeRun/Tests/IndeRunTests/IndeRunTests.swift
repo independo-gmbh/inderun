@@ -2222,6 +2222,7 @@ final class OpenAIStreamingTests: XCTestCase {
         let reportedModel: String?
         let errorClass: ErrorClass?
         let message: String?
+        let retryable: Bool?
     }
 
     private struct ExpectedUsage: Decodable {
@@ -2351,6 +2352,9 @@ final class OpenAIStreamingTests: XCTestCase {
                     let exception = try XCTUnwrap(error as? IndeRunException, label)
                     XCTAssertEqual(exception.errorClass, expected.errorClass, label)
                     XCTAssertEqual(exception.message, expected.message, label)
+                    if let retryable = expected.retryable {
+                        XCTAssertEqual(exception.retryable, retryable, label)
+                    }
 
                 default:
                     XCTFail("Unexpected event \(event) for expected kind \(expected.kind) in \(label)")
@@ -2397,6 +2401,123 @@ final class OpenAIStreamingTests: XCTestCase {
             XCTFail("Expected the stream to fail")
         } catch let error as IndeRunException {
             XCTAssertEqual(error.errorClass, .Unavailable)
+        }
+    }
+}
+
+// MARK: - OpenAI Mode 1 run vectors
+
+/// Drives `OpenAIProvider.run` through the cross-SDK vectors in
+/// `contracts/fixtures/openai-compatible/responses-run.json`: one HTTP response
+/// from a Responses endpoint and the result or mapped error it must become.
+final class OpenAIRunVectorTests: XCTestCase {
+    private struct RunCase: Decodable {
+        let name: String
+        let description: String
+        let response: ScriptedResponse
+        let expected: Expected
+    }
+
+    private struct ScriptedResponse: Decodable {
+        let status: Int
+        let headers: [String: String]
+        let body: String
+    }
+
+    private struct Expected: Decodable {
+        let kind: String
+        let text: String?
+        let finishReason: FinishReason?
+        let reportedModel: String?
+        let usage: ExpectedUsage?
+        let errorClass: ErrorClass?
+        let message: String?
+        let retryable: Bool?
+        let retryAfterMs: Int?
+    }
+
+    private struct ExpectedUsage: Decodable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let totalTokens: Int?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [RunCase]
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("contracts/fixtures/openai-compatible/responses-run.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    func testFixtureCaseNamesAreUnique() throws {
+        let names = try loadFixture().cases.map(\.name)
+        XCTAssertFalse(names.isEmpty)
+        XCTAssertEqual(Set(names).count, names.count)
+    }
+
+    func testMatchesTheSharedRunVectors() async throws {
+        for vector in try loadFixture().cases {
+            let label = "\(vector.name): \(vector.description)"
+            let httpClient = MockHttpClientService(responses: [
+                .success(HttpResponse(
+                    body: vector.response.body,
+                    headers: vector.response.headers,
+                    status: vector.response.status,
+                    statusText: ""
+                ))
+            ])
+            let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+            let context = RunContext(
+                runId: "run_vector",
+                hostServices: HostServices(
+                    connectivity: MockConnectivityService(),
+                    clock: MockClockService(),
+                    httpClient: httpClient
+                )
+            )
+            let request = TaskRequest(
+                prompt: "Hello",
+                constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)
+            )
+            let expected = vector.expected
+
+            switch expected.kind {
+            case "result":
+                let result = try await provider.run(request: request, context: context)
+                XCTAssertEqual(result.output.text, expected.text, label)
+                XCTAssertEqual(result.finishReason, expected.finishReason, label)
+                XCTAssertEqual(result.telemetry.reportedModel, expected.reportedModel, label)
+                XCTAssertEqual(result.usage?.inputTokens, expected.usage?.inputTokens, label)
+                XCTAssertEqual(result.usage?.outputTokens, expected.usage?.outputTokens, label)
+                XCTAssertEqual(result.usage?.totalTokens, expected.usage?.totalTokens, label)
+                XCTAssertEqual(result.usage == nil, expected.usage == nil, label)
+
+            case "error":
+                do {
+                    _ = try await provider.run(request: request, context: context)
+                    XCTFail("Expected an error in \(label)")
+                } catch let error as IndeRunException {
+                    XCTAssertEqual(error.errorClass, expected.errorClass, label)
+                    XCTAssertEqual(error.message, expected.message, label)
+                    if let retryable = expected.retryable {
+                        XCTAssertEqual(error.retryable, retryable, label)
+                    }
+                    if let retryAfterMs = expected.retryAfterMs {
+                        XCTAssertEqual(error.retryAfterMs, retryAfterMs, label)
+                    }
+                }
+
+            default:
+                XCTFail("Unknown expected kind \(expected.kind) in \(label)")
+            }
         }
     }
 }

@@ -183,6 +183,9 @@ describe("OpenAIResponsesProvider.stream", () => {
           expect(error).toBeInstanceOf(IndeRunException);
           expect(error.errorClass).toBe(expected.errorClass);
           expect(error.message).toBe(expected.message);
+          if ("retryable" in expected) {
+            expect(error.retryable).toBe(expected.retryable);
+          }
           return;
         }
         expect(actual).toEqual(expected);

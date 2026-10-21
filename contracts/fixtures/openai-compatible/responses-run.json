@@ -1,0 +1,307 @@
+{
+  "$comment": "Cross-SDK conformance vectors for the OpenAI-compatible provider's Mode 1 run path: one HTTP response from a Responses endpoint and the TaskResult or error the Web, Swift, and Kotlin adapters must turn it into. 'response' is what the host HTTP client returns ('body' is the raw text). An expected entry of kind 'result' names the output text, finishReason, and the reported model and usage when present; one of kind 'error' names the mapped IndeRun error class and message, plus 'retryable' and 'retryAfterMs' when the case pins them. Cases prefixed 'openrouter_' encode the dialect OpenRouter documents; they are derived from its published reference, not recorded from a live account.",
+  "cases": [
+    {
+      "name": "output_text_with_usage",
+      "description": "The common OpenAI shape: output_text, the served snapshot as model, and usage.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"model\":\"gpt-5.2-2026-08-01\",\"status\":\"completed\",\"output_text\":\"Hello\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}"
+      },
+      "expected": {
+        "kind": "result",
+        "text": "Hello",
+        "finishReason": "stop",
+        "reportedModel": "gpt-5.2-2026-08-01",
+        "usage": {
+          "inputTokens": 2,
+          "outputTokens": 1,
+          "totalTokens": 3
+        }
+      }
+    },
+    {
+      "name": "openrouter_output_array_without_output_text",
+      "description": "OpenRouter returns the text only in the output array and echoes the routed vendor/model id.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"id\":\"resp_1\",\"object\":\"response\",\"model\":\"openai/gpt-5.2\",\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"summary\":[]},{\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Simple \",\"annotations\":[]},{\"type\":\"output_text\",\"text\":\"words\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":5,\"output_tokens\":2,\"total_tokens\":7}}"
+      },
+      "expected": {
+        "kind": "result",
+        "text": "Simple words",
+        "finishReason": "stop",
+        "reportedModel": "openai/gpt-5.2",
+        "usage": {
+          "inputTokens": 5,
+          "outputTokens": 2,
+          "totalTokens": 7
+        }
+      }
+    },
+    {
+      "name": "incomplete_max_output_tokens",
+      "description": "A response cut off by max_output_tokens completes with finishReason 'length'.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"output_text\":\"Trunc\"}"
+      },
+      "expected": {
+        "kind": "result",
+        "text": "Trunc",
+        "finishReason": "length"
+      }
+    },
+    {
+      "name": "openrouter_failed_status_in_2xx_body",
+      "description": "A 2xx body whose status is 'failed' is a failed run, not a response without text. Its error is mapped by code.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"server_error\",\"message\":\"Upstream provider failed\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Unavailable",
+        "message": "Upstream provider failed",
+        "retryable": true
+      }
+    },
+    {
+      "name": "openrouter_failed_status_with_numeric_code",
+      "description": "The in-body error code may be the numeric HTTP status.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"status\":\"failed\",\"output\":[],\"error\":{\"code\":429,\"message\":\"Rate limit exceeded\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "RateLimited",
+        "message": "Rate limit exceeded",
+        "retryable": true
+      }
+    },
+    {
+      "name": "openrouter_failed_typed_authentication",
+      "description": "OpenRouter's typed error_type beside a native server_error code decides the class: 'authentication' is an AuthError.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"id\":\"resp_1\",\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"server_error\",\"message\":\"Invalid credentials\"},\"error_type\":\"authentication\"}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "AuthError",
+        "message": "Invalid credentials"
+      }
+    },
+    {
+      "name": "openrouter_failed_typed_payment_required",
+      "description": "'payment_required' is Unavailable and not retryable, like HTTP 402.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"id\":\"resp_1\",\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"server_error\",\"message\":\"Insufficient credits\"},\"error_type\":\"payment_required\"}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Unavailable",
+        "message": "Insufficient credits",
+        "retryable": false
+      }
+    },
+    {
+      "name": "openrouter_failed_typed_timeout",
+      "description": "'timeout' is a retryable Timeout.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"id\":\"resp_1\",\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"server_error\",\"message\":\"Upstream timed out\"},\"error_type\":\"timeout\"}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Timeout",
+        "message": "Upstream timed out",
+        "retryable": true
+      }
+    },
+    {
+      "name": "openrouter_failed_typed_refusal",
+      "description": "'refusal' is documented as 403 but is not a credential failure; it is a rejected request (Internal).",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"id\":\"resp_1\",\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"invalid_prompt\",\"message\":\"The model refused the request\"},\"error_type\":\"refusal\"}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Internal",
+        "message": "The model refused the request"
+      }
+    },
+    {
+      "name": "openrouter_failed_unknown_error_type_falls_back_to_code",
+      "description": "An error_type this SDK does not know leaves the native code in charge.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"id\":\"resp_1\",\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"Rate limit exceeded\"},\"error_type\":\"something_new\"}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "RateLimited",
+        "message": "Rate limit exceeded",
+        "retryable": true
+      }
+    },
+    {
+      "name": "openrouter_failed_native_invalid_prompt",
+      "description": "Without an error_type, the native invalid_prompt code is a rejected request (Internal).",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"invalid_prompt\",\"message\":\"Prompt too long\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Internal",
+        "message": "Prompt too long"
+      }
+    },
+    {
+      "name": "cancelled_status_in_2xx_body",
+      "description": "A response the server reports as cancelled carries no output; it fails as Unavailable rather than as missing text.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"status\":\"cancelled\",\"output\":[]}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Unavailable",
+        "message": "OpenAI Responses run ended with status 'cancelled'.",
+        "retryable": true
+      }
+    },
+    {
+      "name": "openrouter_2xx_error_body_without_status",
+      "description": "OpenRouter documents that a non-streaming request can answer 200 with an error body and no output. It fails by its code instead of as missing text.",
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "{\"error\":{\"code\":502,\"message\":\"Provider returned error\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Unavailable",
+        "message": "Provider returned error",
+        "retryable": true
+      }
+    },
+    {
+      "name": "openrouter_http_402_insufficient_credits",
+      "description": "HTTP 402 (insufficient credits) is Unavailable and not retryable; the engine still falls back to the next target.",
+      "response": {
+        "status": 402,
+        "headers": {},
+        "body": "{\"error\":{\"code\":402,\"message\":\"Insufficient credits\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Unavailable",
+        "message": "Insufficient credits",
+        "retryable": false
+      }
+    },
+    {
+      "name": "openrouter_http_402_with_retry_after",
+      "description": "A 402 that carries Retry-After (OpenRouter's in-flight budget limit) is a wait-and-retry case, so it is RateLimited with the delay.",
+      "response": {
+        "status": 402,
+        "headers": {
+          "retry-after": "2"
+        },
+        "body": "{\"error\":{\"code\":402,\"message\":\"In-flight budget exceeded\",\"metadata\":{\"limit_source\":\"openrouter_in_flight_budget\"}}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "RateLimited",
+        "message": "In-flight budget exceeded",
+        "retryable": true,
+        "retryAfterMs": 2000
+      }
+    },
+    {
+      "name": "http_429_retry_after_seconds",
+      "description": "Retry-After in seconds becomes retryAfterMs.",
+      "response": {
+        "status": 429,
+        "headers": {
+          "retry-after": "7"
+        },
+        "body": "{\"error\":{\"code\":429,\"message\":\"Rate limit exceeded\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "RateLimited",
+        "message": "Rate limit exceeded",
+        "retryable": true,
+        "retryAfterMs": 7000
+      }
+    },
+    {
+      "name": "http_429_retry_after_past_date",
+      "description": "Retry-After as an HTTP date is honored too; a date in the past means retry now.",
+      "response": {
+        "status": 429,
+        "headers": {
+          "retry-after": "Wed, 21 Oct 2015 07:28:00 GMT"
+        },
+        "body": "{\"error\":{\"message\":\"Rate limit exceeded\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "RateLimited",
+        "message": "Rate limit exceeded",
+        "retryable": true,
+        "retryAfterMs": 0
+      }
+    },
+    {
+      "name": "openrouter_http_503_retry_after",
+      "description": "OpenRouter sends Retry-After on 503 (no provider meets the routing requirements) too; the delay travels on the Unavailable error.",
+      "response": {
+        "status": 503,
+        "headers": {
+          "retry-after": "5"
+        },
+        "body": "{\"error\":{\"code\":503,\"message\":\"No available provider\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "Unavailable",
+        "message": "No available provider",
+        "retryable": true,
+        "retryAfterMs": 5000
+      }
+    },
+    {
+      "name": "http_401_auth",
+      "description": "HTTP 401 maps to AuthError.",
+      "response": {
+        "status": 401,
+        "headers": {},
+        "body": "{\"error\":{\"code\":401,\"message\":\"No auth credentials found\"}}"
+      },
+      "expected": {
+        "kind": "error",
+        "errorClass": "AuthError",
+        "message": "No auth credentials found"
+      }
+    }
+  ]
+}

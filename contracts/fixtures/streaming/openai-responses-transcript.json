@@ -1,5 +1,5 @@
 {
-  "$comment": "Cross-SDK conformance vectors for mapping the OpenAI Responses API's server-sent events onto IndeRun's canonical provider stream events. The Web, Swift, and Kotlin OpenAI adapters each implement this mapping separately, so they are held to one set of vectors rather than three hand-written suites that could drift. 'sse' is the raw response body as the streaming HTTP host capability would deliver it; 'expected' is the provider-shaped event sequence the adapter must produce, which the engine then normalizes into canonical StreamEvents. An expected entry of kind 'error' names the mapped IndeRun error class and message rather than a provider payload, since that mapping is the point of the case.",
+  "$comment": "Cross-SDK conformance vectors for mapping the OpenAI Responses API's server-sent events onto IndeRun's canonical provider stream events. The Web, Swift, and Kotlin OpenAI adapters each implement this mapping separately, so they are held to one set of vectors rather than three hand-written suites that could drift. 'sse' is the raw response body as the streaming HTTP host capability would deliver it; 'expected' is the provider-shaped event sequence the adapter must produce, which the engine then normalizes into canonical StreamEvents. An expected entry of kind 'error' names the mapped IndeRun error class and message rather than a provider payload, since that mapping is the point of the case; when it also names 'retryable', the mapped error must carry that value. Cases prefixed 'openrouter_' encode the Responses dialect OpenRouter documents; they are derived from its published reference, not recorded from a live account.",
   "cases": [
     {
       "name": "deltas_then_completed",
@@ -108,6 +108,138 @@
           "kind": "error",
           "errorClass": "Unavailable",
           "message": "The model failed to generate a response."
+        }
+      ]
+    },
+    {
+      "name": "openrouter_keepalive_comments_and_routed_model",
+      "description": "OpenRouter interleaves SSE comment lines as keep-alives and echoes the routed vendor/model id on the completed response.",
+      "sse": ": OPENROUTER PROCESSING\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hi\"}\n\n: OPENROUTER PROCESSING\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"anthropic/claude-sonnet-4.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi\"}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"total_tokens\":4}}}\n\n",
+      "expected": [
+        {
+          "kind": "delta",
+          "text": "Hi"
+        },
+        {
+          "kind": "done",
+          "finalText": "Hi",
+          "reportedModel": "anthropic/claude-sonnet-4.5",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 3,
+            "outputTokens": 1,
+            "totalTokens": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "openrouter_response_error_event",
+      "description": "A mid-stream failure arrives as a response.error event, which ends the stream like error does.",
+      "sse": "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"par\"}\n\nevent: response.error\ndata: {\"type\":\"response.error\",\"error\":{\"code\":\"server_error\",\"message\":\"Upstream provider failed\"}}\n\n",
+      "expected": [
+        {
+          "kind": "delta",
+          "text": "par"
+        },
+        {
+          "kind": "error",
+          "errorClass": "Unavailable",
+          "message": "Upstream provider failed",
+          "retryable": true
+        }
+      ]
+    },
+    {
+      "name": "openrouter_numeric_error_code_rate_limit",
+      "description": "OpenRouter's error code is the HTTP status as a number. 429 maps to RateLimited exactly as the HTTP status would.",
+      "sse": "event: error\ndata: {\"type\":\"error\",\"code\":429,\"message\":\"Rate limit exceeded\"}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "RateLimited",
+          "message": "Rate limit exceeded",
+          "retryable": true
+        }
+      ]
+    },
+    {
+      "name": "openrouter_numeric_error_code_insufficient_credits",
+      "description": "Code 402 (insufficient credits) makes the target unusable until the account is topped up, so it is Unavailable and not retryable.",
+      "sse": "event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":402,\"message\":\"Insufficient credits\"}}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "Unavailable",
+          "message": "Insufficient credits",
+          "retryable": false
+        }
+      ]
+    },
+    {
+      "name": "openrouter_numeric_error_code_auth",
+      "description": "Code 401 maps to AuthError.",
+      "sse": "event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":401,\"message\":\"No auth credentials found\"}}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "AuthError",
+          "message": "No auth credentials found"
+        }
+      ]
+    },
+    {
+      "name": "openrouter_untyped_mid_stream_error",
+      "description": "OpenRouter documents mid-stream failures as an event with a top-level error object (numeric code, metadata) and no event type. The HTTP status is already 200, so the event alone ends the run.",
+      "sse": "event: response.output_text.delta\ndata: {\"type\": \"response.output_text.delta\", \"delta\": \"par\"}\n\ndata: {\"error\": {\"code\": 502, \"message\": \"Provider returned error\", \"metadata\": {\"error_type\": \"provider_unavailable\"}}, \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\"}, \"finish_reason\": \"error\"}]}\n\n",
+      "expected": [
+        {
+          "kind": "delta",
+          "text": "par"
+        },
+        {
+          "kind": "error",
+          "errorClass": "Unavailable",
+          "message": "Provider returned error",
+          "retryable": true
+        }
+      ]
+    },
+    {
+      "name": "openrouter_response_failed_typed_authentication",
+      "description": "OpenRouter collapses many causes into the native code server_error and keeps the precise classification in error_type on the response object. A typed 'authentication' failure is an AuthError, not a transient Unavailable.",
+      "sse": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"Invalid credentials\"},\"error_type\":\"authentication\"}}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "AuthError",
+          "message": "Invalid credentials"
+        }
+      ]
+    },
+    {
+      "name": "openrouter_response_failed_typed_timeout",
+      "description": "A typed 'timeout' failure is a retryable Timeout.",
+      "sse": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"Upstream timed out\"},\"error_type\":\"timeout\"}}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "Timeout",
+          "message": "Upstream timed out",
+          "retryable": true
+        }
+      ]
+    },
+    {
+      "name": "openrouter_untyped_error_typed_rate_limit",
+      "description": "On an untyped error event the typed classification is in error.metadata.error_type and wins over the numeric code.",
+      "sse": "data: {\"error\":{\"code\":500,\"message\":\"Slow down\",\"metadata\":{\"error_type\":\"rate_limit_exceeded\"}}}\n\n",
+      "expected": [
+        {
+          "kind": "error",
+          "errorClass": "RateLimited",
+          "message": "Slow down",
+          "retryable": true
         }
       ]
     }

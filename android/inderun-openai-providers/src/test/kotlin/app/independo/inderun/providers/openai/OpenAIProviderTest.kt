@@ -1,5 +1,6 @@
 package app.independo.inderun.providers.openai
 
+import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.HttpResponse
 import app.independo.inderun.contracts.IndeRunErrorClass
@@ -23,8 +24,10 @@ import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class OpenAIProviderTest {
     @Test
@@ -215,6 +218,86 @@ class OpenAIProviderTest {
         throw AssertionError("Expected RateLimited.")
     }
 
+    /**
+     * Holds the Mode 1 run path to the same shared vectors as the Web and Swift
+     * adapters, so HTTP-status, in-body-status and Retry-After mapping cannot drift.
+     */
+    @Test
+    fun matchesTheSharedRunVectors() = runTest {
+        val cases = runFixture().getJSONArray("cases")
+        assertTrue(cases.length() > 0)
+
+        for (index in 0 until cases.length()) {
+            val vector = cases.getJSONObject(index)
+            val label = "${vector.getString("name")}: ${vector.getString("description")}"
+            val response = vector.getJSONObject("response")
+            val responseHeaders = response.getJSONObject("headers")
+            val httpClient = FakeHttpClient(
+                listOf(
+                    HttpResponse(
+                        body = response.getString("body"),
+                        headers = responseHeaders.keys().asSequence().associateWith { responseHeaders.getString(it) },
+                        status = response.getLong("status"),
+                        statusText = "",
+                    ),
+                ),
+            )
+            val provider = OpenAIProvider(OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none))
+            val outcome = runCatching {
+                provider.run(
+                    request = TaskRequest(
+                        schemaVersion = SchemaVersion.V1_0,
+                        prompt = "Hello",
+                        task = TaskRequestTask(),
+                        constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
+                    ),
+                    context = RunContext("run_vector", fakeHostServices(httpClient = httpClient, includeSecret = false)),
+                )
+            }
+
+            val expected = vector.getJSONObject("expected")
+            when (expected.getString("kind")) {
+                "result" -> {
+                    val result = outcome.getOrElse { throw AssertionError("$label: expected a result", it) }
+                    assertEquals(label, expected.getString("text"), result.output.text)
+                    assertEquals(
+                        label,
+                        FinishReason.entries.first { it.rawValue == expected.getString("finishReason") },
+                        result.finishReason,
+                    )
+                    assertEquals(
+                        label,
+                        if (expected.has("reportedModel")) expected.getString("reportedModel") else null,
+                        result.telemetry.reportedModel,
+                    )
+                    val wantUsage = expected.optJSONObject("usage")
+                    if (wantUsage == null) {
+                        assertNull(label, result.usage)
+                    } else {
+                        assertEquals(label, wantUsage.getLong("inputTokens"), result.usage?.inputTokens)
+                        assertEquals(label, wantUsage.getLong("outputTokens"), result.usage?.outputTokens)
+                        assertEquals(label, wantUsage.getLong("totalTokens"), result.usage?.totalTokens)
+                    }
+                }
+
+                "error" -> {
+                    val error = outcome.exceptionOrNull() as? IndeRunException
+                        ?: throw AssertionError("$label: expected an IndeRunException, got $outcome")
+                    assertEquals(label, IndeRunErrorClass.valueOf(expected.getString("errorClass")), error.errorClass)
+                    assertEquals(label, expected.getString("message"), error.message)
+                    if (expected.has("retryable")) {
+                        assertEquals(label, expected.getBoolean("retryable"), error.retryable)
+                    }
+                    if (expected.has("retryAfterMs")) {
+                        assertEquals(label, expected.getLong("retryAfterMs"), error.retryAfterMs)
+                    }
+                }
+
+                else -> error("Unknown expected kind in $label")
+            }
+        }
+    }
+
     @Test
     fun runPropagatesCancellation() = runTest {
         val provider = OpenAIProvider(OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none))
@@ -251,6 +334,16 @@ class OpenAIProviderTest {
     @Test(expected = IllegalArgumentException::class)
     fun registryFactoryRefusesAnEmptyModelList() {
         AndroidCloudProviderRegistryFactory.makeOpenAIRegistry(OpenAIFactoryOptions(models = emptyList()))
+    }
+
+    private fun runFixture(): JSONObject {
+        var directory: File? = File("").absoluteFile
+        while (directory != null) {
+            val candidate = File(directory, "contracts/fixtures/openai-compatible/responses-run.json")
+            if (candidate.isFile) return JSONObject(candidate.readText(Charsets.UTF_8))
+            directory = directory.parentFile
+        }
+        error("Could not locate contracts/fixtures/openai-compatible/responses-run.json")
     }
 
     private fun fakeHostServices(

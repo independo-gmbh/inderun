@@ -281,8 +281,9 @@ println("${result.text} (${result.provenance?.locality})")
 | iOS / macOS | iOS 16+ / macOS 14+, Swift 5.9+            | Apple Foundation Models: Apple Intelligence device, iOS 26+ / macOS 26+             |
 | Android     | Android 8.0+ (API 26), JDK 17              | ML Kit GenAI: device with AICore / Gemini Nano support                              |
 
-The OpenAI-compatible cloud provider is available on every platform. On-device execution additionally requires the
-capabilities above and is selected automatically by routing.
+The OpenAI-compatible cloud provider is available on every platform, and reaches any Responses-API endpoint —
+including [OpenRouter](docs/openrouter.md). On-device execution additionally requires the capabilities above and is
+selected automatically by routing.
 
 ## Credentials & security
 
@@ -293,7 +294,7 @@ Never place raw API keys in a `TaskRequest`. Providers resolve credentials from 
 read, someone with that browser or app can read — a developer-owned API key does not become safe by being referenced
 indirectly. Use `authContextRef` for credentials that legitimately live on the device: a per-user or per-install token
 your backend issued. For a key **you** own, put it behind a backend you control and point the provider's endpoint at
-that. The Web SDK enforces this by refusing the public OpenAI endpoint unless you opt out explicitly for a controlled
+that. The Web SDK enforces this by refusing the public OpenAI and OpenRouter endpoints unless you opt out explicitly for a controlled
 environment; on iOS and Android it is a convention, because a native app can reach any endpoint it likes.
 
 ## Packages

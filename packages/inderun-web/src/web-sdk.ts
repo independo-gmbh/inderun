@@ -42,7 +42,8 @@ export interface CreateIndeRunWebOptions {
    */
   hostServices?: CreateBrowserHostServicesOptions;
   /**
-   * Explicit opt-in for calling the public OpenAI endpoint directly from this Web SDK factory.
+   * Explicit opt-in for calling a public Responses endpoint directly from this Web SDK factory —
+   * OpenAI's or OpenRouter's — with browser-held credentials.
    *
    * Browser apps should leave this unset and use a proxy endpoint with `openAI.auth = "none"` instead.
    * Direct calls can expose credentials to client-side code and are appropriate only for controlled
@@ -118,16 +119,16 @@ function assertSafeOpenAIEndpoint(
 ): void {
   const endpointUrl = openAI.endpointUrl ?? DEFAULT_OPENAI_RESPONSES_ENDPOINT;
   const auth = openAI.auth ?? "authContextRef";
-  const isDirectOpenAIEndpoint = isOpenAIResponsesEndpoint(endpointUrl);
+  const isDirectPublicEndpoint = isPublicResponsesEndpoint(endpointUrl);
 
-  if (isDirectOpenAIEndpoint && auth !== "none" && !allowDirectOpenAIEndpoint) {
+  if (isDirectPublicEndpoint && auth !== "none" && !allowDirectOpenAIEndpoint) {
     throw new Error(
       'createIndeRunWeb is proxy-first for browser safety. Configure openAI.endpointUrl to a server-side proxy with auth: "none", or set allowDirectOpenAIEndpoint: true for controlled direct OpenAI calls.'
     );
   }
 }
 
-function isOpenAIResponsesEndpoint(endpointUrl: string): boolean {
+function isPublicResponsesEndpoint(endpointUrl: string): boolean {
   let parsed: URL;
   try {
     parsed = new URL(endpointUrl);
@@ -136,5 +137,15 @@ function isOpenAIResponsesEndpoint(endpointUrl: string): boolean {
   }
 
   const pathname = parsed.pathname.replace(/\/+$/u, "");
-  return parsed.hostname.toLowerCase() === "api.openai.com" && pathname === "/v1/responses";
+  const endpoint = `${parsed.hostname.toLowerCase()}${pathname}`;
+  return PUBLIC_RESPONSES_ENDPOINTS.includes(endpoint);
 }
+
+/**
+ * Hosted Responses endpoints whose credentials are developer-owned API keys, which the
+ * factory keeps out of browser code unless `allowDirectOpenAIEndpoint` says otherwise.
+ */
+const PUBLIC_RESPONSES_ENDPOINTS = [
+  "api.openai.com/v1/responses",
+  "openrouter.ai/api/v1/responses"
+];

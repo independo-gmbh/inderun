@@ -75,6 +75,9 @@ accept `"stream": true` and emit `text/event-stream` with the Responses event ty
 response object. Unknown event types are ignored, so an endpoint that emits extra events is
 fine; one that emits a different vocabulary entirely is not.
 
+[OpenRouter](https://github.com/independo-gmbh/inderun/blob/main/docs/openrouter.md) is reached this way: point
+`endpointUrl` at its Responses endpoint (through a proxy in browser apps) and list `vendor/model` ids as `models`.
+
 ## Security Model
 
 Browser apps should use a proxy endpoint and keep provider credentials server-side. `createIndeRunWeb` rejects direct calls to the public OpenAI Responses endpoint unless `allowDirectOpenAIEndpoint: true` is set for a controlled environment.

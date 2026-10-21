@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { TaskRequest } from "@independo/inderun-contracts";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,6 +15,23 @@ import {
   type SecureStorageService
 } from "../../index.js";
 import { DEFAULT_OPENAI_RESPONSES_ENDPOINT, OpenAIResponsesProvider } from "../../openai.js";
+
+interface RunCase {
+  name: string;
+  description: string;
+  response: { status: number; headers: Record<string, string>; body: string };
+  expected: Record<string, unknown>;
+}
+
+const runFixture = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../../contracts/fixtures/openai-compatible/responses-run.json"
+    ),
+    "utf8"
+  )
+) as { cases: RunCase[] };
 
 class MockSecureStorage implements SecureStorageService {
   constructor(private readonly slots: Record<string, string> = {}) {}
@@ -390,7 +410,8 @@ describe("OpenAIResponsesProvider", () => {
       undefined,
       "https://api.openai.com/v1/responses/",
       "https://api.openai.com/v1/responses?trace=1",
-      "https://API.OPENAI.COM/v1/responses"
+      "https://API.OPENAI.COM/v1/responses",
+      "https://openrouter.ai/api/v1/responses"
     ];
 
     for (const endpointUrl of directEndpointVariants) {
@@ -502,6 +523,35 @@ describe("OpenAIResponsesProvider", () => {
           expect((err as IndeRunException).retryAfterMs).toBe(2000);
         }
       }
+    }
+  });
+
+  describe("shared run vectors", () => {
+    for (const vector of runFixture.cases) {
+      it(`${vector.name}: ${vector.description}`, async () => {
+        const provider = new OpenAIResponsesProvider({ model: "gpt-5.2", auth: "none" });
+        const outcome = provider.run(createRequest(), {
+          runId: "run_vector",
+          hostServices: createHost(new MockHttpClient([{ statusText: "", ...vector.response }]))
+        });
+
+        const { kind, text, ...expected } = vector.expected;
+        if (kind === "result") {
+          const result = await outcome;
+          expect(result.output).toEqual({ type: "text", text });
+          expect(result.finishReason).toBe(expected.finishReason);
+          expect(result.telemetry.reportedModel).toBe(expected.reportedModel);
+          expect(result.usage).toEqual(expected.usage);
+          return;
+        }
+
+        const error = await outcome.then(
+          () => undefined,
+          (caught: unknown) => caught
+        );
+        expect(error).toBeInstanceOf(IndeRunException);
+        expect(error).toMatchObject(expected);
+      });
     }
   });
 });
