@@ -1,7 +1,7 @@
 package app.independo.inderun.demo
 
 import app.independo.inderun.contracts.Outcome
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.core.StreamRun
 import java.util.Locale
@@ -24,10 +24,10 @@ internal object DemoDefaults {
  * mirroring the web demo's `Privacy` selector and the iOS demo's `PrivacyPreference`.
  */
 internal enum class PrivacyPreference(val title: String, val constraints: TaskRequestConstraints) {
-    LocalRequired(title = "Local Only", constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)),
-    LocalPreferred(title = "Prefer Local", constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalPreferred)),
-    CloudAllowed(title = "Cloud Allowed", constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudAllowed)),
-    CloudRequired(title = "Cloud Only", constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)),
+    LocalRequired(title = "Local Only", constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired)),
+    LocalPreferred(title = "Prefer Local", constraints = TaskRequestConstraints(privacy = Privacy.LocalPreferred)),
+    CloudAllowed(title = "Cloud Allowed", constraints = TaskRequestConstraints(privacy = Privacy.CloudAllowed)),
+    CloudRequired(title = "Cloud Only", constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired)),
 }
 
 internal data class ProviderBadge(

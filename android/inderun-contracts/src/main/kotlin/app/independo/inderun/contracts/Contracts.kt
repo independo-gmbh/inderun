@@ -83,7 +83,7 @@ data class TaskRequestConstraints(
     /**
      * Privacy requirement or preference for execution placement.
      */
-    val privacy: PrivacyEnum? = null,
+    val privacy: Privacy? = null,
 
     /**
      * Optional routing timeout budget in milliseconds.
@@ -108,7 +108,7 @@ enum class Cloud(val rawValue: String) {
 /**
  * Privacy requirement or preference for execution placement.
  */
-enum class PrivacyEnum(val rawValue: String) {
+enum class Privacy(val rawValue: String) {
     CloudAllowed("cloud_allowed"),
     CloudRequired("cloud_required"),
     LocalPreferred("local_preferred"),
@@ -116,7 +116,7 @@ enum class PrivacyEnum(val rawValue: String) {
     ;
 
     companion object {
-        fun fromRawValue(value: String): PrivacyEnum? = entries.firstOrNull { it.rawValue == value }
+        fun fromRawValue(value: String): Privacy? = entries.firstOrNull { it.rawValue == value }
     }
 }
 
@@ -809,7 +809,9 @@ data class RoutePlannerInput(
     val preferences: RoutePlannerInputPreferences,
 
     /**
-     * Static descriptors plus dynamic capability snapshots for planning.
+     * Static descriptors plus dynamic capability checks for planning. Both shapes are the
+     * provider schemas themselves, shared by $ref, so the planner reads exactly what
+     * checkCapabilities() reports.
      */
     val providers: List<Provider>,
 
@@ -836,7 +838,7 @@ data class RoutePlannerInputConstraints(
     /**
      * Privacy requirement or preference for execution placement.
      */
-    val privacy: PrivacyEnum? = null,
+    val privacy: Privacy? = null,
 )
 
 /**
@@ -884,94 +886,272 @@ data class RoutePlannerInputPreferences(
 )
 
 data class Provider(
-    val capabilities: Capabilities,
-    val descriptor: Descriptor,
+    /**
+     * The provider's live capability check, already folded by the engine (for example,
+     * streamingAvailable is false when the provider declares streaming but does not implement
+     * it).
+     */
+    val capabilities: ProviderDynamicCapabilities,
+
+    /**
+     * The provider's static capability declaration.
+     */
+    val descriptor: ProviderDescriptor,
 )
 
-data class Capabilities(
+/**
+ * The provider's live capability check, already folded by the engine (for example,
+ * streamingAvailable is false when the provider declares streaming but does not implement
+ * it).
+ *
+ * A provider's live capability check, evaluated on the current host when routing or when
+ * checkCapabilities() is called. Unlike the descriptor it can change between calls.
+ *
+ * The provider's live capability check at the time of the call.
+ */
+data class ProviderDynamicCapabilities(
+    /**
+     * Whether the provider is available and functional on this host right now.
+     */
     val available: Boolean,
 
     /**
-     * Whether cancellation is honored right now in this host environment. Absent inherits the
-     * static descriptor.cancel value (any value other than 'none' means available).
+     * Whether cancellation is honored on this host right now. Absent inherits the static
+     * descriptor.cancel value: any value other than 'none' means available. Never null.
      */
     val cancellationAvailable: Boolean? = null,
 
+    /**
+     * Why the provider is unavailable, when available is false.
+     */
     val reason: String? = null,
 
     /**
-     * Whether the provider can stream right now in this host environment. Absent inherits the
-     * static descriptor.supports.streaming value.
+     * Whether the provider can stream (Mode 2) on this host right now. Absent inherits the
+     * static descriptor.supports.streaming value; only set it when the host takes streaming
+     * away from a provider that otherwise declares it. Never null.
      */
     val streamingAvailable: Boolean? = null,
 
     /**
-     * Human-readable explanation used when streamingAvailable is false. Absent lets the planner
-     * synthesize a default message.
+     * Why streaming is unavailable, when streamingAvailable is false. Absent lets the route
+     * planner synthesize a default message.
      */
     val streamingUnavailableReason: String? = null,
 )
 
-data class Descriptor(
+/**
+ * The provider's static capability declaration.
+ *
+ * A provider's static capability declaration: identity, placement, transport, supported
+ * interaction modes and tasks, cancellation guarantee, resource limits and privacy posture.
+ * It does not change while the provider is registered. The route planner,
+ * checkCapabilities() and execution provenance all read this one shape.
+ */
+data class ProviderDescriptor(
     /**
-     * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
-     * the planner does not filter on it.
+     * Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+     * reading locally while remote work may continue, 'none' means cancellation is unsupported.
+     * Independently of this value, the engine delivers no event after a cancel.
      */
-    val cancel: Cancel? = null,
+    val cancel: CancelSemantics,
 
+    /**
+     * Unique identifier of the provider instance (a target), e.g. 'apple_foundation_models' or
+     * 'openai_compatible_cloud:gpt-5-mini'. Model profiles list targets by this id.
+     */
     val id: String,
 
     /**
-     * Descriptor privacy metadata used to enforce local/cloud routing rules.
+     * Optional input and output resource limits.
      */
-    val privacy: PrivacyClass? = null,
+    val limits: ProviderLimits? = null,
 
-    val supports: Supports,
+    /**
+     * The model this provider instance is bound to, when it can name one. Cloud providers
+     * report the model id they send; platform-managed models report an opaque platform alias
+     * rather than a guessed weight name. Absent means the provider cannot name its model.
+     */
+    val model: String? = null,
+
+    /**
+     * Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+     * or edge provider is treated as keeping data on the device and a cloud provider as sending
+     * it off.
+     */
+    val privacy: ProviderPrivacy? = null,
+
+    /**
+     * How a streaming provider delivers incremental output: individual tokens, larger chunks,
+     * or whole snapshots. Absent for providers that do not stream.
+     */
+    val streamingStyle: StreamingStyle? = null,
+
+    /**
+     * Interaction modes and features the provider statically declares.
+     */
+    val supports: ProviderSupports,
+
+    /**
+     * Task kinds the provider supports, e.g. 'text_to_text'.
+     */
     val tasks: List<String>,
-    val type: DescriptorType,
+
+    /**
+     * How the engine reaches the provider: in-process runtime, operating-system service,
+     * buffered HTTP, server-sent events, or a realtime connection.
+     */
+    val transport: ProviderTransport,
+
+    /**
+     * Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+     */
+    val type: ProviderType,
 )
 
 /**
- * Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
- * the planner does not filter on it.
+ * Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+ * reading locally while remote work may continue, 'none' means cancellation is unsupported.
+ * Independently of this value, the engine delivers no event after a cancel.
  */
-enum class Cancel(val rawValue: String) {
+enum class CancelSemantics(val rawValue: String) {
     Hard("hard"),
     None("none"),
     Soft("soft"),
     ;
 
     companion object {
-        fun fromRawValue(value: String): Cancel? = entries.firstOrNull { it.rawValue == value }
+        fun fromRawValue(value: String): CancelSemantics? = entries.firstOrNull { it.rawValue == value }
     }
 }
 
 /**
- * Descriptor privacy metadata used to enforce local/cloud routing rules.
+ * Optional input and output resource limits.
  */
-data class PrivacyClass(
+data class ProviderLimits(
+    /**
+     * Longest accepted or produced audio, in seconds.
+     */
+    val maxAudioSeconds: Long? = null,
+
+    /**
+     * Largest accepted image, in bytes.
+     */
+    val maxImageBytes: Long? = null,
+
+    /**
+     * Largest accepted input, in tokens.
+     */
+    val maxInputTokens: Long? = null,
+
+    /**
+     * Largest output the provider produces, in tokens.
+     */
+    val maxOutputTokens: Long? = null,
+)
+
+/**
+ * Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+ * or edge provider is treated as keeping data on the device and a cloud provider as sending
+ * it off.
+ */
+data class ProviderPrivacy(
+    /**
+     * Whether request content leaves the device.
+     */
     val dataLeavesDevice: Boolean,
+
+    /**
+     * Geographic regions where a cloud provider processes data.
+     */
     val regions: List<String>? = null,
 )
 
-data class Supports(
+/**
+ * How a streaming provider delivers incremental output: individual tokens, larger chunks,
+ * or whole snapshots. Absent for providers that do not stream.
+ */
+enum class StreamingStyle(val rawValue: String) {
+    Chunks("chunks"),
+    Snapshots("snapshots"),
+    Tokens("tokens"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): StreamingStyle? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Interaction modes and features the provider statically declares.
+ */
+data class ProviderSupports(
+    /**
+     * Whether the provider accepts non-text inputs such as images or audio.
+     */
+    val multimodal: Boolean,
+
+    /**
+     * Whether the provider supports Mode 3 realtime sessions. Reserved; no engine implements
+     * Mode 3 yet.
+     */
+    val realtime: Boolean,
+
+    /**
+     * Whether the provider emits reasoning events alongside content.
+     */
+    val reasoningEvents: Boolean,
+
+    /**
+     * Whether the provider supports Mode 1 run (request/response).
+     */
     val run: Boolean,
 
     /**
-     * Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
-     * descriptor that predates this field cannot be assumed to stream.
+     * Whether the provider supports Mode 2 stream. A provider that declares it must also
+     * implement the streaming adapter; the engines report it as unavailable otherwise.
      */
-    val streaming: Boolean? = null,
+    val streaming: Boolean,
+
+    /**
+     * Whether the provider supports structured output constrained by a JSON schema.
+     */
+    val structuredOutput: Boolean,
+
+    /**
+     * Whether the provider supports tool calling.
+     */
+    val tools: Boolean,
 )
 
-enum class DescriptorType(val rawValue: String) {
+/**
+ * How the engine reaches the provider: in-process runtime, operating-system service,
+ * buffered HTTP, server-sent events, or a realtime connection.
+ */
+enum class ProviderTransport(val rawValue: String) {
+    HTTP("http"),
+    InProcess("in_process"),
+    Realtime("realtime"),
+    SSE("sse"),
+    SystemService("system_service"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ProviderTransport? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+ */
+enum class ProviderType(val rawValue: String) {
     Cloud("cloud"),
     Edge("edge"),
     Local("local"),
     ;
 
     companion object {
-        fun fromRawValue(value: String): DescriptorType? = entries.firstOrNull { it.rawValue == value }
+        fun fromRawValue(value: String): ProviderType? = entries.firstOrNull { it.rawValue == value }
     }
 }
 
@@ -1691,4 +1871,26 @@ data class StreamTerminalOutcomeUsage(
      * Aggregated token count for this request, as reported by the provider.
      */
     val totalTokens: Long? = null,
+)
+
+/**
+ * One registered provider's identity, static declaration and live capability check, as
+ * returned by checkCapabilities(). A read-only snapshot: producing it executes no task and
+ * has no side effects.
+ */
+data class ProviderCapabilitySnapshot(
+    /**
+     * The provider's live capability check at the time of the call.
+     */
+    val capabilities: ProviderDynamicCapabilities,
+
+    /**
+     * The provider's static capability declaration.
+     */
+    val descriptor: ProviderDescriptor,
+
+    /**
+     * Identifier of the provider; equal to descriptor.id.
+     */
+    val providerId: String,
 )

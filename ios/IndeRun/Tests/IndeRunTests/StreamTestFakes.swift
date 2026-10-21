@@ -37,7 +37,7 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
     let throwAfterScript: Error?
     let throwImmediately: Error?
     let declaresStreaming: Bool
-    let type: ProviderDescriptor.ProviderType
+    let type: ProviderType
     let streamingAvailable: Bool?
     let streamingUnavailableReason: String?
     private let lock = NSLock()
@@ -51,7 +51,7 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         throwAfterScript: Error? = nil,
         throwImmediately: Error? = nil,
         declaresStreaming: Bool = true,
-        type: ProviderDescriptor.ProviderType = .local,
+        type: ProviderType = .local,
         streamingAvailable: Bool? = nil,
         streamingUnavailableReason: String? = nil
     ) {
@@ -101,7 +101,7 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
             id: id,
             type: type,
             transport: .inProcess,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: declaresStreaming,
                 realtime: false,
@@ -207,7 +207,7 @@ final class DeclaredOnlyStreamProvider: ProviderAdapter, @unchecked Sendable {
             id: id,
             type: .local,
             transport: .inProcess,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: true,
                 realtime: false,

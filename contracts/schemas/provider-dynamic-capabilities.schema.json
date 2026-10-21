@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/provider-dynamic-capabilities.schema.json",
+  "title": "ProviderDynamicCapabilities",
+  "$comment": "streamingAvailable and cancellationAvailable are tri-state on purpose: true, false, or absent. Absent means 'inherit the static declaration' and is a distinct state from both booleans. They must never become nullable: null would be a fourth state no consumer handles, and bridges omit the key specifically to preserve 'absent'.",
+  "description": "A provider's live capability check, evaluated on the current host when routing or when checkCapabilities() is called. Unlike the descriptor it can change between calls.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["available"],
+  "properties": {
+    "available": {
+      "description": "Whether the provider is available and functional on this host right now.",
+      "type": "boolean"
+    },
+    "reason": {
+      "description": "Why the provider is unavailable, when available is false.",
+      "type": "string",
+      "minLength": 1
+    },
+    "streamingAvailable": {
+      "description": "Whether the provider can stream (Mode 2) on this host right now. Absent inherits the static descriptor.supports.streaming value; only set it when the host takes streaming away from a provider that otherwise declares it. Never null.",
+      "type": "boolean"
+    },
+    "streamingUnavailableReason": {
+      "description": "Why streaming is unavailable, when streamingAvailable is false. Absent lets the route planner synthesize a default message.",
+      "type": "string",
+      "minLength": 1
+    },
+    "cancellationAvailable": {
+      "description": "Whether cancellation is honored on this host right now. Absent inherits the static descriptor.cancel value: any value other than 'none' means available. Never null.",
+      "type": "boolean"
+    }
+  }
+}

@@ -1,16 +1,14 @@
 package app.independo.inderun.core
 
-import app.independo.inderun.contracts.Cancel
 import app.independo.inderun.contracts.Candidate
-import app.independo.inderun.contracts.Capabilities
 import app.independo.inderun.contracts.Code
-import app.independo.inderun.contracts.Descriptor
-import app.independo.inderun.contracts.DescriptorType
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
 import app.independo.inderun.contracts.Provider
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.Reason
 import app.independo.inderun.contracts.RejectedProvider
 import app.independo.inderun.contracts.RoutePlan
@@ -18,7 +16,6 @@ import app.independo.inderun.contracts.RoutePlannerInput
 import app.independo.inderun.contracts.RoutePlannerInputConstraints
 import app.independo.inderun.contracts.RoutePlannerInputPreferences
 import app.independo.inderun.contracts.RoutePlannerInputTask
-import app.independo.inderun.contracts.Supports
 import app.independo.inderun.contracts.TaskRequest
 import org.json.JSONArray
 import org.json.JSONException
@@ -30,9 +27,6 @@ internal typealias SharedPlannerTask = RoutePlannerInputTask
 internal typealias SharedPlannerConstraints = RoutePlannerInputConstraints
 internal typealias SharedPlannerPreferences = RoutePlannerInputPreferences
 internal typealias SharedPlannerProviderInput = Provider
-internal typealias SharedPlannerProviderDescriptor = Descriptor
-internal typealias SharedPlannerProviderSupports = Supports
-internal typealias SharedPlannerCapabilities = Capabilities
 internal typealias SharedPlannerExplanation = Explanation
 internal typealias SharedPlannerRejectedProvider = RejectedProvider
 internal typealias SharedPlannerRejectedReason = Reason
@@ -141,30 +135,7 @@ internal fun buildSharedPlannerInput(
         ),
         providers = snapshots.map { snapshot ->
             SharedPlannerProviderInput(
-                descriptor = SharedPlannerProviderDescriptor(
-                    id = snapshot.descriptor.id,
-                    supports = SharedPlannerProviderSupports(
-                        run = snapshot.descriptor.supports.run,
-                        streaming = snapshot.descriptor.supports.streaming,
-                    ),
-                    cancel = when (snapshot.descriptor.cancel) {
-                        ProviderDescriptor.CancelSemantics.hard -> Cancel.Hard
-                        ProviderDescriptor.CancelSemantics.soft -> Cancel.Soft
-                        ProviderDescriptor.CancelSemantics.none -> Cancel.None
-                    },
-                    tasks = snapshot.descriptor.tasks,
-                    type = when (snapshot.descriptor.type) {
-                        ProviderDescriptor.ProviderType.local -> DescriptorType.Local
-                        ProviderDescriptor.ProviderType.edge -> DescriptorType.Edge
-                        ProviderDescriptor.ProviderType.cloud -> DescriptorType.Cloud
-                    },
-                    privacy = snapshot.descriptor.privacy?.let { privacy ->
-                        app.independo.inderun.contracts.PrivacyClass(
-                            dataLeavesDevice = privacy.dataLeavesDevice,
-                            regions = privacy.regions,
-                        )
-                    },
-                ),
+                descriptor = snapshot.descriptor,
                 capabilities = streamingAwareCapabilities(snapshot),
             )
         },
@@ -178,7 +149,7 @@ internal fun buildSharedPlannerInput(
  * planning with an explanation instead of surfacing as an unexplained failure
  * later. Mirrors `toSharedPlannerCapabilities` in the Web SDK's route planner.
  */
-private fun streamingAwareCapabilities(snapshot: ProviderSnapshot): SharedPlannerCapabilities {
+private fun streamingAwareCapabilities(snapshot: ProviderSnapshot): ProviderDynamicCapabilities {
     val declaresStreaming = snapshot.capabilities.streamingAvailable ?: snapshot.descriptor.supports.streaming
     val implementsStream = snapshot.provider is StreamingProviderAdapter
     val streamingUnavailableReason = snapshot.capabilities.streamingUnavailableReason
@@ -188,20 +159,25 @@ private fun streamingAwareCapabilities(snapshot: ProviderSnapshot): SharedPlanne
             null
         }
 
-    return SharedPlannerCapabilities(
-        available = snapshot.capabilities.available,
-        reason = snapshot.capabilities.reason,
-        streamingAvailable = declaresStreaming && implementsStream,
-        streamingUnavailableReason = streamingUnavailableReason,
-        cancellationAvailable = snapshot.capabilities.cancellationAvailable,
+    val streamingAvailable = declaresStreaming && implementsStream
+    // Copy and override rather than rebuild, so a field added to the schema reaches the
+    // planner without touching this function.
+    return snapshot.capabilities.copy(
+        streamingAvailable = streamingAvailable,
+        streamingUnavailableReason = streamingUnavailableReason.takeUnless { streamingAvailable },
     )
 }
 
 /**
  * Hand-written serializer for the planner input. It is NOT regenerated with the
- * contracts, so every field added to `route-planner-input.schema.json` has to be
- * mirrored here — a field missing from this object is silently dropped on the way
- * into the shared core and forks this platform's routing from the others.
+ * contracts, so every field added to `route-planner-input.schema.json` (or to the
+ * provider schemas it references) has to be mirrored here — a field missing from this
+ * object is silently dropped on the way into the shared core and forks this platform's
+ * routing from the others. `SharedPlannerInputSerializationCoverageTest` walks the
+ * schemas and fails when a property has no counterpart here.
+ *
+ * `JSONObject.put` with a null value removes the key, so an absent optional stays
+ * absent — which matters for the tri-state dynamic capability flags.
  */
 internal fun SharedPlannerInput.toJson(): String = JSONObject()
     .put("task", JSONObject().put("kind", task.kind))
@@ -230,50 +206,57 @@ internal fun SharedPlannerInput.toJson(): String = JSONObject()
         JSONArray(
             providers.map { provider ->
                 JSONObject()
-                    .put(
-                        "descriptor",
-                        JSONObject()
-                            .put("id", provider.descriptor.id)
-                            .put("type", provider.descriptor.type.rawValue)
-                            .put("cancel", provider.descriptor.cancel?.rawValue)
-                            .put(
-                                "privacy",
-                                provider.descriptor.privacy?.let { privacy ->
-                                    JSONObject()
-                                        .put("dataLeavesDevice", privacy.dataLeavesDevice)
-                                        .put(
-                                            "regions",
-                                            privacy.regions?.let { JSONArray(it) },
-                                        )
-                                },
-                            )
-                            .put(
-                                "supports",
-                                JSONObject()
-                                    .put("run", provider.descriptor.supports.run)
-                                    .put("streaming", provider.descriptor.supports.streaming),
-                            )
-                            .put("tasks", JSONArray(provider.descriptor.tasks)),
-                    )
-                    .put(
-                        "capabilities",
-                        JSONObject()
-                            .put("available", provider.capabilities.available)
-                            .put("reason", provider.capabilities.reason)
-                            .put("streamingAvailable", provider.capabilities.streamingAvailable)
-                            .put(
-                                "streamingUnavailableReason",
-                                provider.capabilities.streamingUnavailableReason,
-                            )
-                            .put(
-                                "cancellationAvailable",
-                                provider.capabilities.cancellationAvailable,
-                            ),
-                    )
+                    .put("descriptor", provider.descriptor.toPlannerJson())
+                    .put("capabilities", provider.capabilities.toPlannerJson())
             },
         ),
     )
     .toString()
+
+private fun ProviderDescriptor.toPlannerJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("type", type.rawValue)
+    .put("model", model)
+    .put("transport", transport.rawValue)
+    .put("streamingStyle", streamingStyle?.rawValue)
+    .put(
+        "supports",
+        JSONObject()
+            .put("run", supports.run)
+            .put("streaming", supports.streaming)
+            .put("realtime", supports.realtime)
+            .put("tools", supports.tools)
+            .put("reasoningEvents", supports.reasoningEvents)
+            .put("structuredOutput", supports.structuredOutput)
+            .put("multimodal", supports.multimodal),
+    )
+    .put("cancel", cancel.rawValue)
+    .put("tasks", JSONArray(tasks))
+    .put(
+        "limits",
+        limits?.let { limits ->
+            JSONObject()
+                .put("maxInputTokens", limits.maxInputTokens)
+                .put("maxOutputTokens", limits.maxOutputTokens)
+                .put("maxImageBytes", limits.maxImageBytes)
+                .put("maxAudioSeconds", limits.maxAudioSeconds)
+        },
+    )
+    .put(
+        "privacy",
+        privacy?.let { privacy ->
+            JSONObject()
+                .put("dataLeavesDevice", privacy.dataLeavesDevice)
+                .put("regions", privacy.regions?.let { JSONArray(it) })
+        },
+    )
+
+private fun ProviderDynamicCapabilities.toPlannerJson(): JSONObject = JSONObject()
+    .put("available", available)
+    .put("reason", reason)
+    .put("streamingAvailable", streamingAvailable)
+    .put("streamingUnavailableReason", streamingUnavailableReason)
+    .put("cancellationAvailable", cancellationAvailable)
 
 internal fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
     val root = JSONObject(json)

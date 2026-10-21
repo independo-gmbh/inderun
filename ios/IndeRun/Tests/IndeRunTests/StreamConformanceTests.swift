@@ -377,7 +377,7 @@ final class StreamConformanceTests: XCTestCase {
         HostServices(connectivity: MockConnectivityService(), clock: SystemClockService())
     }
 
-    private func makeRequest(requestId: String? = nil, privacy: PrivacyEnum? = nil) -> TaskRequest {
+    private func makeRequest(requestId: String? = nil, privacy: Privacy? = nil) -> TaskRequest {
         TaskRequest(
             requestId: requestId,
             task: TaskDescriptor(kind: .textToText),

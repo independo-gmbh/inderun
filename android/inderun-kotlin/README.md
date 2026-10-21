@@ -12,7 +12,7 @@ val indeRun = IndeRun.initialize(this)
 val result = indeRun.generateText(
     TextGenerationOptions(
         prompt = "Translate 'Hello' to Spanish",
-        execution = TextExecutionOptions(privacy = PrivacyEnum.LocalRequired),
+        execution = TextExecutionOptions(privacy = Privacy.LocalRequired),
     ),
 )
 

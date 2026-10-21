@@ -1,10 +1,17 @@
 package app.independo.inderun.providers.onnx
 
 import android.content.Context
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.SourceType
 import app.independo.inderun.contracts.TaskRequest
@@ -13,8 +20,6 @@ import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.createCapabilityMismatch
 import app.independo.inderun.core.createInternal
@@ -70,10 +75,10 @@ class AndroidOnnxRuntimeProvider(
 
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = id,
-        type = ProviderDescriptor.ProviderType.local,
+        type = ProviderType.Local,
         model = modelPackage.id,
-        transport = ProviderDescriptor.TransportType.in_process,
-        supports = ProviderDescriptor.SupportsCapabilities(
+        transport = ProviderTransport.InProcess,
+        supports = ProviderSupports(
             run = true,
             streaming = false,
             realtime = false,
@@ -82,9 +87,9 @@ class AndroidOnnxRuntimeProvider(
             structuredOutput = false,
             multimodal = false,
         ),
-        cancel = ProviderDescriptor.CancelSemantics.soft,
+        cancel = CancelSemantics.Soft,
         tasks = declaredTasks(modelPackage),
-        privacy = ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice = false),
+        privacy = ProviderPrivacy(dataLeavesDevice = false),
     )
 
     /**

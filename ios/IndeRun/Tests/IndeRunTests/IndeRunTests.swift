@@ -81,11 +81,11 @@ struct TestCancellationError: Error {}
 
 final class MockProvider: ProviderAdapter, @unchecked Sendable {
     let id: String
-    let type: ProviderDescriptor.ProviderType
+    let type: ProviderType
     var isAvailable: Bool = true
     var shouldFail: Bool = false
     
-    init(id: String, type: ProviderDescriptor.ProviderType) {
+    init(id: String, type: ProviderType) {
         self.id = id
         self.type = type
     }
@@ -95,7 +95,7 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
             id: id,
             type: type,
             transport: type == .local ? .inProcess : .http,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: false,
                 realtime: false,
@@ -612,20 +612,22 @@ final class IndeRunTests: XCTestCase {
                 preferences: SharedPlannerPreferences(optimizeFor: nil),
                 providers: [
                     SharedPlannerProviderInput(
-                        capabilities: SharedPlannerCapabilities(
-                            available: true,
-                            cancellationAvailable: nil,
-                            reason: nil,
-                            streamingAvailable: nil,
-                            streamingUnavailableReason: nil
-                        ),
-                        descriptor: SharedPlannerProviderDescriptor(
-                            cancel: .soft,
+                        capabilities: ProviderDynamicCapabilities(available: true),
+                        descriptor: ProviderDescriptor(
                             id: "local_p",
-                            privacy: nil,
-                            supports: SharedPlannerProviderSupports(run: true, streaming: false),
-                            tasks: ["text_to_text"],
-                            type: .local
+                            type: .local,
+                            transport: .inProcess,
+                            supports: ProviderSupports(
+                                run: true,
+                                streaming: false,
+                                realtime: false,
+                                tools: false,
+                                reasoningEvents: false,
+                                structuredOutput: false,
+                                multimodal: false
+                            ),
+                            cancel: .soft,
+                            tasks: ["text_to_text"]
                         )
                     )
                 ],

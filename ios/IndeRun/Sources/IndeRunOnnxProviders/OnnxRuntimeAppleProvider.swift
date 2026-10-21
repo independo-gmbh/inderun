@@ -68,7 +68,7 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
             type: .local,
             model: modelPackage.id,
             transport: .inProcess,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: false,
                 realtime: false,
@@ -79,7 +79,7 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
             ),
             cancel: .soft,
             tasks: declaredTasks(modelPackage),
-            privacy: ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice: false)
+            privacy: ProviderPrivacy(dataLeavesDevice: false)
         )
     }
 

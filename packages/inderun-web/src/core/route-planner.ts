@@ -55,13 +55,13 @@ export interface RoutePlanner {
 }
 
 /**
- * A provider paired with the descriptor/capability projection the shared route
- * planner consumes.
+ * A provider paired with its descriptor and the dynamic capabilities the shared
+ * route planner consumes (already folded by {@link toSharedPlannerCapabilities}).
  */
 export interface ProviderRuntimeSnapshot {
   provider: ProviderAdapter;
-  descriptor: SharedPlannerInput["providers"][number]["descriptor"];
-  capabilities: SharedPlannerInput["providers"][number]["capabilities"];
+  descriptor: ProviderDescriptor;
+  capabilities: ProviderDynamicCapabilities;
 }
 
 /**
@@ -161,7 +161,7 @@ export async function collectProviderRuntimeSnapshots(
 
       return {
         provider,
-        descriptor: toSharedPlannerDescriptor(descriptor),
+        descriptor,
         capabilities: toSharedPlannerCapabilities(capabilities, descriptor, provider)
       };
     })
@@ -205,29 +205,6 @@ export function buildSharedPlannerInput(
   };
 }
 
-function toSharedPlannerDescriptor(
-  descriptor: ProviderDescriptor
-): SharedPlannerInput["providers"][number]["descriptor"] {
-  return {
-    id: descriptor.id,
-    type: descriptor.type,
-    supports: {
-      run: descriptor.supports.run,
-      streaming: descriptor.supports.streaming
-    },
-    cancel: descriptor.cancel,
-    tasks: descriptor.tasks,
-    ...(descriptor.privacy
-      ? {
-          privacy: {
-            dataLeavesDevice: descriptor.privacy.dataLeavesDevice,
-            ...(descriptor.privacy.regions ? { regions: descriptor.privacy.regions } : {})
-          }
-        }
-      : {})
-  };
-}
-
 /**
  * Projects the dynamic capability snapshot for the planner.
  *
@@ -241,7 +218,7 @@ function toSharedPlannerCapabilities(
   capabilities: ProviderDynamicCapabilities,
   descriptor: ProviderDescriptor,
   provider: ProviderAdapter
-): SharedPlannerInput["providers"][number]["capabilities"] {
+): ProviderDynamicCapabilities {
   const declaresStreaming = capabilities.streamingAvailable ?? descriptor.supports.streaming;
   const implementsStream = typeof provider.stream === "function";
   const streamingAvailable = declaresStreaming && implementsStream;
@@ -251,13 +228,12 @@ function toSharedPlannerCapabilities(
       ? `Provider '${descriptor.id}' declares streaming but does not implement stream().`
       : undefined);
 
+  // Spread rather than pick, so a field added to the schema reaches the planner
+  // without touching this function.
+  const { streamingUnavailableReason: _declaredReason, ...rest } = capabilities;
   return {
-    available: capabilities.available,
-    ...(capabilities.reason ? { reason: capabilities.reason } : {}),
+    ...rest,
     streamingAvailable,
-    ...(!streamingAvailable && streamingUnavailableReason ? { streamingUnavailableReason } : {}),
-    ...(capabilities.cancellationAvailable !== undefined
-      ? { cancellationAvailable: capabilities.cancellationAvailable }
-      : {})
+    ...(!streamingAvailable && streamingUnavailableReason ? { streamingUnavailableReason } : {})
   };
 }

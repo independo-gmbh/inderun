@@ -234,25 +234,18 @@ platforms, with CI failing on regeneration drift.
   next to the hand-written concrete provider/engine classes that implement/conform
   to them, so IDEs and reviewers can tell the two apart at a glance.
 
-## Known limitation: payload-shape parity is not enforced
+## Payload-shape parity
 
 This generator enforces cross-language parity for `IndeRunApi` *operation
 signatures* — method name, params, return type, and async idiom — across
-TypeScript, Kotlin, and Swift. It does **not** enforce that the payload types
-those signatures reference stay in sync across languages. `TaskRequest` and
-`TaskResult` already get that guarantee independently via the JSON-Schema/
-quicktype contract pipeline (`pnpm generate` / `contracts/schemas/*.schema.json`).
-`ProviderCapabilitySnapshot` (and its nested `ProviderDescriptor`/
-`ProviderDynamicCapabilities` types) does not: it is handwritten separately in
-TypeScript (`packages/inderun-web/src/core/provider.ts`), Kotlin
-(`android/inderun-core/src/main/kotlin/app/independo/inderun/core/Provider.kt`),
-and Swift (`ios/IndeRun/Sources/IndeRunCore/Provider.swift`), so one language's
-`ProviderCapabilitySnapshot` could gain, lose, or rename a field and every
-generated `IndeRunApi` interface would still compile — the generator only
-checks that `checkCapabilities()`'s signature matches, not that the type it
-returns has matching shape. Migrating `ProviderCapabilitySnapshot` under the
-same JSON-Schema/quicktype discipline as `TaskRequest`/`TaskResult` is a
-natural next step, alongside `ProviderAdapter` generation.
+TypeScript, Kotlin, and Swift. It does not check the payload types those
+signatures reference. That guarantee comes from the JSON-Schema/quicktype
+contract pipeline instead (`pnpm generate` / `contracts/schemas/*.schema.json`),
+which now covers every payload `IndeRunApi` names: `TaskRequest`, `TaskResult`,
+and — since issue #210 — `ProviderCapabilitySnapshot` with its nested
+`ProviderDescriptor` and `ProviderDynamicCapabilities`. The one remaining
+`"core"`-sourced type, `StreamRun`, is not a payload: it carries a live event
+sequence and a cancel hook in each platform's idiom, so it stays hand-written.
 
 ## Next step
 

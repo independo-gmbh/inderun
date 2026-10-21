@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +8,7 @@ import {
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
   getModelPackageValidationIssues,
+  getProviderCapabilitySnapshotValidationIssues,
   getStreamEventValidationIssues,
   getStreamRunHandleValidationIssues,
   getTaskRequestValidationIssues,
@@ -15,6 +18,9 @@ import {
   validateHttpResponse,
   validateIndeRunError,
   validateModelPackage,
+  validateProviderCapabilitySnapshot,
+  validateProviderDescriptor,
+  validateProviderDynamicCapabilities,
   validateStreamEvent,
   validateStreamRunHandle,
   validateStreamTerminalOutcome,
@@ -726,5 +732,47 @@ describe("ExecutionProvenance validation", () => {
       expect(validateStreamEvent(terminalEvent(valid!))).toBe(true);
       expect(validateStreamEvent(terminalEvent(broken!))).toBe(false);
     }
+  });
+});
+
+type SnapshotFixtures = {
+  valid: Array<{ id: string; snapshot: unknown }>;
+  invalid: Array<{ id: string; path: string; snapshot: unknown }>;
+};
+
+const snapshotFixtures = JSON.parse(
+  readFileSync(
+    new URL("../../../contracts/fixtures/provider/capability-snapshots.json", import.meta.url),
+    "utf8"
+  )
+) as SnapshotFixtures;
+
+describe("ProviderCapabilitySnapshot validation", () => {
+  for (const { id, snapshot } of snapshotFixtures.valid) {
+    it(`accepts ${id}`, () => {
+      expect(getProviderCapabilitySnapshotValidationIssues(snapshot)).toEqual([]);
+    });
+  }
+
+  for (const { id, path, snapshot } of snapshotFixtures.invalid) {
+    it(`rejects ${id} at ${path}`, () => {
+      expect(validateProviderCapabilitySnapshot(snapshot)).toBe(false);
+      expect(
+        getProviderCapabilitySnapshotValidationIssues(snapshot).map((issue) => issue.path)
+      ).toContain(path);
+    });
+  }
+
+  it("validates the descriptor and dynamic capabilities on their own", () => {
+    const [first] = snapshotFixtures.valid;
+    const { descriptor, capabilities } = first!.snapshot as {
+      descriptor: unknown;
+      capabilities: unknown;
+    };
+    expect(validateProviderDescriptor(descriptor)).toBe(true);
+    expect(validateProviderDynamicCapabilities(capabilities)).toBe(true);
+    expect(
+      validateProviderDynamicCapabilities({ available: true, cancellationAvailable: null })
+    ).toBe(false);
   });
 });
