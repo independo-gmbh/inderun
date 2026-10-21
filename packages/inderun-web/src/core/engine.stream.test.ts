@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { IndeRun, ProviderRegistry, type HostServices } from "../index.js";
+import { IndeRun } from "../index.js";
+import { ProviderRegistry, type HostServices } from "../provider.js";
 import { createMockHostServices, createRequest } from "../test/stream-fakes.js";
 
 /**

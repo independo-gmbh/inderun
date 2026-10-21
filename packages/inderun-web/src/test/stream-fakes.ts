@@ -4,7 +4,7 @@ import type {
   ProviderAdapter,
   ProviderStreamContext,
   ProviderStreamEvent
-} from "../index.js";
+} from "../provider.js";
 
 /**
  * Fakes shared by the Mode 2 test suites.

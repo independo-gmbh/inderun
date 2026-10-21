@@ -15,7 +15,7 @@ by shared fixtures rather than restated here.
 | Model profiles | Implemented on Web, iOS/macOS, and Android |
 | Execution provenance | Implemented on Web, iOS/macOS, and Android |
 | Primary text API (`generateText` / `streamText`) | Implemented on Web, iOS/macOS, and Android; translation pinned by `contracts/fixtures/facade/text-generation.json` |
-| Package surface restructuring along these layers | Not started; the current exports are classified below |
+| Package surface along these layers | Web: application and provider-authoring entry points (below); Swift and Kotlin: split by module |
 
 ## Layers
 
@@ -26,7 +26,7 @@ IndeRun exposes three public layers and keeps one internal layer.
 | **Primary** | Application developers | `generateText()` / `streamText()`, model profile names, the compact `execution` policy | Public; the default path in documentation |
 | **Advanced** | Applications that need full control | `IndeRun.run()` / `stream()` / `checkCapabilities()`, `TaskRequest`, `TaskResult`, `StreamEvent`, `StreamTerminalOutcome`, `IndeRunError`, `ExecutionProvenance` | Public; the canonical execution contract |
 | **Provider authoring** | Provider and host integrators | `ProviderAdapter` and its streaming variant, `ProviderDescriptor`, dynamic capabilities, `HostServices` and its services, `ProviderRegistry` | Public; changes are called out in release notes |
-| **Internal** | The engine itself | `Router`, the route planner bindings (`WasmRoutePlanner`, `SharedRoutePlanner`, `SharedCoreRoutePlanner`), planner input and plan types, `EventGate` | No compatibility promise; may be exported today for historical reasons |
+| **Internal** | The engine itself | `Router`, the route planner bindings (`WasmRoutePlanner`, `SharedRoutePlanner`, `SharedCoreRoutePlanner`), planner input and plan types, `EventGate` | No compatibility promise; not exported on Web |
 
 The primary layer is a translation layer, not an engine. Every primary call compiles to exactly one canonical
 `TaskRequest` and calls `run()` or `stream()` on the `IndeRunApi` surface. Routing, fallback, cancellation, credential
@@ -123,21 +123,24 @@ capability-specific entry point (for example `generateSpeech()` for `text_to_spe
 one canonical request per call, the same `execution` object, the same profile mechanism (a profile can list text or
 speech targets), and the same provenance. Nothing about the layering assumes chat-completion semantics.
 
-## Current Export Classification
+## Package Entry Points
 
-The Web SDK entry point (`packages/inderun-web/src/index.ts`) currently exports every layer from one barrel. Until the
-package surface is restructured, this is how its exports map onto the layers:
+Each layer has one import surface per SDK, so the layer a symbol belongs to is visible at the import site.
 
-- **Primary:** `generateText`, `streamText`, `toTaskRequest` and their option/result types, `createIndeRunWeb`.
-- **Advanced:** `IndeRun`, `IndeRunApi`, the re-exported contract types, `IndeRunException` and its helpers,
-  telemetry types.
-- **Provider authoring:** the provider contract types, `ProviderRegistry`, the host-service interfaces and browser
-  host-service implementations, the provider subpaths (`/openai`, `/onnx`, `/system-model`).
-- **Internal:** `Router`, `RouteSelection`, `WasmRoutePlanner` and the planner types, `EventGate`.
+- **Web.** `@independo/inderun-web` is the application entry point: the primary layer (`generateText`, `streamText`,
+  `toTaskRequest`, `createIndeRunWeb`, model profiles) and the advanced layer (`IndeRun`, `IndeRunApi`, the
+  contract types, `IndeRunException`, `toIndeRunException`, telemetry). `@independo/inderun-web/provider` is the
+  provider-authoring entry point: the provider contract types, `ProviderRegistry`, the host-service interfaces and
+  their browser implementations, and the `create*` error constructors. Provider adapters keep their own subpaths
+  (`/openai`, `/onnx`, `/system-model`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
+  because the advanced API returns them. The internal layer is not exported.
+- **Swift and Kotlin** split along module boundaries: `IndeRunSwift` / `inderun-kotlin` carry the primary and
+  advanced layers, `IndeRunCore` / `inderun-core` the provider-authoring layer, and the provider modules one family
+  each. The planner bindings are module-internal. `Router`, `RouteSelection` and `EventGate` are still `public` in
+  the core modules, because the engine in the SDK module uses them across the module boundary; they belong to the
+  internal layer all the same and carry no compatibility promise.
 
-Swift and Kotlin follow the same split along their module boundaries: `IndeRunSwift` / `inderun-kotlin` carry the
-primary and advanced layers, `IndeRunCore` / `inderun-core` the provider-authoring layer, and the planner bindings
-inside the core modules are internal.
+The [migration guide](../migration.md) lists what moved when the Web entry points were split.
 
 ## Non-Goals
 

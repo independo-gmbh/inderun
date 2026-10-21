@@ -13,15 +13,14 @@ import {
   generateText,
   IndeRun,
   IndeRunException,
-  ProviderRegistry,
   streamText,
   TextStreamRetractedError,
   toTaskRequest,
   type IndeRunApi,
-  type ProviderAdapter,
   type StreamRun,
   type TextGenerationOptions
 } from "../index.js";
+import { ProviderRegistry, type ProviderAdapter } from "../provider.js";
 
 const fixture = JSON.parse(
   readFileSync(

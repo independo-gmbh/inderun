@@ -1,11 +1,5 @@
 import { mountApp } from "./app";
-import {
-  checkProviderCapabilities,
-  getDemoClientConfig,
-  getLastRouteDecision,
-  runPrompt,
-  streamPrompt
-} from "./demo-client";
+import { getDemoClientConfig, getLastRouteDecision, inderun } from "./demo-client";
 import "./styles.css";
 
 const root = document.querySelector<HTMLDivElement>("#app");
@@ -15,9 +9,7 @@ if (!root) {
 }
 
 mountApp(root, {
+  inderun,
   config: getDemoClientConfig(),
-  runPrompt,
-  streamPrompt,
-  checkProviderCapabilities,
   getLastRouteDecision
 });

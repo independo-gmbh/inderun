@@ -47,6 +47,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "default": "./dist/provider.js"
+    },
     "./openai": {
       "types": "./dist/openai.d.ts",
       "default": "./dist/openai.js"

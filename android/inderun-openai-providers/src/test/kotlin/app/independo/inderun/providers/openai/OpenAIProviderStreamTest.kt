@@ -179,6 +179,9 @@ class OpenAIProviderStreamTest {
                             exception.errorClass,
                         )
                         assertEquals(label, want.getString("message"), exception.message)
+                        if (want.has("retryable")) {
+                            assertEquals(label, want.getBoolean("retryable"), exception.retryable)
+                        }
                     }
 
                     else -> error("Unexpected event $got in $label")
