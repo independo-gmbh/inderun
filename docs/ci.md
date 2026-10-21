@@ -194,7 +194,11 @@ invisible inside this repository and only breaks for someone consuming the publi
   definition — v0.3.0 reported 44. A blocking gate there would stop exactly the releases it exists
   to describe (#206), so the step keeps running and keeps printing: its output is the
   authoritative breaking-change list for the release notes, and it catches breaks whose commits
-  forgot the `BREAKING CHANGE:` footer.
+  forgot the `BREAKING CHANGE:` footer. For the same reason it is advisory on a `dev` PR whose
+  commits announce the break themselves (a `type!:` subject or a `BREAKING CHANGE:` footer, the
+  markers semantic-release reads): the break is intended and already headed for the release notes.
+  A PR that changes the surface without announcing it still fails. One announced break makes the
+  whole PR's report advisory, so read the report when reviewing such a PR.
 - **Contract enums**, in `javascript.yml`: `pnpm verify:enum-wire-parity`
   (`contracts/scripts/verify-enum-wire-parity.mjs`) reads the committed Kotlin and Swift
   contracts and asserts that every generated Kotlin enum exposes its schema wire value as
