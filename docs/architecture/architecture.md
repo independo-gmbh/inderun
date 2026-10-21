@@ -56,6 +56,16 @@ Two asymmetries in those shapes are deliberate. `StreamEvent.type` is an **open*
 
 An **Event Gate** (`packages/inderun-web/src/core/event-gate.ts`), one instance per run, is the structural mechanism behind the guarantees below: it assigns each run's `sequence` numbers and enforces, via a first-writer-wins terminate operation, that exactly one terminal `StreamEvent` is ever produced and that no event is admitted after it.
 
+## Execution Provenance
+
+Every completed `TaskResult`, every `StreamTerminalOutcome` branch, and every normalized error carries an `ExecutionProvenance` record (`contracts/schemas/execution-provenance.schema.json`): the model profile the request routed within, the target the outcome is attributed to, that target's declared locality (`on_device`, `edge`, `cloud`, or `unknown`), the model it is configured with and the model its backend reported, every attempt with how it ended, and the planner's rejection codes for the targets it never tried. It exists so that applications — and out-of-process hosts such as the Capacitor bridge, which cannot observe in-process telemetry — can show what actually happened without parsing provider identifiers or subscribing to telemetry.
+
+What it proves: which providers the engine attempted and in what order, how each attempt ended, which target produced the result (or which one a stream was committed to when it failed, or which one was running when it was cancelled), and why the planner rejected the others. Those are engine observations.
+
+What it does not prove: locality is the attributed provider's *declaration* (`ProviderDescriptor.type`), not a measurement of where computation ran; `configuredModel` is the descriptor's declaration; `reportedModel` is whatever the provider's backend named in its response and is absent when the backend names nothing. The record never infers a model or locality a provider did not state — an unknown stays absent, or `unknown` for locality — and it never carries request content, credentials, provider messages, or provider payloads. There is no separate route identifier: one plan is made per run, so the run id that every carrying payload already has is the correlation key.
+
+The engines build it with one recorder per run (`ProvenanceRecorder` in each engine's directory). Providers contribute only the reported model, through `TaskResult.telemetry.reportedModel` for Mode 1 and the `done` stream event for Mode 2.
+
 ## Cancellation And Fallback
 
 This section records why the guarantees are shaped the way they are; [streaming.md](../streaming.md) states what a caller can rely on.

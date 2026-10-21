@@ -13,7 +13,7 @@ by shared fixtures rather than restated here.
 | --- | --- |
 | Layer definitions and compatibility contract | Specified (this document) |
 | Model profiles | Implemented on Web, iOS/macOS, and Android |
-| Execution provenance | Specified, not yet implemented |
+| Execution provenance | Implemented on Web, iOS/macOS, and Android |
 | Primary text API (`generateText` / `streamText`) | Specified, not yet implemented |
 | Package surface restructuring along these layers | Not started; the current exports are classified below |
 

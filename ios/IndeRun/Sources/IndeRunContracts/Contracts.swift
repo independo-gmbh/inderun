@@ -553,6 +553,10 @@ public struct TaskResult: Codable, Sendable {
     public var finishReason: FinishReason
     /// The normalized content returned from the selected provider.
     public var output: Output
+    /// Normalized execution provenance: which target ran, its declared locality, the configured
+    /// and reported model, and how fallback and routing played out. See
+    /// execution-provenance.schema.json.
+    public var provenance: ExecutionProvenance?
     /// A unique, opaque identifier assigned by the engine for this specific execution attempt.
     public var runId: String
     /// Contract schema version used to interpret the result payload.
@@ -565,15 +569,17 @@ public struct TaskResult: Codable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case finishReason = "finishReason"
         case output = "output"
+        case provenance = "provenance"
         case runId = "runId"
         case schemaVersion = "schemaVersion"
         case telemetry = "telemetry"
         case usage = "usage"
     }
 
-    public init(finishReason: FinishReason, output: Output, runId: String, schemaVersion: SchemaVersion, telemetry: TaskResultTelemetry, usage: TaskResultUsage?) {
+    public init(finishReason: FinishReason, output: Output, provenance: ExecutionProvenance?, runId: String, schemaVersion: SchemaVersion, telemetry: TaskResultTelemetry, usage: TaskResultUsage?) {
         self.finishReason = finishReason
         self.output = output
+        self.provenance = provenance
         self.runId = runId
         self.schemaVersion = schemaVersion
         self.telemetry = telemetry
@@ -602,6 +608,7 @@ public extension TaskResult {
     func with(
         finishReason: FinishReason? = nil,
         output: Output? = nil,
+        provenance: ExecutionProvenance?? = nil,
         runId: String? = nil,
         schemaVersion: SchemaVersion? = nil,
         telemetry: TaskResultTelemetry? = nil,
@@ -610,6 +617,7 @@ public extension TaskResult {
         return TaskResult(
             finishReason: finishReason ?? self.finishReason,
             output: output ?? self.output,
+            provenance: provenance ?? self.provenance,
             runId: runId ?? self.runId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
             telemetry: telemetry ?? self.telemetry,
@@ -704,6 +712,304 @@ public enum OutputType: String, Codable, Sendable {
     case text = "text"
 }
 
+/// Normalized execution provenance: which target ran, its declared locality, the configured
+/// and reported model, and how fallback and routing played out. See
+/// execution-provenance.schema.json.
+///
+/// Provider-neutral record of how an execution was carried out: the target the outcome is
+/// attributed to, its declared locality, the configured and provider-reported model, every
+/// attempt, and why other candidates were rejected. Carried on TaskResult, on every
+/// StreamTerminalOutcome branch, and on IndeRunError. It reports what the engine observed
+/// and what providers declared or reported; it never infers a model or locality a provider
+/// did not state, and it never contains request content, credentials, or provider payloads.
+// MARK: - ExecutionProvenance
+public struct ExecutionProvenance: Codable, Sendable {
+    /// How many providers were attempted. 0 when the request failed validation or routing, or
+    /// was cancelled before any attempt started.
+    public var attemptCount: Int
+    /// Every attempted provider, in attempt order, with how its attempt ended.
+    public var attempts: [ExecutionProvenanceAttempt]
+    /// The model providerId is bound to, as its descriptor declares it. Absent when the provider
+    /// cannot name its model or no provider is attributed.
+    public var configuredModel: String?
+    /// Whether more than one provider was attempted (attemptCount > 1).
+    public var fallbackOccurred: Bool
+    /// Where providerId declares it executes: 'on_device' for a local provider, 'edge', or
+    /// 'cloud'. A declaration by the provider's descriptor, not a measurement. 'unknown' when
+    /// providerId is absent.
+    public var locality: Locality
+    /// The model profile the request routed within; 'auto' when the request named none.
+    public var modelProfile: String
+    /// The target the outcome is attributed to: the provider that produced the result, the
+    /// provider a stream had committed to when it ended, or the provider that was running when
+    /// it was cancelled. Absent when no provider was reached or when every attempted provider
+    /// failed before one was committed to.
+    public var providerId: String?
+    /// The model identifier the provider reported in its own response. Absent means the provider
+    /// did not report one; it is never inferred from configuration.
+    public var reportedModel: String?
+    /// Providers the route planner rejected before any attempt, with the normalized RoutePlan
+    /// reason codes. Codes only: no provider-supplied messages.
+    public var routeRejections: [ExecutionProvenanceRouteRejection]
+    /// Contract schema version used to interpret this provenance record.
+    public var schemaVersion: SchemaVersion
+
+    public enum CodingKeys: String, CodingKey {
+        case attemptCount = "attemptCount"
+        case attempts = "attempts"
+        case configuredModel = "configuredModel"
+        case fallbackOccurred = "fallbackOccurred"
+        case locality = "locality"
+        case modelProfile = "modelProfile"
+        case providerId = "providerId"
+        case reportedModel = "reportedModel"
+        case routeRejections = "routeRejections"
+        case schemaVersion = "schemaVersion"
+    }
+
+    public init(attemptCount: Int, attempts: [ExecutionProvenanceAttempt], configuredModel: String?, fallbackOccurred: Bool, locality: Locality, modelProfile: String, providerId: String?, reportedModel: String?, routeRejections: [ExecutionProvenanceRouteRejection], schemaVersion: SchemaVersion) {
+        self.attemptCount = attemptCount
+        self.attempts = attempts
+        self.configuredModel = configuredModel
+        self.fallbackOccurred = fallbackOccurred
+        self.locality = locality
+        self.modelProfile = modelProfile
+        self.providerId = providerId
+        self.reportedModel = reportedModel
+        self.routeRejections = routeRejections
+        self.schemaVersion = schemaVersion
+    }
+}
+
+// MARK: ExecutionProvenance convenience initializers and mutators
+
+public extension ExecutionProvenance {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ExecutionProvenance.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        attemptCount: Int? = nil,
+        attempts: [ExecutionProvenanceAttempt]? = nil,
+        configuredModel: String?? = nil,
+        fallbackOccurred: Bool? = nil,
+        locality: Locality? = nil,
+        modelProfile: String? = nil,
+        providerId: String?? = nil,
+        reportedModel: String?? = nil,
+        routeRejections: [ExecutionProvenanceRouteRejection]? = nil,
+        schemaVersion: SchemaVersion? = nil
+    ) -> ExecutionProvenance {
+        return ExecutionProvenance(
+            attemptCount: attemptCount ?? self.attemptCount,
+            attempts: attempts ?? self.attempts,
+            configuredModel: configuredModel ?? self.configuredModel,
+            fallbackOccurred: fallbackOccurred ?? self.fallbackOccurred,
+            locality: locality ?? self.locality,
+            modelProfile: modelProfile ?? self.modelProfile,
+            providerId: providerId ?? self.providerId,
+            reportedModel: reportedModel ?? self.reportedModel,
+            routeRejections: routeRejections ?? self.routeRejections,
+            schemaVersion: schemaVersion ?? self.schemaVersion
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - ExecutionProvenanceAttempt
+public struct ExecutionProvenanceAttempt: Codable, Sendable {
+    /// Normalized error class of a failed attempt.
+    public var errorClass: ErrorClass?
+    /// 'succeeded' (produced the result or was committed to and completed), 'failed', or
+    /// 'cancelled'.
+    public var outcome: AttemptOutcome
+    public var providerId: String
+
+    public enum CodingKeys: String, CodingKey {
+        case errorClass = "errorClass"
+        case outcome = "outcome"
+        case providerId = "providerId"
+    }
+
+    public init(errorClass: ErrorClass?, outcome: AttemptOutcome, providerId: String) {
+        self.errorClass = errorClass
+        self.outcome = outcome
+        self.providerId = providerId
+    }
+}
+
+// MARK: ExecutionProvenanceAttempt convenience initializers and mutators
+
+public extension ExecutionProvenanceAttempt {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ExecutionProvenanceAttempt.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        errorClass: ErrorClass?? = nil,
+        outcome: AttemptOutcome? = nil,
+        providerId: String? = nil
+    ) -> ExecutionProvenanceAttempt {
+        return ExecutionProvenanceAttempt(
+            errorClass: errorClass ?? self.errorClass,
+            outcome: outcome ?? self.outcome,
+            providerId: providerId ?? self.providerId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Normalized error class of a failed attempt.
+///
+/// Present only if a provider reports a degraded outcome on an otherwise-successful result;
+/// no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+/// IndeRunError never produces a TaskResult at all.
+///
+/// Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
+/// CapabilityMismatch (request needs something no eligible provider supports),
+/// Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
+/// failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
+/// execution budget), Internal (unexpected engine-side failure).
+///
+/// Normalized error taxonomy, identical to IndeRunError.errorClass: CapabilityMismatch
+/// (request needs something no eligible provider supports), Offline/Unavailable (provider
+/// unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider
+/// throttled the request), Timeout (provider exceeded its execution budget), Internal
+/// (unexpected engine-side failure).
+public enum ErrorClass: String, Codable, Sendable {
+    case AuthError = "AuthError"
+    case CapabilityMismatch = "CapabilityMismatch"
+    case Internal = "Internal"
+    case Offline = "Offline"
+    case RateLimited = "RateLimited"
+    case Timeout = "Timeout"
+    case Unavailable = "Unavailable"
+}
+
+/// 'succeeded' (produced the result or was committed to and completed), 'failed', or
+/// 'cancelled'.
+public enum AttemptOutcome: String, Codable, Sendable {
+    case cancelled = "cancelled"
+    case failed = "failed"
+    case succeeded = "succeeded"
+}
+
+/// Where providerId declares it executes: 'on_device' for a local provider, 'edge', or
+/// 'cloud'. A declaration by the provider's descriptor, not a measurement. 'unknown' when
+/// providerId is absent.
+public enum Locality: String, Codable, Sendable {
+    case cloud = "cloud"
+    case edge = "edge"
+    case onDevice = "on_device"
+    case unknown = "unknown"
+}
+
+// MARK: - ExecutionProvenanceRouteRejection
+public struct ExecutionProvenanceRouteRejection: Codable, Sendable {
+    public var codes: [Code]
+    public var providerId: String
+
+    public enum CodingKeys: String, CodingKey {
+        case codes = "codes"
+        case providerId = "providerId"
+    }
+
+    public init(codes: [Code], providerId: String) {
+        self.codes = codes
+        self.providerId = providerId
+    }
+}
+
+// MARK: ExecutionProvenanceRouteRejection convenience initializers and mutators
+
+public extension ExecutionProvenanceRouteRejection {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ExecutionProvenanceRouteRejection.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        codes: [Code]? = nil,
+        providerId: String? = nil
+    ) -> ExecutionProvenanceRouteRejection {
+        return ExecutionProvenanceRouteRejection(
+            codes: codes ?? self.codes,
+            providerId: providerId ?? self.providerId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+/// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+/// but the dynamic capability snapshot reports it cannot stream in the current host
+/// environment. 'not_in_model_profile' means the request named a model profile that does not
+/// list this provider.
+public enum Code: String, Codable, Sendable {
+    case capabilityUnavailable = "capability_unavailable"
+    case cloudConstraint = "cloud_constraint"
+    case notInModelProfile = "not_in_model_profile"
+    case offline = "offline"
+    case privacyConstraint = "privacy_constraint"
+    case runNotSupported = "run_not_supported"
+    case streamingNotSupported = "streaming_not_supported"
+    case streamingUnavailable = "streaming_unavailable"
+    case taskNotSupported = "task_not_supported"
+}
+
 /// Required metadata providing an overview of the execution result and performance metrics.
 // MARK: - TaskResultTelemetry
 public struct TaskResultTelemetry: Codable, Sendable {
@@ -714,6 +1020,10 @@ public struct TaskResultTelemetry: Codable, Sendable {
     /// The identifier for the specific provider that handled the request (e.g.,
     /// 'openai_compatible_cloud').
     public var providerUsed: String
+    /// The model identifier the provider reported in its own response, set by the provider when
+    /// its backend reports one. The engine carries it into provenance.reportedModel; it is never
+    /// inferred from configuration.
+    public var reportedModel: String?
     /// Measured execution duration in milliseconds, including route selection and result
     /// processing.
     public var totalMs: Double
@@ -721,12 +1031,14 @@ public struct TaskResultTelemetry: Codable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case errorClass = "errorClass"
         case providerUsed = "providerUsed"
+        case reportedModel = "reportedModel"
         case totalMs = "totalMs"
     }
 
-    public init(errorClass: ErrorClass?, providerUsed: String, totalMs: Double) {
+    public init(errorClass: ErrorClass?, providerUsed: String, reportedModel: String?, totalMs: Double) {
         self.errorClass = errorClass
         self.providerUsed = providerUsed
+        self.reportedModel = reportedModel
         self.totalMs = totalMs
     }
 }
@@ -752,11 +1064,13 @@ public extension TaskResultTelemetry {
     func with(
         errorClass: ErrorClass?? = nil,
         providerUsed: String? = nil,
+        reportedModel: String?? = nil,
         totalMs: Double? = nil
     ) -> TaskResultTelemetry {
         return TaskResultTelemetry(
             errorClass: errorClass ?? self.errorClass,
             providerUsed: providerUsed ?? self.providerUsed,
+            reportedModel: reportedModel ?? self.reportedModel,
             totalMs: totalMs ?? self.totalMs
         )
     }
@@ -768,31 +1082,6 @@ public extension TaskResultTelemetry {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
-}
-
-/// Present only if a provider reports a degraded outcome on an otherwise-successful result;
-/// no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
-/// IndeRunError never produces a TaskResult at all.
-///
-/// Normalized error taxonomy, shared with TaskResult.telemetry.errorClass:
-/// CapabilityMismatch (request needs something no eligible provider supports),
-/// Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth
-/// failure), RateLimited (provider throttled the request), Timeout (provider exceeded its
-/// execution budget), Internal (unexpected engine-side failure).
-///
-/// Normalized error taxonomy, identical to IndeRunError.errorClass: CapabilityMismatch
-/// (request needs something no eligible provider supports), Offline/Unavailable (provider
-/// unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider
-/// throttled the request), Timeout (provider exceeded its execution budget), Internal
-/// (unexpected engine-side failure).
-public enum ErrorClass: String, Codable, Sendable {
-    case AuthError = "AuthError"
-    case CapabilityMismatch = "CapabilityMismatch"
-    case Internal = "Internal"
-    case Offline = "Offline"
-    case RateLimited = "RateLimited"
-    case Timeout = "Timeout"
-    case Unavailable = "Unavailable"
 }
 
 /// Optional metadata regarding the quantity of tokens processed by the provider.
@@ -872,6 +1161,10 @@ public struct IndeRunError: Codable, Sendable {
     public var errorClass: ErrorClass
     /// Human-readable error message suitable for logs and developer diagnostics.
     public var message: String
+    /// Normalized execution provenance: which target ran, its declared locality, the configured
+    /// and reported model, and how fallback and routing played out. See
+    /// execution-provenance.schema.json.
+    public var provenance: ExecutionProvenance?
     /// Identifier of the provider associated with the failure, if execution reached a provider.
     public var providerId: String?
     /// Whether retrying the same request may succeed.
@@ -887,6 +1180,7 @@ public struct IndeRunError: Codable, Sendable {
         case details = "details"
         case errorClass = "errorClass"
         case message = "message"
+        case provenance = "provenance"
         case providerId = "providerId"
         case retryable = "retryable"
         case retryAfterMs = "retryAfterMs"
@@ -894,10 +1188,11 @@ public struct IndeRunError: Codable, Sendable {
         case schemaVersion = "schemaVersion"
     }
 
-    public init(details: [String: JSONAny]?, errorClass: ErrorClass, message: String, providerId: String?, retryable: Bool?, retryAfterMs: Int?, runId: String?, schemaVersion: SchemaVersion) {
+    public init(details: [String: JSONAny]?, errorClass: ErrorClass, message: String, provenance: ExecutionProvenance?, providerId: String?, retryable: Bool?, retryAfterMs: Int?, runId: String?, schemaVersion: SchemaVersion) {
         self.details = details
         self.errorClass = errorClass
         self.message = message
+        self.provenance = provenance
         self.providerId = providerId
         self.retryable = retryable
         self.retryAfterMs = retryAfterMs
@@ -928,6 +1223,7 @@ public extension IndeRunError {
         details: [String: JSONAny]?? = nil,
         errorClass: ErrorClass? = nil,
         message: String? = nil,
+        provenance: ExecutionProvenance?? = nil,
         providerId: String?? = nil,
         retryable: Bool?? = nil,
         retryAfterMs: Int?? = nil,
@@ -938,6 +1234,7 @@ public extension IndeRunError {
             details: details ?? self.details,
             errorClass: errorClass ?? self.errorClass,
             message: message ?? self.message,
+            provenance: provenance ?? self.provenance,
             providerId: providerId ?? self.providerId,
             retryable: retryable ?? self.retryable,
             retryAfterMs: retryAfterMs ?? self.retryAfterMs,
@@ -2134,23 +2431,6 @@ public extension Reason {
     }
 }
 
-/// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
-/// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
-/// but the dynamic capability snapshot reports it cannot stream in the current host
-/// environment. 'not_in_model_profile' means the request named a model profile that does not
-/// list this provider.
-public enum Code: String, Codable, Sendable {
-    case capabilityUnavailable = "capability_unavailable"
-    case cloudConstraint = "cloud_constraint"
-    case notInModelProfile = "not_in_model_profile"
-    case offline = "offline"
-    case privacyConstraint = "privacy_constraint"
-    case runNotSupported = "run_not_supported"
-    case streamingNotSupported = "streaming_not_supported"
-    case streamingUnavailable = "streaming_unavailable"
-    case taskNotSupported = "task_not_supported"
-}
-
 /// Provider-neutral descriptor for a developer-supplied/custom local model made available to
 /// an IndeRun local-model provider family (for example, the ONNX Runtime family). It
 /// describes model identity, format, task support, source, files, integrity, licensing, and
@@ -2883,6 +3163,10 @@ public struct Payload: Codable, Sendable {
     public var finalText: String?
     public var finishReason: FinishReason?
     public var outcome: Outcome?
+    /// Normalized execution provenance: which target ran, its declared locality, the configured
+    /// and reported model, and how fallback and routing played out. See
+    /// execution-provenance.schema.json.
+    public var provenance: ExecutionProvenance?
     public var runId: String?
     public var schemaVersion: SchemaVersion?
     public var telemetry: PayloadTelemetry?
@@ -2897,6 +3181,7 @@ public struct Payload: Codable, Sendable {
         case finalText = "finalText"
         case finishReason = "finishReason"
         case outcome = "outcome"
+        case provenance = "provenance"
         case runId = "runId"
         case schemaVersion = "schemaVersion"
         case telemetry = "telemetry"
@@ -2906,12 +3191,13 @@ public struct Payload: Codable, Sendable {
         case reason = "reason"
     }
 
-    public init(text: String?, phase: Phase?, finalText: String?, finishReason: FinishReason?, outcome: Outcome?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
+    public init(text: String?, phase: Phase?, finalText: String?, finishReason: FinishReason?, outcome: Outcome?, provenance: ExecutionProvenance?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
         self.text = text
         self.phase = phase
         self.finalText = finalText
         self.finishReason = finishReason
         self.outcome = outcome
+        self.provenance = provenance
         self.runId = runId
         self.schemaVersion = schemaVersion
         self.telemetry = telemetry
@@ -2946,6 +3232,7 @@ public extension Payload {
         finalText: String?? = nil,
         finishReason: FinishReason?? = nil,
         outcome: Outcome?? = nil,
+        provenance: ExecutionProvenance?? = nil,
         runId: String?? = nil,
         schemaVersion: SchemaVersion?? = nil,
         telemetry: PayloadTelemetry?? = nil,
@@ -2960,6 +3247,7 @@ public extension Payload {
             finalText: finalText ?? self.finalText,
             finishReason: finishReason ?? self.finishReason,
             outcome: outcome ?? self.outcome,
+            provenance: provenance ?? self.provenance,
             runId: runId ?? self.runId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
             telemetry: telemetry ?? self.telemetry,
@@ -2984,6 +3272,10 @@ public struct PayloadError: Codable, Sendable {
     public var details: [String: JSONAny]?
     public var errorClass: ErrorClass
     public var message: String
+    /// Normalized execution provenance: which target ran, its declared locality, the configured
+    /// and reported model, and how fallback and routing played out. See
+    /// execution-provenance.schema.json.
+    public var provenance: ExecutionProvenance?
     public var providerId: String?
     public var retryable: Bool?
     public var retryAfterMs: Int?
@@ -2993,16 +3285,18 @@ public struct PayloadError: Codable, Sendable {
         case details = "details"
         case errorClass = "errorClass"
         case message = "message"
+        case provenance = "provenance"
         case providerId = "providerId"
         case retryable = "retryable"
         case retryAfterMs = "retryAfterMs"
         case schemaVersion = "schemaVersion"
     }
 
-    public init(details: [String: JSONAny]?, errorClass: ErrorClass, message: String, providerId: String?, retryable: Bool?, retryAfterMs: Int?, schemaVersion: SchemaVersion) {
+    public init(details: [String: JSONAny]?, errorClass: ErrorClass, message: String, provenance: ExecutionProvenance?, providerId: String?, retryable: Bool?, retryAfterMs: Int?, schemaVersion: SchemaVersion) {
         self.details = details
         self.errorClass = errorClass
         self.message = message
+        self.provenance = provenance
         self.providerId = providerId
         self.retryable = retryable
         self.retryAfterMs = retryAfterMs
@@ -3032,6 +3326,7 @@ public extension PayloadError {
         details: [String: JSONAny]?? = nil,
         errorClass: ErrorClass? = nil,
         message: String? = nil,
+        provenance: ExecutionProvenance?? = nil,
         providerId: String?? = nil,
         retryable: Bool?? = nil,
         retryAfterMs: Int?? = nil,
@@ -3041,6 +3336,7 @@ public extension PayloadError {
             details: details ?? self.details,
             errorClass: errorClass ?? self.errorClass,
             message: message ?? self.message,
+            provenance: provenance ?? self.provenance,
             providerId: providerId ?? self.providerId,
             retryable: retryable ?? self.retryable,
             retryAfterMs: retryAfterMs ?? self.retryAfterMs,
@@ -3215,6 +3511,10 @@ public struct StreamTerminalOutcome: Codable, Sendable {
     /// The stream was cancelled. No further StreamEvent is delivered after this outcome, and no
     /// further fallback attempt is made, per the engine's cancellation guarantee.
     public var outcome: Outcome
+    /// Normalized execution provenance: which target ran, its declared locality, the configured
+    /// and reported model, and how fallback and routing played out. See
+    /// execution-provenance.schema.json.
+    public var provenance: ExecutionProvenance?
     /// The stream run this outcome terminates, matching StreamRunHandle.runId and every
     /// StreamEvent.runId for the run.
     public var runId: String
@@ -3245,6 +3545,7 @@ public struct StreamTerminalOutcome: Codable, Sendable {
         case finalText = "finalText"
         case finishReason = "finishReason"
         case outcome = "outcome"
+        case provenance = "provenance"
         case runId = "runId"
         case schemaVersion = "schemaVersion"
         case telemetry = "telemetry"
@@ -3254,10 +3555,11 @@ public struct StreamTerminalOutcome: Codable, Sendable {
         case reason = "reason"
     }
 
-    public init(finalText: String?, finishReason: FinishReason?, outcome: Outcome, runId: String, schemaVersion: SchemaVersion, telemetry: StreamTerminalOutcomeTelemetry?, usage: StreamTerminalOutcomeUsage?, error: StreamTerminalOutcomeError?, partialText: String?, reason: String?) {
+    public init(finalText: String?, finishReason: FinishReason?, outcome: Outcome, provenance: ExecutionProvenance?, runId: String, schemaVersion: SchemaVersion, telemetry: StreamTerminalOutcomeTelemetry?, usage: StreamTerminalOutcomeUsage?, error: StreamTerminalOutcomeError?, partialText: String?, reason: String?) {
         self.finalText = finalText
         self.finishReason = finishReason
         self.outcome = outcome
+        self.provenance = provenance
         self.runId = runId
         self.schemaVersion = schemaVersion
         self.telemetry = telemetry
@@ -3290,6 +3592,7 @@ public extension StreamTerminalOutcome {
         finalText: String?? = nil,
         finishReason: FinishReason?? = nil,
         outcome: Outcome? = nil,
+        provenance: ExecutionProvenance?? = nil,
         runId: String? = nil,
         schemaVersion: SchemaVersion? = nil,
         telemetry: StreamTerminalOutcomeTelemetry?? = nil,
@@ -3302,6 +3605,7 @@ public extension StreamTerminalOutcome {
             finalText: finalText ?? self.finalText,
             finishReason: finishReason ?? self.finishReason,
             outcome: outcome ?? self.outcome,
+            provenance: provenance ?? self.provenance,
             runId: runId ?? self.runId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
             telemetry: telemetry ?? self.telemetry,
@@ -3338,6 +3642,10 @@ public struct StreamTerminalOutcomeError: Codable, Sendable {
     public var errorClass: ErrorClass
     /// Human-readable error message suitable for logs and developer diagnostics.
     public var message: String
+    /// Normalized execution provenance: which target ran, its declared locality, the configured
+    /// and reported model, and how fallback and routing played out. See
+    /// execution-provenance.schema.json.
+    public var provenance: ExecutionProvenance?
     /// Identifier of the provider associated with the failure, if execution reached a provider.
     public var providerId: String?
     /// Whether retrying the same request may succeed.
@@ -3351,16 +3659,18 @@ public struct StreamTerminalOutcomeError: Codable, Sendable {
         case details = "details"
         case errorClass = "errorClass"
         case message = "message"
+        case provenance = "provenance"
         case providerId = "providerId"
         case retryable = "retryable"
         case retryAfterMs = "retryAfterMs"
         case schemaVersion = "schemaVersion"
     }
 
-    public init(details: [String: JSONAny]?, errorClass: ErrorClass, message: String, providerId: String?, retryable: Bool?, retryAfterMs: Int?, schemaVersion: SchemaVersion) {
+    public init(details: [String: JSONAny]?, errorClass: ErrorClass, message: String, provenance: ExecutionProvenance?, providerId: String?, retryable: Bool?, retryAfterMs: Int?, schemaVersion: SchemaVersion) {
         self.details = details
         self.errorClass = errorClass
         self.message = message
+        self.provenance = provenance
         self.providerId = providerId
         self.retryable = retryable
         self.retryAfterMs = retryAfterMs
@@ -3390,6 +3700,7 @@ public extension StreamTerminalOutcomeError {
         details: [String: JSONAny]?? = nil,
         errorClass: ErrorClass? = nil,
         message: String? = nil,
+        provenance: ExecutionProvenance?? = nil,
         providerId: String?? = nil,
         retryable: Bool?? = nil,
         retryAfterMs: Int?? = nil,
@@ -3399,6 +3710,7 @@ public extension StreamTerminalOutcomeError {
             details: details ?? self.details,
             errorClass: errorClass ?? self.errorClass,
             message: message ?? self.message,
+            provenance: provenance ?? self.provenance,
             providerId: providerId ?? self.providerId,
             retryable: retryable ?? self.retryable,
             retryAfterMs: retryAfterMs ?? self.retryAfterMs,

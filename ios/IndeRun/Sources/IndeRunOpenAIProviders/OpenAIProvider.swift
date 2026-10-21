@@ -97,6 +97,9 @@ public struct OpenAIFactoryOptions: Sendable {
 }
 
 private struct OpenAIResponseBody {
+    /// The model id the Responses API echoes on the response object: the model that
+    /// served the request, which can be a dated snapshot of the configured alias.
+    let model: String?
     let outputText: String?
     let output: [[String: Any]]
     let status: String?
@@ -106,6 +109,7 @@ private struct OpenAIResponseBody {
     let totalTokens: Int?
 
     init(json: [String: Any]) {
+        model = (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         outputText = json["output_text"] as? String
         output = json["output"] as? [[String: Any]] ?? []
         status = json["status"] as? String
@@ -312,9 +316,14 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         var result = TaskResult(
             finishReason: finishReason(responseBody: responseBody),
             output: Output(text: outputText, type: .text),
+            provenance: nil,
             runId: context.runId,
             schemaVersion: .the10,
-            telemetry: TaskResultTelemetry(errorClass: nil, providerUsed: options.id, totalMs: 0),
+            telemetry: TaskResultTelemetry(
+                providerUsed: options.id,
+                totalMs: 0,
+                reportedModel: responseBody.model
+            ),
             usage: nil
         )
 
@@ -466,7 +475,8 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
             continuation.yield(.done(
                 finalText: extractOutputText(responseBody: body) ?? "",
                 finishReason: finishReason(responseBody: body),
-                usage: usage(responseBody: body)
+                usage: usage(responseBody: body),
+                reportedModel: body.model
             ))
             return true
 

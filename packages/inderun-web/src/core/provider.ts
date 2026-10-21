@@ -196,6 +196,11 @@ export type ProviderStreamEvent =
        */
       finishReason?: TaskResult["finishReason"];
       usage?: TaskResult["usage"];
+      /**
+       * The model identifier the provider's backend reported for this run, when it reports
+       * one. Carried into the terminal outcome's provenance; never inferred from configuration.
+       */
+      reportedModel?: string;
     }
   | { kind: "error"; error: unknown };
 

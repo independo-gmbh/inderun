@@ -248,6 +248,35 @@ describe("OpenAIResponsesProvider", () => {
     });
   });
 
+  it("reports the model the Responses API names into the result's provenance", async () => {
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ model: "gpt-5.2-2026-08-01", output_text: "Hi.", status: "completed" })
+    ]);
+
+    const result = await runWithProvider(createRequest(), httpClient);
+
+    expect(result.telemetry.reportedModel).toBe("gpt-5.2-2026-08-01");
+    expect(result.provenance).toMatchObject({
+      providerId: "openai",
+      locality: "cloud",
+      configuredModel: "gpt-5.2",
+      reportedModel: "gpt-5.2-2026-08-01"
+    });
+  });
+
+  it("leaves reportedModel absent when the response names no model", async () => {
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ output_text: "Hi.", status: "completed" })
+    ]);
+
+    const result = await runWithProvider(createRequest(), httpClient);
+
+    expect(result.telemetry).not.toHaveProperty("reportedModel");
+    expect(result.provenance).not.toHaveProperty("reportedModel");
+  });
+
   it("aggregates text from Responses output items when output_text is not present", async () => {
     const httpClient = new MockHttpClient([
       jsonResponse({}, 200),

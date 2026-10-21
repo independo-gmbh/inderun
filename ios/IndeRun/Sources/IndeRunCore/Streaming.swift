@@ -102,8 +102,14 @@ public enum ProviderStreamEvent: Sendable {
     /// The full cumulative text produced so far, replacing what came before.
     case snapshot(text: String)
     /// Terminal success. `finishReason` and `usage` are reported when the
-    /// provider exposes them.
-    case done(finalText: String, finishReason: FinishReason? = nil, usage: TaskResultUsage? = nil)
+    /// provider exposes them; `reportedModel` is the model id the provider's
+    /// backend named for this run, never one inferred from configuration.
+    case done(
+        finalText: String,
+        finishReason: FinishReason? = nil,
+        usage: TaskResultUsage? = nil,
+        reportedModel: String? = nil
+    )
     /// Terminal failure. Handled identically to the stream throwing.
     case failure(error: Error)
 }

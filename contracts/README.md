@@ -41,6 +41,15 @@ The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
 
+`execution-provenance.schema.json` (`ExecutionProvenance`) is the one shape shared by `$ref` rather than
+duplicated by value. It is carried on six payloads — `TaskResult`, `IndeRunError`, every `StreamTerminalOutcome`
+branch, and the terminal `StreamEvent` payload — and by-value copies made quicktype emit six unrelated Swift and
+Kotlin types for one concept. The referencing schemas point at it with a relative `$ref`, which quicktype resolves
+from the file and Ajv resolves against the shared `$id` base; `validators.ts` compiles it first so Ajv knows it.
+The generator leaves it out of the Swift/Kotlin root list (it arrives through the references) and restores its
+title as the type name. What provenance means is in
+[`docs/architecture/architecture.md`](../docs/architecture/architecture.md#execution-provenance).
+
 ## Generated enums carry their wire value
 
 Every generated enum exposes the schema string it serializes to, in every language: Swift as

@@ -1,5 +1,6 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
@@ -85,6 +86,7 @@ fun StreamTerminalOutcome.toPayload(): Payload = Payload(
     finalText = finalText,
     finishReason = finishReason,
     outcome = outcome,
+    provenance = provenance,
     runId = runId,
     schemaVersion = schemaVersion,
     telemetry = telemetry?.let { PayloadTelemetry(providerUsed = it.providerUsed, totalMs = it.totalMs) },
@@ -100,6 +102,7 @@ fun StreamTerminalOutcome.toPayload(): Payload = Payload(
             details = it.details,
             errorClass = it.errorClass,
             message = it.message,
+            provenance = it.provenance,
             providerId = it.providerId,
             retryable = it.retryable,
             retryAfterMs = it.retryAfterMs,
@@ -117,10 +120,12 @@ fun completedOutcome(
     finishReason: FinishReason?,
     usage: StreamTerminalOutcomeUsage?,
     telemetry: StreamTerminalOutcomeTelemetry,
+    provenance: ExecutionProvenance,
 ): StreamTerminalOutcome = StreamTerminalOutcome(
     finalText = finalText,
     finishReason = finishReason,
     outcome = Outcome.Completed,
+    provenance = provenance,
     runId = runId,
     schemaVersion = SchemaVersion.V1_0,
     telemetry = telemetry,
@@ -132,8 +137,10 @@ fun errorOutcome(
     runId: String,
     error: StreamTerminalOutcomeError,
     partialText: String,
+    provenance: ExecutionProvenance,
 ): StreamTerminalOutcome = StreamTerminalOutcome(
     outcome = Outcome.Error,
+    provenance = provenance,
     runId = runId,
     schemaVersion = SchemaVersion.V1_0,
     error = error,
@@ -145,8 +152,10 @@ fun cancelledOutcome(
     runId: String,
     partialText: String,
     reason: String?,
+    provenance: ExecutionProvenance,
 ): StreamTerminalOutcome = StreamTerminalOutcome(
     outcome = Outcome.Cancelled,
+    provenance = provenance,
     runId = runId,
     schemaVersion = SchemaVersion.V1_0,
     partialText = partialText,

@@ -293,6 +293,13 @@ data class TaskResult(
     val output: Output,
 
     /**
+     * Normalized execution provenance: which target ran, its declared locality, the configured
+     * and reported model, and how fallback and routing played out. See
+     * execution-provenance.schema.json.
+     */
+    val provenance: ExecutionProvenance? = null,
+
+    /**
      * A unique, opaque identifier assigned by the engine for this specific execution attempt.
      */
     val runId: String,
@@ -363,30 +370,96 @@ enum class OutputType(val rawValue: String) {
 }
 
 /**
- * Required metadata providing an overview of the execution result and performance metrics.
+ * Normalized execution provenance: which target ran, its declared locality, the configured
+ * and reported model, and how fallback and routing played out. See
+ * execution-provenance.schema.json.
+ *
+ * Provider-neutral record of how an execution was carried out: the target the outcome is
+ * attributed to, its declared locality, the configured and provider-reported model, every
+ * attempt, and why other candidates were rejected. Carried on TaskResult, on every
+ * StreamTerminalOutcome branch, and on IndeRunError. It reports what the engine observed
+ * and what providers declared or reported; it never infers a model or locality a provider
+ * did not state, and it never contains request content, credentials, or provider payloads.
  */
-data class TaskResultTelemetry(
+data class ExecutionProvenance(
     /**
-     * Present only if a provider reports a degraded outcome on an otherwise-successful result;
-     * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
-     * IndeRunError never produces a TaskResult at all.
+     * How many providers were attempted. 0 when the request failed validation or routing, or
+     * was cancelled before any attempt started.
+     */
+    val attemptCount: Long,
+
+    /**
+     * Every attempted provider, in attempt order, with how its attempt ended.
+     */
+    val attempts: List<ExecutionProvenanceAttempt>,
+
+    /**
+     * The model providerId is bound to, as its descriptor declares it. Absent when the provider
+     * cannot name its model or no provider is attributed.
+     */
+    val configuredModel: String? = null,
+
+    /**
+     * Whether more than one provider was attempted (attemptCount > 1).
+     */
+    val fallbackOccurred: Boolean,
+
+    /**
+     * Where providerId declares it executes: 'on_device' for a local provider, 'edge', or
+     * 'cloud'. A declaration by the provider's descriptor, not a measurement. 'unknown' when
+     * providerId is absent.
+     */
+    val locality: Locality,
+
+    /**
+     * The model profile the request routed within; 'auto' when the request named none.
+     */
+    val modelProfile: String,
+
+    /**
+     * The target the outcome is attributed to: the provider that produced the result, the
+     * provider a stream had committed to when it ended, or the provider that was running when
+     * it was cancelled. Absent when no provider was reached or when every attempted provider
+     * failed before one was committed to.
+     */
+    val providerId: String? = null,
+
+    /**
+     * The model identifier the provider reported in its own response. Absent means the provider
+     * did not report one; it is never inferred from configuration.
+     */
+    val reportedModel: String? = null,
+
+    /**
+     * Providers the route planner rejected before any attempt, with the normalized RoutePlan
+     * reason codes. Codes only: no provider-supplied messages.
+     */
+    val routeRejections: List<ExecutionProvenanceRouteRejection>,
+
+    /**
+     * Contract schema version used to interpret this provenance record.
+     */
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+)
+
+data class ExecutionProvenanceAttempt(
+    /**
+     * Normalized error class of a failed attempt.
      */
     val errorClass: IndeRunErrorClass? = null,
 
     /**
-     * The identifier for the specific provider that handled the request (e.g.,
-     * 'openai_compatible_cloud').
+     * 'succeeded' (produced the result or was committed to and completed), 'failed', or
+     * 'cancelled'.
      */
-    val providerUsed: String,
+    val outcome: AttemptOutcome,
 
-    /**
-     * Measured execution duration in milliseconds, including route selection and result
-     * processing.
-     */
-    val totalMs: Double,
+    val providerId: String,
 )
 
 /**
+ * Normalized error class of a failed attempt.
+ *
  * Present only if a provider reports a degraded outcome on an otherwise-successful result;
  * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
  * IndeRunError never produces a TaskResult at all.
@@ -417,6 +490,98 @@ enum class IndeRunErrorClass(val rawValue: String) {
         fun fromRawValue(value: String): IndeRunErrorClass? = entries.firstOrNull { it.rawValue == value }
     }
 }
+
+/**
+ * 'succeeded' (produced the result or was committed to and completed), 'failed', or
+ * 'cancelled'.
+ */
+enum class AttemptOutcome(val rawValue: String) {
+    Cancelled("cancelled"),
+    Failed("failed"),
+    Succeeded("succeeded"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): AttemptOutcome? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Where providerId declares it executes: 'on_device' for a local provider, 'edge', or
+ * 'cloud'. A declaration by the provider's descriptor, not a measurement. 'unknown' when
+ * providerId is absent.
+ */
+enum class Locality(val rawValue: String) {
+    Cloud("cloud"),
+    Edge("edge"),
+    OnDevice("on_device"),
+    Unknown("unknown"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Locality? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+data class ExecutionProvenanceRouteRejection(
+    val codes: List<Code>,
+    val providerId: String,
+)
+
+/**
+ * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
+ * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
+ * but the dynamic capability snapshot reports it cannot stream in the current host
+ * environment. 'not_in_model_profile' means the request named a model profile that does not
+ * list this provider.
+ */
+enum class Code(val rawValue: String) {
+    CapabilityUnavailable("capability_unavailable"),
+    CloudConstraint("cloud_constraint"),
+    NotInModelProfile("not_in_model_profile"),
+    Offline("offline"),
+    PrivacyConstraint("privacy_constraint"),
+    RunNotSupported("run_not_supported"),
+    StreamingNotSupported("streaming_not_supported"),
+    StreamingUnavailable("streaming_unavailable"),
+    TaskNotSupported("task_not_supported"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): Code? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Required metadata providing an overview of the execution result and performance metrics.
+ */
+data class TaskResultTelemetry(
+    /**
+     * Present only if a provider reports a degraded outcome on an otherwise-successful result;
+     * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+     * IndeRunError never produces a TaskResult at all.
+     */
+    val errorClass: IndeRunErrorClass? = null,
+
+    /**
+     * The identifier for the specific provider that handled the request (e.g.,
+     * 'openai_compatible_cloud').
+     */
+    val providerUsed: String,
+
+    /**
+     * The model identifier the provider reported in its own response, set by the provider when
+     * its backend reports one. The engine carries it into provenance.reportedModel; it is never
+     * inferred from configuration.
+     */
+    val reportedModel: String? = null,
+
+    /**
+     * Measured execution duration in milliseconds, including route selection and result
+     * processing.
+     */
+    val totalMs: Double,
+)
 
 /**
  * Optional metadata regarding the quantity of tokens processed by the provider.
@@ -462,6 +627,13 @@ data class IndeRunError(
      * Human-readable error message suitable for logs and developer diagnostics.
      */
     val message: String,
+
+    /**
+     * Normalized execution provenance: which target ran, its declared locality, the configured
+     * and reported model, and how fallback and routing played out. See
+     * execution-provenance.schema.json.
+     */
+    val provenance: ExecutionProvenance? = null,
 
     /**
      * Identifier of the provider associated with the failure, if execution reached a provider.
@@ -891,30 +1063,6 @@ data class Reason(
 )
 
 /**
- * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
- * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
- * but the dynamic capability snapshot reports it cannot stream in the current host
- * environment. 'not_in_model_profile' means the request named a model profile that does not
- * list this provider.
- */
-enum class Code(val rawValue: String) {
-    CapabilityUnavailable("capability_unavailable"),
-    CloudConstraint("cloud_constraint"),
-    NotInModelProfile("not_in_model_profile"),
-    Offline("offline"),
-    PrivacyConstraint("privacy_constraint"),
-    RunNotSupported("run_not_supported"),
-    StreamingNotSupported("streaming_not_supported"),
-    StreamingUnavailable("streaming_unavailable"),
-    TaskNotSupported("task_not_supported"),
-    ;
-
-    companion object {
-        fun fromRawValue(value: String): Code? = entries.firstOrNull { it.rawValue == value }
-    }
-}
-
-/**
  * Provider-neutral descriptor for a developer-supplied/custom local model made available to
  * an IndeRun local-model provider family (for example, the ONNX Runtime family). It
  * describes model identity, format, task support, source, files, integrity, licensing, and
@@ -1282,6 +1430,14 @@ data class Payload(
     val finalText: String? = null,
     val finishReason: FinishReason? = null,
     val outcome: Outcome? = null,
+
+    /**
+     * Normalized execution provenance: which target ran, its declared locality, the configured
+     * and reported model, and how fallback and routing played out. See
+     * execution-provenance.schema.json.
+     */
+    val provenance: ExecutionProvenance? = null,
+
     val runId: String? = null,
     val schemaVersion: SchemaVersion? = null,
     val telemetry: PayloadTelemetry? = null,
@@ -1295,6 +1451,14 @@ data class PayloadError(
     val details: Map<String, Any?>? = null,
     val errorClass: IndeRunErrorClass,
     val message: String,
+
+    /**
+     * Normalized execution provenance: which target ran, its declared locality, the configured
+     * and reported model, and how fallback and routing played out. See
+     * execution-provenance.schema.json.
+     */
+    val provenance: ExecutionProvenance? = null,
+
     val providerId: String? = null,
     val retryable: Boolean? = null,
     val retryAfterMs: Long? = null,
@@ -1382,6 +1546,13 @@ data class StreamTerminalOutcome(
     val outcome: Outcome,
 
     /**
+     * Normalized execution provenance: which target ran, its declared locality, the configured
+     * and reported model, and how fallback and routing played out. See
+     * execution-provenance.schema.json.
+     */
+    val provenance: ExecutionProvenance? = null,
+
+    /**
      * The stream run this outcome terminates, matching StreamRunHandle.runId and every
      * StreamEvent.runId for the run.
      */
@@ -1454,6 +1625,13 @@ data class StreamTerminalOutcomeError(
      * Human-readable error message suitable for logs and developer diagnostics.
      */
     val message: String,
+
+    /**
+     * Normalized execution provenance: which target ran, its declared locality, the configured
+     * and reported model, and how fallback and routing played out. See
+     * execution-provenance.schema.json.
+     */
+    val provenance: ExecutionProvenance? = null,
 
     /**
      * Identifier of the provider associated with the failure, if execution reached a provider.

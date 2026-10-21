@@ -261,7 +261,11 @@ class OpenAIProvider(
             output = Output(text = outputText),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
-            telemetry = TaskResultTelemetry(providerUsed = options.id, totalMs = totalMs),
+            telemetry = TaskResultTelemetry(
+                providerUsed = options.id,
+                reportedModel = reportedModel(json),
+                totalMs = totalMs,
+            ),
             usage = usage,
         )
     }
@@ -399,6 +403,7 @@ class OpenAIProvider(
                         finalText = extractOutputText(body).orEmpty(),
                         finishReason = finishReason(body),
                         usage = usage(body),
+                        reportedModel = reportedModel(body),
                     ),
                 )
                 return true
@@ -625,6 +630,12 @@ class OpenAIProvider(
 
         return fragments.ifBlank { null }
     }
+
+    /**
+     * The model id the Responses API echoes on the response object: the model that served the
+     * request, which can be a dated snapshot of the configured alias.
+     */
+    private fun reportedModel(json: JSONObject): String? = json.optStringOrNull("model")?.takeIf { it.isNotEmpty() }
 
     private fun finishReason(json: JSONObject): FinishReason {
         if (json.optString("status") == "incomplete") {

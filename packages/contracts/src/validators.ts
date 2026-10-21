@@ -1,6 +1,7 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
+import type { ExecutionProvenance } from "./generated/execution-provenance.js";
 import type { IndeRunError } from "./generated/inderun-error.js";
 import type { HttpRequest } from "./generated/http-request.js";
 import type { HttpResponse } from "./generated/http-response.js";
@@ -8,6 +9,7 @@ import type { ModelPackage } from "./generated/model-package.js";
 import type { RoutePlan } from "./generated/route-plan.js";
 import type { RoutePlannerInput } from "./generated/route-planner-input.js";
 import {
+  executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
@@ -45,6 +47,9 @@ const ajv = new Ajv2020Constructor({
   validateSchema: true
 });
 
+// Referenced by `$ref` from every schema that carries provenance, so it has to be known
+// to Ajv before any of them compiles. Compiling it registers it under its `$id`.
+const validateExecutionProvenanceSchema = ajv.compile(executionProvenanceSchema);
 const validateTaskRequestSchema = ajv.compile(taskRequestSchema);
 const validateTaskResultSchema = ajv.compile(taskResultSchema);
 const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
@@ -123,6 +128,16 @@ export function getTaskResultValidationIssues(value: unknown): ValidationIssue[]
 
 export function getIndeRunErrorValidationIssues(value: unknown): ValidationIssue[] {
   return getValidationIssues(validateIndeRunErrorSchema, value, {
+    forbidInlineSecrets: true
+  });
+}
+
+export function validateExecutionProvenance(value: unknown): value is ExecutionProvenance {
+  return getExecutionProvenanceValidationIssues(value).length === 0;
+}
+
+export function getExecutionProvenanceValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateExecutionProvenanceSchema, value, {
     forbidInlineSecrets: true
   });
 }

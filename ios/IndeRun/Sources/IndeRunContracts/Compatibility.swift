@@ -70,11 +70,13 @@ public extension TaskResult {
         output: Output,
         finishReason: FinishReason,
         usage: UsageInfo? = nil,
-        telemetry: TelemetryInfo
+        telemetry: TelemetryInfo,
+        provenance: ExecutionProvenance? = nil
     ) {
         self.init(
             finishReason: finishReason,
             output: output,
+            provenance: provenance,
             runId: runId,
             schemaVersion: SchemaVersion(rawValue: schemaVersion) ?? .the10,
             telemetry: telemetry,
@@ -84,8 +86,18 @@ public extension TaskResult {
 }
 
 public extension TaskResultTelemetry {
-    init(providerUsed: String, totalMs: Double, errorClass: IndeRunErrorClass? = nil) {
-        self.init(errorClass: errorClass, providerUsed: providerUsed, totalMs: totalMs)
+    init(
+        providerUsed: String,
+        totalMs: Double,
+        errorClass: IndeRunErrorClass? = nil,
+        reportedModel: String? = nil
+    ) {
+        self.init(
+            errorClass: errorClass,
+            providerUsed: providerUsed,
+            reportedModel: reportedModel,
+            totalMs: totalMs
+        )
     }
 }
 
@@ -98,12 +110,14 @@ public extension IndeRunError {
         providerId: String? = nil,
         retryable: Bool? = nil,
         retryAfterMs: Int? = nil,
-        details: [String: JSONAny]? = nil
+        details: [String: JSONAny]? = nil,
+        provenance: ExecutionProvenance? = nil
     ) {
         self.init(
             details: details,
             errorClass: errorClass,
             message: message,
+            provenance: provenance,
             providerId: providerId,
             retryable: retryable,
             retryAfterMs: retryAfterMs,

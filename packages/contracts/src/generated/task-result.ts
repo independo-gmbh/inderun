@@ -22,6 +22,12 @@ export type TaskResult = {
      */
     output: Output;
     /**
+     * Normalized execution provenance: which target ran, its declared locality, the configured
+     * and reported model, and how fallback and routing played out. See
+     * execution-provenance.schema.json.
+     */
+    provenance?: ExecutionProvenance;
+    /**
      * A unique, opaque identifier assigned by the engine for this specific execution attempt.
      */
     runId: string;
@@ -65,6 +71,115 @@ export type Output = {
 }
 
 /**
+ * Normalized execution provenance: which target ran, its declared locality, the configured
+ * and reported model, and how fallback and routing played out. See
+ * execution-provenance.schema.json.
+ *
+ * Provider-neutral record of how an execution was carried out: the target the outcome is
+ * attributed to, its declared locality, the configured and provider-reported model, every
+ * attempt, and why other candidates were rejected. Carried on TaskResult, on every
+ * StreamTerminalOutcome branch, and on IndeRunError. It reports what the engine observed
+ * and what providers declared or reported; it never infers a model or locality a provider
+ * did not state, and it never contains request content, credentials, or provider payloads.
+ */
+export type ExecutionProvenance = {
+    /**
+     * How many providers were attempted. 0 when the request failed validation or routing, or
+     * was cancelled before any attempt started.
+     */
+    attemptCount: number;
+    /**
+     * Every attempted provider, in attempt order, with how its attempt ended.
+     */
+    attempts: ExecutionProvenanceAttempt[];
+    /**
+     * The model providerId is bound to, as its descriptor declares it. Absent when the provider
+     * cannot name its model or no provider is attributed.
+     */
+    configuredModel?: string;
+    /**
+     * Whether more than one provider was attempted (attemptCount > 1).
+     */
+    fallbackOccurred: boolean;
+    /**
+     * Where providerId declares it executes: 'on_device' for a local provider, 'edge', or
+     * 'cloud'. A declaration by the provider's descriptor, not a measurement. 'unknown' when
+     * providerId is absent.
+     */
+    locality: Locality;
+    /**
+     * The model profile the request routed within; 'auto' when the request named none.
+     */
+    modelProfile: string;
+    /**
+     * The target the outcome is attributed to: the provider that produced the result, the
+     * provider a stream had committed to when it ended, or the provider that was running when
+     * it was cancelled. Absent when no provider was reached or when every attempted provider
+     * failed before one was committed to.
+     */
+    providerId?: string;
+    /**
+     * The model identifier the provider reported in its own response. Absent means the provider
+     * did not report one; it is never inferred from configuration.
+     */
+    reportedModel?: string;
+    /**
+     * Providers the route planner rejected before any attempt, with the normalized RoutePlan
+     * reason codes. Codes only: no provider-supplied messages.
+     */
+    routeRejections: ExecutionProvenanceRouteRejection[];
+    /**
+     * Contract schema version used to interpret this provenance record.
+     */
+    schemaVersion: "1.0";
+    [property: string]: unknown;
+}
+
+export type ExecutionProvenanceAttempt = {
+    /**
+     * Normalized error class of a failed attempt.
+     */
+    errorClass?: ErrorClass;
+    /**
+     * 'succeeded' (produced the result or was committed to and completed), 'failed', or
+     * 'cancelled'.
+     */
+    outcome:    AttemptOutcome;
+    providerId: string;
+    [property: string]: unknown;
+}
+
+/**
+ * Normalized error class of a failed attempt.
+ *
+ * Present only if a provider reports a degraded outcome on an otherwise-successful result;
+ * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
+ * IndeRunError never produces a TaskResult at all.
+ */
+export type ErrorClass = "CapabilityMismatch" | "Offline" | "AuthError" | "RateLimited" | "Timeout" | "Unavailable" | "Internal";
+
+/**
+ * 'succeeded' (produced the result or was committed to and completed), 'failed', or
+ * 'cancelled'.
+ */
+export type AttemptOutcome = "succeeded" | "failed" | "cancelled";
+
+/**
+ * Where providerId declares it executes: 'on_device' for a local provider, 'edge', or
+ * 'cloud'. A declaration by the provider's descriptor, not a measurement. 'unknown' when
+ * providerId is absent.
+ */
+export type Locality = "on_device" | "edge" | "cloud" | "unknown";
+
+export type ExecutionProvenanceRouteRejection = {
+    codes:      Code[];
+    providerId: string;
+    [property: string]: unknown;
+}
+
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile";
+
+/**
  * Required metadata providing an overview of the execution result and performance metrics.
  */
 export type Telemetry = {
@@ -80,19 +195,18 @@ export type Telemetry = {
      */
     providerUsed: string;
     /**
+     * The model identifier the provider reported in its own response, set by the provider when
+     * its backend reports one. The engine carries it into provenance.reportedModel; it is never
+     * inferred from configuration.
+     */
+    reportedModel?: string;
+    /**
      * Measured execution duration in milliseconds, including route selection and result
      * processing.
      */
     totalMs: number;
     [property: string]: unknown;
 }
-
-/**
- * Present only if a provider reports a degraded outcome on an otherwise-successful result;
- * no provider in this codebase currently sets this. Distinct from run() throwing — a thrown
- * IndeRunError never produces a TaskResult at all.
- */
-export type ErrorClass = "CapabilityMismatch" | "Offline" | "AuthError" | "RateLimited" | "Timeout" | "Unavailable" | "Internal";
 
 /**
  * Optional metadata regarding the quantity of tokens processed by the provider.

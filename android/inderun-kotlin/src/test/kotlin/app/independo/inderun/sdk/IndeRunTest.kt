@@ -2,8 +2,11 @@ package app.independo.inderun.sdk
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import app.independo.inderun.contracts.AttemptOutcome
+import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
+import app.independo.inderun.contracts.Locality
 import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.PrivacyEnum
 import app.independo.inderun.contracts.SchemaVersion
@@ -26,6 +29,7 @@ import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
 import app.independo.inderun.core.TelemetryService
+import app.independo.inderun.core.createUnavailable
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -240,9 +244,93 @@ class IndeRunTest {
         }
     }
 
+    private fun provenanceEngine(vararg providers: ProviderAdapter): IndeRun = IndeRun(
+        ProviderRegistry().apply { providers.forEach { register(it) } },
+        profileHostServices(),
+    )
+
+    @Test
+    fun provenanceAttributesADirectSuccessToTheProviderThatRan() = runTest {
+        val result = provenanceEngine(NamedProvider("local_a", ProviderDescriptor.ProviderType.local))
+            .run(profileRequest())
+
+        val provenance = result.provenance!!
+        assertEquals("local_a", provenance.providerId)
+        assertEquals(Locality.OnDevice, provenance.locality)
+        assertEquals("auto", provenance.modelProfile)
+        assertEquals(1L, provenance.attemptCount)
+        assertEquals(false, provenance.fallbackOccurred)
+        assertEquals(listOf(AttemptOutcome.Succeeded), provenance.attempts.map { it.outcome })
+        assertEquals(null, provenance.configuredModel)
+        assertEquals(null, provenance.reportedModel)
+    }
+
+    @Test
+    fun provenanceRecordsALocalToCloudFallback() = runTest {
+        val result = provenanceEngine(
+            NamedProvider("local_a", ProviderDescriptor.ProviderType.local, fails = true),
+            NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud),
+        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalPreferred)))
+
+        val provenance = result.provenance!!
+        assertEquals("cloud_a", provenance.providerId)
+        assertEquals(Locality.Cloud, provenance.locality)
+        assertEquals(2L, provenance.attemptCount)
+        assertEquals(true, provenance.fallbackOccurred)
+        assertEquals(listOf(AttemptOutcome.Failed, AttemptOutcome.Succeeded), provenance.attempts.map { it.outcome })
+        assertEquals(IndeRunErrorClass.Unavailable, provenance.attempts.first().errorClass)
+    }
+
+    @Test
+    fun provenanceReportsCloudOnlyExecutionWithTheRejectedLocalCandidate() = runTest {
+        val result = provenanceEngine(
+            NamedProvider("local_a", ProviderDescriptor.ProviderType.local),
+            NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud),
+        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)))
+
+        val provenance = result.provenance!!
+        assertEquals(Locality.Cloud, provenance.locality)
+        assertEquals(listOf("local_a"), provenance.routeRejections.map { it.providerId })
+        assertEquals(listOf(Code.PrivacyConstraint), provenance.routeRejections.first().codes)
+    }
+
+    @Test
+    fun provenanceOnARoutingRefusalIsAttributedToNoProvider() = runTest {
+        val error = runCatching {
+            provenanceEngine(NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud))
+                .run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)))
+        }.exceptionOrNull() as IndeRunException
+
+        val provenance = error.provenance!!
+        assertEquals(null, provenance.providerId)
+        assertEquals(Locality.Unknown, provenance.locality)
+        assertEquals(0L, provenance.attemptCount)
+        assertEquals(listOf("cloud_a"), provenance.routeRejections.map { it.providerId })
+        assertEquals(listOf(Code.PrivacyConstraint), provenance.routeRejections.first().codes)
+        assertEquals(provenance, error.toContractError().provenance)
+    }
+
+    @Test
+    fun provenanceCarriesEveryFailedAttemptWhenTheChainFails() = runTest {
+        val error = runCatching {
+            provenanceEngine(
+                NamedProvider("local_a", ProviderDescriptor.ProviderType.local, fails = true),
+                NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud, fails = true),
+            ).run(profileRequest())
+        }.exceptionOrNull() as IndeRunException
+
+        val provenance = error.provenance!!
+        assertEquals(null, provenance.providerId)
+        assertEquals(Locality.Unknown, provenance.locality)
+        assertEquals(2L, provenance.attemptCount)
+        assertEquals(true, provenance.fallbackOccurred)
+        assertEquals(listOf(AttemptOutcome.Failed, AttemptOutcome.Failed), provenance.attempts.map { it.outcome })
+    }
+
     private class NamedProvider(
         private val id: String,
         private val type: ProviderDescriptor.ProviderType,
+        private val fails: Boolean = false,
     ) : ProviderAdapter {
         override fun describe(): ProviderDescriptor = ProviderDescriptor(
             id = id,
@@ -263,7 +351,13 @@ class IndeRunTest {
 
         override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities = ProviderDynamicCapabilities(available = true)
 
-        override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
+        override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = if (fails) {
+            throw createUnavailable("runtime crashed")
+        } else {
+            succeed(context)
+        }
+
+        private fun succeed(context: RunContext): TaskResult = TaskResult(
             finishReason = FinishReason.STOP,
             output = Output(text = "Hello from $id"),
             runId = context.runId,

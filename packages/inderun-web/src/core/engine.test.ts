@@ -980,4 +980,138 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       expect(() => createProfileEngine(modelProfiles)).toThrowError(message);
     });
   });
+
+  describe("execution provenance", () => {
+    const request: TaskRequest = {
+      schemaVersion: "1.0",
+      task: { kind: "text_to_text" },
+      prompt: "Hello"
+    };
+
+    function withModel(provider: ProviderAdapter, model: string, reportedModel?: string) {
+      return {
+        ...provider,
+        describe: () => ({ ...provider.describe(), model }),
+        async run(req: TaskRequest, ctx: Parameters<ProviderAdapter["run"]>[1]) {
+          const result = await provider.run(req, ctx);
+          if (reportedModel !== undefined) result.telemetry.reportedModel = reportedModel;
+          return result;
+        }
+      } satisfies ProviderAdapter;
+    }
+
+    function failing(provider: ProviderAdapter): ProviderAdapter {
+      return {
+        ...provider,
+        async run() {
+          throw createUnavailable("runtime crashed");
+        }
+      };
+    }
+
+    it("attributes a direct success to the provider that ran", async () => {
+      registry.register(withModel(createMockLocalProvider("local-a"), "phi-3", "phi-3-q4"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run(request);
+
+      expect(result.provenance).toEqual({
+        schemaVersion: "1.0",
+        modelProfile: "auto",
+        providerId: "local-a",
+        locality: "on_device",
+        configuredModel: "phi-3",
+        reportedModel: "phi-3-q4",
+        attemptCount: 1,
+        fallbackOccurred: false,
+        attempts: [{ providerId: "local-a", outcome: "succeeded" }],
+        routeRejections: []
+      });
+    });
+
+    it("records a local-to-cloud fallback and the failed attempt's error class", async () => {
+      registry.register(failing(createMockLocalProvider("local-a")));
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run({ ...request, constraints: { privacy: "local_preferred" } });
+
+      expect(result.provenance).toMatchObject({
+        providerId: "cloud-a",
+        locality: "cloud",
+        attemptCount: 2,
+        fallbackOccurred: true,
+        attempts: [
+          { providerId: "local-a", outcome: "failed", errorClass: "Unavailable" },
+          { providerId: "cloud-a", outcome: "succeeded" }
+        ]
+      });
+    });
+
+    it("reports cloud-only execution with the rejected local candidate", async () => {
+      registry.register(createMockLocalProvider("local-a"));
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run({ ...request, constraints: { privacy: "cloud_required" } });
+
+      expect(result.provenance).toMatchObject({
+        providerId: "cloud-a",
+        locality: "cloud",
+        attemptCount: 1,
+        routeRejections: [{ providerId: "local-a", codes: ["privacy_constraint"] }]
+      });
+    });
+
+    it("leaves unknown model metadata absent rather than inferring it", async () => {
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const result = await engine.run(request);
+
+      expect(result.provenance).not.toHaveProperty("configuredModel");
+      expect(result.provenance).not.toHaveProperty("reportedModel");
+    });
+
+    it("carries provenance on a routing refusal, attributed to no provider", async () => {
+      registry.register(createMockCloudProvider("cloud-a"));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const error = await engine
+        .run({ ...request, constraints: { privacy: "local_required" } })
+        .catch((caught: unknown) => caught as IndeRunException);
+
+      expect(error.provenance).toEqual({
+        schemaVersion: "1.0",
+        modelProfile: "auto",
+        locality: "unknown",
+        attemptCount: 0,
+        fallbackOccurred: false,
+        attempts: [],
+        routeRejections: [{ providerId: "cloud-a", codes: ["privacy_constraint"] }]
+      });
+      expect(error.toContractError().provenance).toEqual(error.provenance);
+    });
+
+    it("carries every failed attempt when the whole chain fails", async () => {
+      registry.register(failing(createMockLocalProvider("local-a")));
+      registry.register(failing(createMockCloudProvider("cloud-a")));
+      const engine = new IndeRun(registry, createMockHostServices(true));
+
+      const error = await engine
+        .run(request)
+        .catch((caught: unknown) => caught as IndeRunException);
+
+      expect(error.provenance).toMatchObject({
+        locality: "unknown",
+        attemptCount: 2,
+        fallbackOccurred: true,
+        attempts: [
+          { providerId: "local-a", outcome: "failed", errorClass: "Unavailable" },
+          { providerId: "cloud-a", outcome: "failed", errorClass: "Unavailable" }
+        ]
+      });
+      expect(error.provenance).not.toHaveProperty("providerId");
+    });
+  });
 });
