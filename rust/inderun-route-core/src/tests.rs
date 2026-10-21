@@ -35,6 +35,7 @@ impl ProviderBuilder {
                     },
                     cancel: CancelSemantics::Hard,
                     tasks: vec!["text_to_text".to_string()],
+                    task_capabilities: None,
                     limits: None,
                     privacy: Some(ProviderPrivacy {
                         data_leaves_device,
@@ -47,6 +48,7 @@ impl ProviderBuilder {
                     streaming_available: None,
                     streaming_unavailable_reason: None,
                     cancellation_available: None,
+                    task_capabilities: None,
                 },
             },
             unavailable_reason: unavailable_reason.to_string(),
@@ -78,6 +80,16 @@ impl ProviderBuilder {
 
     fn build(self) -> Provider {
         self.provider
+    }
+}
+
+fn text_task() -> Task {
+    Task {
+        kind: "text_to_text".to_string(),
+        inputs: None,
+        delivery: None,
+        locale: None,
+        voice: None,
     }
 }
 
@@ -121,9 +133,7 @@ fn plan_with_mode(
     providers: Vec<Provider>,
 ) -> RoutePlan {
     plan_route(RoutePlannerInput {
-        task: Task {
-            kind: "text_to_text".to_string(),
-        },
+        task: text_task(),
         interaction_mode,
         constraints,
         preferences,
@@ -140,9 +150,7 @@ fn plan_in_profile(
     providers: Vec<Provider>,
 ) -> RoutePlan {
     plan_route(RoutePlannerInput {
-        task: Task {
-            kind: "text_to_text".to_string(),
-        },
+        task: text_task(),
         interaction_mode,
         constraints,
         preferences,
@@ -654,4 +662,27 @@ fn model_profile_stream_chain_is_a_subsequence_of_the_run_chain() {
         .collect();
     assert_eq!(run_ids, vec!["cloud_b", "local_a", "cloud_a"]);
     assert_eq!(stream_ids, vec!["cloud_b", "cloud_a"]);
+}
+
+/// The shared cross-SDK vectors (`contracts/fixtures/routing/planner-conformance.json`):
+/// each input must plan to exactly the recorded plan, messages included. The SDK
+/// suites run the same file through WASM, the Swift FFI and JNI.
+#[test]
+fn matches_the_shared_planner_conformance_vectors() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/fixtures/routing/planner-conformance.json"
+    ))
+    .expect("conformance fixture parses");
+    let cases = fixture["cases"].as_array().expect("cases array");
+    assert!(!cases.is_empty());
+
+    for case in cases {
+        let id = case["id"].as_str().expect("case id");
+        let input: RoutePlannerInput = serde_json::from_value(case["input"].clone())
+            .unwrap_or_else(|error| {
+                panic!("case '{id}': input does not parse: {error}");
+            });
+        let plan = serde_json::to_value(plan_route(input)).expect("plan serializes");
+        assert_eq!(plan, case["expected"], "case '{id}'");
+    }
 }

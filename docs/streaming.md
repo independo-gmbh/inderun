@@ -102,7 +102,8 @@ tell completion from failure from cancellation.
 A rejection carries its diagnostics: the error's `provenance` holds the normalized rejection codes
 (with `attemptCount: 0` and `locality: "unknown"`), and its `details` hold the plan's `failureCode` and the
 full `rejectedProviders` list, each with normalized reason codes such as `streaming_not_supported`,
-`streaming_unavailable`, `privacy_constraint`, or `offline`. That is the only channel through which
+`streaming_unavailable`, `privacy_constraint`, or `offline`. Streaming is declared per task, so a provider that
+streams text can still be refused with `streaming_not_supported` for a task it only runs. That is the only channel through which
 a caller learns *why* each provider was refused, on every platform.
 
 ## Cancellation

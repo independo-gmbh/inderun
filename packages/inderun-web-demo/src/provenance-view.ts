@@ -38,7 +38,12 @@ const REJECTION_TEXT: Record<RejectionCode, string> = {
   cloud_constraint: "excluded by the cloud setting",
   offline: "needs a network connection",
   capability_unavailable: "not available in this browser or device",
-  not_in_model_profile: "not part of this model profile"
+  not_in_model_profile: "not part of this model profile",
+  input_not_supported: "cannot read this kind of input",
+  output_delivery_not_supported: "cannot deliver the result this way",
+  output_format_not_supported: "cannot produce the required format",
+  locale_not_supported: "does not speak this language",
+  voice_not_available: "has no matching voice"
 };
 
 const STREAMING_CODES: readonly RejectionCode[] = [

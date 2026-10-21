@@ -93,10 +93,12 @@ Placement is a property of the request, not of the call site. `constraints.priva
 `constraints.cloud` (`forbidden` / `allowed` / `required`) is a separate axis. It outranks the privacy axis when
 ordering providers; for rejection the two apply independently.
 
-Everything else is capability. A provider is a candidate only if it declares the task kind and the interaction mode,
-_and_ its live capability check says it can serve them on this host right now. One that cannot is rejected before
-anything is attempted, and the refusal names every rejected provider with a normalized reason code —
-`privacy_constraint`, `streaming_unavailable`, `offline`, `capability_unavailable` — on the thrown error's `details`.
+Everything else is capability. A provider is a candidate only if it declares the task — including the inputs, the
+interaction mode and, for non-text tasks, the output delivery, media types, locale and required voice the request
+asks for — _and_ its live capability check says it can serve them on this host right now. One that cannot is rejected
+before anything is attempted, and the refusal names every rejected provider with a normalized reason code —
+`task_not_supported`, `privacy_constraint`, `streaming_unavailable`, `output_delivery_not_supported`, `offline`,
+`capability_unavailable` and the rest of the planner's fixed vocabulary — on the thrown error's `details`.
 That is the only channel through which a caller learns why a request could not be placed.
 
 Ordering among the survivors is deterministic for a fixed request and capability snapshot, so the same inputs always

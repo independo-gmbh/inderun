@@ -184,9 +184,7 @@ export function buildSharedPlannerInput(
   const preferences = request.preferences ?? {};
 
   return {
-    task: {
-      kind: request.task.kind
-    },
+    task: plannerTask(request),
     interactionMode,
     constraints: {
       privacy: constraints.privacy ?? "cloud_allowed",
@@ -203,6 +201,17 @@ export function buildSharedPlannerInput(
       capabilities: snapshot.capabilities
     }))
   };
+}
+
+/**
+ * Projects the request's task onto the requirements the planner can check. A text
+ * request carries text input; the speech requirements arrive with the speech request
+ * shape (#245).
+ */
+function plannerTask(request: TaskRequest): SharedPlannerInput["task"] {
+  return request.task.kind === "text_to_text"
+    ? { kind: request.task.kind, inputs: ["text"] }
+    : { kind: request.task.kind };
 }
 
 /**

@@ -2,9 +2,13 @@ package app.independo.inderun.core
 
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Cloud
+import app.independo.inderun.contracts.DeliveryRequirement
 import app.independo.inderun.contracts.InteractionMode
+import app.independo.inderun.contracts.LocaleMatch
+import app.independo.inderun.contracts.LocaleRequirement
 import app.independo.inderun.contracts.ModelProfile
 import app.independo.inderun.contracts.OptimizeFor
+import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.Provider
 import app.independo.inderun.contracts.ProviderDescriptor
@@ -12,12 +16,21 @@ import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderLimits
 import app.independo.inderun.contracts.ProviderPrivacy
 import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTaskAvailability
+import app.independo.inderun.contracts.ProviderTaskCapability
+import app.independo.inderun.contracts.ProviderTaskInteraction
+import app.independo.inderun.contracts.ProviderTaskOutput
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
+import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.RoutePlannerInputConstraints
 import app.independo.inderun.contracts.RoutePlannerInputPreferences
 import app.independo.inderun.contracts.RoutePlannerInputTask
 import app.independo.inderun.contracts.StreamingStyle
+import app.independo.inderun.contracts.TaskInputKind
+import app.independo.inderun.contracts.VoiceGender
+import app.independo.inderun.contracts.VoiceRequirement
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -59,7 +72,13 @@ class SharedPlannerInputSerializationCoverageTest {
     }
 
     private fun fullyPopulatedInput(): SharedPlannerInput = SharedPlannerInput(
-        task = RoutePlannerInputTask(kind = "text_to_text"),
+        task = RoutePlannerInputTask(
+            kind = "text_to_speech",
+            inputs = listOf(TaskInputKind.Text),
+            delivery = DeliveryRequirement(mode = OutputDelivery.Artifact, mediaTypes = listOf("audio/wav")),
+            locale = LocaleRequirement(tag = "de-AT", match = LocaleMatch.Language),
+            voice = VoiceRequirement(gender = VoiceGender.Female, requirement = RequirementLevel.Required),
+        ),
         interactionMode = InteractionMode.Stream,
         constraints = RoutePlannerInputConstraints(
             privacy = Privacy.LocalPreferred,
@@ -86,7 +105,20 @@ class SharedPlannerInputSerializationCoverageTest {
                         multimodal = false,
                     ),
                     cancel = CancelSemantics.Hard,
-                    tasks = listOf("text_to_text"),
+                    tasks = listOf("text_to_speech"),
+                    taskCapabilities = listOf(
+                        ProviderTaskCapability(
+                            kind = "text_to_speech",
+                            inputs = listOf(TaskInputKind.Text),
+                            interaction = ProviderTaskInteraction(run = true, stream = false),
+                            cancel = CancelSemantics.Hard,
+                            outputs = listOf(
+                                ProviderTaskOutput(delivery = OutputDelivery.Artifact, mediaTypes = listOf("audio/wav")),
+                            ),
+                            locales = listOf("de-DE"),
+                            privacy = ProviderPrivacy(dataLeavesDevice = false, regions = listOf("eu")),
+                        ),
+                    ),
                     limits = ProviderLimits(
                         maxInputTokens = 1,
                         maxOutputTokens = 1,
@@ -101,25 +133,56 @@ class SharedPlannerInputSerializationCoverageTest {
                     streamingAvailable = false,
                     streamingUnavailableReason = "streaming reason",
                     cancellationAvailable = false,
+                    taskCapabilities = listOf(
+                        ProviderTaskAvailability(
+                            kind = "text_to_speech",
+                            available = false,
+                            reason = "task reason",
+                            streamingAvailable = false,
+                            streamingUnavailableReason = "task streaming reason",
+                            cancellationAvailable = false,
+                            locales = listOf("de-DE"),
+                            voices = listOf(
+                                ProviderVoice(locale = "de-DE", gender = VoiceGender.Female, networkRequired = false),
+                            ),
+                        ),
+                    ),
                 ),
             ),
         ),
     )
 
-    private fun collectSchemaPaths(schema: JSONObject, schemasDir: File, prefix: String, into: MutableSet<String>) {
+    private fun collectSchemaPaths(
+        schema: JSONObject,
+        schemasDir: File,
+        prefix: String,
+        into: MutableSet<String>,
+        currentFile: String = "route-planner-input.schema.json",
+    ) {
         schema.optString("\$ref").takeUnless { it.isEmpty() }?.let { ref ->
-            collectSchemaPaths(JSONObject(File(schemasDir, ref).readText()), schemasDir, prefix, into)
+            collectSchemaPaths(resolveRef(ref, schemasDir, currentFile), schemasDir, prefix, into, refFile(ref, currentFile))
         }
         schema.optJSONObject("properties")?.let { properties ->
             for (key in properties.keys()) {
                 val path = "$prefix/$key"
                 into += path
-                collectSchemaPaths(properties.getJSONObject(key), schemasDir, path, into)
+                collectSchemaPaths(properties.getJSONObject(key), schemasDir, path, into, currentFile)
             }
         }
         schema.optJSONObject("items")?.let { items ->
-            collectSchemaPaths(items, schemasDir, "$prefix[]", into)
+            collectSchemaPaths(items, schemasDir, "$prefix[]", into, currentFile)
         }
+    }
+
+    private fun refFile(ref: String, currentFile: String): String = ref.substringBefore('#').ifEmpty { currentFile }
+
+    /** Resolves `file.json`, `file.json#/a/b` and `#/a/b` against the schemas directory. */
+    private fun resolveRef(ref: String, schemasDir: File, currentFile: String): JSONObject {
+        var node = JSONObject(File(schemasDir, refFile(ref, currentFile)).readText())
+        ref.substringAfter('#', "").split('/').filter { it.isNotEmpty() }.forEach { segment ->
+            node = node.getJSONObject(segment)
+        }
+        return node
     }
 
     private fun collectJsonPaths(value: Any, prefix: String, into: MutableSet<String>) {

@@ -499,6 +499,9 @@ async function generateRustContracts(tempDir) {
     "--derive-debug",
     "--derive-clone",
     "--derive-partial-eq",
+    // An absent optional is omitted rather than written as `null`: the schemas do not
+    // admit null, and the SDK parsers read a missing key as absent.
+    "--skip-serializing-none",
     "--no-leading-comments",
     ...rustSchemaInputs.map((input) => join(schemasDir, input)),
     "--out",

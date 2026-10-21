@@ -9,6 +9,10 @@ import app.independo.inderun.contracts.ModelProfile
 import app.independo.inderun.contracts.Provider
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderTaskAvailability
+import app.independo.inderun.contracts.ProviderTaskCapability
+import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.Reason
 import app.independo.inderun.contracts.RejectedProvider
 import app.independo.inderun.contracts.RoutePlan
@@ -16,7 +20,10 @@ import app.independo.inderun.contracts.RoutePlannerInput
 import app.independo.inderun.contracts.RoutePlannerInputConstraints
 import app.independo.inderun.contracts.RoutePlannerInputPreferences
 import app.independo.inderun.contracts.RoutePlannerInputTask
+import app.independo.inderun.contracts.TaskInputKind
+import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
+import app.independo.inderun.contracts.VoiceGender
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -84,6 +91,16 @@ internal object SharedCoreRoutePlanner : RoutePlanner {
         }
     }
 
+    /**
+     * Raw planner JSON in and out, bypassing [toJson] and the plan parser. Only the shared
+     * conformance vectors use it: they are planner JSON already, and comparing the core's
+     * answer byte for byte is the point.
+     */
+    internal fun planRouteJson(inputJson: String): String {
+        ensureLoaded()
+        return planRouteJsonNative(inputJson)
+    }
+
     @JvmStatic
     private external fun planRouteJsonNative(inputJson: String): String
 
@@ -139,9 +156,19 @@ internal fun buildSharedPlannerInput(
                 capabilities = streamingAwareCapabilities(snapshot),
             )
         },
-        task = SharedPlannerTask(kind = request.task.kind.rawValue),
+        task = plannerTask(request),
     )
 }
+
+/**
+ * Projects the request's task onto the requirements the planner can check. A text request
+ * carries text input; the speech requirements arrive with the speech request shape (#245).
+ * Mirrors `plannerTask` in the Web SDK's route planner.
+ */
+private fun plannerTask(request: TaskRequest): SharedPlannerTask = SharedPlannerTask(
+    kind = request.task.kind.rawValue,
+    inputs = if (request.task.kind == TaskKind.TEXT_TO_TEXT) listOf(TaskInputKind.Text) else null,
+)
 
 /**
  * Folds the "declares streaming but does not implement it" check into the
@@ -180,7 +207,7 @@ private fun streamingAwareCapabilities(snapshot: ProviderSnapshot): ProviderDyna
  * absent — which matters for the tri-state dynamic capability flags.
  */
 internal fun SharedPlannerInput.toJson(): String = JSONObject()
-    .put("task", JSONObject().put("kind", task.kind))
+    .put("task", task.toPlannerJson())
     .put("interactionMode", interactionMode?.rawValue)
     .put(
         "constraints",
@@ -232,6 +259,7 @@ private fun ProviderDescriptor.toPlannerJson(): JSONObject = JSONObject()
     )
     .put("cancel", cancel.rawValue)
     .put("tasks", JSONArray(tasks))
+    .put("taskCapabilities", taskCapabilities?.let { entries -> JSONArray(entries.map { it.toPlannerJson() }) })
     .put(
         "limits",
         limits?.let { limits ->
@@ -242,14 +270,34 @@ private fun ProviderDescriptor.toPlannerJson(): JSONObject = JSONObject()
                 .put("maxAudioSeconds", limits.maxAudioSeconds)
         },
     )
+    .put("privacy", privacy?.toPlannerJson())
+
+private fun ProviderPrivacy.toPlannerJson(): JSONObject = JSONObject()
+    .put("dataLeavesDevice", dataLeavesDevice)
+    .put("regions", regions?.let { JSONArray(it) })
+
+private fun ProviderTaskCapability.toPlannerJson(): JSONObject = JSONObject()
+    .put("kind", kind)
+    .put("inputs", JSONArray(inputs.map { it.rawValue }))
     .put(
-        "privacy",
-        privacy?.let { privacy ->
-            JSONObject()
-                .put("dataLeavesDevice", privacy.dataLeavesDevice)
-                .put("regions", privacy.regions?.let { JSONArray(it) })
-        },
+        "interaction",
+        JSONObject()
+            .put("run", interaction.run)
+            .put("stream", interaction.stream),
     )
+    .put("cancel", cancel.rawValue)
+    .put(
+        "outputs",
+        JSONArray(
+            outputs.map { output ->
+                JSONObject()
+                    .put("delivery", output.delivery.rawValue)
+                    .put("mediaTypes", output.mediaTypes?.let { JSONArray(it) })
+            },
+        ),
+    )
+    .put("locales", locales?.let { JSONArray(it) })
+    .put("privacy", privacy?.toPlannerJson())
 
 private fun ProviderDynamicCapabilities.toPlannerJson(): JSONObject = JSONObject()
     .put("available", available)
@@ -257,6 +305,57 @@ private fun ProviderDynamicCapabilities.toPlannerJson(): JSONObject = JSONObject
     .put("streamingAvailable", streamingAvailable)
     .put("streamingUnavailableReason", streamingUnavailableReason)
     .put("cancellationAvailable", cancellationAvailable)
+    .put("taskCapabilities", taskCapabilities?.let { entries -> JSONArray(entries.map { it.toPlannerJson() }) })
+
+private fun ProviderTaskAvailability.toPlannerJson(): JSONObject = JSONObject()
+    .put("kind", kind)
+    .put("available", available)
+    .put("reason", reason)
+    .put("streamingAvailable", streamingAvailable)
+    .put("streamingUnavailableReason", streamingUnavailableReason)
+    .put("cancellationAvailable", cancellationAvailable)
+    .put("locales", locales?.let { JSONArray(it) })
+    .put(
+        "voices",
+        voices?.let { voices ->
+            JSONArray(
+                voices.map { voice ->
+                    JSONObject()
+                        .put("locale", voice.locale)
+                        .put("gender", voice.gender?.rawValue)
+                        .put("networkRequired", voice.networkRequired)
+                },
+            )
+        },
+    )
+
+private fun SharedPlannerTask.toPlannerJson(): JSONObject = JSONObject()
+    .put("kind", kind)
+    .put("inputs", inputs?.let { inputs -> JSONArray(inputs.map { it.rawValue }) })
+    .put(
+        "delivery",
+        delivery?.let { delivery ->
+            JSONObject()
+                .put("mode", delivery.mode.rawValue)
+                .put("mediaTypes", delivery.mediaTypes?.let { JSONArray(it) })
+        },
+    )
+    .put(
+        "locale",
+        locale?.let { locale ->
+            JSONObject()
+                .put("tag", locale.tag)
+                .put("match", locale.match.rawValue)
+        },
+    )
+    .put(
+        "voice",
+        voice?.let { voice ->
+            JSONObject()
+                .put("gender", voice.gender?.rawValue)
+                .put("requirement", voice.requirement.rawValue)
+        },
+    )
 
 internal fun parseSharedPlannerRoutePlan(json: String): SharedPlannerRoutePlan {
     val root = JSONObject(json)
@@ -292,9 +391,20 @@ private fun JSONArray?.toCandidates(): List<Candidate> {
         Candidate(
             order = candidate.getLong("order"),
             providerId = candidate.getString("providerId"),
+            voice = candidate.optJSONObject("voice")?.toProviderVoice(),
         )
     }
 }
+
+/**
+ * The voice the planner binds a candidate to. A gender this build does not know is read as
+ * absent rather than fatal, like an unknown reason code.
+ */
+private fun JSONObject.toProviderVoice(): ProviderVoice = ProviderVoice(
+    locale = getString("locale"),
+    gender = optString("gender").takeUnless { it.isEmpty() }?.let(VoiceGender::fromRawValue),
+    networkRequired = if (has("networkRequired")) getBoolean("networkRequired") else null,
+)
 
 private fun JSONArray?.toRejectedProviders(): List<SharedPlannerRejectedProvider> {
     if (this == null) return emptyList()
@@ -323,36 +433,11 @@ private fun JSONArray.toReasons(): List<SharedPlannerRejectedReason> = (0 until 
         }
     }
 
-private fun parseReasonCode(value: String): SharedPlannerReasonCode? = when (value) {
-    "capability_unavailable" -> SharedPlannerReasonCode.CapabilityUnavailable
-    "cloud_constraint" -> SharedPlannerReasonCode.CloudConstraint
-    "offline" -> SharedPlannerReasonCode.Offline
-    "privacy_constraint" -> SharedPlannerReasonCode.PrivacyConstraint
-    "run_not_supported" -> SharedPlannerReasonCode.RunNotSupported
-    "streaming_not_supported" -> SharedPlannerReasonCode.StreamingNotSupported
-    "streaming_unavailable" -> SharedPlannerReasonCode.StreamingUnavailable
-    "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
-    "not_in_model_profile" -> SharedPlannerReasonCode.NotInModelProfile
-    else -> null
-}
+private fun parseReasonCode(value: String): SharedPlannerReasonCode? = SharedPlannerReasonCode.fromRawValue(value)
 
 /**
  * The inverse of [parseReasonCode], for putting a plan's diagnostics back on the wire when a
- * routing failure carries them out on an exception.
- *
- * [SharedPlannerReasonCode] is declared here rather than generated from the schemas, so this is
- * the one wire mapping still written by hand -- the generated contract enums carry a `rawValue`.
- * The `when` is exhaustive with no `else`: a new constant must be a compile error here, not a
- * silently wrong string.
+ * routing failure carries them out on an exception. The generated enum carries its schema wire
+ * value, so neither direction is a hand-written table.
  */
-internal fun reasonCodeValue(value: SharedPlannerReasonCode): String = when (value) {
-    SharedPlannerReasonCode.CapabilityUnavailable -> "capability_unavailable"
-    SharedPlannerReasonCode.CloudConstraint -> "cloud_constraint"
-    SharedPlannerReasonCode.Offline -> "offline"
-    SharedPlannerReasonCode.PrivacyConstraint -> "privacy_constraint"
-    SharedPlannerReasonCode.RunNotSupported -> "run_not_supported"
-    SharedPlannerReasonCode.StreamingNotSupported -> "streaming_not_supported"
-    SharedPlannerReasonCode.StreamingUnavailable -> "streaming_unavailable"
-    SharedPlannerReasonCode.TaskNotSupported -> "task_not_supported"
-    SharedPlannerReasonCode.NotInModelProfile -> "not_in_model_profile"
-}
+internal fun reasonCodeValue(value: SharedPlannerReasonCode): String = value.rawValue

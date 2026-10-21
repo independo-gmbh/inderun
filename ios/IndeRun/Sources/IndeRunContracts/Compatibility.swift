@@ -172,6 +172,7 @@ public extension ProviderDescriptor {
         supports: ProviderSupports,
         cancel: CancelSemantics,
         tasks: [String],
+        taskCapabilities: [ProviderTaskCapability]? = nil,
         limits: ProviderLimits? = nil,
         privacy: ProviderPrivacy? = nil
     ) {
@@ -183,6 +184,7 @@ public extension ProviderDescriptor {
             privacy: privacy,
             streamingStyle: streamingStyle,
             supports: supports,
+            taskCapabilities: taskCapabilities,
             tasks: tasks,
             transport: transport,
             type: type
@@ -244,15 +246,77 @@ public extension ProviderDynamicCapabilities {
         reason: String? = nil,
         streamingAvailable: Bool? = nil,
         streamingUnavailableReason: String? = nil,
-        cancellationAvailable: Bool? = nil
+        cancellationAvailable: Bool? = nil,
+        taskCapabilities: [ProviderTaskAvailability]? = nil
     ) {
         self.init(
             available: available,
             cancellationAvailable: cancellationAvailable,
             reason: reason,
             streamingAvailable: streamingAvailable,
-            streamingUnavailableReason: streamingUnavailableReason
+            streamingUnavailableReason: streamingUnavailableReason,
+            taskCapabilities: taskCapabilities
         )
+    }
+}
+
+public extension ProviderTaskCapability {
+    init(
+        kind: String,
+        inputs: [TaskInputKind],
+        interaction: ProviderTaskInteraction,
+        cancel: CancelSemantics,
+        outputs: [ProviderTaskOutput],
+        locales: [String]? = nil,
+        privacy: ProviderPrivacy? = nil
+    ) {
+        self.init(
+            cancel: cancel,
+            inputs: inputs,
+            interaction: interaction,
+            kind: kind,
+            locales: locales,
+            outputs: outputs,
+            privacy: privacy
+        )
+    }
+}
+
+public extension ProviderTaskOutput {
+    /// An output that does not declare its media types, e.g. managed playback.
+    init(delivery: OutputDelivery) {
+        self.init(delivery: delivery, mediaTypes: nil)
+    }
+}
+
+public extension ProviderTaskAvailability {
+    /// Omitted fields stay `nil` and inherit the provider-level check.
+    init(
+        kind: String,
+        available: Bool? = nil,
+        reason: String? = nil,
+        streamingAvailable: Bool? = nil,
+        streamingUnavailableReason: String? = nil,
+        cancellationAvailable: Bool? = nil,
+        locales: [String]? = nil,
+        voices: [ProviderVoice]? = nil
+    ) {
+        self.init(
+            available: available,
+            cancellationAvailable: cancellationAvailable,
+            kind: kind,
+            locales: locales,
+            reason: reason,
+            streamingAvailable: streamingAvailable,
+            streamingUnavailableReason: streamingUnavailableReason,
+            voices: voices
+        )
+    }
+}
+
+public extension ProviderVoice {
+    init(locale: String, gender: VoiceGender? = nil, networkRequired: Bool? = nil) {
+        self.init(gender: gender, locale: locale, networkRequired: networkRequired)
     }
 }
 
