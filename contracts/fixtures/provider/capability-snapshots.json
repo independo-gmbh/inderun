@@ -23,9 +23,14 @@
           },
           "cancel": "hard",
           "tasks": ["text_to_text"],
-          "privacy": { "dataLeavesDevice": true, "regions": ["eu"] }
+          "privacy": {
+            "dataLeavesDevice": true,
+            "regions": ["eu"]
+          }
         },
-        "capabilities": { "available": true }
+        "capabilities": {
+          "available": true
+        }
       }
     },
     {
@@ -48,8 +53,13 @@
           },
           "cancel": "soft",
           "tasks": ["text_to_text"],
-          "limits": { "maxInputTokens": 4096, "maxOutputTokens": 512 },
-          "privacy": { "dataLeavesDevice": false }
+          "limits": {
+            "maxInputTokens": 4096,
+            "maxOutputTokens": 512
+          },
+          "privacy": {
+            "dataLeavesDevice": false
+          }
         },
         "capabilities": {
           "available": true,
@@ -79,9 +89,74 @@
           },
           "cancel": "soft",
           "tasks": ["text_to_text"],
-          "privacy": { "dataLeavesDevice": false }
+          "privacy": {
+            "dataLeavesDevice": false
+          }
         },
-        "capabilities": { "available": false, "reason": "The browser exposes no built-in model." }
+        "capabilities": {
+          "available": false,
+          "reason": "The browser exposes no built-in model."
+        }
+      }
+    },
+    {
+      "id": "speech_playback_task_capabilities",
+      "description": "A speech provider that declares per-task capabilities and reports its voices dynamically.",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": false
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB"
+                }
+              ]
+            }
+          ]
+        }
       }
     }
   ],
@@ -108,7 +183,10 @@
           "cancel": "none",
           "tasks": ["text_to_text"]
         },
-        "capabilities": { "available": true, "streamingAvailable": null }
+        "capabilities": {
+          "available": true,
+          "streamingAvailable": null
+        }
       }
     },
     {
@@ -132,7 +210,9 @@
           "cancel": "none",
           "tasks": ["text_to_text"]
         },
-        "capabilities": { "available": true }
+        "capabilities": {
+          "available": true
+        }
       }
     },
     {
@@ -157,7 +237,52 @@
           "cancel": "eventually",
           "tasks": ["text_to_text"]
         },
-        "capabilities": { "available": true }
+        "capabilities": {
+          "available": true
+        }
+      }
+    },
+    {
+      "id": "unknown_output_delivery",
+      "description": "Output delivery is a closed set.",
+      "path": "/descriptor/taskCapabilities/0/outputs/0/delivery",
+      "snapshot": {
+        "providerId": "p",
+        "descriptor": {
+          "id": "p",
+          "type": "local",
+          "transport": "in_process",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "none",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": false
+              },
+              "cancel": "none",
+              "outputs": [
+                {
+                  "delivery": "download"
+                }
+              ]
+            }
+          ]
+        },
+        "capabilities": {
+          "available": true
+        }
       }
     }
   ]

@@ -43,6 +43,28 @@ planner input must contain complete descriptors (`transport`, every `supports` f
 code that calls `@independo/inderun-route-core-wasm`'s `planRouteJson` directly; the SDKs pass their descriptors
 through unchanged.
 
+### Per-task provider capabilities
+
+Providers can declare what they do per task (`taskCapabilities` on the descriptor and, for live narrowing, on the
+dynamic capabilities); see [providers.md](architecture/providers.md#provider-contract). Nothing has to change for an
+existing text provider: a descriptor without `taskCapabilities` keeps routing exactly as before for `text_to_text`.
+A provider that listed any other task in `tasks` alone is now rejected for it with `task_not_supported` — declare a
+task capability to be routed a non-text task.
+
+The planner's reason codes gain `input_not_supported`, `output_delivery_not_supported`,
+`output_format_not_supported`, `locale_not_supported` and `voice_not_available`. An exhaustive Swift `switch` over
+the generated `Code` must handle them. The generated Swift `RoutePlannerInputTask`, `ProviderDescriptor` and
+`ProviderDynamicCapabilities` memberwise initializers gain the new optional parameters; the convenience initializers
+take `taskCapabilities:` with a `nil` default.
+
+Route-plan candidates gain an optional `voice`: the voice a speech candidate must use, bound by the planner within
+the request's privacy policy. The generated Swift `Candidate` memberwise initializer gains a `voice:` parameter. Text
+requests now reach the planner with `inputs: ["text"]`, so a provider that declares a `text_to_text` capability
+without text input is rejected with `input_not_supported`.
+
+The planner no longer writes `null` for an absent optional in its output (`selectedProviderId`, `failureCode`): the key
+is omitted, which is what the route-plan schema always described.
+
 ### Capacitor
 
 The bridge can drop its own copy of the snapshot type and import `ProviderCapabilitySnapshot` and

@@ -47,6 +47,13 @@ what the committed schemas must do with it — `current` cases must validate, `p
 must be rejected at `/task/kind` until the schema change that admits them lands —
 and `packages/contracts/src/task-contract-fixtures.test.ts` enforces that.
 
+`fixtures/routing/planner-conformance.json` holds the shared route-planner vectors: complete `RoutePlannerInput`s and
+the exact `RoutePlan` each must produce, messages included. The planner is one Rust crate, so these check the
+boundaries around it — that every platform hands it the same shape and reads the same plan back. The Rust crate runs
+them natively, `@independo/inderun-route-core-wasm` through WASM, the Swift suite through the C interface, and the
+Kotlin suite through JNI; `packages/contracts` validates every input and plan against the schemas. When planner
+behaviour changes on purpose, regenerate `expected` from the planner and review the diff case by case.
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core

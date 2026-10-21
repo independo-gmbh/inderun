@@ -29,6 +29,92 @@
     "cancellationAvailable": {
       "description": "Whether cancellation is honored on this host right now. Absent inherits the static descriptor.cancel value: any value other than 'none' means available. Never null.",
       "type": "boolean"
+    },
+    "taskCapabilities": {
+      "description": "Per-task overrides of the provider-level check, for tasks whose availability differs on this host, e.g. a voice that is not installed. Every field of an entry is optional and absent inherits the provider-level value; a false at either level wins.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/taskAvailability"
+      }
+    }
+  },
+  "$defs": {
+    "taskAvailability": {
+      "title": "ProviderTaskAvailability",
+      "description": "The live check for one task kind.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "The task kind this entry describes.",
+          "type": "string",
+          "minLength": 1
+        },
+        "available": {
+          "description": "Whether the task can run on this host right now. Absent inherits the provider-level available. Never null.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why the task is unavailable, when available is false.",
+          "type": "string",
+          "minLength": 1
+        },
+        "streamingAvailable": {
+          "description": "Whether the task can stream on this host right now. Absent inherits. Never null.",
+          "type": "boolean"
+        },
+        "streamingUnavailableReason": {
+          "description": "Why streaming is unavailable for this task, when streamingAvailable is false.",
+          "type": "string",
+          "minLength": 1
+        },
+        "cancellationAvailable": {
+          "description": "Whether cancellation is honored for this task right now. Absent inherits. Never null.",
+          "type": "boolean"
+        },
+        "locales": {
+          "description": "BCP 47 locales available for this task right now. Absent means the provider cannot enumerate them.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "voices": {
+          "description": "Voices available for this task right now. Absent means the provider cannot enumerate them; a request that requires a voice then never routes to it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/voice"
+          }
+        }
+      }
+    },
+    "voice": {
+      "title": "ProviderVoice",
+      "description": "Provider-neutral traits of one available voice. Carries no provider voice identifier.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["locale"],
+      "properties": {
+        "locale": {
+          "description": "BCP 47 locale the voice speaks.",
+          "type": "string",
+          "minLength": 1
+        },
+        "gender": {
+          "$ref": "#/$defs/voiceGender"
+        },
+        "networkRequired": {
+          "description": "Whether using the voice sends data off the device. Absent inherits the task's privacy posture.",
+          "type": "boolean"
+        }
+      }
+    },
+    "voiceGender": {
+      "title": "VoiceGender",
+      "description": "Perceived gender of a voice, as the platform reports it.",
+      "enum": ["female", "male", "neutral"]
     }
   }
 }

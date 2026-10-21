@@ -193,7 +193,20 @@ private func buildSharedPlannerInput(
                 descriptor: snapshot.descriptor
             )
         },
-        task: SharedPlannerTask(kind: request.task.kind.rawValue)
+        task: plannerTask(for: request)
+    )
+}
+
+/// Projects the request's task onto the requirements the planner can check. A text
+/// request carries text input; the speech requirements arrive with the speech request
+/// shape (#245). Mirrors `plannerTask` in the Web SDK's route planner.
+private func plannerTask(for request: TaskRequest) -> SharedPlannerTask {
+    SharedPlannerTask(
+        delivery: nil,
+        inputs: request.task.kind == .textToText ? [.text] : nil,
+        kind: request.task.kind.rawValue,
+        locale: nil,
+        voice: nil
     )
 }
 

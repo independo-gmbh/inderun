@@ -499,8 +499,8 @@ final class IndeRunTests: XCTestCase {
             planner: MockRoutePlanner(
                 plan: SharedPlannerRoutePlan(
                     candidates: [
-                        Candidate(order: 0, providerId: "local_b"),
-                        Candidate(order: 1, providerId: "local_a")
+                        Candidate(order: 0, providerId: "local_b", voice: nil),
+                        Candidate(order: 1, providerId: "local_a", voice: nil)
                     ],
                     explanation: SharedPlannerExplanation(
                         selectedProviderId: "local_b",
@@ -631,7 +631,7 @@ final class IndeRunTests: XCTestCase {
                         )
                     )
                 ],
-                task: SharedPlannerTask(kind: "text_to_text")
+                task: SharedPlannerTask(delivery: nil, inputs: nil, kind: "text_to_text", locale: nil, voice: nil)
             )
         )
 
@@ -646,7 +646,7 @@ final class IndeRunTests: XCTestCase {
 
         let planner = CapturingRoutePlanner(
             plan: SharedPlannerRoutePlan(
-                candidates: [Candidate(order: 0, providerId: "local_a")],
+                candidates: [Candidate(order: 0, providerId: "local_a", voice: nil)],
                 explanation: SharedPlannerExplanation(
                     selectedProviderId: "local_a",
                     summary: "Selected provider 'local_a'."

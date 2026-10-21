@@ -8,14 +8,78 @@
   "required": ["task", "constraints", "preferences", "providers"],
   "properties": {
     "task": {
-      "description": "Minimal task descriptor for provider task matching.",
+      "description": "Task descriptor for provider task matching: the kind plus the requirements routing can check against declared capabilities. Absent requirement fields are never checked, so a text request carries the kind alone.",
       "type": "object",
       "additionalProperties": true,
       "required": ["kind"],
       "properties": {
         "kind": {
+          "description": "The task kind, matched against the providers' task capabilities.",
           "type": "string",
           "minLength": 1
+        },
+        "inputs": {
+          "description": "Input media kinds the request carries. Every one must be accepted by the provider's task capability. The SDKs send ['text'] for text_to_text.",
+          "type": "array",
+          "items": {
+            "$ref": "provider-descriptor.schema.json#/$defs/inputKind"
+          }
+        },
+        "delivery": {
+          "title": "DeliveryRequirement",
+          "description": "The output delivery the request requires. Absent for text, whose delivery is implicitly inline.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "$ref": "provider-descriptor.schema.json#/$defs/outputDelivery"
+            },
+            "mediaTypes": {
+              "description": "Acceptable media types; the provider must declare at least one for the requested delivery. Absent means any.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "locale": {
+          "title": "LocaleRequirement",
+          "description": "The locale the request requires. Under 'language' matching the region is a preference: a provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider that cannot enumerate its locales is not rejected on this basis; it must fail before committing instead.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["tag", "match"],
+          "properties": {
+            "tag": {
+              "description": "BCP 47 tag.",
+              "type": "string",
+              "minLength": 1
+            },
+            "match": {
+              "title": "LocaleMatch",
+              "description": "'exact' requires the full tag; 'language' requires only the primary language subtag and treats the region as a preference.",
+              "enum": ["exact", "language"]
+            }
+          }
+        },
+        "voice": {
+          "title": "VoiceRequirement",
+          "description": "Voice traits the request asks for. Only a 'required' voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a candidate to, always within the request's privacy policy.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["requirement"],
+          "properties": {
+            "gender": {
+              "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+            },
+            "requirement": {
+              "title": "RequirementLevel",
+              "description": "'required' takes part in routing; 'preferred' does not.",
+              "enum": ["required", "preferred"]
+            }
+          }
         }
       }
     },

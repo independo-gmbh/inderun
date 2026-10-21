@@ -33,7 +33,7 @@ export type ProviderDescriptor = {
      * or edge provider is treated as keeping data on the device and a cloud provider as sending
      * it off.
      */
-    privacy?: ProviderPrivacy;
+    privacy?: ProviderDescriptorPrivacy;
     /**
      * How a streaming provider delivers incremental output: individual tokens, larger chunks,
      * or whole snapshots. Absent for providers that do not stream.
@@ -44,7 +44,19 @@ export type ProviderDescriptor = {
      */
     supports: ProviderSupports;
     /**
-     * Task kinds the provider supports, e.g. 'text_to_text'.
+     * What the provider can do for each task: accepted inputs, interaction modes, output
+     * deliveries and formats, cancellation, locales and privacy. When present it is
+     * authoritative for routing and must list every task the provider serves. When absent (a
+     * legacy descriptor), routing infers exactly one entry — 'text_to_text' with text input,
+     * inline output, run/stream from supports and cancel from cancel — if tasks contains
+     * 'text_to_text', and nothing for any other task: a legacy descriptor is never treated as
+     * capable of a non-text task.
+     */
+    taskCapabilities?: ProviderTaskCapability[];
+    /**
+     * Task kinds the provider supports, e.g. 'text_to_text'. When taskCapabilities is present
+     * it must describe the same kinds and is what routing reads; without it, routing infers
+     * capabilities for 'text_to_text' alone (see taskCapabilities).
      */
     tasks: string[];
     /**
@@ -63,6 +75,9 @@ export type ProviderDescriptor = {
  * Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
  * reading locally while remote work may continue, 'none' means cancellation is unsupported.
  * Independently of this value, the engine delivers no event after a cancel.
+ *
+ * Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+ * when stopping playback is immediate but a synthesis request cannot be aborted.
  */
 export type CancelSemantics = "hard" | "soft" | "none";
 
@@ -94,7 +109,7 @@ export type ProviderLimits = {
  * or edge provider is treated as keeping data on the device and a cloud provider as sending
  * it off.
  */
-export type ProviderPrivacy = {
+export type ProviderDescriptorPrivacy = {
     /**
      * Whether request content leaves the device.
      */
@@ -146,6 +161,108 @@ export type ProviderSupports = {
      * Whether the provider supports tool calling.
      */
     tools: boolean;
+    [property: string]: unknown;
+}
+
+/**
+ * The provider's static capabilities for one task kind.
+ */
+export type ProviderTaskCapability = {
+    /**
+     * Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+     * when stopping playback is immediate but a synthesis request cannot be aborted.
+     */
+    cancel: CancelSemantics;
+    /**
+     * Input media kinds the provider accepts for this task.
+     */
+    inputs: [TaskInputKind, ...TaskInputKind[]];
+    /**
+     * Interaction modes the provider supports for this task.
+     */
+    interaction: ProviderTaskInteraction;
+    /**
+     * The task kind this entry describes, e.g. 'text_to_speech'.
+     */
+    kind: string;
+    /**
+     * BCP 47 locales the provider can serve for this task, when it knows them statically.
+     * Absent means unknown; the dynamic check may report them instead.
+     */
+    locales?: string[];
+    /**
+     * How results of this task can be delivered. A provider lists only what it really produces:
+     * a provider that can only play audio lists 'playback' and never 'artifact'.
+     */
+    outputs: [ProviderTaskOutput, ...ProviderTaskOutput[]];
+    /**
+     * Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+     * provider whose speech synthesis uses a network service. Absent inherits
+     * descriptor.privacy.
+     */
+    privacy?: TaskCapabilityPrivacy;
+    [property: string]: unknown;
+}
+
+/**
+ * A kind of input medium a task consumes.
+ */
+export type TaskInputKind = "text" | "image" | "audio";
+
+/**
+ * Interaction modes the provider supports for this task.
+ */
+export type ProviderTaskInteraction = {
+    /**
+     * Whether the provider supports Mode 1 run for this task.
+     */
+    run: boolean;
+    /**
+     * Whether the provider supports Mode 2 stream for this task.
+     */
+    stream: boolean;
+    [property: string]: unknown;
+}
+
+/**
+ * One way the provider can deliver a task's result.
+ */
+export type ProviderTaskOutput = {
+    delivery: OutputDelivery;
+    /**
+     * Media types the provider can produce with this delivery, e.g. 'audio/wav'. Absent means
+     * the provider does not declare them; a request that requires specific media types never
+     * routes to such an output.
+     */
+    mediaTypes?: string[];
+    [property: string]: unknown;
+}
+
+/**
+ * How a task's result reaches the application: 'inline' content in the result (text),
+ * 'playback' as a managed, audible effect on the device with no retrievable bytes, or
+ * 'artifact' as retrievable media.
+ */
+export type OutputDelivery = "inline" | "playback" | "artifact";
+
+/**
+ * Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+ * provider whose speech synthesis uses a network service. Absent inherits
+ * descriptor.privacy.
+ *
+ * Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+ * or edge provider is treated as keeping data on the device and a cloud provider as sending
+ * it off.
+ */
+export type TaskCapabilityPrivacy = {
+    /**
+     * Whether request content leaves the device.
+     */
+    dataLeavesDevice: boolean;
+    /**
+     * Geographic regions where a cloud provider processes data.
+     */
+    regions?: string[];
     [property: string]: unknown;
 }
 

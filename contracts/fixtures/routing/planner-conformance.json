@@ -1,0 +1,2609 @@
+{
+  "$comment": "Cross-SDK route-planner conformance vectors (#243). Each case is a complete RoutePlannerInput and the exact RoutePlan the shared Rust planner must produce for it, messages included. The planner is one Rust crate, so every platform must get byte-identical plans; these vectors prove that the SDKs hand it the same input shape and read the same output back. Run by rust/inderun-route-core/src/tests.rs (natively), packages/inderun-route-core-wasm/test/conformance.mjs (WASM), ios/IndeRun/Tests/IndeRunTests/RoutePlannerConformanceTests.swift (FFI) and android/inderun-core/src/test/kotlin/app/independo/inderun/core/SharedCoreRoutePlannerConformanceTest.kt (JNI); packages/contracts/src/routing-conformance.test.ts validates every input and plan against the schemas. When planner behaviour changes deliberately, regenerate 'expected' from the planner and review the diff.",
+  "cases": [
+    {
+      "id": "legacy_text_run",
+      "description": "A v0.4 text request over legacy descriptors plans exactly as before; a speech-only provider is not a text candidate.",
+      "input": {
+        "task": {
+          "kind": "text_to_text",
+          "inputs": ["text"]
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "legacy_cloud_text",
+              "type": "cloud",
+              "transport": "sse",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_text"],
+              "privacy": {
+                "dataLeavesDevice": true
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "legacy_local_text",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text"],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "legacy_local_text"
+          },
+          {
+            "order": 1,
+            "providerId": "legacy_cloud_text"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "legacy_local_text",
+          "summary": "Selected provider 'legacy_local_text' deterministically from 2 eligible candidate(s)."
+        },
+        "fallbackProviderIds": ["legacy_cloud_text"],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_only_local",
+            "reasons": [
+              {
+                "code": "task_not_supported",
+                "message": "Provider 'speech_only_local' does not support task 'text_to_text'."
+              }
+            ]
+          }
+        ],
+        "selectedProviderId": "legacy_local_text"
+      }
+    },
+    {
+      "id": "legacy_text_stream",
+      "description": "The same registry in stream mode: the speech-only provider is rejected for the task and for streaming.",
+      "input": {
+        "task": {
+          "kind": "text_to_text",
+          "inputs": ["text"]
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "legacy_cloud_text",
+              "type": "cloud",
+              "transport": "sse",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_text"],
+              "privacy": {
+                "dataLeavesDevice": true
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "legacy_local_text",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text"],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ],
+        "interactionMode": "stream"
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "legacy_local_text"
+          },
+          {
+            "order": 1,
+            "providerId": "legacy_cloud_text"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "legacy_local_text",
+          "summary": "Selected streaming provider 'legacy_local_text' deterministically from 2 eligible candidate(s)."
+        },
+        "fallbackProviderIds": ["legacy_cloud_text"],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_only_local",
+            "reasons": [
+              {
+                "code": "task_not_supported",
+                "message": "Provider 'speech_only_local' does not support task 'text_to_text'."
+              },
+              {
+                "code": "streaming_not_supported",
+                "message": "Provider 'speech_only_local' does not support streaming (Mode 2) for task 'text_to_text'."
+              }
+            ]
+          }
+        ],
+        "selectedProviderId": "legacy_local_text"
+      }
+    },
+    {
+      "id": "legacy_descriptor_listing_speech",
+      "description": "A descriptor without taskCapabilities that lists text_to_speech in tasks is never treated as speech-capable.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "legacy_lists_tts",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "legacy_lists_tts",
+            "reasons": [
+              {
+                "code": "task_not_supported",
+                "message": "Provider 'legacy_lists_tts' lists task 'text_to_speech' but declares no task capability for it; a descriptor without taskCapabilities is only routed for 'text_to_text'."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "speech_only_never_selected_for_text",
+      "description": "A provider that declares only text_to_speech is not selected for a text request, even when it ranks first.",
+      "input": {
+        "task": {
+          "kind": "text_to_text",
+          "inputs": ["text"]
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "text_and_playback",
+              "type": "local",
+              "transport": "in_process",
+              "streamingStyle": "tokens",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text", "text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_text",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "inline"
+                    }
+                  ]
+                },
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "text_and_playback"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "text_and_playback",
+          "summary": "Selected provider 'text_and_playback' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_only_local",
+            "reasons": [
+              {
+                "code": "task_not_supported",
+                "message": "Provider 'speech_only_local' does not support task 'text_to_text'."
+              }
+            ]
+          }
+        ],
+        "selectedProviderId": "text_and_playback"
+      }
+    },
+    {
+      "id": "playback_only_rejected_for_speech_stream",
+      "description": "A provider that streams text but only runs speech playback is rejected for a speech stream.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "text_and_playback",
+              "type": "local",
+              "transport": "in_process",
+              "streamingStyle": "tokens",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text", "text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_text",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "inline"
+                    }
+                  ]
+                },
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ],
+        "interactionMode": "stream"
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No provider capable of streaming was found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "text_and_playback",
+            "reasons": [
+              {
+                "code": "streaming_not_supported",
+                "message": "Provider 'text_and_playback' does not support streaming (Mode 2) for task 'text_to_speech'."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "playback_only_rejected_for_artifact",
+      "description": "A playback-only speech provider is never selected for retrievable audio.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "artifact"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "text_and_playback",
+              "type": "local",
+              "transport": "in_process",
+              "streamingStyle": "tokens",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text", "text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_text",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "inline"
+                    }
+                  ]
+                },
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "text_and_playback",
+            "reasons": [
+              {
+                "code": "output_delivery_not_supported",
+                "message": "Provider 'text_and_playback' cannot deliver task 'text_to_speech' as artifact."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "playback_run_selected",
+      "description": "A speech playback run reaches every provider that declares playback; de-AT with language matching is served by a de-DE provider.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "text_and_playback",
+              "type": "local",
+              "transport": "in_process",
+              "streamingStyle": "tokens",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text", "text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_text",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "inline"
+                    }
+                  ]
+                },
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "cloud_tts_artifact",
+              "type": "cloud",
+              "transport": "http",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "artifact",
+                      "mediaTypes": ["audio/mpeg"]
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": true
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_only_local"
+          },
+          {
+            "order": 1,
+            "providerId": "text_and_playback"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_only_local",
+          "summary": "Selected provider 'speech_only_local' deterministically from 2 eligible candidate(s)."
+        },
+        "fallbackProviderIds": ["text_and_playback"],
+        "rejectedProviders": [
+          {
+            "providerId": "cloud_tts_artifact",
+            "reasons": [
+              {
+                "code": "output_delivery_not_supported",
+                "message": "Provider 'cloud_tts_artifact' cannot deliver task 'text_to_speech' as playback."
+              }
+            ]
+          }
+        ],
+        "selectedProviderId": "speech_only_local"
+      }
+    },
+    {
+      "id": "artifact_media_type_mismatch",
+      "description": "A required media type the provider does not produce is a format rejection, not a late provider error.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "artifact",
+            "mediaTypes": ["audio/wav"]
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "cloud_tts_artifact",
+              "type": "cloud",
+              "transport": "http",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "artifact",
+                      "mediaTypes": ["audio/mpeg"]
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": true
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "cloud_tts_artifact",
+            "reasons": [
+              {
+                "code": "output_format_not_supported",
+                "message": "Provider 'cloud_tts_artifact' produces none of the required media types (audio/wav) for task 'text_to_speech'."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "artifact_media_type_match",
+      "description": "Media types match case-insensitively against what the provider declares.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "artifact",
+            "mediaTypes": ["audio/wav", "AUDIO/MPEG"]
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "cloud_tts_artifact",
+              "type": "cloud",
+              "transport": "http",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "artifact",
+                      "mediaTypes": ["audio/mpeg"]
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": true
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "cloud_tts_artifact"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "cloud_tts_artifact",
+          "summary": "Selected provider 'cloud_tts_artifact' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "cloud_tts_artifact"
+      }
+    },
+    {
+      "id": "locale_exact_rejects_other_region",
+      "description": "An exact locale requirement is not satisfied by another region of the same language.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "exact"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_only_local",
+            "reasons": [
+              {
+                "code": "locale_not_supported",
+                "message": "Provider 'speech_only_local' does not offer locale 'de-AT' for task 'text_to_speech'."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "required_voice_unverifiable",
+      "description": "A required voice cannot be verified against a provider that does not list its voices.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          },
+          "voice": {
+            "gender": "female",
+            "requirement": "required"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_only_local",
+            "reasons": [
+              {
+                "code": "voice_not_available",
+                "message": "Provider 'speech_only_local' cannot list its voices for task 'text_to_speech', so a required voice cannot be verified."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "preferred_voice_not_checked",
+      "description": "A preferred voice never takes part in routing.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          },
+          "voice": {
+            "gender": "female",
+            "requirement": "preferred"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_only_local"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_only_local",
+          "summary": "Selected provider 'speech_only_local' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_only_local"
+      }
+    },
+    {
+      "id": "required_voice_matched",
+      "description": "A required voice is satisfied by a listed voice with the same locale language and gender.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          },
+          "voice": {
+            "gender": "female",
+            "requirement": "required"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "locale": "de-DE",
+                      "gender": "male",
+                      "networkRequired": false
+                    },
+                    {
+                      "locale": "de-DE",
+                      "gender": "female",
+                      "networkRequired": false
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_only_local",
+            "voice": {
+              "gender": "female",
+              "locale": "de-DE",
+              "networkRequired": false
+            }
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_only_local",
+          "summary": "Selected provider 'speech_only_local' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_only_local"
+      }
+    },
+    {
+      "id": "local_required_network_voice",
+      "description": "Under local-required privacy, a locale only reachable through a network voice is a privacy rejection.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          }
+        },
+        "constraints": {
+          "privacy": "local_required",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "locale": "en-US",
+                      "networkRequired": false
+                    },
+                    {
+                      "locale": "de-DE",
+                      "networkRequired": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_only_local",
+            "reasons": [
+              {
+                "code": "privacy_constraint",
+                "message": "Provider 'speech_only_local' offers locale 'de-AT' only through voices that send data off the device, which local-required privacy excludes."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "local_required_cloud_speech",
+      "description": "Local-required privacy never selects a cloud speech provider.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "artifact"
+          }
+        },
+        "constraints": {
+          "privacy": "local_required",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "cloud_tts_artifact",
+              "type": "cloud",
+              "transport": "http",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "artifact",
+                      "mediaTypes": ["audio/mpeg"]
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": true
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "cloud_tts_artifact",
+            "reasons": [
+              {
+                "code": "privacy_constraint",
+                "message": "Provider 'cloud_tts_artifact' does not satisfy local-required privacy."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "image_input_on_text_only_provider",
+      "description": "An input kind the task capability does not accept is rejected; a legacy descriptor accepts text only.",
+      "input": {
+        "task": {
+          "kind": "text_to_text",
+          "inputs": ["image", "text"]
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "legacy_local_text",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text"],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_text'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "legacy_local_text",
+            "reasons": [
+              {
+                "code": "input_not_supported",
+                "message": "Provider 'legacy_local_text' does not accept image input for task 'text_to_text'."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "task_level_unavailable",
+      "description": "A task-level dynamic check can make one task unavailable while the provider stays available.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_only_local",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "available": false,
+                  "reason": "No speech voice is installed."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_only_local",
+            "reasons": [
+              {
+                "code": "capability_unavailable",
+                "message": "No speech voice is installed."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "per_task_privacy_ranks_and_rejects",
+      "description": "A task capability's own privacy overrides the provider's for ranking and for local-required rejection.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          }
+        },
+        "constraints": {
+          "privacy": "local_preferred",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "a_network_speech",
+              "type": "local",
+              "transport": "in_process",
+              "streamingStyle": "tokens",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text", "text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_text",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "inline"
+                    }
+                  ]
+                },
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "privacy": {
+                    "dataLeavesDevice": true
+                  }
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "z_local_speech",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "z_local_speech"
+          },
+          {
+            "order": 1,
+            "providerId": "a_network_speech"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "z_local_speech",
+          "summary": "Selected provider 'z_local_speech' deterministically from 2 eligible candidate(s)."
+        },
+        "fallbackProviderIds": ["a_network_speech"],
+        "rejectedProviders": [],
+        "selectedProviderId": "z_local_speech"
+      }
+    },
+    {
+      "id": "per_task_privacy_local_required",
+      "description": "Under local-required privacy the same network-backed speech capability is rejected even though the provider is local.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          }
+        },
+        "constraints": {
+          "privacy": "local_required",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "a_network_speech",
+              "type": "local",
+              "transport": "in_process",
+              "streamingStyle": "tokens",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text", "text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_text",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "inline"
+                    }
+                  ]
+                },
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "privacy": {
+                    "dataLeavesDevice": true
+                  }
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "z_local_speech",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "z_local_speech"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "z_local_speech",
+          "summary": "Selected provider 'z_local_speech' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "a_network_speech",
+            "reasons": [
+              {
+                "code": "privacy_constraint",
+                "message": "Provider 'a_network_speech' does not satisfy local-required privacy."
+              }
+            ]
+          }
+        ],
+        "selectedProviderId": "z_local_speech"
+      }
+    },
+    {
+      "id": "mixed_voices_local_required_binds_local_voice",
+      "description": "Under local-required privacy the plan binds the candidate to an on-device voice, even when only a network voice would honour the preferred gender; the unmet preference is not a reason to send data off the device.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          },
+          "voice": {
+            "gender": "female",
+            "requirement": "preferred"
+          }
+        },
+        "constraints": {
+          "privacy": "local_required",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_mixed",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "locale": "de-DE",
+                      "gender": "male",
+                      "networkRequired": false
+                    },
+                    {
+                      "locale": "de-DE",
+                      "gender": "female",
+                      "networkRequired": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_mixed",
+            "voice": {
+              "gender": "male",
+              "locale": "de-DE",
+              "networkRequired": false
+            }
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_mixed",
+          "summary": "Selected provider 'speech_mixed' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_mixed"
+      }
+    },
+    {
+      "id": "mixed_voices_cloud_allowed_honours_preference",
+      "description": "Without a privacy restriction the same inventory binds the voice that honours the preferred gender.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          },
+          "voice": {
+            "gender": "female",
+            "requirement": "preferred"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_mixed",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "locale": "de-DE",
+                      "gender": "male",
+                      "networkRequired": false
+                    },
+                    {
+                      "locale": "de-DE",
+                      "gender": "female",
+                      "networkRequired": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_mixed",
+            "voice": {
+              "gender": "female",
+              "locale": "de-DE",
+              "networkRequired": true
+            }
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_mixed",
+          "summary": "Selected provider 'speech_mixed' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_mixed"
+      }
+    },
+    {
+      "id": "voice_selection_prefers_exact_region",
+      "description": "Among voices that fit, the exact locale region wins over another region of the language.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          },
+          "voice": {
+            "gender": "female",
+            "requirement": "preferred"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_regions",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "locale": "de-DE",
+                      "gender": "female",
+                      "networkRequired": false
+                    },
+                    {
+                      "locale": "de-AT",
+                      "gender": "female",
+                      "networkRequired": false
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_regions",
+            "voice": {
+              "gender": "female",
+              "locale": "de-AT",
+              "networkRequired": false
+            }
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_regions",
+          "summary": "Selected provider 'speech_regions' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_regions"
+      }
+    },
+    {
+      "id": "region_preference_ranks_exact_locale_first",
+      "description": "Under language matching the region is a preference: a provider known to offer the exact tag ranks ahead of an otherwise equal one offering another region, regardless of id order.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "a_speech_de_de",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "b_speech_de_at",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-AT"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "b_speech_de_at"
+          },
+          {
+            "order": 1,
+            "providerId": "a_speech_de_de"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "b_speech_de_at",
+          "summary": "Selected provider 'b_speech_de_at' deterministically from 2 eligible candidate(s)."
+        },
+        "fallbackProviderIds": ["a_speech_de_de"],
+        "rejectedProviders": [],
+        "selectedProviderId": "b_speech_de_at"
+      }
+    },
+    {
+      "id": "text_input_on_image_only_text_provider",
+      "description": "The SDKs send inputs ['text'] for a text request, so an explicitly declared text_to_text capability that accepts only images is rejected during planning.",
+      "input": {
+        "task": {
+          "kind": "text_to_text",
+          "inputs": ["text"]
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "a_image_only",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_text",
+                  "inputs": ["image"],
+                  "interaction": {
+                    "run": true,
+                    "stream": true
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "inline"
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "legacy_local_text",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": true,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text"],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "legacy_local_text"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "legacy_local_text",
+          "summary": "Selected provider 'legacy_local_text' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "a_image_only",
+            "reasons": [
+              {
+                "code": "input_not_supported",
+                "message": "Provider 'a_image_only' does not accept text input for task 'text_to_text'."
+              }
+            ]
+          }
+        ],
+        "selectedProviderId": "legacy_local_text"
+      }
+    }
+  ]
+}

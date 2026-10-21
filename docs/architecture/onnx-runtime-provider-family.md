@@ -173,7 +173,10 @@ planner consumes.
 The shared route planner uses a fixed rejection vocabulary
 (`route-plan.schema.json` → `rejectedProviders[].reasons[].code`):
 `task_not_supported`, `run_not_supported`, `privacy_constraint`, `cloud_constraint`, `offline`,
-`capability_unavailable`. The ONNX family adds no new codes. Every capability failure above maps to
+`capability_unavailable`, plus the mode, model-profile and per-task codes the planner applies to every family. The
+ONNX family adds no new codes. Its descriptor carries no `taskCapabilities`, so routing infers `text_to_text`
+alone: a model package that declares another task (say `image_to_text`) is reported as `task_not_supported` for
+it. Every capability failure above maps to
 `capability_unavailable`, with the specific condition carried in the human-readable `reason`/
 `message` string.
 

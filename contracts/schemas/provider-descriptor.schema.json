@@ -83,7 +83,7 @@
       "enum": ["hard", "soft", "none"]
     },
     "tasks": {
-      "description": "Task kinds the provider supports, e.g. 'text_to_text'.",
+      "description": "Task kinds the provider supports, e.g. 'text_to_text'. When taskCapabilities is present it must describe the same kinds and is what routing reads; without it, routing infers capabilities for 'text_to_text' alone (see taskCapabilities).",
       "type": "array",
       "items": {
         "type": "string",
@@ -138,6 +138,108 @@
           }
         }
       }
+    },
+    "taskCapabilities": {
+      "description": "What the provider can do for each task: accepted inputs, interaction modes, output deliveries and formats, cancellation, locales and privacy. When present it is authoritative for routing and must list every task the provider serves. When absent (a legacy descriptor), routing infers exactly one entry — 'text_to_text' with text input, inline output, run/stream from supports and cancel from cancel — if tasks contains 'text_to_text', and nothing for any other task: a legacy descriptor is never treated as capable of a non-text task.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/taskCapability"
+      }
+    }
+  },
+  "$defs": {
+    "taskCapability": {
+      "title": "ProviderTaskCapability",
+      "description": "The provider's static capabilities for one task kind.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "inputs", "interaction", "cancel", "outputs"],
+      "properties": {
+        "kind": {
+          "description": "The task kind this entry describes, e.g. 'text_to_speech'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "description": "Input media kinds the provider accepts for this task.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/inputKind"
+          }
+        },
+        "interaction": {
+          "title": "ProviderTaskInteraction",
+          "description": "Interaction modes the provider supports for this task.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["run", "stream"],
+          "properties": {
+            "run": {
+              "description": "Whether the provider supports Mode 1 run for this task.",
+              "type": "boolean"
+            },
+            "stream": {
+              "description": "Whether the provider supports Mode 2 stream for this task.",
+              "type": "boolean"
+            }
+          }
+        },
+        "cancel": {
+          "description": "Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g. when stopping playback is immediate but a synthesis request cannot be aborted.",
+          "$ref": "#/properties/cancel"
+        },
+        "outputs": {
+          "description": "How results of this task can be delivered. A provider lists only what it really produces: a provider that can only play audio lists 'playback' and never 'artifact'.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/taskOutput"
+          }
+        },
+        "locales": {
+          "description": "BCP 47 locales the provider can serve for this task, when it knows them statically. Absent means unknown; the dynamic check may report them instead.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "privacy": {
+          "description": "Data-egress posture for this task when it differs from the provider-level privacy, e.g. a provider whose speech synthesis uses a network service. Absent inherits descriptor.privacy.",
+          "$ref": "#/properties/privacy"
+        }
+      }
+    },
+    "taskOutput": {
+      "title": "ProviderTaskOutput",
+      "description": "One way the provider can deliver a task's result.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["delivery"],
+      "properties": {
+        "delivery": {
+          "$ref": "#/$defs/outputDelivery"
+        },
+        "mediaTypes": {
+          "description": "Media types the provider can produce with this delivery, e.g. 'audio/wav'. Absent means the provider does not declare them; a request that requires specific media types never routes to such an output.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "inputKind": {
+      "title": "TaskInputKind",
+      "description": "A kind of input medium a task consumes.",
+      "enum": ["text", "image", "audio"]
+    },
+    "outputDelivery": {
+      "title": "OutputDelivery",
+      "description": "How a task's result reaches the application: 'inline' content in the result (text), 'playback' as a managed, audible effect on the device with no retrievable bytes, or 'artifact' as retrievable media.",
+      "enum": ["inline", "playback", "artifact"]
     }
   }
 }

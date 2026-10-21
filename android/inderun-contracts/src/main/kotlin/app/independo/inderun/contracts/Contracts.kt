@@ -533,18 +533,26 @@ data class ExecutionProvenanceRouteRejection(
  * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
  * but the dynamic capability snapshot reports it cannot stream in the current host
  * environment. 'not_in_model_profile' means the request named a model profile that does not
- * list this provider.
+ * list this provider. 'input_not_supported', 'output_delivery_not_supported',
+ * 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
+ * provider's task capability lacks an input kind, output delivery, media type, locale or
+ * voice the request requires.
  */
 enum class Code(val rawValue: String) {
     CapabilityUnavailable("capability_unavailable"),
     CloudConstraint("cloud_constraint"),
+    InputNotSupported("input_not_supported"),
+    LocaleNotSupported("locale_not_supported"),
     NotInModelProfile("not_in_model_profile"),
     Offline("offline"),
+    OutputDeliveryNotSupported("output_delivery_not_supported"),
+    OutputFormatNotSupported("output_format_not_supported"),
     PrivacyConstraint("privacy_constraint"),
     RunNotSupported("run_not_supported"),
     StreamingNotSupported("streaming_not_supported"),
     StreamingUnavailable("streaming_unavailable"),
     TaskNotSupported("task_not_supported"),
+    VoiceNotAvailable("voice_not_available"),
     ;
 
     companion object {
@@ -816,7 +824,9 @@ data class RoutePlannerInput(
     val providers: List<Provider>,
 
     /**
-     * Minimal task descriptor for provider task matching.
+     * Task descriptor for provider task matching: the kind plus the requirements routing can
+     * check against declared capabilities. Absent requirement fields are never checked, so a
+     * text request carries the kind alone.
      */
     val task: RoutePlannerInputTask,
 )
@@ -938,7 +948,102 @@ data class ProviderDynamicCapabilities(
      * planner synthesize a default message.
      */
     val streamingUnavailableReason: String? = null,
+
+    /**
+     * Per-task overrides of the provider-level check, for tasks whose availability differs on
+     * this host, e.g. a voice that is not installed. Every field of an entry is optional and
+     * absent inherits the provider-level value; a false at either level wins.
+     */
+    val taskCapabilities: List<ProviderTaskAvailability>? = null,
 )
+
+/**
+ * The live check for one task kind.
+ */
+data class ProviderTaskAvailability(
+    /**
+     * Whether the task can run on this host right now. Absent inherits the provider-level
+     * available. Never null.
+     */
+    val available: Boolean? = null,
+
+    /**
+     * Whether cancellation is honored for this task right now. Absent inherits. Never null.
+     */
+    val cancellationAvailable: Boolean? = null,
+
+    /**
+     * The task kind this entry describes.
+     */
+    val kind: String,
+
+    /**
+     * BCP 47 locales available for this task right now. Absent means the provider cannot
+     * enumerate them.
+     */
+    val locales: List<String>? = null,
+
+    /**
+     * Why the task is unavailable, when available is false.
+     */
+    val reason: String? = null,
+
+    /**
+     * Whether the task can stream on this host right now. Absent inherits. Never null.
+     */
+    val streamingAvailable: Boolean? = null,
+
+    /**
+     * Why streaming is unavailable for this task, when streamingAvailable is false.
+     */
+    val streamingUnavailableReason: String? = null,
+
+    /**
+     * Voices available for this task right now. Absent means the provider cannot enumerate
+     * them; a request that requires a voice then never routes to it.
+     */
+    val voices: List<ProviderVoice>? = null,
+)
+
+/**
+ * Provider-neutral traits of one available voice. Carries no provider voice identifier.
+ *
+ * The voice this candidate must use if it is attempted, chosen by the planner from the
+ * provider's dynamic voice inventory. It is the best voice that satisfies the request's
+ * locale, required voice traits and privacy — under local-required privacy always one that
+ * keeps data on the device — ranked by preferred gender, then exact locale region, then
+ * on-device before network. The adapter must use a voice with exactly these traits. Absent
+ * when the request names no locale or voice, or the provider does not list its voices; the
+ * adapter then chooses itself under the same rules.
+ */
+data class ProviderVoice(
+    val gender: VoiceGender? = null,
+
+    /**
+     * BCP 47 locale the voice speaks.
+     */
+    val locale: String,
+
+    /**
+     * Whether using the voice sends data off the device. Absent inherits the task's privacy
+     * posture.
+     */
+    val networkRequired: Boolean? = null,
+)
+
+/**
+ * Perceived gender of a voice, as the platform reports it.
+ */
+enum class VoiceGender(val rawValue: String) {
+    Female("female"),
+    Male("male"),
+    Neutral("neutral"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): VoiceGender? = entries.firstOrNull { it.rawValue == value }
+    }
+}
 
 /**
  * The provider's static capability declaration.
@@ -993,7 +1098,20 @@ data class ProviderDescriptor(
     val supports: ProviderSupports,
 
     /**
-     * Task kinds the provider supports, e.g. 'text_to_text'.
+     * What the provider can do for each task: accepted inputs, interaction modes, output
+     * deliveries and formats, cancellation, locales and privacy. When present it is
+     * authoritative for routing and must list every task the provider serves. When absent (a
+     * legacy descriptor), routing infers exactly one entry — 'text_to_text' with text input,
+     * inline output, run/stream from supports and cancel from cancel — if tasks contains
+     * 'text_to_text', and nothing for any other task: a legacy descriptor is never treated as
+     * capable of a non-text task.
+     */
+    val taskCapabilities: List<ProviderTaskCapability>? = null,
+
+    /**
+     * Task kinds the provider supports, e.g. 'text_to_text'. When taskCapabilities is present
+     * it must describe the same kinds and is what routing reads; without it, routing infers
+     * capabilities for 'text_to_text' alone (see taskCapabilities).
      */
     val tasks: List<String>,
 
@@ -1013,6 +1131,9 @@ data class ProviderDescriptor(
  * Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
  * reading locally while remote work may continue, 'none' means cancellation is unsupported.
  * Independently of this value, the engine delivers no event after a cancel.
+ *
+ * Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+ * when stopping playback is immediate but a synthesis request cannot be aborted.
  */
 enum class CancelSemantics(val rawValue: String) {
     Hard("hard"),
@@ -1054,6 +1175,10 @@ data class ProviderLimits(
  * Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
  * or edge provider is treated as keeping data on the device and a cloud provider as sending
  * it off.
+ *
+ * Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+ * provider whose speech synthesis uses a network service. Absent inherits
+ * descriptor.privacy.
  */
 data class ProviderPrivacy(
     /**
@@ -1125,6 +1250,110 @@ data class ProviderSupports(
 )
 
 /**
+ * The provider's static capabilities for one task kind.
+ */
+data class ProviderTaskCapability(
+    /**
+     * Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+     * when stopping playback is immediate but a synthesis request cannot be aborted.
+     */
+    val cancel: CancelSemantics,
+
+    /**
+     * Input media kinds the provider accepts for this task.
+     */
+    val inputs: List<TaskInputKind>,
+
+    /**
+     * Interaction modes the provider supports for this task.
+     */
+    val interaction: ProviderTaskInteraction,
+
+    /**
+     * The task kind this entry describes, e.g. 'text_to_speech'.
+     */
+    val kind: String,
+
+    /**
+     * BCP 47 locales the provider can serve for this task, when it knows them statically.
+     * Absent means unknown; the dynamic check may report them instead.
+     */
+    val locales: List<String>? = null,
+
+    /**
+     * How results of this task can be delivered. A provider lists only what it really produces:
+     * a provider that can only play audio lists 'playback' and never 'artifact'.
+     */
+    val outputs: List<ProviderTaskOutput>,
+
+    /**
+     * Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+     * provider whose speech synthesis uses a network service. Absent inherits
+     * descriptor.privacy.
+     */
+    val privacy: ProviderPrivacy? = null,
+)
+
+/**
+ * A kind of input medium a task consumes.
+ */
+enum class TaskInputKind(val rawValue: String) {
+    Audio("audio"),
+    Image("image"),
+    Text("text"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): TaskInputKind? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Interaction modes the provider supports for this task.
+ */
+data class ProviderTaskInteraction(
+    /**
+     * Whether the provider supports Mode 1 run for this task.
+     */
+    val run: Boolean,
+
+    /**
+     * Whether the provider supports Mode 2 stream for this task.
+     */
+    val stream: Boolean,
+)
+
+/**
+ * One way the provider can deliver a task's result.
+ */
+data class ProviderTaskOutput(
+    val delivery: OutputDelivery,
+
+    /**
+     * Media types the provider can produce with this delivery, e.g. 'audio/wav'. Absent means
+     * the provider does not declare them; a request that requires specific media types never
+     * routes to such an output.
+     */
+    val mediaTypes: List<String>? = null,
+)
+
+/**
+ * How a task's result reaches the application: 'inline' content in the result (text),
+ * 'playback' as a managed, audible effect on the device with no retrievable bytes, or
+ * 'artifact' as retrievable media.
+ */
+enum class OutputDelivery(val rawValue: String) {
+    Artifact("artifact"),
+    Inline("inline"),
+    Playback("playback"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): OutputDelivery? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
  * How the engine reaches the provider: in-process runtime, operating-system service,
  * buffered HTTP, server-sent events, or a realtime connection.
  */
@@ -1156,11 +1385,117 @@ enum class ProviderType(val rawValue: String) {
 }
 
 /**
- * Minimal task descriptor for provider task matching.
+ * Task descriptor for provider task matching: the kind plus the requirements routing can
+ * check against declared capabilities. Absent requirement fields are never checked, so a
+ * text request carries the kind alone.
  */
 data class RoutePlannerInputTask(
+    /**
+     * The output delivery the request requires. Absent for text, whose delivery is implicitly
+     * inline.
+     */
+    val delivery: DeliveryRequirement? = null,
+
+    /**
+     * Input media kinds the request carries. Every one must be accepted by the provider's task
+     * capability. The SDKs send ['text'] for text_to_text.
+     */
+    val inputs: List<TaskInputKind>? = null,
+
+    /**
+     * The task kind, matched against the providers' task capabilities.
+     */
     val kind: String,
+
+    /**
+     * The locale the request requires. Under 'language' matching the region is a preference: a
+     * provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider
+     * that cannot enumerate its locales is not rejected on this basis; it must fail before
+     * committing instead.
+     */
+    val locale: LocaleRequirement? = null,
+
+    /**
+     * Voice traits the request asks for. Only a 'required' voice can reject a provider; a
+     * 'preferred' one shapes which listed voice the plan binds a candidate to, always within
+     * the request's privacy policy.
+     */
+    val voice: VoiceRequirement? = null,
 )
+
+/**
+ * The output delivery the request requires. Absent for text, whose delivery is implicitly
+ * inline.
+ */
+data class DeliveryRequirement(
+    /**
+     * Acceptable media types; the provider must declare at least one for the requested
+     * delivery. Absent means any.
+     */
+    val mediaTypes: List<String>? = null,
+
+    val mode: OutputDelivery,
+)
+
+/**
+ * The locale the request requires. Under 'language' matching the region is a preference: a
+ * provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider
+ * that cannot enumerate its locales is not rejected on this basis; it must fail before
+ * committing instead.
+ */
+data class LocaleRequirement(
+    /**
+     * 'exact' requires the full tag; 'language' requires only the primary language subtag and
+     * treats the region as a preference.
+     */
+    val match: LocaleMatch,
+
+    /**
+     * BCP 47 tag.
+     */
+    val tag: String,
+)
+
+/**
+ * 'exact' requires the full tag; 'language' requires only the primary language subtag and
+ * treats the region as a preference.
+ */
+enum class LocaleMatch(val rawValue: String) {
+    Exact("exact"),
+    Language("language"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): LocaleMatch? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Voice traits the request asks for. Only a 'required' voice can reject a provider; a
+ * 'preferred' one shapes which listed voice the plan binds a candidate to, always within
+ * the request's privacy policy.
+ */
+data class VoiceRequirement(
+    val gender: VoiceGender? = null,
+
+    /**
+     * 'required' takes part in routing; 'preferred' does not.
+     */
+    val requirement: RequirementLevel,
+)
+
+/**
+ * 'required' takes part in routing; 'preferred' does not.
+ */
+enum class RequirementLevel(val rawValue: String) {
+    Preferred("preferred"),
+    Required("required"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): RequirementLevel? = entries.firstOrNull { it.rawValue == value }
+    }
+}
 
 /**
  * Deterministic shared-core Mode-1 route planning result.
@@ -1200,6 +1535,17 @@ data class RoutePlan(
 data class Candidate(
     val order: Long,
     val providerId: String,
+
+    /**
+     * The voice this candidate must use if it is attempted, chosen by the planner from the
+     * provider's dynamic voice inventory. It is the best voice that satisfies the request's
+     * locale, required voice traits and privacy — under local-required privacy always one that
+     * keeps data on the device — ranked by preferred gender, then exact locale region, then
+     * on-device before network. The adapter must use a voice with exactly these traits. Absent
+     * when the request names no locale or voice, or the provider does not list its voices; the
+     * adapter then chooses itself under the same rules.
+     */
+    val voice: ProviderVoice? = null,
 )
 
 /**
@@ -1235,7 +1581,10 @@ data class Reason(
      * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
      * but the dynamic capability snapshot reports it cannot stream in the current host
      * environment. 'not_in_model_profile' means the request named a model profile that does not
-     * list this provider.
+     * list this provider. 'input_not_supported', 'output_delivery_not_supported',
+     * 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
+     * provider's task capability lacks an input kind, output delivery, media type, locale or
+     * voice the request requires.
      */
     val code: Code,
 
