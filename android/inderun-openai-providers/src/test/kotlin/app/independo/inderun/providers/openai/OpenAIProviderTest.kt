@@ -236,13 +236,19 @@ class OpenAIProviderTest {
     }
 
     @Test
-    fun registryFactoryRegistersProvider() {
+    fun registryFactoryRegistersOneTargetPerModel() {
         val registry = AndroidCloudProviderRegistryFactory.makeOpenAIRegistry(
-            OpenAIProviderOptions(model = "gpt-5.2", auth = OpenAIAuthMode.none),
+            OpenAIFactoryOptions(models = listOf("gpt-5.2", "gpt-5-mini"), auth = OpenAIAuthMode.none),
         )
 
-        assertEquals(1, registry.list().size)
-        assertEquals("openai", registry.get("openai")?.describe()?.id)
+        assertEquals(2, registry.list().size)
+        assertEquals("gpt-5.2", registry.get("openai:gpt-5.2")?.describe()?.model)
+        assertEquals("gpt-5-mini", registry.get("openai:gpt-5-mini")?.describe()?.model)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun registryFactoryRefusesAnEmptyModelList() {
+        AndroidCloudProviderRegistryFactory.makeOpenAIRegistry(OpenAIFactoryOptions(models = emptyList()))
     }
 
     private fun fakeHostServices(

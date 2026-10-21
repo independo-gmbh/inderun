@@ -19,6 +19,12 @@ import {
 } from "./errors.js";
 import { type TelemetryEvent, type TelemetryService, NoOpTelemetryService } from "./telemetry.js";
 import { EventGate } from "./event-gate.js";
+import {
+  type ModelProfiles,
+  type ResolvedModelProfile,
+  resolveModelProfile,
+  validateModelProfiles
+} from "./model-profiles.js";
 
 /**
  * @deprecated Renamed to `StreamRun`, which is the name the generated
@@ -28,6 +34,22 @@ import { EventGate } from "./event-gate.js";
 export type StreamHandleResult = StreamRun;
 
 /**
+ * Optional engine configuration.
+ */
+export interface IndeRunOptions {
+  /**
+   * Telemetry listener. Defaults to the host's telemetry service, then to a no-op.
+   */
+  telemetryService?: TelemetryService;
+  /**
+   * Named model profiles requests can route within (`TaskRequest.modelProfile`).
+   * Each maps a profile name to an ordered list of target (provider instance) ids.
+   * `"auto"` is built in and cannot be redefined. See `docs/architecture/api-layering.md`.
+   */
+  modelProfiles?: ModelProfiles;
+}
+
+/**
  * Main orchestrator SDK entrypoint class.
  * Validates tasks, executes routing rules based on request constraints and connectivity,
  * triggers provider adapters, and logs timing telemetry.
@@ -35,21 +57,48 @@ export type StreamHandleResult = StreamRun;
 export class IndeRun implements IndeRunApi {
   private router: Router;
   private telemetryService: TelemetryService;
+  private modelProfiles: ModelProfiles;
 
   /**
    * Initializes the IndeRun instance.
    * @param registry - Registry filled with active providers.
    * @param hostServices - Services wrapping OS interfaces and indicators.
-   * @param telemetryService - Optional custom telemetry service listener.
+   * @param options - Optional telemetry listener and model profiles.
+   * @throws {Error} If a model profile is malformed (see {@link validateModelProfiles}).
    */
   constructor(
     private registry: ProviderRegistry,
     private hostServices: HostServices,
-    telemetryService?: TelemetryService
+    options: IndeRunOptions = {}
   ) {
     this.router = new Router(this.registry);
     this.telemetryService =
-      telemetryService || this.hostServices.telemetry || new NoOpTelemetryService();
+      options.telemetryService || this.hostServices.telemetry || new NoOpTelemetryService();
+    this.modelProfiles = options.modelProfiles ?? {};
+    validateModelProfiles(this.modelProfiles);
+  }
+
+  /**
+   * Validates the request against the schema and resolves its model profile.
+   * Both failures are request validation errors: they are reported before any
+   * provider is probed, with the offending fields in `details.validationIssues`.
+   */
+  private validateRequest(request: TaskRequest, runId: string): ResolvedModelProfile {
+    const validationIssues = getTaskRequestValidationIssues(request);
+    if (validationIssues.length === 0) {
+      const resolved = resolveModelProfile(this.modelProfiles, request.modelProfile);
+      if (resolved.known) {
+        return resolved.profile;
+      }
+      validationIssues.push({
+        path: "/modelProfile",
+        message: `unknown model profile "${request.modelProfile}"; configure it in the engine's modelProfiles`
+      });
+    }
+    const message = `Validation failed for TaskRequest: ${validationIssues
+      .map((i) => `${i.path} - ${i.message}`)
+      .join("; ")}`;
+    throw createInternal(message, { runId, details: { validationIssues } });
   }
 
   /**
@@ -81,6 +130,7 @@ export class IndeRun implements IndeRunApi {
         rejectedProviders: routeSelection.routePlan.rejectedProviders,
         fallbackAvailable: providerCount > 1,
         taskKind: request.task.kind,
+        modelProfile: request.modelProfile ?? "auto",
         constraints: request.constraints ?? null,
         preferences: request.preferences ?? null,
         explanation: routeSelection.explanation
@@ -139,20 +189,16 @@ export class IndeRun implements IndeRunApi {
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
 
     try {
-      // 1. Validate request payload using schema contracts
-      const validationIssues = getTaskRequestValidationIssues(request);
-      if (validationIssues.length > 0) {
-        const message = `Validation failed for TaskRequest: ${validationIssues
-          .map((i) => `${i.path} - ${i.message}`)
-          .join("; ")}`;
-        throw createInternal(message, {
-          runId,
-          details: { validationIssues }
-        });
-      }
+      // 1. Validate request payload using schema contracts and resolve its model profile
+      const modelProfile = this.validateRequest(request, runId);
 
-      // 2. Select the route based on constraints and host capabilities
-      const routeSelection = await this.router.selectRoute(request, this.hostServices, "run");
+      // 2. Select the route based on constraints, model profile, and host capabilities
+      const routeSelection = await this.router.selectRoute(
+        request,
+        this.hostServices,
+        "run",
+        modelProfile
+      );
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
 
       this.emitRouteDecided(runId, request, routeSelection, providers.length);
@@ -274,20 +320,19 @@ export class IndeRun implements IndeRunApi {
     const now = () => this.now();
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
 
-    const validationIssues = getTaskRequestValidationIssues(request);
-    if (validationIssues.length > 0) {
-      const message = `Validation failed for TaskRequest: ${validationIssues
-        .map((i) => `${i.path} - ${i.message}`)
-        .join("; ")}`;
-      throw createInternal(message, { runId, details: { validationIssues } });
-    }
+    const modelProfile = this.validateRequest(request, runId);
 
     // Route selection failures are the one class of stream error that surfaces as a
     // rejected promise instead of a terminal event, so they must still carry the
     // runId — there is no handle for the caller to correlate them with otherwise.
     let routeSelection: RouteSelection;
     try {
-      routeSelection = await this.router.selectRoute(request, this.hostServices, "stream");
+      routeSelection = await this.router.selectRoute(
+        request,
+        this.hostServices,
+        "stream",
+        modelProfile
+      );
     } catch (error) {
       throw toIndeRunException(error, { runId });
     }

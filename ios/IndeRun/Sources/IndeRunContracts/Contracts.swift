@@ -31,6 +31,12 @@ public struct TaskRequest: Codable, Sendable {
     public var generation: Generation?
     /// A list of interaction messages for multi-turn conversation or chat-style execution.
     public var messages: [Message]?
+    /// Name of the model profile to route within, as configured on the engine. Absent or 'auto'
+    /// means every registered target, ranked by constraints and preferences alone. A profile is
+    /// an application-defined, ordered allow-list of targets (provider instances bound to one
+    /// model each); raw model or provider identifiers are never accepted here. An unknown
+    /// profile name fails request validation.
+    public var modelProfile: String?
     /// Soft routing preferences used for deterministic provider ordering.
     public var preferences: TaskRequestPreferences?
     /// A simple, single-turn text prompt used to trigger a response from the AI model.
@@ -50,6 +56,7 @@ public struct TaskRequest: Codable, Sendable {
         case constraints = "constraints"
         case generation = "generation"
         case messages = "messages"
+        case modelProfile = "modelProfile"
         case preferences = "preferences"
         case prompt = "prompt"
         case requestId = "requestId"
@@ -58,11 +65,12 @@ public struct TaskRequest: Codable, Sendable {
         case telemetry = "telemetry"
     }
 
-    public init(authContextRef: String?, constraints: TaskRequestConstraints?, generation: Generation?, messages: [Message]?, preferences: TaskRequestPreferences?, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
+    public init(authContextRef: String?, constraints: TaskRequestConstraints?, generation: Generation?, messages: [Message]?, modelProfile: String?, preferences: TaskRequestPreferences?, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
         self.authContextRef = authContextRef
         self.constraints = constraints
         self.generation = generation
         self.messages = messages
+        self.modelProfile = modelProfile
         self.preferences = preferences
         self.prompt = prompt
         self.requestId = requestId
@@ -95,6 +103,7 @@ public extension TaskRequest {
         constraints: TaskRequestConstraints?? = nil,
         generation: Generation?? = nil,
         messages: [Message]?? = nil,
+        modelProfile: String?? = nil,
         preferences: TaskRequestPreferences?? = nil,
         prompt: String?? = nil,
         requestId: String?? = nil,
@@ -107,6 +116,7 @@ public extension TaskRequest {
             constraints: constraints ?? self.constraints,
             generation: generation ?? self.generation,
             messages: messages ?? self.messages,
+            modelProfile: modelProfile ?? self.modelProfile,
             preferences: preferences ?? self.preferences,
             prompt: prompt ?? self.prompt,
             requestId: requestId ?? self.requestId,
@@ -1187,6 +1197,12 @@ public struct RoutePlannerInput: Codable, Sendable {
     /// produced before this field existed keep their exact Mode-1 semantics. The mode filters
     /// eligible providers; it never changes candidate ordering.
     public var interactionMode: InteractionMode?
+    /// The resolved model profile the request routes within. Absent means the built-in 'auto'
+    /// profile: no allow-list, and ordering by placement and preference alone. When present,
+    /// providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+    /// position in targetIds ranks the survivors after placement and before preferences. Ids
+    /// that name no registered provider are ignored.
+    public var modelProfile: ModelProfile?
     /// Soft route ordering preferences applied after hard filtering.
     public var preferences: RoutePlannerInputPreferences
     /// Static descriptors plus dynamic capability snapshots for planning.
@@ -1197,14 +1213,16 @@ public struct RoutePlannerInput: Codable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case constraints = "constraints"
         case interactionMode = "interactionMode"
+        case modelProfile = "modelProfile"
         case preferences = "preferences"
         case providers = "providers"
         case task = "task"
     }
 
-    public init(constraints: RoutePlannerInputConstraints, interactionMode: InteractionMode?, preferences: RoutePlannerInputPreferences, providers: [Provider], task: RoutePlannerInputTask) {
+    public init(constraints: RoutePlannerInputConstraints, interactionMode: InteractionMode?, modelProfile: ModelProfile?, preferences: RoutePlannerInputPreferences, providers: [Provider], task: RoutePlannerInputTask) {
         self.constraints = constraints
         self.interactionMode = interactionMode
+        self.modelProfile = modelProfile
         self.preferences = preferences
         self.providers = providers
         self.task = task
@@ -1232,6 +1250,7 @@ public extension RoutePlannerInput {
     func with(
         constraints: RoutePlannerInputConstraints? = nil,
         interactionMode: InteractionMode?? = nil,
+        modelProfile: ModelProfile?? = nil,
         preferences: RoutePlannerInputPreferences? = nil,
         providers: [Provider]? = nil,
         task: RoutePlannerInputTask? = nil
@@ -1239,6 +1258,7 @@ public extension RoutePlannerInput {
         return RoutePlannerInput(
             constraints: constraints ?? self.constraints,
             interactionMode: interactionMode ?? self.interactionMode,
+            modelProfile: modelProfile ?? self.modelProfile,
             preferences: preferences ?? self.preferences,
             providers: providers ?? self.providers,
             task: task ?? self.task
@@ -1322,6 +1342,66 @@ public extension RoutePlannerInputConstraints {
 public enum InteractionMode: String, Codable, Sendable {
     case run = "run"
     case stream = "stream"
+}
+
+/// The resolved model profile the request routes within. Absent means the built-in 'auto'
+/// profile: no allow-list, and ordering by placement and preference alone. When present,
+/// providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+/// position in targetIds ranks the survivors after placement and before preferences. Ids
+/// that name no registered provider are ignored.
+// MARK: - ModelProfile
+public struct ModelProfile: Codable, Sendable {
+    /// Profile name, carried for explanations.
+    public var name: String
+    /// Provider ids in profile order.
+    public var targetIds: [String]
+
+    public enum CodingKeys: String, CodingKey {
+        case name = "name"
+        case targetIds = "targetIds"
+    }
+
+    public init(name: String, targetIds: [String]) {
+        self.name = name
+        self.targetIds = targetIds
+    }
+}
+
+// MARK: ModelProfile convenience initializers and mutators
+
+public extension ModelProfile {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ModelProfile.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        name: String? = nil,
+        targetIds: [String]? = nil
+    ) -> ModelProfile {
+        return ModelProfile(
+            name: name ?? self.name,
+            targetIds: targetIds ?? self.targetIds
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
 }
 
 /// Soft route ordering preferences applied after hard filtering.
@@ -2001,7 +2081,8 @@ public struct Reason: Codable, Sendable {
     /// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
     /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
     /// but the dynamic capability snapshot reports it cannot stream in the current host
-    /// environment.
+    /// environment. 'not_in_model_profile' means the request named a model profile that does not
+    /// list this provider.
     public var code: Code
     public var message: String
 
@@ -2056,10 +2137,12 @@ public extension Reason {
 /// Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
 /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
 /// but the dynamic capability snapshot reports it cannot stream in the current host
-/// environment.
+/// environment. 'not_in_model_profile' means the request named a model profile that does not
+/// list this provider.
 public enum Code: String, Codable, Sendable {
     case capabilityUnavailable = "capability_unavailable"
     case cloudConstraint = "cloud_constraint"
+    case notInModelProfile = "not_in_model_profile"
     case offline = "offline"
     case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"

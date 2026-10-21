@@ -66,6 +66,7 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
         ProviderDescriptor(
             id: id,
             type: .local,
+            model: modelPackage.id,
             transport: .inProcess,
             supports: ProviderDescriptor.SupportsCapabilities(
                 run: true,

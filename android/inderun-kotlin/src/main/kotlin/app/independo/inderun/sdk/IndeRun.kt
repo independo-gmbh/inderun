@@ -3,6 +3,7 @@ package app.independo.inderun.sdk
 import android.content.Context
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.InteractionMode
+import app.independo.inderun.contracts.ModelProfile
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
@@ -18,6 +19,7 @@ import app.independo.inderun.core.EventGate
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.IndeRunException
+import app.independo.inderun.core.ModelProfiles
 import app.independo.inderun.core.ProviderAdapter
 import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderRegistry
@@ -60,14 +62,23 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @param registry Registry filled with active providers.
  * @param hostServices Platform services wrapping OS interfaces (connectivity, secure storage, clock, HTTP).
  * @param telemetry Optional telemetry sink. Falls back to [HostServices.telemetry] when not provided.
+ * @param modelProfiles Named model profiles requests can route within (`TaskRequest.modelProfile`).
+ *   Defaults to none, so every request routes within the built-in `auto` profile.
  */
 class IndeRun(
     private val registry: ProviderRegistry,
     private val hostServices: HostServices,
     telemetry: TelemetryService? = null,
+    private val modelProfiles: ModelProfiles = ModelProfiles(),
 ) : IndeRunApi {
     private val router = Router(registry)
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
+
+    /**
+     * The planner input for the request's model profile; null means `auto`. An unknown name never
+     * reaches here: [validateRequest] rejects it first.
+     */
+    private fun plannerModelProfile(request: TaskRequest): ModelProfile? = (modelProfiles.resolve(request.modelProfile) as? ModelProfiles.Resolution.Profile)?.profile
 
     /**
      * Orchestrates a [TaskRequest]: validates it, selects a provider chain via
@@ -83,7 +94,11 @@ class IndeRun(
         try {
             validateRequest(request, runId)
 
-            val routeSelection = router.selectRoute(request, hostServices)
+            val routeSelection = router.selectRoute(
+                request,
+                hostServices,
+                modelProfile = plannerModelProfile(request),
+            )
             val providers = listOf(routeSelection.provider) + routeSelection.fallbackProviders
             val attemptedProviderIds = mutableListOf<String>()
 
@@ -98,6 +113,7 @@ class IndeRun(
                         "rejectedProviderIds" to routeSelection.routePlan.rejectedProviders.map { it.providerId },
                         "fallbackAvailable" to (providers.size > 1),
                         "taskKind" to request.task.kind.rawValue,
+                        "modelProfile" to (request.modelProfile ?: ModelProfiles.AUTO),
                         "explanation" to routeSelection.explanation,
                     ),
                 ),
@@ -250,7 +266,12 @@ class IndeRun(
         validateRequest(request, runId)
 
         val routeSelection = try {
-            router.selectRoute(request, hostServices, InteractionMode.Stream)
+            router.selectRoute(
+                request,
+                hostServices,
+                InteractionMode.Stream,
+                plannerModelProfile(request),
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -269,6 +290,7 @@ class IndeRun(
                     "rejectedProviderIds" to routeSelection.routePlan.rejectedProviders.map { it.providerId },
                     "fallbackAvailable" to (providers.size > 1),
                     "taskKind" to request.task.kind.rawValue,
+                    "modelProfile" to (request.modelProfile ?: ModelProfiles.AUTO),
                     "explanation" to routeSelection.explanation,
                 ),
             ),
@@ -624,6 +646,9 @@ class IndeRun(
         if (!hasPrompt && !hasMessages) {
             validationIssues += "Either prompt or messages must be provided and non-empty."
         }
+        if (modelProfiles.resolve(request.modelProfile) == ModelProfiles.Resolution.Unknown) {
+            validationIssues += "modelProfile '${request.modelProfile}' is not a configured model profile."
+        }
 
         if (validationIssues.isNotEmpty()) {
             throw createInternal(
@@ -641,17 +666,20 @@ class IndeRun(
          *
          * @param context The application or activity context.
          * @param registry Optional provider registry override.
+         * @param modelProfiles Named model profiles requests can route within.
          * @return A new [IndeRun] instance.
          */
         @JvmStatic
+        @JvmOverloads
         fun initialize(
             context: Context,
             registry: ProviderRegistry? = null,
+            modelProfiles: ModelProfiles = ModelProfiles(),
         ): IndeRun {
             val appContext = context.applicationContext
             val services = HostServicesFactory.create(appContext)
             val providerRegistry = registry ?: AndroidProviderRegistryFactory.makeDefaultRegistry(appContext)
-            return IndeRun(providerRegistry, services)
+            return IndeRun(providerRegistry, services, modelProfiles = modelProfiles)
         }
     }
 }

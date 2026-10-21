@@ -19,7 +19,7 @@ import { createIndeRunWeb } from "@independo/inderun-web";
 
 const inderun = createIndeRunWeb({
   openAI: {
-    model: "gpt-5.2",
+    models: ["gpt-5.2"],
     endpointUrl: "/api/inderun/openai-responses",
     auth: "none"
   }

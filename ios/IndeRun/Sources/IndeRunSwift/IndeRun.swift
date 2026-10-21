@@ -7,16 +7,31 @@ public final class IndeRun: IndeRunApi {
     private let hostServices: HostServices
     private let telemetryService: (any TelemetryService)?
     private let router: Router
+    private let modelProfiles: ModelProfiles
 
+    /// - Parameter modelProfiles: Named model profiles requests can route within
+    ///   (`TaskRequest.modelProfile`). Defaults to none, so every request routes
+    ///   within the built-in `auto` profile.
     public init(
         registry: ProviderRegistry,
         hostServices: HostServices,
-        telemetryService: (any TelemetryService)? = nil
+        telemetryService: (any TelemetryService)? = nil,
+        modelProfiles: ModelProfiles = .none
     ) {
         self.registry = registry
         self.hostServices = hostServices
         self.telemetryService = telemetryService ?? hostServices.telemetry
         self.router = Router(registry: registry)
+        self.modelProfiles = modelProfiles
+    }
+
+    /// The planner input for the request's model profile; `nil` means `auto`.
+    /// An unknown name never reaches here: `validate(request:)` rejects it first.
+    private func plannerModelProfile(for request: TaskRequest) -> ModelProfile? {
+        if case .profile(let profile) = modelProfiles.resolve(request.modelProfile) {
+            return profile
+        }
+        return nil
     }
 
     private func safeEmit(_ event: TelemetryEvent) {
@@ -73,6 +88,11 @@ public final class IndeRun: IndeRunApi {
         if !hasPrompt && !hasMessages {
             validationIssues.append("Either prompt or messages must be provided and non-empty.")
         }
+        if case .unknown = modelProfiles.resolve(request.modelProfile) {
+            validationIssues.append(
+                "modelProfile '\(request.modelProfile ?? "")' is not a configured model profile."
+            )
+        }
 
         return validationIssues
     }
@@ -105,7 +125,11 @@ public final class IndeRun: IndeRunApi {
             }
 
             // 2. Select route
-            let routeSelection = try await router.selectRoute(request: request, hostServices: hostServices)
+            let routeSelection = try await router.selectRoute(
+                request: request,
+                hostServices: hostServices,
+                modelProfile: plannerModelProfile(for: request)
+            )
             let providers = [routeSelection.provider] + routeSelection.fallbackProviders
 
             let routeTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
@@ -119,6 +143,7 @@ public final class IndeRun: IndeRunApi {
                     "rejectedProviderIds": JSONAny(routeSelection.routePlan.rejectedProviders.map { $0.providerId }),
                     "fallbackAvailable": JSONAny(providers.count > 1),
                     "taskKind": JSONAny(request.task.kind.rawValue),
+                    "modelProfile": JSONAny(request.modelProfile ?? ModelProfiles.auto),
                     "explanation": JSONAny(routeSelection.explanation)
                 ]
             ))
@@ -247,7 +272,8 @@ public final class IndeRun: IndeRunApi {
             routeSelection = try await router.selectRoute(
                 request: request,
                 hostServices: hostServices,
-                interactionMode: .stream
+                interactionMode: .stream,
+                modelProfile: plannerModelProfile(for: request)
             )
         } catch {
             throw toIndeRunException(error, fallbackRunId: runId)
@@ -264,6 +290,7 @@ public final class IndeRun: IndeRunApi {
                 "rejectedProviderIds": JSONAny(routeSelection.routePlan.rejectedProviders.map { $0.providerId }),
                 "fallbackAvailable": JSONAny(providers.count > 1),
                 "taskKind": JSONAny(request.task.kind.rawValue),
+                "modelProfile": JSONAny(request.modelProfile ?? ModelProfiles.auto),
                 "explanation": JSONAny(routeSelection.explanation)
             ]
         ))

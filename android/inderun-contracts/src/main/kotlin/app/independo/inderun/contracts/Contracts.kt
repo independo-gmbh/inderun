@@ -31,6 +31,15 @@ data class TaskRequest(
     val messages: List<Message>? = null,
 
     /**
+     * Name of the model profile to route within, as configured on the engine. Absent or 'auto'
+     * means every registered target, ranked by constraints and preferences alone. A profile is
+     * an application-defined, ordered allow-list of targets (provider instances bound to one
+     * model each); raw model or provider identifiers are never accepted here. An unknown
+     * profile name fails request validation.
+     */
+    val modelProfile: String? = null,
+
+    /**
      * Soft routing preferences used for deterministic provider ordering.
      */
     val preferences: TaskRequestPreferences? = null,
@@ -614,6 +623,15 @@ data class RoutePlannerInput(
     val interactionMode: InteractionMode? = null,
 
     /**
+     * The resolved model profile the request routes within. Absent means the built-in 'auto'
+     * profile: no allow-list, and ordering by placement and preference alone. When present,
+     * providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+     * position in targetIds ranks the survivors after placement and before preferences. Ids
+     * that name no registered provider are ignored.
+     */
+    val modelProfile: ModelProfile? = null,
+
+    /**
      * Soft route ordering preferences applied after hard filtering.
      */
     val preferences: RoutePlannerInputPreferences,
@@ -663,6 +681,25 @@ enum class InteractionMode(val rawValue: String) {
         fun fromRawValue(value: String): InteractionMode? = entries.firstOrNull { it.rawValue == value }
     }
 }
+
+/**
+ * The resolved model profile the request routes within. Absent means the built-in 'auto'
+ * profile: no allow-list, and ordering by placement and preference alone. When present,
+ * providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+ * position in targetIds ranks the survivors after placement and before preferences. Ids
+ * that name no registered provider are ignored.
+ */
+data class ModelProfile(
+    /**
+     * Profile name, carried for explanations.
+     */
+    val name: String,
+
+    /**
+     * Provider ids in profile order.
+     */
+    val targetIds: List<String>,
+)
 
 /**
  * Soft route ordering preferences applied after hard filtering.
@@ -845,7 +882,8 @@ data class Reason(
      * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
      * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
      * but the dynamic capability snapshot reports it cannot stream in the current host
-     * environment.
+     * environment. 'not_in_model_profile' means the request named a model profile that does not
+     * list this provider.
      */
     val code: Code,
 
@@ -856,11 +894,13 @@ data class Reason(
  * Normalized rejection reason. 'streaming_not_supported' means the descriptor does not
  * statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
  * but the dynamic capability snapshot reports it cannot stream in the current host
- * environment.
+ * environment. 'not_in_model_profile' means the request named a model profile that does not
+ * list this provider.
  */
 enum class Code(val rawValue: String) {
     CapabilityUnavailable("capability_unavailable"),
     CloudConstraint("cloud_constraint"),
+    NotInModelProfile("not_in_model_profile"),
     Offline("offline"),
     PrivacyConstraint("privacy_constraint"),
     RunNotSupported("run_not_supported"),

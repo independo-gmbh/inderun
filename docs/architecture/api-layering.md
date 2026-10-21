@@ -12,7 +12,7 @@ by shared fixtures rather than restated here.
 | Part | Status |
 | --- | --- |
 | Layer definitions and compatibility contract | Specified (this document) |
-| Model profiles | Specified, not yet implemented |
+| Model profiles | Implemented on Web, iOS/macOS, and Android |
 | Execution provenance | Specified, not yet implemented |
 | Primary text API (`generateText` / `streamText`) | Specified, not yet implemented |
 | Package surface restructuring along these layers | Not started; the current exports are classified below |

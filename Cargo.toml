@@ -10,7 +10,12 @@ resolver = "2"
 # single codegen unit let the linker drop the parts of std and serde_json that the
 # two FFI entry points never reach; `panic = "abort"` removes the unwinding
 # tables, and unwinding out of an `extern "C"` boundary would be undefined
-# behaviour anyway. Together with `strip` this is ~400 KB per slice.
+# behaviour anyway. Together with stripping this is ~400 KB per slice.
+#
+# Stripping is left to the packaging script (`strip -x` with the Xcode tools)
+# rather than done here: when cargo runs rustc directly, rustc's own strip step
+# produces dylibs whose LINKEDIT string pool the Xcode 27 linker rejects as
+# mis-aligned, so every app linking the framework would fail to build.
 #
 # None of it would help a staticlib: an archive is just a bundle of object files,
 # so nothing is eliminated until the consumer links, and a `--release` archive is
@@ -21,7 +26,7 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = true
+strip = false
 
 # Profile for the Android shared libraries packaged into inderun-core's AAR
 # (scripts/build-route-core-android.mjs). Same size reasoning as `apple` -- four

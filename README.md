@@ -84,6 +84,31 @@ Ordering among the survivors is deterministic for a fixed request and capability
 produce the same provider and the same fallback order. See
 [the architecture overview](docs/architecture/architecture.md#placement-constraints).
 
+### Choosing which models a task may use
+
+Models are bound where providers are configured, not at call sites. Every provider instance is a _target_ bound to one
+model — `createIndeRunWeb({ openAI: { models: ["gpt-5.2", "gpt-5-mini"] } })` registers the targets
+`openai:gpt-5.2` and `openai:gpt-5-mini` — and a _model profile_ names an ordered set of targets:
+
+```ts
+const inderun = createIndeRunWeb({
+  openAI: { models: ["gpt-5.2", "gpt-5-mini"], endpointUrl: "/api/inderun/openai-responses", auth: "none" },
+  systemModel: {},
+  modelProfiles: {
+    fast: ["local.system-model.web", "openai:gpt-5-mini"],
+    smart: ["openai:gpt-5.2"]
+  }
+});
+
+await inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt, modelProfile: "smart" });
+```
+
+A request that names no profile routes within the built-in `auto` profile: every registered target. A named profile is
+an allow-list — targets outside it are rejected with `not_in_model_profile` — and its order ranks targets _within_ a
+placement tier, so `local_required` and `local_preferred` keep their meaning. An unknown profile name fails validation.
+Swift and Kotlin take the same profiles as `ModelProfiles` on the engine. See
+[API layering](docs/architecture/api-layering.md#model-profiles).
+
 ## Platforms
 
 ### Web (TypeScript)
@@ -106,7 +131,7 @@ import { createIndeRunWeb } from "@independo/inderun-web";
 
 const inderun = createIndeRunWeb({
   // Point at a same-origin proxy that holds the OpenAI key server-side.
-  openAI: { model: "gpt-5.2", endpointUrl: "/api/inderun/openai-responses", auth: "none" }
+  openAI: { models: ["gpt-5.2"], endpointUrl: "/api/inderun/openai-responses", auth: "none" }
 });
 
 const result = await inderun.run({

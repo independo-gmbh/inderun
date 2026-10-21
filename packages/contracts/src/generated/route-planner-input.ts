@@ -15,6 +15,14 @@ export type RoutePlannerInput = {
      */
     interactionMode?: InteractionMode;
     /**
+     * The resolved model profile the request routes within. Absent means the built-in 'auto'
+     * profile: no allow-list, and ordering by placement and preference alone. When present,
+     * providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+     * position in targetIds ranks the survivors after placement and before preferences. Ids
+     * that name no registered provider are ignored.
+     */
+    modelProfile?: ModelProfile;
+    /**
      * Soft route ordering preferences applied after hard filtering.
      */
     preferences: Preferences;
@@ -64,6 +72,25 @@ export type PrivacyEnum = "local_required" | "local_preferred" | "cloud_allowed"
  * eligible providers; it never changes candidate ordering.
  */
 export type InteractionMode = "run" | "stream";
+
+/**
+ * The resolved model profile the request routes within. Absent means the built-in 'auto'
+ * profile: no allow-list, and ordering by placement and preference alone. When present,
+ * providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the
+ * position in targetIds ranks the survivors after placement and before preferences. Ids
+ * that name no registered provider are ignored.
+ */
+export type ModelProfile = {
+    /**
+     * Profile name, carried for explanations.
+     */
+    name: string;
+    /**
+     * Provider ids in profile order.
+     */
+    targetIds: [string, ...string[]];
+    [property: string]: unknown;
+}
 
 /**
  * Soft route ordering preferences applied after hard filtering.

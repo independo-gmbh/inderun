@@ -710,7 +710,7 @@ const handlers: Record<string, Handler> = {
       })
     );
     const telemetry = new MockTelemetryService();
-    const engine = new IndeRun(registry, createMockHostServices(), telemetry);
+    const engine = new IndeRun(registry, createMockHostServices(), { telemetryService: telemetry });
     await drain((await engine.stream(createRequest())).events);
     return { telemetry };
   },
@@ -723,7 +723,7 @@ const handlers: Record<string, Handler> = {
       })
     );
     const telemetry = new MockTelemetryService();
-    const engine = new IndeRun(registry, createMockHostServices(), telemetry);
+    const engine = new IndeRun(registry, createMockHostServices(), { telemetryService: telemetry });
     const { events, cancel } = await engine.stream(createRequest());
     for await (const event of events) {
       if (event.type === "content_delta") cancel("secret user text");
@@ -740,7 +740,7 @@ const handlers: Record<string, Handler> = {
       })
     );
     const telemetry = new MockTelemetryService();
-    const engine = new IndeRun(registry, createMockHostServices(), telemetry);
+    const engine = new IndeRun(registry, createMockHostServices(), { telemetryService: telemetry });
     await drain((await engine.stream(createRequest())).events);
     return { telemetry };
   },

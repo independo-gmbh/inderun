@@ -81,6 +81,11 @@ export const taskRequestSchema = {
         }
       }
     },
+    "modelProfile": {
+      "description": "Name of the model profile to route within, as configured on the engine. Absent or 'auto' means every registered target, ranked by constraints and preferences alone. A profile is an application-defined, ordered allow-list of targets (provider instances bound to one model each); raw model or provider identifiers are never accepted here. An unknown profile name fails request validation.",
+      "type": "string",
+      "minLength": 1
+    },
     "generation": {
       "description": "Optional configuration for fine-tuning how the AI model generates its response.",
       "type": "object",
@@ -575,6 +580,31 @@ export const routePlannerInputSchema = {
         }
       }
     },
+    "modelProfile": {
+      "description": "The resolved model profile the request routes within. Absent means the built-in 'auto' profile: no allow-list, and ordering by placement and preference alone. When present, providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the position in targetIds ranks the survivors after placement and before preferences. Ids that name no registered provider are ignored.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "name",
+        "targetIds"
+      ],
+      "properties": {
+        "name": {
+          "description": "Profile name, carried for explanations.",
+          "type": "string",
+          "minLength": 1
+        },
+        "targetIds": {
+          "description": "Provider ids in profile order.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "providers": {
       "description": "Static descriptors plus dynamic capability snapshots for planning.",
       "type": "array",
@@ -770,7 +800,7 @@ export const routePlanSchema = {
               ],
               "properties": {
                 "code": {
-                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment.",
+                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider.",
                   "enum": [
                     "task_not_supported",
                     "run_not_supported",
@@ -779,7 +809,8 @@ export const routePlanSchema = {
                     "privacy_constraint",
                     "cloud_constraint",
                     "offline",
-                    "capability_unavailable"
+                    "capability_unavailable",
+                    "not_in_model_profile"
                   ]
                 },
                 "message": {

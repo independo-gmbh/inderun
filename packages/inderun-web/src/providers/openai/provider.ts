@@ -146,6 +146,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     return {
       id: this.id,
       type: "cloud",
+      model: this.options.model,
       transport: "http",
       streamingStyle: "tokens",
       supports: {

@@ -118,6 +118,7 @@ describe("OnnxRuntimeWebProvider descriptor", () => {
     expect(descriptor).toEqual({
       id: DEFAULT_ONNX_WEB_PROVIDER_ID,
       type: "local",
+      model: "phi-3-mini-web",
       transport: "in_process",
       supports: {
         run: true,

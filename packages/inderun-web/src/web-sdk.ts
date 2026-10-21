@@ -3,6 +3,7 @@ import {
   type CreateBrowserHostServicesOptions
 } from "./core/browser-host.js";
 import { IndeRun } from "./core/engine.js";
+import type { ModelProfiles } from "./core/model-profiles.js";
 import { OnnxRuntimeWebProvider, type OnnxProviderOptions } from "./providers/onnx/provider.js";
 import {
   DEFAULT_OPENAI_RESPONSES_ENDPOINT,
@@ -20,9 +21,11 @@ import {
  */
 export interface CreateIndeRunWebOptions {
   /**
-   * OpenAI Responses provider configuration registered by the factory.
+   * OpenAI Responses provider configuration registered by the factory. One target is
+   * registered per entry in `models`, with id `<id>:<model>` (`id` defaults to
+   * `"openai"`), so model profiles can list each model separately.
    */
-  openAI?: OpenAIProviderOptions;
+  openAI?: OpenAIFactoryOptions;
   /**
    * Web ONNX Runtime provider configuration registered by the factory, for developer-supplied
    * local models. Registering it is what makes `constraints.privacy = "local_required"` routable.
@@ -46,7 +49,22 @@ export interface CreateIndeRunWebOptions {
    * non-production environments.
    */
   allowDirectOpenAIEndpoint?: boolean;
+  /**
+   * Named model profiles requests can route within. Each maps a profile name to an
+   * ordered list of target ids, for example `{ smart: ["openai:gpt-5.2"] }`.
+   */
+  modelProfiles?: ModelProfiles;
 }
+
+/**
+ * OpenAI options for {@link createIndeRunWeb}: the provider options with `models` in
+ * place of the single `model`. The first model is not special; every model becomes
+ * its own target.
+ */
+export type OpenAIFactoryOptions = Omit<OpenAIProviderOptions, "model"> & {
+  /** OpenAI model ids to register, one target each. */
+  models: readonly string[];
+};
 
 /**
  * Creates a Web SDK instance with the configured providers registered.
@@ -72,7 +90,13 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
 
   if (options.openAI) {
     assertSafeOpenAIEndpoint(options.openAI, options.allowDirectOpenAIEndpoint);
-    registry.register(new OpenAIResponsesProvider(options.openAI));
+    const { models, id = "openai", ...shared } = options.openAI;
+    if (models.length === 0) {
+      throw new Error("createIndeRunWeb requires openAI.models to list at least one model.");
+    }
+    for (const model of models) {
+      registry.register(new OpenAIResponsesProvider({ ...shared, id: `${id}:${model}`, model }));
+    }
   }
 
   if (options.onnx) {
@@ -83,11 +107,13 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
     registry.register(new SystemModelWebProvider(options.systemModel));
   }
 
-  return new IndeRun(registry, createBrowserHostServices(options.hostServices));
+  return new IndeRun(registry, createBrowserHostServices(options.hostServices), {
+    ...(options.modelProfiles ? { modelProfiles: options.modelProfiles } : {})
+  });
 }
 
 function assertSafeOpenAIEndpoint(
-  openAI: OpenAIProviderOptions,
+  openAI: OpenAIFactoryOptions,
   allowDirectOpenAIEndpoint?: boolean
 ): void {
   const endpointUrl = openAI.endpointUrl ?? DEFAULT_OPENAI_RESPONSES_ENDPOINT;

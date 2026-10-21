@@ -1,7 +1,8 @@
 //! Deterministic route-planning algorithm.
 //!
-//! [`plan_route`] sorts the candidate providers by placement and preference
-//! rank, filters out any that violate the request constraints, and produces a
+//! [`plan_route`] sorts the candidate providers by placement, model-profile,
+//! and preference rank, filters out any that violate the request constraints,
+//! and produces a
 //! [`RoutePlan`] with a stable selection plus an inspectable explanation.
 //!
 //! Invariants worth preserving:
@@ -16,6 +17,11 @@
 //!   streaming is reported as `streaming_not_supported`, and only a provider
 //!   that did declare it can be reported as `streaming_unavailable`. Emitting
 //!   both would make the two codes useless for telling static from dynamic.
+//! - A model profile is an allow-list and an order, applied inside placement:
+//!   the profile position ranks providers after `placement_rank`, so a profile
+//!   can never pull a cloud provider ahead of a local one that placement puts
+//!   first. Absent profile means "auto": no allow-list and rank 0 for everyone,
+//!   which keeps every pre-profile plan unchanged.
 //! - `infer_failure_code` keeps `offline` ahead of `capability_mismatch`: an
 //!   offline host is the more actionable diagnostic even when the surviving
 //!   providers also failed a mode check.
@@ -27,8 +33,7 @@ use crate::model::*;
 pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
     let wants_stream = wants_stream(&input);
     let mut providers = input.providers.clone();
-    providers
-        .sort_by(|left, right| compare_inputs(left, right, &input.preferences, &input.constraints));
+    providers.sort_by(|left, right| compare_inputs(left, right, &input));
 
     let mut candidates = Vec::new();
     let mut rejected_providers = Vec::new();
@@ -114,26 +119,32 @@ pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
     }
 }
 
-fn compare_inputs(
-    left: &Provider,
-    right: &Provider,
-    preferences: &Preferences,
-    constraints: &Constraints,
-) -> Ordering {
-    priority_tuple(left, preferences, constraints)
-        .cmp(&priority_tuple(right, preferences, constraints))
+fn compare_inputs(left: &Provider, right: &Provider, input: &RoutePlannerInput) -> Ordering {
+    priority_tuple(left, input)
+        .cmp(&priority_tuple(right, input))
         .then_with(|| left.descriptor.id.cmp(&right.descriptor.id))
 }
 
-fn priority_tuple(
-    provider: &Provider,
-    preferences: &Preferences,
-    constraints: &Constraints,
-) -> (u8, u8) {
+fn priority_tuple(provider: &Provider, input: &RoutePlannerInput) -> (u8, usize, u8) {
     (
-        placement_rank(provider, constraints),
-        preference_rank(provider, preferences),
+        placement_rank(provider, &input.constraints),
+        profile_rank(provider, input.model_profile.as_ref()),
+        preference_rank(provider, &input.preferences),
     )
+}
+
+/// Position of the provider in the requested model profile. Providers outside
+/// the profile sort last; they are rejected anyway, so their rank only keeps
+/// the rejected list in a stable order.
+fn profile_rank(provider: &Provider, profile: Option<&ModelProfile>) -> usize {
+    match profile {
+        None => 0,
+        Some(profile) => profile
+            .target_ids
+            .iter()
+            .position(|id| id == &provider.descriptor.id)
+            .unwrap_or(usize::MAX),
+    }
 }
 
 fn placement_rank(provider: &Provider, constraints: &Constraints) -> u8 {
@@ -222,6 +233,18 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
             message: format!(
                 "Provider '{}' does not support task '{}'.",
                 descriptor.id, input.task.kind
+            ),
+        });
+    }
+
+    if let Some(profile) = &input.model_profile
+        && !profile.target_ids.iter().any(|id| id == &descriptor.id)
+    {
+        reasons.push(Reason {
+            code: Code::NotInModelProfile,
+            message: format!(
+                "Provider '{}' is not listed in model profile '{}'.",
+                descriptor.id, profile.name
             ),
         });
     }

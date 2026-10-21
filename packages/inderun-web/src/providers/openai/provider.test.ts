@@ -302,7 +302,7 @@ describe("OpenAIResponsesProvider", () => {
     ]);
     const engine = createIndeRunWeb({
       openAI: {
-        model: "gpt-5.2",
+        models: ["gpt-5.2"],
         endpointUrl: "/api/inderun/openai-responses",
         auth: "none"
       },
@@ -323,6 +323,39 @@ describe("OpenAIResponsesProvider", () => {
     expect(httpClient.requests[1]?.headers?.Authorization).toBeUndefined();
   });
 
+  it("registers one target per configured model with createIndeRunWeb", async () => {
+    const engine = createIndeRunWeb({
+      openAI: {
+        models: ["gpt-5.2", "gpt-5-mini"],
+        endpointUrl: "/api/inderun/openai-responses",
+        auth: "none"
+      },
+      hostServices: {
+        httpClient: new MockHttpClient([jsonResponse({}, 200), jsonResponse({}, 200)]),
+        connectivity: {
+          async isOnline() {
+            return true;
+          }
+        }
+      }
+    });
+
+    const snapshots = await engine.checkCapabilities();
+
+    expect(snapshots.map((snapshot) => [snapshot.providerId, snapshot.descriptor.model])).toEqual([
+      ["openai:gpt-5.2", "gpt-5.2"],
+      ["openai:gpt-5-mini", "gpt-5-mini"]
+    ]);
+  });
+
+  it("refuses an empty model list in createIndeRunWeb", () => {
+    expect(() =>
+      createIndeRunWeb({
+        openAI: { models: [], endpointUrl: "/api/inderun/openai-responses", auth: "none" }
+      })
+    ).toThrowError(/at least one model/);
+  });
+
   it("requires explicit opt-in before createIndeRunWeb uses the direct OpenAI endpoint with browser credentials", () => {
     const directEndpointVariants = [
       undefined,
@@ -336,11 +369,11 @@ describe("OpenAIResponsesProvider", () => {
         createIndeRunWeb({
           openAI: endpointUrl
             ? {
-                model: "gpt-5.2",
+                models: ["gpt-5.2"],
                 endpointUrl
               }
             : {
-                model: "gpt-5.2"
+                models: ["gpt-5.2"]
               },
           hostServices: {
             httpClient: new MockHttpClient([])

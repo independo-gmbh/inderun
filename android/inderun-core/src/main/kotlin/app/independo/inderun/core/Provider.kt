@@ -13,6 +13,13 @@ data class ProviderDescriptor(
     val tasks: List<String>,
     val limits: ResourceLimits? = null,
     val privacy: PrivacyDescriptor? = null,
+    /**
+     * The model this provider instance is bound to, when it can name one. A provider instance
+     * bound to one model is a *target* that model profiles list by [id]. Cloud providers report
+     * the model id they send; platform-managed models report null rather than a guessed weight
+     * name.
+     */
+    val model: String? = null,
 ) {
     enum class ProviderType {
         local,

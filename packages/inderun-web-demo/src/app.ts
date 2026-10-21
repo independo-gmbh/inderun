@@ -25,7 +25,9 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 function providerLabel(snapshot: ProviderCapabilitySnapshot): string {
-  return PROVIDER_LABELS[snapshot.providerId] ?? snapshot.descriptor.type;
+  // Factory-registered OpenAI targets are named `<id>:<model>`; label them by provider.
+  const providerKey = snapshot.providerId.split(":")[0] ?? snapshot.providerId;
+  return PROVIDER_LABELS[providerKey] ?? snapshot.descriptor.type;
 }
 
 export interface AppDependencies {

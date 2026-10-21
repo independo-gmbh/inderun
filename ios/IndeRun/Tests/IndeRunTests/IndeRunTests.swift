@@ -326,6 +326,73 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(telemetry.events[1].type, .attemptSucceeded)
     }
 
+    // MARK: - Model profiles
+
+    private func makeProfileEngine(_ profiles: [String: [String]]) throws -> IndeRun {
+        try registry.register(MockProvider(id: "local_a", type: .local))
+        try registry.register(MockProvider(id: "cloud_a", type: .cloud))
+        try registry.register(MockProvider(id: "cloud_b", type: .cloud))
+        return IndeRun(
+            registry: registry,
+            hostServices: hostServices,
+            modelProfiles: try ModelProfiles(profiles)
+        )
+    }
+
+    func testRequestWithoutModelProfileRoutesAcrossEveryTarget() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b"]])
+
+        let result = try await engine.run(request: TaskRequest(prompt: "Hi"))
+
+        XCTAssertEqual(result.telemetry.providerUsed, "local_a")
+    }
+
+    func testAutoModelProfileBehavesLikeAnAbsentOne() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b"]])
+
+        let result = try await engine.run(request: TaskRequest(prompt: "Hi", modelProfile: "auto"))
+
+        XCTAssertEqual(result.telemetry.providerUsed, "local_a")
+    }
+
+    func testNamedModelProfileRoutesOnlyWithinTheProfileInProfileOrder() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b", "cloud_a"]])
+
+        let result = try await engine.run(request: TaskRequest(prompt: "Hi", modelProfile: "smart"))
+
+        XCTAssertEqual(result.telemetry.providerUsed, "cloud_b")
+        let routeDecided = try XCTUnwrap(telemetry.events.first { $0.type == .routeDecided })
+        XCTAssertEqual(routeDecided.payload["modelProfile"]?.value as? String, "smart")
+        XCTAssertEqual(routeDecided.payload["fallbackProviderIds"]?.value as? [String], ["cloud_a"])
+        XCTAssertEqual(routeDecided.payload["rejectedProviderIds"]?.value as? [String], ["local_a"])
+    }
+
+    func testUnknownModelProfileIsAValidationFailureInRunAndStream() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b"]])
+        let request = TaskRequest(prompt: "Hi", modelProfile: "fast")
+
+        do {
+            _ = try await engine.run(request: request)
+            XCTFail("Expected validation failure")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Internal)
+            XCTAssertTrue(error.message.contains("modelProfile"))
+        }
+        do {
+            _ = try await engine.stream(request: request)
+            XCTFail("Expected validation failure")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Internal)
+            XCTAssertTrue(error.message.contains("modelProfile"))
+        }
+    }
+
+    func testMalformedModelProfilesAreRefusedAtConfiguration() {
+        XCTAssertThrowsError(try ModelProfiles(["auto": ["cloud_a"]]))
+        XCTAssertThrowsError(try ModelProfiles(["smart": []]))
+        XCTAssertThrowsError(try ModelProfiles(["smart": ["cloud_a", "cloud_a"]]))
+    }
+
     func testRouterUsesSharedPlannerSelectionWhenAvailable() async throws {
         let providerA = MockProvider(id: "local_a", type: .local)
         let providerB = MockProvider(id: "local_b", type: .local)
@@ -446,6 +513,7 @@ final class IndeRunTests: XCTestCase {
             input: SharedPlannerInput(
                 constraints: SharedPlannerConstraints(cloud: nil, networkOnline: true, privacy: nil),
                 interactionMode: .run,
+                modelProfile: nil,
                 preferences: SharedPlannerPreferences(optimizeFor: nil),
                 providers: [
                     SharedPlannerProviderInput(
@@ -1319,13 +1387,22 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(requests.count, 1)
     }
 
-    func testAppleCloudProviderRegistryFactoryRegistersOpenAIProvider() throws {
+    func testAppleCloudProviderRegistryFactoryRegistersOneTargetPerModel() throws {
         let registry = try AppleCloudProviderRegistryFactory.makeOpenAIRegistry(
-            options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none)
+            options: OpenAIFactoryOptions(models: ["gpt-5.2", "gpt-5-mini"], auth: .none)
         )
 
-        XCTAssertNotNil(registry.get(id: "openai"))
-        XCTAssertEqual(registry.list().count, 1)
+        XCTAssertEqual(registry.list().count, 2)
+        XCTAssertEqual(registry.get(id: "openai:gpt-5.2")?.describe().model, "gpt-5.2")
+        XCTAssertEqual(registry.get(id: "openai:gpt-5-mini")?.describe().model, "gpt-5-mini")
+    }
+
+    func testAppleCloudProviderRegistryFactoryRefusesAnEmptyModelList() {
+        XCTAssertThrowsError(
+            try AppleCloudProviderRegistryFactory.makeOpenAIRegistry(
+                options: OpenAIFactoryOptions(models: [], auth: .none)
+            )
+        )
     }
 
     // MARK: - ONNX Runtime Apple provider
