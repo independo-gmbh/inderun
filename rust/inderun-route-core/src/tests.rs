@@ -115,6 +115,29 @@ fn plan_with_mode(
         interaction_mode,
         constraints,
         preferences,
+        model_profile: None,
+        providers,
+    })
+}
+
+fn plan_in_profile(
+    interaction_mode: Option<InteractionMode>,
+    constraints: Constraints,
+    preferences: Preferences,
+    target_ids: &[&str],
+    providers: Vec<Provider>,
+) -> RoutePlan {
+    plan_route(RoutePlannerInput {
+        task: Task {
+            kind: "text_to_text".to_string(),
+        },
+        interaction_mode,
+        constraints,
+        preferences,
+        model_profile: Some(ModelProfile {
+            name: "smart".to_string(),
+            target_ids: target_ids.iter().map(|id| id.to_string()).collect(),
+        }),
         providers,
     })
 }
@@ -487,4 +510,153 @@ fn stream_mode_offline_takes_precedence_over_streaming_mismatch() {
     assert_eq!(plan.selected_provider_id, None);
     assert_eq!(plan.failure_code, Some(FailureCode::Offline));
     assert_eq!(plan.rejected_providers[0].reasons[0].code, Code::Offline);
+}
+
+#[test]
+fn model_profile_rejects_providers_outside_the_profile() {
+    let plan = plan_in_profile(
+        None,
+        default_constraints(),
+        default_preferences(),
+        &["cloud_a"],
+        vec![
+            local_provider("local_a", true, true),
+            cloud_provider("cloud_a", true),
+        ],
+    );
+
+    assert_eq!(plan.selected_provider_id.as_deref(), Some("cloud_a"));
+    assert!(plan.fallback_provider_ids.is_empty());
+    assert_eq!(plan.rejected_providers.len(), 1);
+    assert_eq!(plan.rejected_providers[0].provider_id, "local_a");
+    assert_eq!(
+        plan.rejected_providers[0].reasons[0].code,
+        Code::NotInModelProfile
+    );
+}
+
+#[test]
+fn model_profile_order_ranks_ahead_of_preferences() {
+    // Balanced preference would put local first; the profile lists cloud first
+    // and placement (cloud_allowed) does not separate them.
+    let plan = plan_in_profile(
+        None,
+        default_constraints(),
+        default_preferences(),
+        &["cloud_a", "local_a"],
+        vec![
+            local_provider("local_a", true, true),
+            cloud_provider("cloud_a", true),
+        ],
+    );
+
+    assert_eq!(plan.selected_provider_id.as_deref(), Some("cloud_a"));
+    assert_eq!(plan.fallback_provider_ids, vec!["local_a".to_string()]);
+}
+
+#[test]
+fn placement_still_ranks_ahead_of_model_profile_order() {
+    let plan = plan_in_profile(
+        None,
+        Constraints {
+            privacy: Some(PrivacyEnum::LocalPreferred),
+            cloud: Some(Cloud::Allowed),
+            network_online: Some(true),
+        },
+        default_preferences(),
+        &["cloud_a", "local_a"],
+        vec![
+            local_provider("local_a", true, true),
+            cloud_provider("cloud_a", true),
+        ],
+    );
+
+    assert_eq!(plan.selected_provider_id.as_deref(), Some("local_a"));
+    assert_eq!(plan.fallback_provider_ids, vec!["cloud_a".to_string()]);
+}
+
+#[test]
+fn local_required_rejects_a_cloud_provider_listed_in_the_profile() {
+    let plan = plan_in_profile(
+        None,
+        Constraints {
+            privacy: Some(PrivacyEnum::LocalRequired),
+            cloud: Some(Cloud::Allowed),
+            network_online: Some(true),
+        },
+        default_preferences(),
+        &["cloud_a"],
+        vec![
+            local_provider("local_a", true, true),
+            cloud_provider("cloud_a", true),
+        ],
+    );
+
+    assert_eq!(plan.selected_provider_id, None);
+    assert_eq!(plan.failure_code, Some(FailureCode::CapabilityMismatch));
+    let cloud = plan
+        .rejected_providers
+        .iter()
+        .find(|rejected| rejected.provider_id == "cloud_a")
+        .expect("cloud_a rejected");
+    assert_eq!(cloud.reasons[0].code, Code::PrivacyConstraint);
+    let local = plan
+        .rejected_providers
+        .iter()
+        .find(|rejected| rejected.provider_id == "local_a")
+        .expect("local_a rejected");
+    assert_eq!(local.reasons[0].code, Code::NotInModelProfile);
+}
+
+#[test]
+fn model_profile_ignores_ids_that_name_no_provider() {
+    let plan = plan_in_profile(
+        None,
+        default_constraints(),
+        default_preferences(),
+        &["missing", "cloud_a"],
+        vec![cloud_provider("cloud_a", true)],
+    );
+
+    assert_eq!(plan.selected_provider_id.as_deref(), Some("cloud_a"));
+    assert!(plan.rejected_providers.is_empty());
+}
+
+#[test]
+fn model_profile_stream_chain_is_a_subsequence_of_the_run_chain() {
+    let providers = || {
+        vec![
+            local_builder("local_a", true).build(),
+            cloud_builder("cloud_a").streaming(Some(true)).build(),
+            cloud_builder("cloud_b").streaming(Some(true)).build(),
+        ]
+    };
+    let targets = ["cloud_b", "local_a", "cloud_a"];
+    let run = plan_in_profile(
+        None,
+        default_constraints(),
+        default_preferences(),
+        &targets,
+        providers(),
+    );
+    let stream = plan_in_profile(
+        Some(InteractionMode::Stream),
+        default_constraints(),
+        default_preferences(),
+        &targets,
+        providers(),
+    );
+
+    let run_ids: Vec<_> = run
+        .candidates
+        .iter()
+        .map(|c| c.provider_id.clone())
+        .collect();
+    let stream_ids: Vec<_> = stream
+        .candidates
+        .iter()
+        .map(|c| c.provider_id.clone())
+        .collect();
+    assert_eq!(run_ids, vec!["cloud_b", "local_a", "cloud_a"]);
+    assert_eq!(stream_ids, vec!["cloud_b", "cloud_a"]);
 }

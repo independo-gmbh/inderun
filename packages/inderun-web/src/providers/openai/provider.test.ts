@@ -1,17 +1,35 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { TaskRequest } from "@independo/inderun-contracts";
 import { describe, expect, it } from "vitest";
+import { IndeRun, IndeRunException, createIndeRunWeb } from "../../index.js";
 import {
-  IndeRun,
-  IndeRunException,
   ProviderRegistry,
-  createIndeRunWeb,
   type HostServices,
   type HttpClientService,
   type HttpRequest,
   type HttpResponse,
   type SecureStorageService
-} from "../../index.js";
+} from "../../provider.js";
 import { DEFAULT_OPENAI_RESPONSES_ENDPOINT, OpenAIResponsesProvider } from "../../openai.js";
+
+interface RunCase {
+  name: string;
+  description: string;
+  response: { status: number; headers: Record<string, string>; body: string };
+  expected: Record<string, unknown>;
+}
+
+const runFixture = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../../contracts/fixtures/openai-compatible/responses-run.json"
+    ),
+    "utf8"
+  )
+) as { cases: RunCase[] };
 
 class MockSecureStorage implements SecureStorageService {
   constructor(private readonly slots: Record<string, string> = {}) {}
@@ -248,6 +266,35 @@ describe("OpenAIResponsesProvider", () => {
     });
   });
 
+  it("reports the model the Responses API names into the result's provenance", async () => {
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ model: "gpt-5.2-2026-08-01", output_text: "Hi.", status: "completed" })
+    ]);
+
+    const result = await runWithProvider(createRequest(), httpClient);
+
+    expect(result.telemetry.reportedModel).toBe("gpt-5.2-2026-08-01");
+    expect(result.provenance).toMatchObject({
+      providerId: "openai",
+      locality: "cloud",
+      configuredModel: "gpt-5.2",
+      reportedModel: "gpt-5.2-2026-08-01"
+    });
+  });
+
+  it("leaves reportedModel absent when the response names no model", async () => {
+    const httpClient = new MockHttpClient([
+      jsonResponse({}, 200),
+      jsonResponse({ output_text: "Hi.", status: "completed" })
+    ]);
+
+    const result = await runWithProvider(createRequest(), httpClient);
+
+    expect(result.telemetry).not.toHaveProperty("reportedModel");
+    expect(result.provenance).not.toHaveProperty("reportedModel");
+  });
+
   it("aggregates text from Responses output items when output_text is not present", async () => {
     const httpClient = new MockHttpClient([
       jsonResponse({}, 200),
@@ -302,7 +349,7 @@ describe("OpenAIResponsesProvider", () => {
     ]);
     const engine = createIndeRunWeb({
       openAI: {
-        model: "gpt-5.2",
+        models: ["gpt-5.2"],
         endpointUrl: "/api/inderun/openai-responses",
         auth: "none"
       },
@@ -323,12 +370,46 @@ describe("OpenAIResponsesProvider", () => {
     expect(httpClient.requests[1]?.headers?.Authorization).toBeUndefined();
   });
 
+  it("registers one target per configured model with createIndeRunWeb", async () => {
+    const engine = createIndeRunWeb({
+      openAI: {
+        models: ["gpt-5.2", "gpt-5-mini"],
+        endpointUrl: "/api/inderun/openai-responses",
+        auth: "none"
+      },
+      hostServices: {
+        httpClient: new MockHttpClient([jsonResponse({}, 200), jsonResponse({}, 200)]),
+        connectivity: {
+          async isOnline() {
+            return true;
+          }
+        }
+      }
+    });
+
+    const snapshots = await engine.checkCapabilities();
+
+    expect(snapshots.map((snapshot) => [snapshot.providerId, snapshot.descriptor.model])).toEqual([
+      ["openai:gpt-5.2", "gpt-5.2"],
+      ["openai:gpt-5-mini", "gpt-5-mini"]
+    ]);
+  });
+
+  it("refuses an empty model list in createIndeRunWeb", () => {
+    expect(() =>
+      createIndeRunWeb({
+        openAI: { models: [], endpointUrl: "/api/inderun/openai-responses", auth: "none" }
+      })
+    ).toThrowError(/at least one model/);
+  });
+
   it("requires explicit opt-in before createIndeRunWeb uses the direct OpenAI endpoint with browser credentials", () => {
     const directEndpointVariants = [
       undefined,
       "https://api.openai.com/v1/responses/",
       "https://api.openai.com/v1/responses?trace=1",
-      "https://API.OPENAI.COM/v1/responses"
+      "https://API.OPENAI.COM/v1/responses",
+      "https://openrouter.ai/api/v1/responses"
     ];
 
     for (const endpointUrl of directEndpointVariants) {
@@ -336,11 +417,11 @@ describe("OpenAIResponsesProvider", () => {
         createIndeRunWeb({
           openAI: endpointUrl
             ? {
-                model: "gpt-5.2",
+                models: ["gpt-5.2"],
                 endpointUrl
               }
             : {
-                model: "gpt-5.2"
+                models: ["gpt-5.2"]
               },
           hostServices: {
             httpClient: new MockHttpClient([])
@@ -440,6 +521,35 @@ describe("OpenAIResponsesProvider", () => {
           expect((err as IndeRunException).retryAfterMs).toBe(2000);
         }
       }
+    }
+  });
+
+  describe("shared run vectors", () => {
+    for (const vector of runFixture.cases) {
+      it(`${vector.name}: ${vector.description}`, async () => {
+        const provider = new OpenAIResponsesProvider({ model: "gpt-5.2", auth: "none" });
+        const outcome = provider.run(createRequest(), {
+          runId: "run_vector",
+          hostServices: createHost(new MockHttpClient([{ statusText: "", ...vector.response }]))
+        });
+
+        const { kind, text, ...expected } = vector.expected;
+        if (kind === "result") {
+          const result = await outcome;
+          expect(result.output).toEqual({ type: "text", text });
+          expect(result.finishReason).toBe(expected.finishReason);
+          expect(result.telemetry.reportedModel).toBe(expected.reportedModel);
+          expect(result.usage).toEqual(expected.usage);
+          return;
+        }
+
+        const error = await outcome.then(
+          () => undefined,
+          (caught: unknown) => caught
+        );
+        expect(error).toBeInstanceOf(IndeRunException);
+        expect(error).toMatchObject(expected);
+      });
     }
   });
 });

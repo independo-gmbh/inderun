@@ -71,6 +71,7 @@ class AndroidOnnxRuntimeProvider(
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = id,
         type = ProviderDescriptor.ProviderType.local,
+        model = modelPackage.id,
         transport = ProviderDescriptor.TransportType.in_process,
         supports = ProviderDescriptor.SupportsCapabilities(
             run = true,

@@ -3,16 +3,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { StreamEvent } from "@independo/inderun-contracts";
+import { IndeRun, IndeRunException } from "../index.js";
 import {
-  IndeRun,
-  IndeRunException,
   ProviderRegistry,
   createCapabilityMismatch,
   createRateLimited,
   createUnavailable,
   type ProviderStreamContext,
   type ProviderStreamEvent
-} from "../index.js";
+} from "../provider.js";
 import {
   MockTelemetryService,
   createFakeStreamProvider,
@@ -77,6 +76,15 @@ interface Expectations {
   telemetryForbiddenPayloadValues?: string[];
   telemetryStableMessageEvents?: string[];
   noReplayOnSecondIteration?: boolean;
+  provenance?: {
+    providerId?: string;
+    absentProviderId?: boolean;
+    locality?: string;
+    modelProfile?: string;
+    attemptCount?: number;
+    fallbackOccurred?: boolean;
+    attempts?: [string, string][];
+  };
 }
 
 interface ConformanceCase {
@@ -157,6 +165,22 @@ function assertCase(expected: Expectations, observed: Observation): void {
     }
     if (absentUsage === true) {
       expect(payload).not.toHaveProperty("usage");
+    }
+  }
+
+  if (expected.provenance !== undefined) {
+    const provenance = terminalPayload(events)["provenance"] as Record<string, unknown> | undefined;
+    expect(provenance, "expected terminal provenance").toBeDefined();
+    const { absentProviderId, attempts, ...direct } = expected.provenance;
+    expect(provenance).toMatchObject(direct);
+    if (absentProviderId === true) {
+      expect(provenance).not.toHaveProperty("providerId");
+    }
+    if (attempts !== undefined) {
+      const observedAttempts = (
+        provenance!["attempts"] as { providerId: string; outcome: string }[]
+      ).map((attempt) => [attempt.providerId, attempt.outcome]);
+      expect(observedAttempts).toEqual(attempts);
     }
   }
 
@@ -710,7 +734,7 @@ const handlers: Record<string, Handler> = {
       })
     );
     const telemetry = new MockTelemetryService();
-    const engine = new IndeRun(registry, createMockHostServices(), telemetry);
+    const engine = new IndeRun(registry, createMockHostServices(), { telemetryService: telemetry });
     await drain((await engine.stream(createRequest())).events);
     return { telemetry };
   },
@@ -723,7 +747,7 @@ const handlers: Record<string, Handler> = {
       })
     );
     const telemetry = new MockTelemetryService();
-    const engine = new IndeRun(registry, createMockHostServices(), telemetry);
+    const engine = new IndeRun(registry, createMockHostServices(), { telemetryService: telemetry });
     const { events, cancel } = await engine.stream(createRequest());
     for await (const event of events) {
       if (event.type === "content_delta") cancel("secret user text");
@@ -740,7 +764,7 @@ const handlers: Record<string, Handler> = {
       })
     );
     const telemetry = new MockTelemetryService();
-    const engine = new IndeRun(registry, createMockHostServices(), telemetry);
+    const engine = new IndeRun(registry, createMockHostServices(), { telemetryService: telemetry });
     await drain((await engine.stream(createRequest())).events);
     return { telemetry };
   },

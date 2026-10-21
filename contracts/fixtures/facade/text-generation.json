@@ -1,0 +1,147 @@
+{
+  "$comment": "Cross-SDK vectors for the primary text API's translation onto the canonical TaskRequest (docs/architecture/api-layering.md). Each case gives the facade options, spelled with the Web SDK's option names, and the exact TaskRequest the call must produce. Every SDK runs every case through its own translation and fails on any difference, so the three facades cannot drift apart silently.",
+  "cases": [
+    {
+      "id": "prompt_only",
+      "description": "A bare prompt becomes the canonical prompt; nothing else is set.",
+      "options": { "prompt": "Explain this simply." },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "prompt": "Explain this simply."
+      }
+    },
+    {
+      "id": "messages_only",
+      "description": "A message list passes through unchanged.",
+      "options": {
+        "messages": [
+          { "role": "user", "content": "Hi" },
+          { "role": "assistant", "content": "Hello" },
+          { "role": "user", "content": "Summarize our chat." }
+        ]
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "messages": [
+          { "role": "user", "content": "Hi" },
+          { "role": "assistant", "content": "Hello" },
+          { "role": "user", "content": "Summarize our chat." }
+        ]
+      }
+    },
+    {
+      "id": "system_with_prompt",
+      "description": "A system instruction turns a prompt into a two-message conversation.",
+      "options": { "system": "Use plain language.", "prompt": "Explain routing." },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "messages": [
+          { "role": "system", "content": "Use plain language." },
+          { "role": "user", "content": "Explain routing." }
+        ]
+      }
+    },
+    {
+      "id": "system_with_messages",
+      "description": "A system instruction is prepended to a message list.",
+      "options": {
+        "system": "Be brief.",
+        "messages": [{ "role": "user", "content": "Hi" }]
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "messages": [
+          { "role": "system", "content": "Be brief." },
+          { "role": "user", "content": "Hi" }
+        ]
+      }
+    },
+    {
+      "id": "auto_model_is_omitted",
+      "description": "The built-in auto profile is the canonical default, so it is not written out.",
+      "options": { "prompt": "Hi", "model": "auto" },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "prompt": "Hi"
+      }
+    },
+    {
+      "id": "named_model_profile",
+      "description": "Any other model names a model profile.",
+      "options": { "prompt": "Hi", "model": "smart" },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "prompt": "Hi",
+        "modelProfile": "smart"
+      }
+    },
+    {
+      "id": "generation_options",
+      "description": "Sampling options map one to one onto generation.",
+      "options": {
+        "prompt": "Hi",
+        "maxOutputTokens": 64,
+        "temperature": 0.2,
+        "topP": 0.9,
+        "stop": ["END"],
+        "seed": 7
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "prompt": "Hi",
+        "generation": {
+          "maxOutputTokens": 64,
+          "temperature": 0.2,
+          "topP": 0.9,
+          "stop": ["END"],
+          "seed": 7
+        }
+      }
+    },
+    {
+      "id": "execution_policy",
+      "description": "The execution policy splits into canonical constraints and preferences.",
+      "options": {
+        "prompt": "Hi",
+        "execution": {
+          "privacy": "local_preferred",
+          "cloud": "allowed",
+          "timeoutMs": 5000,
+          "optimizeFor": "latency"
+        }
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "prompt": "Hi",
+        "constraints": { "privacy": "local_preferred", "cloud": "allowed", "timeoutMs": 5000 },
+        "preferences": { "optimizeFor": "latency" }
+      }
+    },
+    {
+      "id": "pass_through_fields",
+      "description": "Credential reference, telemetry preferences, and request id pass through unchanged.",
+      "options": {
+        "prompt": "Hi",
+        "authContextRef": "openai_primary",
+        "telemetry": { "consent": true, "level": "minimal", "tags": { "feature": "simplify" } },
+        "requestId": "req-42"
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_text" },
+        "prompt": "Hi",
+        "authContextRef": "openai_primary",
+        "telemetry": { "consent": true, "level": "minimal", "tags": { "feature": "simplify" } },
+        "requestId": "req-42"
+      }
+    }
+  ]
+}

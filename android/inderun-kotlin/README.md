@@ -8,11 +8,27 @@ The SDK can route Mode 1 `run()` and Mode 2 `stream()` requests through on-devic
 
 ```kotlin
 val indeRun = IndeRun.initialize(this)
+
+val result = indeRun.generateText(
+    TextGenerationOptions(
+        prompt = "Translate 'Hello' to Spanish",
+        execution = TextExecutionOptions(privacy = PrivacyEnum.LocalRequired),
+    ),
+)
+
+val stream = indeRun.streamText(TextGenerationOptions(prompt = "Explain routing."), lifecycleScope)
+stream.textStream.collect { delta -> print(delta) }
+val ending = stream.result.await()
 ```
+
+`generateText` and `streamText` are extensions on `IndeRunApi`: each compiles to one canonical
+`TaskRequest` (`TextGenerationOptions.toTaskRequest()`) and calls `run` or `stream`, which remain
+public as the advanced API. `streamText` reads the run in the scope you pass, so use one that
+outlives the collectors.
 
 `inderun-kotlin` exposes `inderun-contracts`, `inderun-core` and `kotlinx-coroutines-core` as
 `api` dependencies, so its own dependency line is all an app needs to name `TaskRequest`,
-`TaskResult` and the `Flow<StreamEvent>` from `stream()`.
+`TaskResult`, the facade's `Flow`s and `Deferred`, and the `Flow<StreamEvent>` from `stream()`.
 
 To register an OpenAI-compatible cloud provider explicitly, add its module — it is not a
 dependency of this one:

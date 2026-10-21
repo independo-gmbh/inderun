@@ -41,6 +41,16 @@ final class StreamConformanceTests: XCTestCase {
         var absentUsage: Bool?
     }
 
+    private struct ProvenanceExpectation: Decodable {
+        var providerId: String?
+        var absentProviderId: Bool?
+        var locality: String?
+        var modelProfile: String?
+        var attemptCount: Int?
+        var fallbackOccurred: Bool?
+        var attempts: [[String]]?
+    }
+
     private struct RejectedProviderExpectation: Decodable {
         let providerId: String
         var reasons: [String]?
@@ -73,6 +83,7 @@ final class StreamConformanceTests: XCTestCase {
         var telemetryForbiddenPayloadValues: [String]?
         var telemetryStableMessageEvents: [String]?
         var noReplayOnSecondIteration: Bool?
+        var provenance: ProvenanceExpectation?
     }
 
     private static func repositoryRoot() -> URL {
@@ -164,6 +175,9 @@ final class StreamConformanceTests: XCTestCase {
         if let rejection = expected.rejectsWith {
             check(label: label, rejection: rejection, observed: observed)
         }
+        if let provenance = expected.provenance {
+            check(label: label, provenance: provenance, events: events)
+        }
 
         for (providerId, count) in expected.providerCallCounts ?? [:] {
             XCTAssertEqual(
@@ -196,6 +210,38 @@ final class StreamConformanceTests: XCTestCase {
 
         if expected.noReplayOnSecondIteration == true {
             XCTAssertEqual(observed.secondIterationEventCount, 0, "\(label): second iteration replayed")
+        }
+    }
+
+    private func check(label: String, provenance expected: ProvenanceExpectation, events: [StreamEvent]) {
+        guard let provenance = events.first(where: { $0.type == "terminal" })?.payload?.provenance else {
+            XCTFail("\(label): expected terminal provenance")
+            return
+        }
+        if let providerId = expected.providerId {
+            XCTAssertEqual(provenance.providerId, providerId, "\(label): provenance.providerId")
+        }
+        if expected.absentProviderId == true {
+            XCTAssertNil(provenance.providerId, "\(label): provenance.providerId")
+        }
+        if let locality = expected.locality {
+            XCTAssertEqual(provenance.locality.rawValue, locality, "\(label): provenance.locality")
+        }
+        if let modelProfile = expected.modelProfile {
+            XCTAssertEqual(provenance.modelProfile, modelProfile, "\(label): provenance.modelProfile")
+        }
+        if let attemptCount = expected.attemptCount {
+            XCTAssertEqual(provenance.attemptCount, attemptCount, "\(label): provenance.attemptCount")
+        }
+        if let fallbackOccurred = expected.fallbackOccurred {
+            XCTAssertEqual(provenance.fallbackOccurred, fallbackOccurred, "\(label): provenance.fallbackOccurred")
+        }
+        if let attempts = expected.attempts {
+            XCTAssertEqual(
+                provenance.attempts.map { [$0.providerId, $0.outcome.rawValue] },
+                attempts,
+                "\(label): provenance.attempts"
+            )
         }
     }
 

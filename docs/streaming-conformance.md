@@ -64,6 +64,10 @@ What the catalog is therefore *for* is the expectation, and the guard is what ma
   the stable per-class message rather than the upstream's raw text.
 - **lifecycle** (1) — that a second consumer never replays a finished run.
 
+Six of these cases also pin the terminal's `provenance` — direct success, fallback before commit, a
+committed failure, the whole chain failing, cancellation mid-run, and cancellation before any attempt —
+so the attempt list, attribution, and `unknown` locality are held to one expectation on every platform.
+
 ### Known divergence
 
 `events_are_single_use` is the one case where the platforms differ in *how* they satisfy the

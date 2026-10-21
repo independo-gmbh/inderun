@@ -55,10 +55,29 @@ Not every provider streams, so whether a stream request can be served depends on
 decided at routing time rather than discovered partway through. [Streaming (Mode 2)](docs/streaming.md) is the full
 contract — event types, ordering, cancellation, fallback, and what each provider does and does not report.
 
-`run()` and `stream()` are the canonical `v0.3.0` execution API, and deliberately not the final developer ergonomics:
-they are task-shaped because routing needs the task and its constraints, which is a different thing from being pleasant
-to call. [Milestone 4](https://github.com/independo-gmbh/inderun/milestones) adds a familiar text-generation facade and
-ecosystem adapters on top of them. Documentation here describes what ships today rather than anticipating that.
+`generateText()` and `streamText()` are the primary API: familiar prompt-and-options calls that each compile to one
+canonical `TaskRequest`. `run()` and `stream()` stay public as the advanced, task-shaped execution API — reach for them
+when you build requests programmatically or need the full event sequence. Both layers share one engine, so routing,
+fallback, cancellation, and errors behave identically. See [API layering](docs/architecture/api-layering.md).
+
+### When to use the advanced API
+
+Start with `generateText()` / `streamText()`. Switch to `TaskRequest` with `run()` / `stream()` when you need
+something the facade deliberately leaves out:
+
+- **The raw event sequence.** `stream()` hands back every canonical `StreamEvent` — lifecycle phases, snapshots that
+  retract delivered text, the terminal outcome — where `streamText()` reduces them to text increments and a result.
+  `streamText()`'s `fullStream` carries the same events when you need both.
+- **Requests built by code rather than by hand**, such as a request id you correlate with your own logs, or a
+  request assembled from stored configuration.
+- **Capability checks before a request.** `checkCapabilities()` reports what every registered target can do on this
+  device right now, for UI that should not offer an on-device option the device cannot serve.
+- **Hosts that speak the contract**, such as a bridge that forwards `TaskRequest` and `StreamEvent` across a process
+  boundary.
+
+On the Web the advanced API lives in the same entry point as the facade. Provider authoring — custom adapters, host
+services, building an engine from a `ProviderRegistry` — has its own entry point, `@independo/inderun-web/provider`;
+the [migration guide](docs/migration.md) lists what moved there in 0.4.
 
 ## Choosing where a task runs
 
@@ -84,6 +103,31 @@ Ordering among the survivors is deterministic for a fixed request and capability
 produce the same provider and the same fallback order. See
 [the architecture overview](docs/architecture/architecture.md#placement-constraints).
 
+### Choosing which models a task may use
+
+Models are bound where providers are configured, not at call sites. Every provider instance is a _target_ bound to one
+model — `createIndeRunWeb({ openAI: { models: ["gpt-5.2", "gpt-5-mini"] } })` registers the targets
+`openai:gpt-5.2` and `openai:gpt-5-mini` — and a _model profile_ names an ordered set of targets:
+
+```ts
+const inderun = createIndeRunWeb({
+  openAI: { models: ["gpt-5.2", "gpt-5-mini"], endpointUrl: "/api/inderun/openai-responses", auth: "none" },
+  systemModel: {},
+  modelProfiles: {
+    fast: ["local.system-model.web", "openai:gpt-5-mini"],
+    smart: ["openai:gpt-5.2"]
+  }
+});
+
+await inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt, modelProfile: "smart" });
+```
+
+A request that names no profile routes within the built-in `auto` profile: every registered target. A named profile is
+an allow-list — targets outside it are rejected with `not_in_model_profile` — and its order ranks targets _within_ a
+placement tier, so `local_required` and `local_preferred` keep their meaning. An unknown profile name fails validation.
+Swift and Kotlin take the same profiles as `ModelProfiles` on the engine. See
+[API layering](docs/architecture/api-layering.md#model-profiles).
+
 ## Platforms
 
 ### Web (TypeScript)
@@ -102,19 +146,24 @@ pnpm add @independo/inderun-web
 Quick start:
 
 ```ts
-import { createIndeRunWeb } from "@independo/inderun-web";
+import { createIndeRunWeb, generateText, streamText } from "@independo/inderun-web";
 
 const inderun = createIndeRunWeb({
   // Point at a same-origin proxy that holds the OpenAI key server-side.
-  openAI: { model: "gpt-5.2", endpointUrl: "/api/inderun/openai-responses", auth: "none" }
+  openAI: { models: ["gpt-5.2"], endpointUrl: "/api/inderun/openai-responses", auth: "none" }
 });
 
-const result = await inderun.run({
-  schemaVersion: "1.0",
-  task: { kind: "text_to_text" },
+const { text, provenance } = await generateText(inderun, {
   prompt: "Write a one-sentence summary of IndeRun."
 });
+console.log(text, provenance?.locality); // e.g. "cloud"
+
+const stream = await streamText(inderun, { prompt: "Explain routing.", execution: { privacy: "local_preferred" } });
+for await (const delta of stream.textStream) console.log(delta);
 ```
+
+The same request through the advanced API is
+`inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt: "…" })`.
 
 > Browser apps must route OpenAI calls through a same-origin proxy that keeps the key server-side — never ship
 > provider credentials to the browser.
@@ -175,11 +224,15 @@ let hostServices = DefaultHostServices.make()
 let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
 let inderun = IndeRun(registry: registry, hostServices: hostServices)
 
-let result = try await inderun.run(request: TaskRequest(
-    prompt: "Translate 'Hello' to Spanish",
-    constraints: TaskRequestConstraints(privacy: .localRequired)
+let result = try await inderun.generateText(TextGenerationOptions(
+    .prompt("Translate 'Hello' to Spanish"),
+    execution: TextExecutionOptions(privacy: .localRequired)
 ))
+print(result.text, result.provenance?.locality ?? .unknown)
 ```
+
+`streamText` returns a `TextStream` with `textStream`, `fullStream`, and `result()`; `run(request:)` and
+`stream(request:)` remain available as the advanced API.
 
 > Need cloud execution too? Register the OpenAI-compatible provider from
 > `IndeRunOpenAIProviders` — see the [iOS SDK README](ios/IndeRun/README.md) and the
@@ -209,8 +262,8 @@ implementation("app.independo.inderun:inderun-kotlin:latest.release")
 ```
 
 That one line is enough for a fully typed app: `inderun-kotlin` exposes `inderun-contracts`,
-`inderun-core` and `kotlinx-coroutines-core` as `api` dependencies, so `TaskRequest`, `TaskResult`
-and the `Flow<StreamEvent>` returned by `stream()` are on your compile classpath. Cloud execution
+`inderun-core` and `kotlinx-coroutines-core` as `api` dependencies, so `TaskRequest`, `TaskResult`,
+the text facade's `Flow`s, and the `Flow<StreamEvent>` returned by `stream()` are on your compile classpath. Cloud execution
 additionally needs `app.independo.inderun:inderun-openai-providers`.
 
 > For reproducible builds, pin an explicit version instead — the Maven Central badge above shows the current release.
@@ -221,16 +274,18 @@ Quick start — on-device by default:
 // initialize() registers the ML Kit GenAI on-device provider.
 val indeRun = IndeRun.initialize(this) // `this` is a Context
 
-// run() is a suspend function — call it from a coroutine.
-val result = indeRun.run(
-    TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+// generateText() is a suspend function — call it from a coroutine.
+val result = indeRun.generateText(
+    TextGenerationOptions(
         prompt = "Translate 'Hello' to Spanish",
-        task = TaskRequestTask(), // defaults to text_to_text
-        constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+        execution = TextExecutionOptions(privacy = PrivacyEnum.LocalRequired),
     )
 )
+println("${result.text} (${result.provenance?.locality})")
 ```
+
+`streamText(options, scope)` returns a `TextStream` with `textStream`, `fullStream`, and a `result` deferred;
+`run(TaskRequest)` and `stream(TaskRequest)` remain available as the advanced API.
 
 > Need cloud execution too? Register the OpenAI-compatible provider from
 > `inderun-openai-providers` — see the [Kotlin SDK README](android/inderun-kotlin/README.md)
@@ -245,8 +300,9 @@ val result = indeRun.run(
 | iOS / macOS | iOS 16+ / macOS 14+, Swift 5.9+            | Apple Foundation Models: Apple Intelligence device, iOS 26+ / macOS 26+             |
 | Android     | Android 8.0+ (API 26), JDK 17              | ML Kit GenAI: device with AICore / Gemini Nano support                              |
 
-The OpenAI-compatible cloud provider is available on every platform. On-device execution additionally requires the
-capabilities above and is selected automatically by routing.
+The OpenAI-compatible cloud provider is available on every platform, and reaches any Responses-API endpoint —
+including [OpenRouter](docs/openrouter.md). On-device execution additionally requires the capabilities above and is
+selected automatically by routing.
 
 ## Credentials & security
 
@@ -257,8 +313,16 @@ Never place raw API keys in a `TaskRequest`. Providers resolve credentials from 
 read, someone with that browser or app can read — a developer-owned API key does not become safe by being referenced
 indirectly. Use `authContextRef` for credentials that legitimately live on the device: a per-user or per-install token
 your backend issued. For a key **you** own, put it behind a backend you control and point the provider's endpoint at
-that. The Web SDK enforces this by refusing the public OpenAI endpoint unless you opt out explicitly for a controlled
+that. The Web SDK enforces this by refusing the public OpenAI and OpenRouter endpoints unless you opt out explicitly for a controlled
 environment; on iOS and Android it is a convention, because a native app can reach any endpoint it likes.
+
+## Ecosystem
+
+- **OpenRouter** — reach many model vendors through one cloud target with the OpenAI-compatible provider. See
+  [OpenRouter](docs/openrouter.md).
+- **Reference demo** — [`packages/inderun-web-demo`](packages/inderun-web-demo/README.md) simplifies text with
+  `generateText()` or `streamText()`, runs on the device first when the browser can, falls back to the cloud only
+  when the chosen privacy allows it, and shows the run's provenance.
 
 ## Packages
 
@@ -275,7 +339,9 @@ environment; on iOS and Android it is a convention, because a native app can rea
 - [Project brief](docs/architecture/technical-brief.md)
 - [Architecture overview](docs/architecture/architecture.md)
 - [Provider model](docs/architecture/providers.md)
+- [Public API layering](docs/architecture/api-layering.md)
 - [Streaming (Mode 2)](docs/streaming.md)
+- [Migration guide](docs/migration.md)
 - [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
 - [Streaming conformance and cross-platform validation](docs/streaming-conformance.md)
 - [CI behavior](docs/ci.md)

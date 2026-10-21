@@ -81,6 +81,11 @@ export const taskRequestSchema = {
         }
       }
     },
+    "modelProfile": {
+      "description": "Name of the model profile to route within, as configured on the engine. Absent or 'auto' means every registered target, ranked by constraints and preferences alone. A profile is an application-defined, ordered allow-list of targets (provider instances bound to one model each); raw model or provider identifiers are never accepted here. An unknown profile name fails request validation.",
+      "type": "string",
+      "minLength": 1
+    },
     "generation": {
       "description": "Optional configuration for fine-tuning how the AI model generates its response.",
       "type": "object",
@@ -283,6 +288,11 @@ export const taskResultSchema = {
           "type": "string",
           "minLength": 1
         },
+        "reportedModel": {
+          "description": "The model identifier the provider reported in its own response, set by the provider when its backend reports one. The engine carries it into provenance.reportedModel; it is never inferred from configuration.",
+          "type": "string",
+          "minLength": 1
+        },
         "totalMs": {
           "description": "Measured execution duration in milliseconds, including route selection and result processing.",
           "type": "number",
@@ -301,6 +311,10 @@ export const taskResultSchema = {
           ]
         }
       }
+    },
+    "provenance": {
+      "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+      "$ref": "execution-provenance.schema.json"
     }
   }
 } as const;
@@ -362,6 +376,10 @@ export const inderunErrorSchema = {
       "description": "Optional structured diagnostic details. It must not contain raw secrets.",
       "type": "object",
       "additionalProperties": true
+    },
+    "provenance": {
+      "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+      "$ref": "execution-provenance.schema.json"
     }
   }
 } as const;
@@ -575,6 +593,31 @@ export const routePlannerInputSchema = {
         }
       }
     },
+    "modelProfile": {
+      "description": "The resolved model profile the request routes within. Absent means the built-in 'auto' profile: no allow-list, and ordering by placement and preference alone. When present, providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the position in targetIds ranks the survivors after placement and before preferences. Ids that name no registered provider are ignored.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "name",
+        "targetIds"
+      ],
+      "properties": {
+        "name": {
+          "description": "Profile name, carried for explanations.",
+          "type": "string",
+          "minLength": 1
+        },
+        "targetIds": {
+          "description": "Provider ids in profile order.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "providers": {
       "description": "Static descriptors plus dynamic capability snapshots for planning.",
       "type": "array",
@@ -770,7 +813,7 @@ export const routePlanSchema = {
               ],
               "properties": {
                 "code": {
-                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment.",
+                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider.",
                   "enum": [
                     "task_not_supported",
                     "run_not_supported",
@@ -779,7 +822,8 @@ export const routePlanSchema = {
                     "privacy_constraint",
                     "cloud_constraint",
                     "offline",
-                    "capability_unavailable"
+                    "capability_unavailable",
+                    "not_in_model_profile"
                   ]
                 },
                 "message": {
@@ -1336,6 +1380,10 @@ export const streamEventSchema = {
                       "minimum": 0
                     }
                   }
+                },
+                "provenance": {
+                  "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                  "$ref": "execution-provenance.schema.json"
                 }
               }
             },
@@ -1400,8 +1448,16 @@ export const streamEventSchema = {
                     "details": {
                       "type": "object",
                       "additionalProperties": true
+                    },
+                    "provenance": {
+                      "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                      "$ref": "execution-provenance.schema.json"
                     }
                   }
+                },
+                "provenance": {
+                  "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                  "$ref": "execution-provenance.schema.json"
                 }
               }
             },
@@ -1430,6 +1486,10 @@ export const streamEventSchema = {
                 },
                 "reason": {
                   "type": "string"
+                },
+                "provenance": {
+                  "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+                  "$ref": "execution-provenance.schema.json"
                 }
               }
             }
@@ -1574,6 +1634,10 @@ export const streamTerminalOutcomeSchema = {
               "minimum": 0
             }
           }
+        },
+        "provenance": {
+          "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+          "$ref": "execution-provenance.schema.json"
         }
       }
     },
@@ -1649,8 +1713,16 @@ export const streamTerminalOutcomeSchema = {
               "description": "Optional structured diagnostic details. It must not contain raw secrets.",
               "type": "object",
               "additionalProperties": true
+            },
+            "provenance": {
+              "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+              "$ref": "execution-provenance.schema.json"
             }
           }
+        },
+        "provenance": {
+          "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+          "$ref": "execution-provenance.schema.json"
         }
       }
     },
@@ -1684,8 +1756,149 @@ export const streamTerminalOutcomeSchema = {
         "reason": {
           "description": "Optional human-readable reason the run was cancelled (e.g. caller-initiated abort). Not a machine-taxonomy field; use errorClass on the 'error' outcome branch for failure classification.",
           "type": "string"
+        },
+        "provenance": {
+          "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+          "$ref": "execution-provenance.schema.json"
         }
       }
     }
   ]
+} as const;
+
+export const executionProvenanceSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/execution-provenance.schema.json",
+  "title": "ExecutionProvenance",
+  "description": "Provider-neutral record of how an execution was carried out: the target the outcome is attributed to, its declared locality, the configured and provider-reported model, every attempt, and why other candidates were rejected. Carried on TaskResult, on every StreamTerminalOutcome branch, and on IndeRunError. It reports what the engine observed and what providers declared or reported; it never infers a model or locality a provider did not state, and it never contains request content, credentials, or provider payloads.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "modelProfile",
+    "locality",
+    "attemptCount",
+    "fallbackOccurred",
+    "attempts",
+    "routeRejections"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "description": "Contract schema version used to interpret this provenance record.",
+      "const": "1.0"
+    },
+    "modelProfile": {
+      "description": "The model profile the request routed within; 'auto' when the request named none.",
+      "type": "string",
+      "minLength": 1
+    },
+    "providerId": {
+      "description": "The target the outcome is attributed to: the provider that produced the result, the provider a stream had committed to when it ended, or the provider that was running when it was cancelled. Absent when no provider was reached or when every attempted provider failed before one was committed to.",
+      "type": "string",
+      "minLength": 1
+    },
+    "locality": {
+      "description": "Where providerId declares it executes: 'on_device' for a local provider, 'edge', or 'cloud'. A declaration by the provider's descriptor, not a measurement. 'unknown' when providerId is absent.",
+      "enum": [
+        "on_device",
+        "edge",
+        "cloud",
+        "unknown"
+      ]
+    },
+    "configuredModel": {
+      "description": "The model providerId is bound to, as its descriptor declares it. Absent when the provider cannot name its model or no provider is attributed.",
+      "type": "string",
+      "minLength": 1
+    },
+    "reportedModel": {
+      "description": "The model identifier the provider reported in its own response. Absent means the provider did not report one; it is never inferred from configuration.",
+      "type": "string",
+      "minLength": 1
+    },
+    "attemptCount": {
+      "description": "How many providers were attempted. 0 when the request failed validation or routing, or was cancelled before any attempt started.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "fallbackOccurred": {
+      "description": "Whether more than one provider was attempted (attemptCount > 1).",
+      "type": "boolean"
+    },
+    "attempts": {
+      "description": "Every attempted provider, in attempt order, with how its attempt ended.",
+      "type": "array",
+      "items": {
+        "title": "ExecutionProvenanceAttempt",
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "providerId",
+          "outcome"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outcome": {
+            "title": "AttemptOutcome",
+            "description": "'succeeded' (produced the result or was committed to and completed), 'failed', or 'cancelled'.",
+            "enum": [
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "errorClass": {
+            "description": "Normalized error class of a failed attempt.",
+            "enum": [
+              "CapabilityMismatch",
+              "Offline",
+              "AuthError",
+              "RateLimited",
+              "Timeout",
+              "Unavailable",
+              "Internal"
+            ]
+          }
+        }
+      }
+    },
+    "routeRejections": {
+      "description": "Providers the route planner rejected before any attempt, with the normalized RoutePlan reason codes. Codes only: no provider-supplied messages.",
+      "type": "array",
+      "items": {
+        "title": "ExecutionProvenanceRouteRejection",
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "providerId",
+          "codes"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "task_not_supported",
+                "run_not_supported",
+                "streaming_not_supported",
+                "streaming_unavailable",
+                "privacy_constraint",
+                "cloud_constraint",
+                "offline",
+                "capability_unavailable",
+                "not_in_model_profile"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
 } as const;

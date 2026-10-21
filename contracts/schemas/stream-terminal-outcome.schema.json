@@ -69,6 +69,10 @@
               "minimum": 0
             }
           }
+        },
+        "provenance": {
+          "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+          "$ref": "execution-provenance.schema.json"
         }
       }
     },
@@ -135,8 +139,16 @@
               "description": "Optional structured diagnostic details. It must not contain raw secrets.",
               "type": "object",
               "additionalProperties": true
+            },
+            "provenance": {
+              "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+              "$ref": "execution-provenance.schema.json"
             }
           }
+        },
+        "provenance": {
+          "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+          "$ref": "execution-provenance.schema.json"
         }
       }
     },
@@ -165,6 +177,10 @@
         "reason": {
           "description": "Optional human-readable reason the run was cancelled (e.g. caller-initiated abort). Not a machine-taxonomy field; use errorClass on the 'error' outcome branch for failure classification.",
           "type": "string"
+        },
+        "provenance": {
+          "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
+          "$ref": "execution-provenance.schema.json"
         }
       }
     }

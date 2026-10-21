@@ -2,7 +2,7 @@
   "name": "@independo/inderun-web-demo",
   "private": true,
   "version": "0.1.0",
-  "description": "Minimal web demo app for reviewing IndeRun cloud run flows.",
+  "description": "Reference web demo: text simplification with the IndeRun text API, on-device first, cloud fallback when permitted, and visible execution provenance.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
-    "@independo/inderun-contracts": "workspace:^",
     "@independo/inderun-web": "workspace:^"
   },
   "devDependencies": {

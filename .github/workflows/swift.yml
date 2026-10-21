@@ -131,9 +131,32 @@ jobs:
       # gate would stop exactly the releases it exists to describe (#206). The
       # report still runs and still prints: it is the authoritative list for the
       # release notes, and it catches breaks whose commits forgot the footer.
+      #
+      # A feature PR whose commits announce a break (`type!:` or a
+      # `BREAKING CHANGE:` footer -- what semantic-release reads) is advisory
+      # too: the break is intended and already on its way into the release
+      # notes, and blocking would leave an admin override as the only way to
+      # merge it. A PR that breaks the surface without saying so still fails.
+      - name: Detect announced breaking changes
+        id: announced
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # Captured first: piping into `grep -q` lets grep exit on the first
+          # match, and git log's SIGPIPE then fails the pipeline under pipefail.
+          messages="$(git log --no-merges --format=%B "origin/$BASE_REF..HEAD")"
+          if grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:' <<<"$messages"; then
+            echo "breaking=true" >> "$GITHUB_OUTPUT"
+            echo "Commits announce a breaking change; the API report below is advisory."
+          else
+            echo "breaking=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Diagnose API-breaking changes in IndeRunContracts
         if: github.event_name == 'pull_request'
-        continue-on-error: ${{ github.base_ref == 'main' }}
+        continue-on-error: ${{ github.base_ref == 'main' || steps.announced.outputs.breaking == 'true' }}
         run: swift package diagnose-api-breaking-changes "origin/${{ github.base_ref }}" --targets IndeRunContracts
 
       # Second pass: rebuilt from source, which answers the half a manifest

@@ -9,6 +9,7 @@ import app.independo.inderun.contracts.DescriptorType
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
+import app.independo.inderun.contracts.ModelProfile
 import app.independo.inderun.contracts.Provider
 import app.independo.inderun.contracts.Reason
 import app.independo.inderun.contracts.RejectedProvider
@@ -123,11 +124,13 @@ internal fun buildSharedPlannerInput(
     online: Boolean,
     snapshots: List<ProviderSnapshot>,
     interactionMode: InteractionMode = InteractionMode.Run,
+    modelProfile: ModelProfile? = null,
 ): SharedPlannerInput {
     val constraints = request.constraints
     val preferences = request.preferences
     return SharedPlannerInput(
         interactionMode = interactionMode,
+        modelProfile = modelProfile,
         constraints = SharedPlannerConstraints(
             privacy = constraints?.privacy,
             cloud = constraints?.cloud,
@@ -213,6 +216,14 @@ internal fun SharedPlannerInput.toJson(): String = JSONObject()
     .put(
         "preferences",
         JSONObject().put("optimizeFor", preferences.optimizeFor?.rawValue),
+    )
+    .put(
+        "modelProfile",
+        modelProfile?.let { profile ->
+            JSONObject()
+                .put("name", profile.name)
+                .put("targetIds", JSONArray(profile.targetIds))
+        },
     )
     .put(
         "providers",
@@ -338,6 +349,7 @@ private fun parseReasonCode(value: String): SharedPlannerReasonCode? = when (val
     "streaming_not_supported" -> SharedPlannerReasonCode.StreamingNotSupported
     "streaming_unavailable" -> SharedPlannerReasonCode.StreamingUnavailable
     "task_not_supported" -> SharedPlannerReasonCode.TaskNotSupported
+    "not_in_model_profile" -> SharedPlannerReasonCode.NotInModelProfile
     else -> null
 }
 
@@ -359,4 +371,5 @@ internal fun reasonCodeValue(value: SharedPlannerReasonCode): String = when (val
     SharedPlannerReasonCode.StreamingNotSupported -> "streaming_not_supported"
     SharedPlannerReasonCode.StreamingUnavailable -> "streaming_unavailable"
     SharedPlannerReasonCode.TaskNotSupported -> "task_not_supported"
+    SharedPlannerReasonCode.NotInModelProfile -> "not_in_model_profile"
 }

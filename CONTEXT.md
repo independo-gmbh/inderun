@@ -271,6 +271,7 @@ Useful discovery commands:
 When behavior or contracts change, update docs in the same task:
 
 - architecture semantics: `docs/architecture/architecture.md`
+- public API layers, model profiles, facade mapping: `docs/architecture/api-layering.md`
 - provider semantics/capabilities: `docs/architecture/providers.md`
 - project framing/scope: `docs/architecture/technical-brief.md`
 - CI/process behavior: `docs/ci.md`

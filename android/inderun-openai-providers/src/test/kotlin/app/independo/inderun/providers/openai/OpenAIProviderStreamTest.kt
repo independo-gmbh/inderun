@@ -164,6 +164,11 @@ class OpenAIProviderStreamTest {
                             wantUsage?.getLong("totalTokens"),
                             got.usage?.totalTokens,
                         )
+                        assertEquals(
+                            label,
+                            if (want.has("reportedModel")) want.getString("reportedModel") else null,
+                            got.reportedModel,
+                        )
                     }
 
                     is ProviderStreamEvent.Failure -> {
@@ -174,6 +179,9 @@ class OpenAIProviderStreamTest {
                             exception.errorClass,
                         )
                         assertEquals(label, want.getString("message"), exception.message)
+                        if (want.has("retryable")) {
+                            assertEquals(label, want.getBoolean("retryable"), exception.retryable)
+                        }
                     }
 
                     else -> error("Unexpected event $got in $label")

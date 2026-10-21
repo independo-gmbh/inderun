@@ -4,7 +4,8 @@ import {
   createInternal,
   createRateLimited,
   createTimeout,
-  createUnavailable
+  createUnavailable,
+  type IndeRunExceptionParams
 } from "../../core/errors.js";
 import type { HostServices, HttpRequest } from "../../core/host.js";
 import type {
@@ -26,11 +27,25 @@ interface OpenAIStreamEvent {
   type?: string;
   delta?: string;
   response?: OpenAIResponseBody;
-  error?: { message?: string; type?: string; code?: string };
+  error?: OpenAIReportedError;
   /** Root-level failure fields, as carried by the standalone `error` event. */
   message?: string;
-  code?: string;
+  code?: unknown;
 }
+
+/**
+ * A failure reported inside a response body or stream event. `code` is a string
+ * on OpenAI and the numeric HTTP status on OpenRouter, so it is read as either.
+ */
+interface OpenAIReportedError {
+  message?: string | undefined;
+  type?: string | undefined;
+  code?: unknown;
+  /** OpenRouter's typed classification on an untyped (chat-completions-shaped) error event. */
+  metadata?: { error_type?: unknown } | undefined;
+}
+
+type ErrorParams = Omit<IndeRunExceptionParams, "errorClass" | "message">;
 
 /** Buffers a body stream to text, for error responses that are not event streams. */
 async function drainToText(body: AsyncIterable<Uint8Array>): Promise<string> {
@@ -90,6 +105,7 @@ export interface OpenAIProviderOptions {
 }
 
 type OpenAIResponseBody = {
+  model?: unknown;
   output_text?: unknown;
   output?: unknown;
   status?: unknown;
@@ -101,11 +117,12 @@ type OpenAIResponseBody = {
   incomplete_details?: {
     reason?: unknown;
   };
-  error?: {
-    message?: string;
-    type?: string;
-    code?: string;
-  };
+  error?: OpenAIReportedError;
+  /**
+   * OpenRouter's typed classification of a failed response. It sits beside
+   * `error`, whose native `code` collapses many causes into `server_error`.
+   */
+  error_type?: unknown;
 };
 
 type OpenAIErrorBody = {
@@ -146,6 +163,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     return {
       id: this.id,
       type: "cloud",
+      model: this.options.model,
       transport: "http",
       streamingStyle: "tokens",
       supports: {
@@ -302,7 +320,26 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     }
 
     const responseBody = parseJson<OpenAIResponseBody>(response.body);
+    // A lenient server (OpenRouter among them) can answer 2xx for a run that
+    // failed upstream; that is a failure to classify, not an empty answer.
+    if (responseBody.status === "failed" || responseBody.status === "cancelled") {
+      throw this.mapReportedError(
+        responseBody.error,
+        `OpenAI Responses run ended with status '${responseBody.status}'.`,
+        context,
+        responseBody.error_type
+      );
+    }
+
     const outputText = extractOutputText(responseBody);
+    if (outputText === undefined && isRecord(responseBody.error)) {
+      throw this.mapReportedError(
+        responseBody.error,
+        "OpenAI Responses payload reported an error.",
+        context,
+        responseBody.error_type
+      );
+    }
     if (outputText === undefined) {
       throw createInternal("OpenAI Responses payload did not contain text output.", {
         providerId: this.id,
@@ -323,6 +360,11 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
         totalMs: 0
       }
     };
+
+    const reportedModel = getReportedModel(responseBody);
+    if (reportedModel !== undefined) {
+      result.telemetry.reportedModel = reportedModel;
+    }
 
     const usage = getUsage(responseBody);
     if (usage) {
@@ -349,7 +391,9 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
    * - `response.completed` and `response.incomplete` become the terminal done,
    *   with `finalText`, `usage`, and `finishReason` read off the embedded
    *   response object by the same helpers Mode 1 uses — it has the same shape;
-   * - `response.failed` and `error` become a terminal error;
+   * - `response.failed`, `response.error` and `error` become a terminal error,
+   *   as does an untyped event carrying an `error` object (OpenRouter's
+   *   documented mid-stream failure shape);
    * - every other event type is ignored, since the set is open and additive.
    *
    * @param request - Canonical IndeRun task request.
@@ -440,11 +484,20 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
         if (usage) {
           done.usage = usage;
         }
+        const reportedModel = getReportedModel(body);
+        if (reportedModel !== undefined) {
+          done.reportedModel = reportedModel;
+        }
         yield done;
         return;
       }
 
-      if (type === "response.failed" || type === "error") {
+      if (
+        type === "response.failed" ||
+        type === "response.error" ||
+        type === "error" ||
+        (type === undefined && isRecord(parsed.error))
+      ) {
         yield { kind: "error", error: this.mapStreamError(parsed, context) };
         return;
       }
@@ -456,23 +509,68 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
   }
 
   /**
-   * Maps a `response.failed` / `error` stream event onto the error taxonomy.
-   * These arrive over an HTTP 200 body, so there is no status code to classify
-   * from; OpenAI reports rate limiting and auth failures here with the same
-   * `code` values it uses in unary error bodies.
+   * Maps a `response.failed` / `response.error` / `error` stream event onto the
+   * error taxonomy. These arrive over an HTTP 200 body, so there is no status
+   * code to classify from; the event's own `code` is classified instead.
    *
    * Two payload shapes exist and both are accepted: the standalone `error`
    * event carries `code`/`message` at its root, while `response.failed` nests
-   * them under `response.error`. The root `type` is the event name rather than
-   * an error type, so it is never read as one.
+   * them under `response.error` and some servers nest them under `error`. The
+   * root `type` is the event name rather than an error type, so it is never
+   * read as one. OpenRouter's typed classification comes from the embedded
+   * response (`response.failed`) or the error's metadata (untyped events).
    */
   private mapStreamError(event: OpenAIStreamEvent, context: ProviderStreamContext): unknown {
     const nested = event.error ?? event.response?.error;
+    return this.mapReportedError(
+      {
+        message: nested?.message ?? event.message,
+        type: nested?.type,
+        code: nested?.code ?? event.code
+      },
+      "OpenAI Responses stream reported a failure.",
+      context,
+      event.response?.error_type ?? nested?.metadata?.error_type
+    );
+  }
+
+  /**
+   * Classifies a failure reported in a body rather than by the HTTP status: a
+   * failed stream event or a 2xx run body whose status is `failed`. The most
+   * specific signal wins:
+   * 1. OpenRouter's typed `error_type`, classified by the HTTP status it
+   *    documents for that type (see `openRouterErrorTypeStatus`);
+   * 2. an integer `code`, which is an HTTP status (OpenRouter's convention) and
+   *    is classified exactly as `mapHttpError` classifies that status;
+   * 3. a string code, by OpenAI's names.
+   * Anything unrecognized is a transient `Unavailable`, since the server did
+   * accept the request.
+   */
+  private mapReportedError(
+    reported: OpenAIReportedError | undefined,
+    fallbackMessage: string,
+    context: RunContext,
+    errorType?: unknown
+  ): Error {
     const message =
-      nested?.message ?? event.message ?? "OpenAI Responses stream reported a failure.";
-    const code = nested?.code ?? event.code;
-    const details = { errorType: nested?.type, errorCode: code };
+      typeof reported?.message === "string" && reported.message.length > 0
+        ? reported.message
+        : fallbackMessage;
+    const typedStatus = openRouterErrorTypeStatus(errorType);
+    const details = {
+      errorType: typedStatus !== undefined ? (errorType as string) : reported?.type,
+      errorCode: getErrorCode(reported?.code)
+    };
     const params = { providerId: this.id, runId: context.runId, details };
+
+    if (typedStatus !== undefined) {
+      return this.errorForStatus(typedStatus, message, params);
+    }
+
+    const code = reported?.code;
+    if (typeof code === "number" && Number.isInteger(code)) {
+      return this.errorForStatus(code, message, params);
+    }
 
     switch (code) {
       case "rate_limit_exceeded":
@@ -480,6 +578,10 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
       case "invalid_api_key":
       case "authentication_error":
         return createAuthError(message, params);
+      // The request itself was rejected; repeating it cannot succeed.
+      case "invalid_prompt":
+      case "image_content_policy_violation":
+        return createInternal(message, params);
       default:
         return createUnavailable(message, { ...params, retryable: true });
     }
@@ -562,12 +664,9 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
   }
 
   /**
-   * Maps an OpenAI HTTP error response onto the IndeRun error taxonomy:
-   * - `401` / `403` → `AuthError`
-   * - `429` → `RateLimited` (honors `Retry-After` when present)
-   * - `408` / `504` → `Timeout`
-   * - `409` / `5xx` → `Unavailable`
-   * - any other non-2xx status → `Internal`
+   * Maps an OpenAI HTTP error response onto the IndeRun error taxonomy by its
+   * status (see `errorForStatus`), honoring `Retry-After` on whichever status
+   * carries it.
    */
   private mapHttpError(
     status: number,
@@ -578,63 +677,70 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
   ): Error {
     const error = parseJson<OpenAIErrorBody>(body);
     const message = getOpenAIErrorMessage(error, status, statusText);
-    const details = {
-      status,
-      statusText,
-      errorType: getString(error.error?.type),
-      errorCode: getString(error.error?.code)
+    const params: ErrorParams = {
+      providerId: this.id,
+      runId: context.runId,
+      details: {
+        status,
+        statusText,
+        errorType: getString(error.error?.type),
+        errorCode: getErrorCode(error.error?.code)
+      }
     };
 
+    return this.errorForStatus(status, message, params, parseRetryAfterMs(headers));
+  }
+
+  /**
+   * The status classification shared by HTTP errors and numeric in-body codes:
+   * - `401` / `403` → `AuthError`
+   * - `402` → `Unavailable`, not retryable: the account is out of credits, so
+   *   this target cannot serve until someone tops it up. A 402 that carries
+   *   `Retry-After` is the exception — OpenRouter documents it for its
+   *   in-flight budget limit, a wait-and-retry case — and is `RateLimited`. Fallback is unaffected
+   *   either way: the engine moves on to the next target whatever the class.
+   * - `429` → `RateLimited`
+   * - `408` / `504` → `Timeout`
+   * - `409` / `5xx` → `Unavailable`
+   * - any other status → `Internal`
+   *
+   * `retryAfterMs` travels on every retryable class; it is absent for numeric
+   * in-body codes, which have no header to read it from.
+   */
+  private errorForStatus(
+    status: number,
+    message: string,
+    params: ErrorParams,
+    retryAfterMs?: number
+  ): Error {
+    const retry: ErrorParams = { ...params, retryable: true };
+    if (retryAfterMs !== undefined) {
+      retry.retryAfterMs = retryAfterMs;
+    }
+
     if (status === 401 || status === 403) {
-      return createAuthError(message, {
-        providerId: this.id,
-        runId: context.runId,
-        details
-      });
+      return createAuthError(message, params);
+    }
+
+    if (status === 402) {
+      return retryAfterMs === undefined
+        ? createUnavailable(message, { ...params, retryable: false })
+        : createRateLimited(message, retry);
     }
 
     if (status === 429) {
-      const retryAfterMs = parseRetryAfterMs(headers);
-      const params = {
-        providerId: this.id,
-        runId: context.runId,
-        retryable: true,
-        details
-      };
-
-      if (retryAfterMs !== undefined) {
-        return createRateLimited(message, {
-          ...params,
-          retryAfterMs
-        });
-      }
-
-      return createRateLimited(message, params);
+      return createRateLimited(message, retry);
     }
 
     if (status === 408 || status === 504) {
-      return createTimeout(message, {
-        providerId: this.id,
-        runId: context.runId,
-        retryable: true,
-        details
-      });
+      return createTimeout(message, retry);
     }
 
     if (status === 409 || status >= 500) {
-      return createUnavailable(message, {
-        providerId: this.id,
-        runId: context.runId,
-        retryable: true,
-        details
-      });
+      return createUnavailable(message, retry);
     }
 
-    return createInternal(message, {
-      providerId: this.id,
-      runId: context.runId,
-      details
-    });
+    return createInternal(message, params);
   }
 }
 
@@ -684,6 +790,16 @@ function getFinishReason(response: OpenAIResponseBody): TaskResult["finishReason
   }
 
   return "stop";
+}
+
+/**
+ * The model id the Responses API echoes on the response object. It names the model that
+ * served the request, which can be a dated snapshot of the configured alias.
+ */
+function getReportedModel(responseBody: OpenAIResponseBody): string | undefined {
+  return typeof responseBody.model === "string" && responseBody.model.length > 0
+    ? responseBody.model
+    : undefined;
 }
 
 function getUsage(response: OpenAIResponseBody): TaskResult["usage"] | undefined {
@@ -762,4 +878,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function getString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * The HTTP status OpenRouter documents for each typed `error_type`, so a typed
+ * failure is classified exactly like the equivalent HTTP error. Refusals and
+ * content-policy violations are documented as 403 but are not credential
+ * failures, so they classify as a rejected request (400). Unknown types return
+ * `undefined` and the native `code` decides instead.
+ */
+function openRouterErrorTypeStatus(errorType: unknown): number | undefined {
+  return typeof errorType === "string" && Object.hasOwn(OPENROUTER_ERROR_TYPE_STATUS, errorType)
+    ? OPENROUTER_ERROR_TYPE_STATUS[errorType]
+    : undefined;
+}
+
+const OPENROUTER_ERROR_TYPE_STATUS: Readonly<Record<string, number>> = {
+  authentication: 401,
+  payment_required: 402,
+  permission_denied: 403,
+  rate_limit_exceeded: 429,
+  timeout: 504,
+  provider_unavailable: 502,
+  provider_overloaded: 503,
+  server: 500,
+  unmapped: 500,
+  not_found: 404,
+  image_not_found: 404,
+  precondition_failed: 412,
+  payload_too_large: 413,
+  unprocessable: 422,
+  content_policy_violation: 400,
+  refusal: 400,
+  context_length_exceeded: 400,
+  max_tokens_exceeded: 400,
+  token_limit_exceeded: 400,
+  string_too_long: 400,
+  invalid_request: 400,
+  invalid_prompt: 400,
+  invalid_image: 400,
+  image_too_large: 400,
+  image_too_small: 400,
+  unsupported_image_format: 400,
+  image_download_failed: 400
+};
+
+/** An error `code` as a detail string, whether the server sent a name or a numeric status. */
+function getErrorCode(value: unknown): string | undefined {
+  return typeof value === "number" ? String(value) : getString(value);
 }

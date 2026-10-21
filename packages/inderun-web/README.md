@@ -10,31 +10,58 @@ TypeScript/Web SDK for IndeRun.
 
 This package provides the Web SDK entrypoint, the engine core, routing, telemetry, error normalization, the OpenAI-compatible cloud provider, the Web ONNX Runtime provider for developer-supplied local models, and the Web system-model provider for browser-managed on-device models.
 
-The contract types this SDK's own signatures take and return — `TaskRequest`, `TaskResult`, `StreamEvent`, `StreamRunHandle`, `StreamTerminalOutcome`, `IndeRunError`, the host-service and telemetry interfaces, and (from the `/onnx` subpath) `ModelPackage` — are re-exported here, so a fully typed app does not need to depend on `@independo/inderun-contracts` separately. Import that package directly only if you want the JSON Schemas or the `get*ValidationIssues` validators.
+The contract types this SDK's own signatures take and return — `TaskRequest`, `TaskResult`, `StreamEvent`, `StreamRunHandle`, `StreamTerminalOutcome`, `IndeRunError`, `ExecutionProvenance`, the telemetry interfaces, the host-service interfaces (from `/provider`), and (from the `/onnx` subpath) `ModelPackage` — are re-exported here, so a fully typed app does not need to depend on `@independo/inderun-contracts` separately. Import that package directly only if you want the JSON Schemas or the `get*ValidationIssues` validators.
+
+## Entry points
+
+| Import | For | Contains |
+| --- | --- | --- |
+| `@independo/inderun-web` | Applications | `generateText` / `streamText`, `createIndeRunWeb`, the advanced task API (`IndeRun`, `run()` / `stream()` / `checkCapabilities()`), model profiles, contract types, `IndeRunException`, telemetry |
+| `@independo/inderun-web/provider` | Provider authors and host integrators | `ProviderAdapter` and the descriptor/capability types, `ProviderRegistry`, `HostServices` and the browser host services, the `create*` error constructors |
+| `@independo/inderun-web/openai`, `/onnx`, `/system-model` | Registering a provider by hand | One provider adapter each |
+
+The router, the route planner bindings and the Event Gate are engine internals and are not exported. Moving from 0.3?
+See the [migration guide](https://github.com/independo-gmbh/inderun/blob/main/docs/migration.md).
 
 ## Basic Usage
 
 ```ts
-import { createIndeRunWeb } from "@independo/inderun-web";
+import { createIndeRunWeb, generateText, streamText } from "@independo/inderun-web";
 
 const inderun = createIndeRunWeb({
   openAI: {
-    model: "gpt-5.2",
+    models: ["gpt-5.2"],
     endpointUrl: "/api/inderun/openai-responses",
     auth: "none"
   }
 });
 
-const result = await inderun.run({
-  schemaVersion: "1.0",
-  task: { kind: "text_to_text" },
-  prompt: "Write a one-sentence summary of IndeRun."
+const { text, provenance } = await generateText(inderun, {
+  prompt: "Write a one-sentence summary of IndeRun.",
+  execution: { privacy: "local_preferred" }
 });
+
+const stream = await streamText(inderun, { system: "Use plain language.", prompt: "Explain routing." });
+for await (const delta of stream.textStream) process.stdout.write(delta);
+const { finishReason } = await stream.result;
 ```
+
+`generateText` and `streamText` take `prompt` or `messages`, an optional `system`, `model` (a
+[model profile](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/api-layering.md#model-profiles),
+default `"auto"`), the usual sampling options, and an `execution` policy that reuses the canonical
+constraint values. Each call compiles to one `TaskRequest` — `toTaskRequest(options)` shows which —
+and runs through the engine below, so errors, fallback, and cancellation match the advanced API.
+
+## Advanced: the task API
+
+Use `TaskRequest` with `run()` / `stream()` when you need the raw event sequence, build requests in code (for example
+with your own `requestId`), or check capabilities before offering an option —
+`await inderun.checkCapabilities()` reports every registered target's live availability. Both layers run through the
+same engine.
 
 ## Streaming
 
-`stream()` returns the run handle, its canonical `StreamEvent` sequence, and a `cancel()` hook:
+For the full event sequence, use the advanced API. `stream()` returns the run handle, its canonical `StreamEvent` sequence, and a `cancel()` hook:
 
 ```ts
 const { handle, events, cancel } = await inderun.stream({
@@ -66,6 +93,9 @@ accept `"stream": true` and emit `text/event-stream` with the Responses event ty
 response object. Unknown event types are ignored, so an endpoint that emits extra events is
 fine; one that emits a different vocabulary entirely is not.
 
+[OpenRouter](https://github.com/independo-gmbh/inderun/blob/main/docs/openrouter.md) is reached this way: point
+`endpointUrl` at its Responses endpoint (through a proxy in browser apps) and list `vendor/model` ids as `models`.
+
 ## Security Model
 
 Browser apps should use a proxy endpoint and keep provider credentials server-side. `createIndeRunWeb` rejects direct calls to the public OpenAI Responses endpoint unless `allowDirectOpenAIEndpoint: true` is set for a controlled environment.
@@ -78,10 +108,17 @@ distributed client code — put it behind a trusted backend proxy and point `end
 ## Advanced: registering the OpenAI provider directly
 
 `createIndeRunWeb` wires the OpenAI Responses provider for you. To register it
-manually (e.g. alongside other providers), import it from the provider subpath:
+manually (e.g. alongside other providers), import it from the provider subpath and build the engine from
+the `/provider` entry point:
 
 ```ts
+import { IndeRun } from "@independo/inderun-web";
 import { OpenAIResponsesProvider } from "@independo/inderun-web/openai";
+import { ProviderRegistry, createBrowserHostServices } from "@independo/inderun-web/provider";
+
+const registry = new ProviderRegistry();
+registry.register(new OpenAIResponsesProvider({ model: "gpt-5.2", endpointUrl: "/api/inderun/openai-responses", auth: "none" }));
+const inderun = new IndeRun(registry, createBrowserHostServices());
 ```
 
 The provider normalizes OpenAI transport and API failures into the IndeRun error

@@ -19,6 +19,14 @@ import {
 } from "./errors.js";
 import { type TelemetryEvent, type TelemetryService, NoOpTelemetryService } from "./telemetry.js";
 import { EventGate } from "./event-gate.js";
+import {
+  AUTO_MODEL_PROFILE,
+  type ModelProfiles,
+  type ResolvedModelProfile,
+  resolveModelProfile,
+  validateModelProfiles
+} from "./model-profiles.js";
+import { ProvenanceRecorder } from "./provenance.js";
 
 /**
  * @deprecated Renamed to `StreamRun`, which is the name the generated
@@ -28,6 +36,22 @@ import { EventGate } from "./event-gate.js";
 export type StreamHandleResult = StreamRun;
 
 /**
+ * Optional engine configuration.
+ */
+export interface IndeRunOptions {
+  /**
+   * Telemetry listener. Defaults to the host's telemetry service, then to a no-op.
+   */
+  telemetryService?: TelemetryService;
+  /**
+   * Named model profiles requests can route within (`TaskRequest.modelProfile`).
+   * Each maps a profile name to an ordered list of target (provider instance) ids.
+   * `"auto"` is built in and cannot be redefined. See `docs/architecture/api-layering.md`.
+   */
+  modelProfiles?: ModelProfiles;
+}
+
+/**
  * Main orchestrator SDK entrypoint class.
  * Validates tasks, executes routing rules based on request constraints and connectivity,
  * triggers provider adapters, and logs timing telemetry.
@@ -35,21 +59,48 @@ export type StreamHandleResult = StreamRun;
 export class IndeRun implements IndeRunApi {
   private router: Router;
   private telemetryService: TelemetryService;
+  private modelProfiles: ModelProfiles;
 
   /**
    * Initializes the IndeRun instance.
    * @param registry - Registry filled with active providers.
    * @param hostServices - Services wrapping OS interfaces and indicators.
-   * @param telemetryService - Optional custom telemetry service listener.
+   * @param options - Optional telemetry listener and model profiles.
+   * @throws {Error} If a model profile is malformed (see {@link validateModelProfiles}).
    */
   constructor(
     private registry: ProviderRegistry,
     private hostServices: HostServices,
-    telemetryService?: TelemetryService
+    options: IndeRunOptions = {}
   ) {
     this.router = new Router(this.registry);
     this.telemetryService =
-      telemetryService || this.hostServices.telemetry || new NoOpTelemetryService();
+      options.telemetryService || this.hostServices.telemetry || new NoOpTelemetryService();
+    this.modelProfiles = options.modelProfiles ?? {};
+    validateModelProfiles(this.modelProfiles);
+  }
+
+  /**
+   * Validates the request against the schema and resolves its model profile.
+   * Both failures are request validation errors: they are reported before any
+   * provider is probed, with the offending fields in `details.validationIssues`.
+   */
+  private validateRequest(request: TaskRequest, runId: string): ResolvedModelProfile {
+    const validationIssues = getTaskRequestValidationIssues(request);
+    if (validationIssues.length === 0) {
+      const resolved = resolveModelProfile(this.modelProfiles, request.modelProfile);
+      if (resolved.known) {
+        return resolved.profile;
+      }
+      validationIssues.push({
+        path: "/modelProfile",
+        message: `unknown model profile "${request.modelProfile}"; configure it in the engine's modelProfiles`
+      });
+    }
+    const message = `Validation failed for TaskRequest: ${validationIssues
+      .map((i) => `${i.path} - ${i.message}`)
+      .join("; ")}`;
+    throw createInternal(message, { runId, details: { validationIssues } });
   }
 
   /**
@@ -81,6 +132,7 @@ export class IndeRun implements IndeRunApi {
         rejectedProviders: routeSelection.routePlan.rejectedProviders,
         fallbackAvailable: providerCount > 1,
         taskKind: request.task.kind,
+        modelProfile: request.modelProfile ?? "auto",
         constraints: request.constraints ?? null,
         preferences: request.preferences ?? null,
         explanation: routeSelection.explanation
@@ -137,23 +189,21 @@ export class IndeRun implements IndeRunApi {
     const startTime = this.now();
 
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
+    const provenance = new ProvenanceRecorder(request.modelProfile ?? AUTO_MODEL_PROFILE);
 
     try {
-      // 1. Validate request payload using schema contracts
-      const validationIssues = getTaskRequestValidationIssues(request);
-      if (validationIssues.length > 0) {
-        const message = `Validation failed for TaskRequest: ${validationIssues
-          .map((i) => `${i.path} - ${i.message}`)
-          .join("; ")}`;
-        throw createInternal(message, {
-          runId,
-          details: { validationIssues }
-        });
-      }
+      // 1. Validate request payload using schema contracts and resolve its model profile
+      const modelProfile = this.validateRequest(request, runId);
 
-      // 2. Select the route based on constraints and host capabilities
-      const routeSelection = await this.router.selectRoute(request, this.hostServices, "run");
+      // 2. Select the route based on constraints, model profile, and host capabilities
+      const routeSelection = await this.router.selectRoute(
+        request,
+        this.hostServices,
+        "run",
+        modelProfile
+      );
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
+      provenance.routed(routeSelection.routePlan);
 
       this.emitRouteDecided(runId, request, routeSelection, providers.length);
 
@@ -179,6 +229,8 @@ export class IndeRun implements IndeRunApi {
             providerUsed: providerId,
             totalMs
           };
+          provenance.attempted(providerId, "succeeded");
+          result.provenance = provenance.build(provider.describe(), result.telemetry.reportedModel);
 
           this.safeEmit({
             type: "attempt_succeeded",
@@ -194,7 +246,7 @@ export class IndeRun implements IndeRunApi {
 
           return result;
         } catch (err) {
-          lastError = toIndeRunException(err, {
+          const attemptError = toIndeRunException(err, {
             providerId,
             runId,
             details: {
@@ -203,6 +255,8 @@ export class IndeRun implements IndeRunApi {
               routePlan: routeSelection.routePlan
             }
           });
+          provenance.attempted(providerId, "failed", attemptError.errorClass);
+          lastError = attemptError;
         }
       }
 
@@ -213,14 +267,14 @@ export class IndeRun implements IndeRunApi {
         details: {
           totalMs,
           attemptedProviderIds,
-          fallbackOccurred: providers.length > 1,
+          fallbackOccurred: attemptedProviderIds.length > 1,
           routePlan: routeSelection.routePlan
         }
       });
 
       throw exception;
     } catch (error) {
-      const exception = toIndeRunException(error, {
+      const normalized = toIndeRunException(error, {
         runId,
         details: {
           totalMs:
@@ -229,6 +283,10 @@ export class IndeRun implements IndeRunApi {
               : this.now() - startTime
         }
       });
+      // A routing refusal throws before any attempt; its rejections travel on the details.
+      provenance.routingFailed(normalized.details);
+      // No attempt produced the result, so the outcome is attributed to no provider.
+      const exception = normalized.withProvenance(provenance.build());
       const endTime = this.now();
       const totalMs =
         typeof (exception as { details?: { totalMs?: number } }).details?.totalMs === "number"
@@ -273,13 +331,13 @@ export class IndeRun implements IndeRunApi {
     const startTime = this.now();
     const now = () => this.now();
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
+    const provenance = new ProvenanceRecorder(request.modelProfile ?? AUTO_MODEL_PROFILE);
 
-    const validationIssues = getTaskRequestValidationIssues(request);
-    if (validationIssues.length > 0) {
-      const message = `Validation failed for TaskRequest: ${validationIssues
-        .map((i) => `${i.path} - ${i.message}`)
-        .join("; ")}`;
-      throw createInternal(message, { runId, details: { validationIssues } });
+    let modelProfile: ResolvedModelProfile;
+    try {
+      modelProfile = this.validateRequest(request, runId);
+    } catch (error) {
+      throw toIndeRunException(error, { runId }).withProvenance(provenance.build());
     }
 
     // Route selection failures are the one class of stream error that surfaces as a
@@ -287,11 +345,19 @@ export class IndeRun implements IndeRunApi {
     // runId — there is no handle for the caller to correlate them with otherwise.
     let routeSelection: RouteSelection;
     try {
-      routeSelection = await this.router.selectRoute(request, this.hostServices, "stream");
+      routeSelection = await this.router.selectRoute(
+        request,
+        this.hostServices,
+        "stream",
+        modelProfile
+      );
     } catch (error) {
-      throw toIndeRunException(error, { runId });
+      const exception = toIndeRunException(error, { runId });
+      provenance.routingFailed(exception.details);
+      throw exception.withProvenance(provenance.build());
     }
     const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
+    provenance.routed(routeSelection.routePlan);
 
     this.emitRouteDecided(runId, request, routeSelection, providers.length);
 
@@ -322,15 +388,22 @@ export class IndeRun implements IndeRunApi {
       const attemptedProviderIds: string[] = [];
       let committed = false;
 
-      const cancelledOutcome = (partialText: string): StreamTerminalOutcome => {
+      const cancelledOutcome = (
+        partialText: string,
+        cancelledProvider?: ProviderAdapter
+      ): StreamTerminalOutcome => {
         const reason =
           typeof controller.signal.reason === "string" ? controller.signal.reason : undefined;
+        if (cancelledProvider !== undefined) {
+          provenance.attempted(cancelledProvider.describe().id, "cancelled");
+        }
         return {
           outcome: "cancelled",
           runId,
           schemaVersion: "1.0",
           partialText,
-          ...(reason !== undefined ? { reason } : {})
+          ...(reason !== undefined ? { reason } : {}),
+          provenance: provenance.build(cancelledProvider?.describe())
         };
       };
 
@@ -387,6 +460,7 @@ export class IndeRun implements IndeRunApi {
             }
 
             // ev.kind === "done"
+            provenance.attempted(providerId, "succeeded");
             const outcome: StreamTerminalOutcome = {
               outcome: "completed",
               runId,
@@ -394,7 +468,8 @@ export class IndeRun implements IndeRunApi {
               finalText: ev.finalText,
               telemetry: { providerUsed: providerId, totalMs: now() - startTime },
               ...(ev.finishReason !== undefined ? { finishReason: ev.finishReason } : {}),
-              ...(ev.usage !== undefined ? { usage: ev.usage } : {})
+              ...(ev.usage !== undefined ? { usage: ev.usage } : {}),
+              provenance: provenance.build(provider.describe(), ev.reportedModel)
             };
             const terminal = gate.terminate(outcome, now());
             safeEmit({
@@ -413,7 +488,7 @@ export class IndeRun implements IndeRunApi {
           }
 
           if (controller.signal.aborted) {
-            const terminal = gate.terminate(cancelledOutcome(partialText), now());
+            const terminal = gate.terminate(cancelledOutcome(partialText, provider), now());
             safeEmit({
               type: "stream_cancelled",
               runId,
@@ -428,7 +503,7 @@ export class IndeRun implements IndeRunApi {
           throw new Error(`Provider '${providerId}' stream ended without a terminal event.`);
         } catch (err) {
           if (controller.signal.aborted) {
-            const terminal = gate.terminate(cancelledOutcome(partialText), now());
+            const terminal = gate.terminate(cancelledOutcome(partialText, provider), now());
             safeEmit({
               type: "stream_cancelled",
               runId,
@@ -444,6 +519,7 @@ export class IndeRun implements IndeRunApi {
             runId,
             details: { attemptedProviderIds }
           });
+          provenance.attempted(providerId, "failed", exception.errorClass);
 
           if (!committed) {
             safeEmit({
@@ -459,12 +535,14 @@ export class IndeRun implements IndeRunApi {
             continue;
           }
 
+          // Committed: the failure belongs to this provider, not to the chain.
           const outcome: StreamTerminalOutcome = {
             outcome: "error",
             runId,
             schemaVersion: "1.0",
             error: exception.toContractError(),
-            partialText
+            partialText,
+            provenance: provenance.build(provider.describe())
           };
           const terminal = gate.terminate(outcome, now());
           safeEmit({
@@ -505,7 +583,8 @@ export class IndeRun implements IndeRunApi {
         runId,
         schemaVersion: "1.0",
         error: exception.toContractError(),
-        partialText: ""
+        partialText: "",
+        provenance: provenance.build()
       };
       const terminal = gate.terminate(outcome, now());
       safeEmit({

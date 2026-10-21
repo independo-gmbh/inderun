@@ -1,4 +1,8 @@
-import type { IndeRunError, IndeRunErrorClass } from "@independo/inderun-contracts";
+import type {
+  ExecutionProvenance,
+  IndeRunError,
+  IndeRunErrorClass
+} from "@independo/inderun-contracts";
 
 /**
  * Parameter structure required to initialize an IndeRunException.
@@ -32,6 +36,10 @@ export interface IndeRunExceptionParams {
    * Rich contextual metadata regarding the error.
    */
   details?: Record<string, unknown>;
+  /**
+   * How the failed execution played out, attached by the engine.
+   */
+  provenance?: ExecutionProvenance;
 }
 
 /**
@@ -53,6 +61,8 @@ export class IndeRunException extends Error {
   readonly retryAfterMs?: number;
   /** Custom details and metadata context. */
   readonly details?: Record<string, unknown>;
+  /** How the failed execution played out: attempts, rejections, the provider committed to. */
+  readonly provenance?: ExecutionProvenance;
 
   constructor(params: IndeRunExceptionParams) {
     super(params.message);
@@ -63,6 +73,7 @@ export class IndeRunException extends Error {
     if (params.retryable !== undefined) this.retryable = params.retryable;
     if (params.retryAfterMs !== undefined) this.retryAfterMs = params.retryAfterMs;
     if (params.details !== undefined) this.details = params.details;
+    if (params.provenance !== undefined) this.provenance = params.provenance;
 
     Object.setPrototypeOf(this, IndeRunException.prototype);
   }
@@ -81,7 +92,27 @@ export class IndeRunException extends Error {
     if (this.retryable !== undefined) err.retryable = this.retryable;
     if (this.retryAfterMs !== undefined) err.retryAfterMs = this.retryAfterMs;
     if (this.details !== undefined) err.details = this.details;
+    if (this.provenance !== undefined) err.provenance = this.provenance;
     return err;
+  }
+
+  /**
+   * A copy of this exception carrying `provenance`. The engine attaches provenance once it
+   * knows how the whole execution ended, replacing anything set earlier.
+   */
+  withProvenance(provenance: ExecutionProvenance): IndeRunException {
+    return new IndeRunException({ ...this.params(), provenance });
+  }
+
+  private params(): IndeRunExceptionParams {
+    const params: IndeRunExceptionParams = { errorClass: this.errorClass, message: this.message };
+    if (this.runId !== undefined) params.runId = this.runId;
+    if (this.providerId !== undefined) params.providerId = this.providerId;
+    if (this.retryable !== undefined) params.retryable = this.retryable;
+    if (this.retryAfterMs !== undefined) params.retryAfterMs = this.retryAfterMs;
+    if (this.details !== undefined) params.details = this.details;
+    if (this.provenance !== undefined) params.provenance = this.provenance;
+    return params;
   }
 }
 
@@ -188,6 +219,9 @@ export function toIndeRunException(
           ...(fallbackParams.details || {})
         };
       }
+
+      const provenance = error.provenance ?? fallbackParams.provenance;
+      if (provenance !== undefined) mergedParams.provenance = provenance;
 
       return new IndeRunException(mergedParams);
     }

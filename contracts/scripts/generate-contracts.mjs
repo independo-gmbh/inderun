@@ -109,8 +109,47 @@ const schemas = [
     input: "stream-terminal-outcome.schema.json",
     typeOutput: "stream-terminal-outcome.ts",
     constName: "streamTerminalOutcomeSchema"
+  },
+  {
+    input: "execution-provenance.schema.json",
+    typeOutput: "execution-provenance.ts",
+    constName: "executionProvenanceSchema",
+    // Reached through `$ref` from every schema that carries provenance, so the Swift and
+    // Kotlin runs already see it; listing it as a root too would emit a second, identical
+    // type under its title. See `refTypeRenames`.
+    nativeRoot: false
   }
 ];
+
+/** Schemas passed as roots to the single-file Swift and Kotlin quicktype runs. */
+const nativeSchemaInputs = schemas
+  .filter((schema) => schema.nativeRoot !== false)
+  .map((schema) => join(schemasDir, schema.input));
+
+/**
+ * `ExecutionProvenance` is the one shape shared by `$ref` rather than duplicated by value:
+ * it is carried on six payloads, and by-value copies make quicktype emit six unrelated
+ * Swift/Kotlin types (`PurpleExecutionProvenanceAttempt`, ...). Through `$ref` it emits
+ * one, but names it after the referencing property; these renames restore the schema's
+ * title. Each must match, so a quicktype naming change fails generation instead of
+ * silently shipping the wrong names.
+ */
+const refTypeRenames = [
+  ["ProvenanceClass", "ExecutionProvenance"],
+  ["ProvenanceAttempt", "ExecutionProvenanceAttempt"],
+  ["ProvenanceRouteRejection", "ExecutionProvenanceRouteRejection"]
+];
+
+function renameRefTypes(source) {
+  let output = source;
+  for (const [from, to] of refTypeRenames) {
+    output = output.replace(new RegExp(`\\b${from}\\b`, "g"), to);
+    if (!new RegExp(`\\b(?:struct|class) ${to}\\b`).test(output)) {
+      throw new Error(`Expected quicktype to emit ${to} (or ${from}) for a $ref'd schema.`);
+    }
+  }
+  return output;
+}
 
 await mkdir(generatedDir, { recursive: true });
 
@@ -392,7 +431,7 @@ async function readKotlinEnumWireValues(tempDir) {
     ...kotlinQuicktypeArgs,
     "--framework",
     "kotlinx",
-    ...schemas.map((schema) => join(schemasDir, schema.input)),
+    ...nativeSchemaInputs,
     "--out",
     quicktypeOutputPath
   ]);
@@ -406,13 +445,13 @@ async function generateKotlinContracts(tempDir) {
   await execFileAsync(quicktypeBinary(), [
     ...kotlinQuicktypeArgs,
     "--just-types",
-    ...schemas.map((schema) => join(schemasDir, schema.input)),
+    ...nativeSchemaInputs,
     "--out",
     quicktypeOutputPath
   ]);
 
   const kotlinSource = normalizeKotlinContractsSource(
-    await readFile(quicktypeOutputPath, "utf8"),
+    renameRefTypes(await readFile(quicktypeOutputPath, "utf8")),
     await readKotlinEnumWireValues(tempDir)
   );
 
@@ -527,12 +566,12 @@ try {
     "--mutable-properties",
     "--acronym-style",
     "original",
-    ...schemas.map((schema) => join(schemasDir, schema.input)),
+    ...nativeSchemaInputs,
     "--out",
     quicktypeOutputPath
   ]);
 
-  let swiftSource = await readFile(quicktypeOutputPath, "utf8");
+  let swiftSource = renameRefTypes(await readFile(quicktypeOutputPath, "utf8"));
   swiftSource = addJSONAnyValueInitializer(swiftSource);
   swiftSource = updateJSONNullHashableConformance(swiftSource);
   swiftSource = replaceAll(swiftSource, [

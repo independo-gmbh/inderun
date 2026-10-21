@@ -1,21 +1,77 @@
-import type { StreamEvent, TaskResult } from "@independo/inderun-contracts";
 import {
+  type ExecutionProvenance,
+  generateText,
+  type IndeRunApi,
   type IndeRunException,
   type ProviderCapabilitySnapshot,
+  type StreamEvent,
   type StreamRun,
+  streamText,
+  type TaskRequest,
+  type TaskResult,
+  type TextStream,
   toIndeRunException
 } from "@independo/inderun-web";
-import type { Privacy, RouteDecidedPayload } from "./demo-client";
+import type { RouteDecidedPayload } from "./route-decision";
+import {
+  type Delivery,
+  escapeHtml,
+  outcomeNotices,
+  renderDeviceStatus,
+  renderNotices,
+  renderProvenance,
+  type TargetCatalog
+} from "./provenance-view";
+import {
+  cloudTargetId,
+  type Privacy,
+  SAMPLE_TEXT,
+  SIMPLIFY_PROFILE,
+  simplifyOptions,
+  simplifyProfileTargets
+} from "./simplify";
 
-const DEFAULT_PROMPT =
-  "Write a terse status update explaining what IndeRun routed and why it matters.";
+const SIMPLIFY_PRIVACY_OPTIONS: Array<{ value: Privacy; label: string; hint: string }> = [
+  {
+    value: "local_required",
+    label: "On this device only",
+    hint: "The text never leaves this device. If no on-device model can run here, nothing runs."
+  },
+  {
+    value: "local_preferred",
+    label: "Prefer this device",
+    hint: "On-device targets are tried first, but the text may be sent to the cloud when none of them can run it."
+  },
+  {
+    value: "cloud_allowed",
+    label: "Cloud allowed",
+    hint: "Any target in the profile may run it, the cloud included."
+  }
+];
 
+const DELIVERY_OPTIONS: Array<{ value: Delivery; label: string; hint: string }> = [
+  {
+    value: "whole",
+    label: "Whole result",
+    hint: "generateText(): every target can run it, on-device ones included. It cannot be stopped once started."
+  },
+  {
+    value: "stream",
+    label: "Stream",
+    hint: "streamText(): text appears as it arrives and Stop works. On the web only the cloud target streams today, so on-device targets are skipped."
+  }
+];
+
+/** Advanced panel: the raw canonical privacy values, `cloud_required` included. */
 const PRIVACY_OPTIONS: Array<{ value: Privacy; label: string }> = [
   { value: "local_required", label: "Local Only" },
   { value: "local_preferred", label: "Prefer Local" },
   { value: "cloud_allowed", label: "Cloud Allowed" },
   { value: "cloud_required", label: "Cloud Only" }
 ];
+
+const DEFAULT_PROMPT =
+  "Write a terse status update explaining what IndeRun routed and why it matters.";
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai: "Cloud",
@@ -25,21 +81,46 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 function providerLabel(snapshot: ProviderCapabilitySnapshot): string {
-  return PROVIDER_LABELS[snapshot.providerId] ?? snapshot.descriptor.type;
+  // Factory-registered OpenAI targets are named `<id>:<model>`; label them by provider.
+  const providerKey = snapshot.providerId.split(":")[0] ?? snapshot.providerId;
+  return PROVIDER_LABELS[providerKey] ?? snapshot.descriptor.type;
+}
+
+export interface AppConfig {
+  /** Cloud model the browser registers as the `openai:<model>` target. */
+  cloudModel: string;
+  proxyEndpointUrl: string;
+  /** Model reference backing the on-device ONNX target; absent when it runs the fixture runtime. */
+  onDeviceModel?: string;
 }
 
 export interface AppDependencies {
-  config: {
-    model: string;
-    proxyEndpointUrl: string;
-    /** Model reference backing the on-device ONNX provider, when configured. */
-    onDeviceModel?: string;
-  };
-  runPrompt(prompt: string, privacy: Privacy): Promise<TaskResult>;
-  streamPrompt(prompt: string, privacy: Privacy): Promise<StreamRun>;
-  checkProviderCapabilities(): Promise<ProviderCapabilitySnapshot[]>;
+  inderun: IndeRunApi;
+  config: AppConfig;
+  /** Last `route_decided` telemetry payload, for the advanced routing panel only. */
   getLastRouteDecision(): RouteDecidedPayload | undefined;
+  /** Defaults to `navigator.onLine`. */
+  isOnline?(): boolean;
 }
+
+type SimplifyRun = { privacy: Privacy; delivery: Delivery };
+
+type SimplifyState =
+  | { status: "idle" }
+  | (SimplifyRun & {
+      status: "running";
+      /** Text delivered so far; mutated in place while a stream runs. */
+      text: string;
+      /** Present once `streamText()` has returned a run to cancel. */
+      cancel?: (reason?: string) => void;
+    })
+  | (SimplifyRun & {
+      status: "done";
+      text: string;
+      stopped: boolean;
+      provenance?: ExecutionProvenance;
+    })
+  | (SimplifyRun & { status: "failed"; text: string; error: IndeRunException });
 
 type AppState =
   | {
@@ -52,12 +133,14 @@ type AppState =
       prompt: string;
       privacy: Privacy;
       result: TaskResult;
+      routeDecision?: RouteDecidedPayload;
     }
   | {
       status: "error";
       prompt: string;
       privacy: Privacy;
       error: IndeRunException;
+      routeDecision?: RouteDecidedPayload;
     };
 
 type CapabilitiesState =
@@ -84,7 +167,30 @@ type StreamState =
   /** The `stream()` call itself was refused, so there is no run and no events. */
   | { status: "rejected"; error: IndeRunException };
 
+function taskRequest(prompt: string, privacy: Privacy): TaskRequest {
+  return {
+    schemaVersion: "1.0",
+    task: { kind: "text_to_text" },
+    prompt,
+    constraints: { privacy }
+  };
+}
+
 export function mountApp(root: HTMLElement, deps: AppDependencies): void {
+  const isOnline = deps.isOnline ?? (() => navigator.onLine);
+  const catalog: TargetCatalog = {
+    cloudTargetId: cloudTargetId(deps.config.cloudModel),
+    onDeviceFixture: deps.config.onDeviceModel === undefined
+  };
+  const profileTargets = simplifyProfileTargets(deps.config.cloudModel);
+
+  const ui = {
+    simplifyText: SAMPLE_TEXT,
+    privacy: "local_preferred" as Privacy,
+    delivery: "whole" as Delivery,
+    advancedOpen: false
+  };
+  let simplify: SimplifyState = { status: "idle" };
   let state: AppState = {
     status: "idle",
     prompt: DEFAULT_PROMPT,
@@ -95,7 +201,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
 
   const loadCapabilities = async () => {
     try {
-      const snapshots = await deps.checkProviderCapabilities();
+      const snapshots = await deps.inderun.checkCapabilities();
       capabilitiesState = { status: "ready", snapshots };
     } catch {
       capabilitiesState = { status: "error" };
@@ -103,103 +209,250 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
     render();
   };
 
+  /** Streams one simplification, patching the output in place so typing focus is not lost. */
+  const streamSimplification = async (
+    text: string,
+    running: Extract<SimplifyState, { status: "running" }>
+  ): Promise<SimplifyState> => {
+    const run = { privacy: running.privacy, delivery: running.delivery };
+    let stream: TextStream;
+    try {
+      stream = await streamText(deps.inderun, simplifyOptions(text, run.privacy));
+    } catch (error) {
+      // Validation and routing refusals reject the call itself: there is no run to stop.
+      return { status: "failed", ...run, text: "", error: toIndeRunException(error) };
+    }
+
+    running.cancel = (reason) => stream.cancel(reason);
+    render();
+
+    try {
+      for await (const delta of stream.textStream) {
+        running.text += delta;
+        const output = root.querySelector<HTMLElement>("#simplify-output");
+        if (output) output.textContent = running.text;
+      }
+    } catch {
+      // `result` below reports how the run ended, with its provenance.
+    }
+
+    try {
+      const result = await stream.result;
+      return {
+        status: "done",
+        ...run,
+        text: result.text,
+        stopped: result.finishReason === "cancelled",
+        provenance: result.provenance
+      };
+    } catch (error) {
+      return { status: "failed", ...run, text: running.text, error: toIndeRunException(error) };
+    }
+  };
+
+  const runSimplify = async () => {
+    const text = ui.simplifyText.trim();
+    if (simplify.status === "running" || text.length === 0) {
+      return;
+    }
+    const running: Extract<SimplifyState, { status: "running" }> = {
+      status: "running",
+      privacy: ui.privacy,
+      delivery: ui.delivery,
+      text: ""
+    };
+    simplify = running;
+    render();
+
+    if (running.delivery === "stream") {
+      simplify = await streamSimplification(text, running);
+    } else {
+      try {
+        const result = await generateText(deps.inderun, simplifyOptions(text, running.privacy));
+        simplify = {
+          status: "done",
+          privacy: running.privacy,
+          delivery: running.delivery,
+          text: result.text,
+          stopped: false,
+          provenance: result.provenance
+        };
+      } catch (error) {
+        simplify = {
+          status: "failed",
+          privacy: running.privacy,
+          delivery: running.delivery,
+          text: "",
+          error: toIndeRunException(error)
+        };
+      }
+    }
+
+    render();
+    void loadCapabilities();
+  };
+
   const render = () => {
-    const runMetadata = renderRunMetadata(state);
-    const outputPanel = renderOutputPanel(state);
-    const capabilitiesPanel = renderCapabilitiesPanel(capabilitiesState);
-    const routingDecisionPanel = renderRoutingDecision(state, deps.getLastRouteDecision());
+    const online = isOnline();
     const streaming = streamState.status === "streaming";
+    const snapshots =
+      capabilitiesState.status === "ready" ? capabilitiesState.snapshots : undefined;
 
     root.innerHTML = `
       <main class="shell">
         <section class="hero">
-          <p class="eyebrow">Web Demo</p>
-          <h1 class="title">IndeRun Execution Demo</h1>
+          <p class="eyebrow">IndeRun Web Reference Demo</p>
+          <h1 class="title">Simplify text, see where it ran</h1>
           <p class="lede">
-            Minimal review app for the canonical <code class="code">run()</code> and
-            <code class="code">stream()</code> flows on the web: preference in, automatic
-            capability-based provider routing, normalized result or error out.
+            Rewrites dense text in plain language through the primary text API
+            (<code class="code">generateText()</code> / <code class="code">streamText()</code>),
+            on this device when it can and in the cloud only when you allow it. Every result says
+            where it ran, from IndeRun's normalized execution provenance.
           </p>
           <div class="pill-row">
-            <span class="pill">Mode 1</span>
-            <span class="pill">Mode 2</span>
-            <span class="pill">Capability Routed</span>
-            <span class="pill">Proxy-Backed</span>
+            <span class="pill">Primary text API</span>
+            <span class="pill">Model profile: ${escapeHtml(SIMPLIFY_PROFILE)}</span>
+            <span class="pill">Cloud only when permitted</span>
+            <span class="pill">Execution provenance</span>
           </div>
         </section>
 
-        <section class="panel composer">
-          <h2 class="subtitle">Privacy Preference</h2>
-          <div class="mode-selector">
-            ${PRIVACY_OPTIONS.map(
-              (option) =>
-                `<button data-privacy="${option.value}" class="preference-btn ${state.privacy === option.value ? "active" : ""}">${option.label}</button>`
-            ).join("")}
-          </div>
-
-          <label class="label" for="prompt">Prompt</label>
-          <textarea id="prompt" name="prompt" rows="8" placeholder="Enter text to send through IndeRun.">${escapeHtml(
-            state.prompt
-          )}</textarea>
-          <div class="actions">
-            <button id="run-button" type="button" ${state.status === "running" || streaming ? "disabled" : ""}>
-              ${state.status === "running" ? "Running..." : "Run"}
-            </button>
-            <button id="stream-button" type="button" ${state.status === "running" ? "disabled" : ""}>
-              ${streaming ? "Cancel" : "Stream"}
-            </button>
-            <p class="hint">
-              Endpoint: <code class="code">${escapeHtml(deps.config.proxyEndpointUrl)}</code> ·
-              On-device model: <code class="code">${escapeHtml(deps.config.onDeviceModel ?? "not configured")}</code>
-            </p>
-          </div>
-        </section>
-
-        <section class="panel composer">
-          <h2 class="subtitle">Provider Availability</h2>
-          ${capabilitiesPanel}
-        </section>
+        ${renderSimplifyComposer(ui, simplify, snapshots, profileTargets, online, catalog)}
 
         <section class="grid">
           <article class="panel">
-            <h2 class="subtitle">Result</h2>
-            ${outputPanel}
+            <h2 class="subtitle">Simplified text</h2>
+            ${renderSimplifyOutput(simplify, online, catalog)}
           </article>
-
           <article class="panel">
-            <h2 class="subtitle">Attempt Metadata</h2>
-            ${runMetadata}
+            <h2 class="subtitle">Where it ran</h2>
+            ${renderSimplifyProvenance(simplify, catalog)}
           </article>
         </section>
 
-        <section class="panel composer">
-          <h2 class="subtitle">Streaming (Mode 2)</h2>
-          ${renderStreamPanel(streamState)}
-        </section>
+        <details id="advanced" class="panel advanced" ${ui.advancedOpen ? "open" : ""}>
+          <summary class="subtitle">Advanced: task API</summary>
+          <p class="hint">
+            These panels call <code class="code">run()</code>, <code class="code">stream()</code> and
+            <code class="code">checkCapabilities()</code> directly with a hand-built
+            <code class="code">TaskRequest</code>, routing across every registered target (no model profile).
+          </p>
 
-        <section class="panel composer">
-          <h2 class="subtitle">Routing Decision</h2>
-          ${routingDecisionPanel}
-        </section>
+          <section class="panel composer">
+            <h2 class="subtitle">Privacy Preference</h2>
+            <div class="mode-selector">
+              ${PRIVACY_OPTIONS.map(
+                (option) =>
+                  `<button data-privacy="${option.value}" class="preference-btn ${state.privacy === option.value ? "active" : ""}">${option.label}</button>`
+              ).join("")}
+            </div>
+
+            <label class="label" for="prompt">Prompt</label>
+            <textarea id="prompt" name="prompt" rows="5" placeholder="Enter text to send through IndeRun.">${escapeHtml(
+              state.prompt
+            )}</textarea>
+            <div class="actions">
+              <button id="run-button" type="button" ${state.status === "running" || streaming ? "disabled" : ""}>
+                ${state.status === "running" ? "Running..." : "Run"}
+              </button>
+              <button id="stream-button" type="button" ${state.status === "running" ? "disabled" : ""}>
+                ${streaming ? "Cancel" : "Stream"}
+              </button>
+              <p class="hint">
+                Endpoint: <code class="code">${escapeHtml(deps.config.proxyEndpointUrl)}</code> ·
+                On-device model: <code class="code">${escapeHtml(deps.config.onDeviceModel ?? "deterministic fixture runtime")}</code>
+              </p>
+            </div>
+          </section>
+
+          <section class="panel composer">
+            <h2 class="subtitle">Provider Availability</h2>
+            ${renderCapabilitiesPanel(capabilitiesState)}
+          </section>
+
+          <section class="grid">
+            <article class="panel">
+              <h2 class="subtitle">Result</h2>
+              ${renderOutputPanel(state)}
+            </article>
+
+            <article class="panel">
+              <h2 class="subtitle">Attempt Metadata</h2>
+              ${renderRunMetadata(state)}
+            </article>
+          </section>
+
+          <section class="panel composer">
+            <h2 class="subtitle">Streaming (Mode 2)</h2>
+            ${renderStreamPanel(streamState)}
+          </section>
+
+          <section class="panel composer">
+            <h2 class="subtitle">Routing Decision</h2>
+            ${renderRoutingDecision(state)}
+          </section>
+        </details>
 
         <section class="panel limitations">
           <h2 class="subtitle">Known Limitations</h2>
           <ul>
-            <li>On-device ONNX routing uses the Web ONNX Runtime provider. Without <code class="code">VITE_INDERUN_ONNX_MODEL_ID</code> it runs a deterministic fixture runtime instead of real model weights.</li>
-            <li>The Prompt API Local provider requires Chrome 138+ on desktop. Its availability badge will show unavailable in other browsers &mdash; this is expected, not a bug.</li>
-            <li>The browser never carries production secrets. The standalone demo proxy resolves upstream endpoint and bearer-token configuration server-side.</li>
-            <li>The canonical result field is <code class="code">telemetry.totalMs</code>, not <code class="timing">timing.totalMs</code>.</li>
+            <li>Simplified text is machine-generated. It can be wrong or leave things out, and it is not a certified plain-language or easy-to-read translation.</li>
+            <li>On-device availability depends on the browser and device. Nothing here assumes an on-device model exists; the device status and each run's provenance say what was actually available.</li>
+            <li>On-device ONNX routing uses the Web ONNX Runtime provider. Without <code class="code">VITE_INDERUN_ONNX_MODEL_ID</code> it runs a deterministic fixture runtime that echoes its input instead of real model weights.</li>
+            <li>The browser built-in model (Prompt API) requires Chrome 138+ on desktop. It shows as unavailable in other browsers &mdash; this is expected, not a bug.</li>
+            <li>Neither on-device target streams on the web yet, so <code class="code">streamText()</code> can only run on the cloud target.</li>
+            <li>The browser never carries production secrets. The standalone demo proxy resolves the upstream endpoint, model and bearer token server-side.</li>
           </ul>
         </section>
       </main>
     `;
 
+    bindSimplifyControls();
+    bindAdvancedControls();
+  };
+
+  const bindSimplifyControls = () => {
+    const input = root.querySelector<HTMLTextAreaElement>("#simplify-input");
+    const button = root.querySelector<HTMLButtonElement>("#simplify-button");
+    if (!input || !button) {
+      throw new Error("Demo UI failed to render the simplification controls.");
+    }
+
+    input.addEventListener("input", () => {
+      ui.simplifyText = input.value;
+    });
+    root.querySelectorAll<HTMLInputElement>('input[name="simplify-privacy"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        ui.privacy = radio.value as Privacy;
+        render();
+      });
+    });
+    root.querySelectorAll<HTMLInputElement>('input[name="simplify-delivery"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        ui.delivery = radio.value as Delivery;
+        render();
+      });
+    });
+    button.addEventListener("click", () => {
+      ui.simplifyText = input.value;
+      void runSimplify();
+    });
+    root.querySelector<HTMLButtonElement>("#stop-button")?.addEventListener("click", () => {
+      if (simplify.status === "running") {
+        simplify.cancel?.("user stopped");
+      }
+    });
+  };
+
+  const bindAdvancedControls = () => {
+    const details = root.querySelector<HTMLDetailsElement>("#advanced");
     const promptField = root.querySelector<HTMLTextAreaElement>("#prompt");
     const runButton = root.querySelector<HTMLButtonElement>("#run-button");
     const streamButton = root.querySelector<HTMLButtonElement>("#stream-button");
     const preferenceButtons = root.querySelectorAll<HTMLButtonElement>("[data-privacy]");
 
     if (
+      !details ||
       !promptField ||
       !runButton ||
       !streamButton ||
@@ -207,6 +460,10 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
     ) {
       throw new Error("Demo UI failed to render required controls.");
     }
+
+    details.addEventListener("toggle", () => {
+      ui.advancedOpen = details.open;
+    });
 
     promptField.addEventListener("input", (event) => {
       const target = event.currentTarget as HTMLTextAreaElement;
@@ -227,17 +484,19 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
       render();
 
       try {
-        const result = await deps.runPrompt(prompt, state.privacy);
+        const result = await deps.inderun.run(taskRequest(prompt, state.privacy));
         state = {
           ...state,
           status: "success",
-          result
+          result,
+          routeDecision: deps.getLastRouteDecision()
         };
       } catch (error) {
         state = {
           ...state,
           status: "error",
-          error: toIndeRunException(error)
+          error: toIndeRunException(error),
+          routeDecision: deps.getLastRouteDecision()
         };
       }
 
@@ -255,7 +514,7 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
 
       let run: StreamRun;
       try {
-        run = await deps.streamPrompt(prompt, state.privacy);
+        run = await deps.inderun.stream(taskRequest(prompt, state.privacy));
       } catch (error) {
         // A routing refusal rejects the stream() call itself: no handle, no events.
         streamState = { status: "rejected", error: toIndeRunException(error) };
@@ -263,20 +522,19 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
         return;
       }
 
-      const live = { text: "", log: [] as StreamLogEntry[] };
-      streamState = {
+      // The stored state is the object the loop below mutates, so any full
+      // re-render mid-stream (a connectivity change, say) redraws the text so far.
+      const live: Extract<StreamState, { status: "streaming" }> = {
         status: "streaming",
-        text: live.text,
-        log: live.log,
+        text: "",
+        log: [],
         cancel: (reason) => run.cancel(reason)
       };
+      streamState = live;
       render();
 
       // Patch the two stream elements in place rather than re-rendering the whole
       // app per event, so a delta does not steal focus from the prompt field.
-      const output = root.querySelector<HTMLElement>("#stream-output");
-      const log = root.querySelector<HTMLElement>("#stream-log");
-
       let summary = "The provider stream ended without a terminal event.";
       try {
         for await (const event of run.events) {
@@ -285,6 +543,8 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
           if (event.type === "terminal") {
             summary = terminalSummary(event);
           }
+          const output = root.querySelector<HTMLElement>("#stream-output");
+          const log = root.querySelector<HTMLElement>("#stream-log");
           if (output) output.textContent = live.text;
           if (log) log.innerHTML = renderStreamLog(live.log);
         }
@@ -299,8 +559,186 @@ export function mountApp(root: HTMLElement, deps: AppDependencies): void {
     });
   };
 
+  // Connectivity changes the honest state on screen, so redraw when it flips.
+  if (typeof window !== "undefined") {
+    window.addEventListener("online", () => render());
+    window.addEventListener("offline", () => render());
+  }
+
   render();
   void loadCapabilities();
+}
+
+function renderSimplifyComposer(
+  ui: { simplifyText: string; privacy: Privacy; delivery: Delivery },
+  simplify: SimplifyState,
+  snapshots: ProviderCapabilitySnapshot[] | undefined,
+  profileTargets: string[],
+  online: boolean,
+  catalog: TargetCatalog
+): string {
+  const running = simplify.status === "running";
+  const stoppable = running && simplify.cancel !== undefined;
+  const streamingSelected = ui.delivery === "stream" || (running && simplify.delivery === "stream");
+
+  return `
+    <section class="panel composer simplify" aria-labelledby="simplify-heading">
+      <h2 id="simplify-heading" class="subtitle">Simplify text</h2>
+      <label class="label" for="simplify-input">Text to simplify</label>
+      <textarea id="simplify-input" name="simplify-input" rows="6">${escapeHtml(ui.simplifyText)}</textarea>
+
+      <div class="choice-row">
+        ${renderChoiceGroup(
+          "simplify-privacy",
+          "Where may this text be processed?",
+          SIMPLIFY_PRIVACY_OPTIONS,
+          ui.privacy,
+          running
+        )}
+        ${renderChoiceGroup(
+          "simplify-delivery",
+          "How should the result arrive?",
+          DELIVERY_OPTIONS,
+          ui.delivery,
+          running
+        )}
+      </div>
+
+      <div class="actions">
+        <div class="button-row">
+          <button id="simplify-button" type="button" ${running ? "disabled" : ""}>
+            ${running ? "Simplifying..." : "Simplify"}
+          </button>
+          ${
+            streamingSelected
+              ? `<button id="stop-button" type="button" class="secondary" ${stoppable ? "" : "disabled"}>Stop</button>`
+              : ""
+          }
+        </div>
+        <p class="hint">Machine-generated output can be wrong or leave things out. Check it against the original.</p>
+      </div>
+
+      <p class="result-label">What can run here now</p>
+      ${renderDeviceStatus(snapshots, profileTargets, online, catalog)}
+      <p class="hint">From <code class="code">checkCapabilities()</code>. Availability can change before a run; each run's provenance records what actually happened.</p>
+
+      <details class="call">
+        <summary>The call this makes</summary>
+        <pre class="code">${escapeHtml(callSnippet(ui.delivery, ui.privacy))}</pre>
+      </details>
+    </section>
+  `;
+}
+
+function renderChoiceGroup<T extends string>(
+  name: string,
+  legend: string,
+  options: Array<{ value: T; label: string; hint: string }>,
+  selected: T,
+  disabled: boolean
+): string {
+  return `
+    <fieldset class="choice-group" ${disabled ? "disabled" : ""}>
+      <legend class="label">${escapeHtml(legend)}</legend>
+      ${options
+        .map(
+          (option) => `
+            <label class="choice ${option.value === selected ? "active" : ""}">
+              <input type="radio" name="${name}" value="${option.value}" ${option.value === selected ? "checked" : ""} />
+              <span class="choice-label">${escapeHtml(option.label)}</span>
+              <span class="choice-hint">${escapeHtml(option.hint)}</span>
+            </label>
+          `
+        )
+        .join("")}
+    </fieldset>
+  `;
+}
+
+function callSnippet(delivery: Delivery, privacy: Privacy): string {
+  const head =
+    delivery === "stream"
+      ? "const { textStream, result, cancel } = await streamText(inderun, {"
+      : "const { text, provenance } = await generateText(inderun, {";
+  return [
+    head,
+    `  model: "${SIMPLIFY_PROFILE}",`,
+    "  system: PLAIN_LANGUAGE_INSTRUCTION,",
+    "  prompt: text,",
+    `  execution: { privacy: "${privacy}" }`,
+    "});"
+  ].join("\n");
+}
+
+function renderSimplifyOutput(
+  simplify: SimplifyState,
+  online: boolean,
+  catalog: TargetCatalog
+): string {
+  switch (simplify.status) {
+    case "idle":
+      return `<p class="placeholder">Press Simplify to rewrite the text above.</p>`;
+    case "running":
+      return `
+        <div class="result">
+          <p class="status-line" role="status">${simplify.delivery === "stream" ? "Streaming..." : "Waiting for the whole result..."}</p>
+          <pre id="simplify-output" aria-live="polite">${escapeHtml(simplify.text)}</pre>
+        </div>
+      `;
+    case "done": {
+      const notices = outcomeNotices({
+        privacy: simplify.privacy,
+        delivery: simplify.delivery,
+        online,
+        provenance: simplify.provenance,
+        catalog
+      });
+      return `
+        <div class="result ${simplify.stopped ? "stopped" : "success"}">
+          <p class="status-line" role="status">${
+            simplify.stopped ? "Stopped. Below is the text delivered before the stop." : "Done."
+          }</p>
+          <pre id="simplify-output">${escapeHtml(simplify.text) || '<span class="placeholder">No text was delivered.</span>'}</pre>
+          ${renderNotices(notices)}
+        </div>
+      `;
+    }
+    case "failed": {
+      const notices = outcomeNotices({
+        privacy: simplify.privacy,
+        delivery: simplify.delivery,
+        online,
+        provenance: simplify.error.provenance,
+        error: simplify.error,
+        catalog
+      });
+      return `
+        <div class="result failure">
+          <p class="status-line" role="status">Could not simplify: <strong class="error-class">${escapeHtml(simplify.error.errorClass)}</strong></p>
+          <p>${escapeHtml(simplify.error.message)}</p>
+          ${
+            simplify.text
+              ? `<p class="result-label">Delivered before the failure</p><pre id="simplify-output">${escapeHtml(simplify.text)}</pre>`
+              : ""
+          }
+          ${renderNotices(notices)}
+        </div>
+      `;
+    }
+  }
+}
+
+function renderSimplifyProvenance(simplify: SimplifyState, catalog: TargetCatalog): string {
+  switch (simplify.status) {
+    case "idle":
+      return `<p class="placeholder">After a run, this shows where it ran, which target and model, and whether IndeRun fell back &mdash; all from <code class="code">result.provenance</code>.</p>`;
+    case "running":
+      return `<p class="placeholder">Provenance arrives with the outcome.</p>`;
+    case "done":
+      return renderProvenance(simplify.provenance, catalog);
+    case "failed":
+      return renderProvenance(simplify.error.provenance, catalog);
+  }
 }
 
 /**
@@ -470,11 +908,12 @@ function renderCapabilitiesPanel(state: CapabilitiesState): string {
   `;
 }
 
-function renderRoutingDecision(state: AppState, decision: RouteDecidedPayload | undefined): string {
+function renderRoutingDecision(state: AppState): string {
   if (state.status !== "success" && state.status !== "error") {
     return `<p class="placeholder">No run yet. The routing decision appears after the first attempt.</p>`;
   }
 
+  const decision = state.routeDecision;
   if (!decision) {
     return `<p class="placeholder">No routing decision was captured for the last attempt.</p>`;
   }
@@ -495,7 +934,7 @@ function renderRoutingDecision(state: AppState, decision: RouteDecidedPayload | 
   return `
     <dl class="meta">
       <div class="meta-item"><dt>Selected Provider</dt><dd>${escapeHtml(decision.selectedProviderId ?? "none")}</dd></div>
-      <div class="meta-item"><dt>Explanation</dt><dd>${escapeHtml(decision.explanation.summary)}</dd></div>
+      <div class="meta-item"><dt>Explanation</dt><dd>${escapeHtml(decision.explanation)}</dd></div>
     </dl>
     ${rejected ? `<p class="result-label">Rejected Providers</p>${rejected}` : ""}
   `;
@@ -530,13 +969,4 @@ function renderErrorDetails(error: IndeRunException): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }

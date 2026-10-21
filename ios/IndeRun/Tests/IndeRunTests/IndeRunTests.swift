@@ -326,6 +326,168 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(telemetry.events[1].type, .attemptSucceeded)
     }
 
+    // MARK: - Model profiles
+
+    private func makeProfileEngine(_ profiles: [String: [String]]) throws -> IndeRun {
+        try registry.register(MockProvider(id: "local_a", type: .local))
+        try registry.register(MockProvider(id: "cloud_a", type: .cloud))
+        try registry.register(MockProvider(id: "cloud_b", type: .cloud))
+        return IndeRun(
+            registry: registry,
+            hostServices: hostServices,
+            modelProfiles: try ModelProfiles(profiles)
+        )
+    }
+
+    func testRequestWithoutModelProfileRoutesAcrossEveryTarget() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b"]])
+
+        let result = try await engine.run(request: TaskRequest(prompt: "Hi"))
+
+        XCTAssertEqual(result.telemetry.providerUsed, "local_a")
+    }
+
+    func testAutoModelProfileBehavesLikeAnAbsentOne() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b"]])
+
+        let result = try await engine.run(request: TaskRequest(prompt: "Hi", modelProfile: "auto"))
+
+        XCTAssertEqual(result.telemetry.providerUsed, "local_a")
+    }
+
+    func testNamedModelProfileRoutesOnlyWithinTheProfileInProfileOrder() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b", "cloud_a"]])
+
+        let result = try await engine.run(request: TaskRequest(prompt: "Hi", modelProfile: "smart"))
+
+        XCTAssertEqual(result.telemetry.providerUsed, "cloud_b")
+        let routeDecided = try XCTUnwrap(telemetry.events.first { $0.type == .routeDecided })
+        XCTAssertEqual(routeDecided.payload["modelProfile"]?.value as? String, "smart")
+        XCTAssertEqual(routeDecided.payload["fallbackProviderIds"]?.value as? [String], ["cloud_a"])
+        XCTAssertEqual(routeDecided.payload["rejectedProviderIds"]?.value as? [String], ["local_a"])
+    }
+
+    func testUnknownModelProfileIsAValidationFailureInRunAndStream() async throws {
+        let engine = try makeProfileEngine(["smart": ["cloud_b"]])
+        let request = TaskRequest(prompt: "Hi", modelProfile: "fast")
+
+        do {
+            _ = try await engine.run(request: request)
+            XCTFail("Expected validation failure")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Internal)
+            XCTAssertTrue(error.message.contains("modelProfile"))
+        }
+        do {
+            _ = try await engine.stream(request: request)
+            XCTFail("Expected validation failure")
+        } catch let error as IndeRunException {
+            XCTAssertEqual(error.errorClass, .Internal)
+            XCTAssertTrue(error.message.contains("modelProfile"))
+        }
+    }
+
+    func testMalformedModelProfilesAreRefusedAtConfiguration() {
+        XCTAssertThrowsError(try ModelProfiles(["auto": ["cloud_a"]]))
+        XCTAssertThrowsError(try ModelProfiles(["smart": []]))
+        XCTAssertThrowsError(try ModelProfiles(["smart": ["cloud_a", "cloud_a"]]))
+    }
+
+    // MARK: - Execution provenance
+
+    func testProvenanceAttributesADirectSuccessToTheProviderThatRan() async throws {
+        try registry.register(MockProvider(id: "local_p", type: .local))
+
+        let result = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+
+        let provenance = try XCTUnwrap(result.provenance)
+        XCTAssertEqual(provenance.providerId, "local_p")
+        XCTAssertEqual(provenance.locality, .onDevice)
+        XCTAssertEqual(provenance.modelProfile, "auto")
+        XCTAssertEqual(provenance.attemptCount, 1)
+        XCTAssertFalse(provenance.fallbackOccurred)
+        XCTAssertEqual(provenance.attempts.map(\.providerId), ["local_p"])
+        XCTAssertEqual(provenance.attempts.map(\.outcome), [.succeeded])
+        XCTAssertNil(provenance.configuredModel)
+        XCTAssertNil(provenance.reportedModel)
+    }
+
+    func testProvenanceRecordsALocalToCloudFallback() async throws {
+        let local = MockProvider(id: "local_p", type: .local)
+        local.shouldFail = true
+        try registry.register(local)
+        try registry.register(MockProvider(id: "cloud_p", type: .cloud))
+
+        let result = try await inderun.run(request: TaskRequest(
+            prompt: "Hi",
+            constraints: TaskRequestConstraints(privacy: .localPreferred)
+        ))
+
+        let provenance = try XCTUnwrap(result.provenance)
+        XCTAssertEqual(provenance.providerId, "cloud_p")
+        XCTAssertEqual(provenance.locality, .cloud)
+        XCTAssertEqual(provenance.attemptCount, 2)
+        XCTAssertTrue(provenance.fallbackOccurred)
+        XCTAssertEqual(provenance.attempts.map(\.outcome), [.failed, .succeeded])
+        XCTAssertEqual(provenance.attempts.first?.errorClass, .AuthError)
+    }
+
+    func testProvenanceReportsCloudOnlyExecutionWithTheRejectedLocalCandidate() async throws {
+        try registry.register(MockProvider(id: "local_p", type: .local))
+        try registry.register(MockProvider(id: "cloud_p", type: .cloud))
+
+        let result = try await inderun.run(request: TaskRequest(
+            prompt: "Hi",
+            constraints: TaskRequestConstraints(privacy: .cloudRequired)
+        ))
+
+        let provenance = try XCTUnwrap(result.provenance)
+        XCTAssertEqual(provenance.locality, .cloud)
+        XCTAssertEqual(provenance.routeRejections.map(\.providerId), ["local_p"])
+        XCTAssertEqual(provenance.routeRejections.first?.codes, [.privacyConstraint])
+    }
+
+    func testProvenanceOnARoutingRefusalIsAttributedToNoProvider() async throws {
+        try registry.register(MockProvider(id: "cloud_p", type: .cloud))
+
+        do {
+            _ = try await inderun.run(request: TaskRequest(
+                prompt: "Hi",
+                constraints: TaskRequestConstraints(privacy: .localRequired)
+            ))
+            XCTFail("Expected a routing refusal")
+        } catch let error as IndeRunException {
+            let provenance = try XCTUnwrap(error.provenance)
+            XCTAssertNil(provenance.providerId)
+            XCTAssertEqual(provenance.locality, .unknown)
+            XCTAssertEqual(provenance.attemptCount, 0)
+            XCTAssertEqual(provenance.routeRejections.map(\.providerId), ["cloud_p"])
+            XCTAssertEqual(provenance.routeRejections.first?.codes, [.privacyConstraint])
+            XCTAssertNotNil(error.toContractError().provenance)
+        }
+    }
+
+    func testProvenanceCarriesEveryFailedAttemptWhenTheChainFails() async throws {
+        let local = MockProvider(id: "local_p", type: .local)
+        local.shouldFail = true
+        let cloud = MockProvider(id: "cloud_p", type: .cloud)
+        cloud.shouldFail = true
+        try registry.register(local)
+        try registry.register(cloud)
+
+        do {
+            _ = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+            XCTFail("Expected every provider to fail")
+        } catch let error as IndeRunException {
+            let provenance = try XCTUnwrap(error.provenance)
+            XCTAssertNil(provenance.providerId)
+            XCTAssertEqual(provenance.locality, .unknown)
+            XCTAssertEqual(provenance.attemptCount, 2)
+            XCTAssertTrue(provenance.fallbackOccurred)
+            XCTAssertEqual(provenance.attempts.map(\.outcome), [.failed, .failed])
+        }
+    }
+
     func testRouterUsesSharedPlannerSelectionWhenAvailable() async throws {
         let providerA = MockProvider(id: "local_a", type: .local)
         let providerB = MockProvider(id: "local_b", type: .local)
@@ -446,6 +608,7 @@ final class IndeRunTests: XCTestCase {
             input: SharedPlannerInput(
                 constraints: SharedPlannerConstraints(cloud: nil, networkOnline: true, privacy: nil),
                 interactionMode: .run,
+                modelProfile: nil,
                 preferences: SharedPlannerPreferences(optimizeFor: nil),
                 providers: [
                     SharedPlannerProviderInput(
@@ -898,7 +1061,7 @@ final class IndeRunTests: XCTestCase {
             switch event {
             case let .snapshot(text):
                 snapshots.append(text)
-            case let .done(text, reason, _):
+            case let .done(text, reason, _, _):
                 finalText = text
                 finishReason = reason
             case .delta, .failure:
@@ -1104,7 +1267,7 @@ final class IndeRunTests: XCTestCase {
             responses: [
                 .success(
                     HttpResponse(
-                        body: #"{"output_text":"Hello from Responses.","status":"completed","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}"#,
+                        body: #"{"model":"gpt-5.2-2026-08-01","output_text":"Hello from Responses.","status":"completed","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}"#,
                         headers: [:],
                         status: 200,
                         statusText: "OK"
@@ -1138,6 +1301,8 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(result.usage?.inputTokens, 3)
         XCTAssertEqual(result.usage?.outputTokens, 4)
         XCTAssertEqual(result.usage?.totalTokens, 7)
+        XCTAssertEqual(result.telemetry.reportedModel, "gpt-5.2-2026-08-01")
+        XCTAssertEqual(provider.describe().model, "gpt-5.2")
         let requests = await httpClient.snapshotRequests()
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(requests[0].headers?["Authorization"], "Bearer sk-from-slot")
@@ -1319,13 +1484,22 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(requests.count, 1)
     }
 
-    func testAppleCloudProviderRegistryFactoryRegistersOpenAIProvider() throws {
+    func testAppleCloudProviderRegistryFactoryRegistersOneTargetPerModel() throws {
         let registry = try AppleCloudProviderRegistryFactory.makeOpenAIRegistry(
-            options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none)
+            options: OpenAIFactoryOptions(models: ["gpt-5.2", "gpt-5-mini"], auth: .none)
         )
 
-        XCTAssertNotNil(registry.get(id: "openai"))
-        XCTAssertEqual(registry.list().count, 1)
+        XCTAssertEqual(registry.list().count, 2)
+        XCTAssertEqual(registry.get(id: "openai:gpt-5.2")?.describe().model, "gpt-5.2")
+        XCTAssertEqual(registry.get(id: "openai:gpt-5-mini")?.describe().model, "gpt-5-mini")
+    }
+
+    func testAppleCloudProviderRegistryFactoryRefusesAnEmptyModelList() {
+        XCTAssertThrowsError(
+            try AppleCloudProviderRegistryFactory.makeOpenAIRegistry(
+                options: OpenAIFactoryOptions(models: [], auth: .none)
+            )
+        )
     }
 
     // MARK: - ONNX Runtime Apple provider
@@ -2045,8 +2219,10 @@ final class OpenAIStreamingTests: XCTestCase {
         let finalText: String?
         let finishReason: FinishReason?
         let usage: ExpectedUsage?
+        let reportedModel: String?
         let errorClass: ErrorClass?
         let message: String?
+        let retryable: Bool?
     }
 
     private struct ExpectedUsage: Decodable {
@@ -2166,15 +2342,19 @@ final class OpenAIStreamingTests: XCTestCase {
                 case let (.delta(text), "delta"):
                     XCTAssertEqual(text, expected.text, label)
 
-                case let (.done(finalText, finishReason, usage), "done"):
+                case let (.done(finalText, finishReason, usage, reportedModel), "done"):
                     XCTAssertEqual(finalText, expected.finalText, label)
                     XCTAssertEqual(finishReason, expected.finishReason, label)
                     XCTAssertEqual(usage?.totalTokens, expected.usage?.totalTokens, label)
+                    XCTAssertEqual(reportedModel, expected.reportedModel, label)
 
                 case let (.failure(error), "error"):
                     let exception = try XCTUnwrap(error as? IndeRunException, label)
                     XCTAssertEqual(exception.errorClass, expected.errorClass, label)
                     XCTAssertEqual(exception.message, expected.message, label)
+                    if let retryable = expected.retryable {
+                        XCTAssertEqual(exception.retryable, retryable, label)
+                    }
 
                 default:
                     XCTFail("Unexpected event \(event) for expected kind \(expected.kind) in \(label)")
@@ -2221,6 +2401,123 @@ final class OpenAIStreamingTests: XCTestCase {
             XCTFail("Expected the stream to fail")
         } catch let error as IndeRunException {
             XCTAssertEqual(error.errorClass, .Unavailable)
+        }
+    }
+}
+
+// MARK: - OpenAI Mode 1 run vectors
+
+/// Drives `OpenAIProvider.run` through the cross-SDK vectors in
+/// `contracts/fixtures/openai-compatible/responses-run.json`: one HTTP response
+/// from a Responses endpoint and the result or mapped error it must become.
+final class OpenAIRunVectorTests: XCTestCase {
+    private struct RunCase: Decodable {
+        let name: String
+        let description: String
+        let response: ScriptedResponse
+        let expected: Expected
+    }
+
+    private struct ScriptedResponse: Decodable {
+        let status: Int
+        let headers: [String: String]
+        let body: String
+    }
+
+    private struct Expected: Decodable {
+        let kind: String
+        let text: String?
+        let finishReason: FinishReason?
+        let reportedModel: String?
+        let usage: ExpectedUsage?
+        let errorClass: ErrorClass?
+        let message: String?
+        let retryable: Bool?
+        let retryAfterMs: Int?
+    }
+
+    private struct ExpectedUsage: Decodable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let totalTokens: Int?
+    }
+
+    private struct Fixture: Decodable {
+        let cases: [RunCase]
+    }
+
+    private func loadFixture() throws -> Fixture {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("contracts/fixtures/openai-compatible/responses-run.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+    func testFixtureCaseNamesAreUnique() throws {
+        let names = try loadFixture().cases.map(\.name)
+        XCTAssertFalse(names.isEmpty)
+        XCTAssertEqual(Set(names).count, names.count)
+    }
+
+    func testMatchesTheSharedRunVectors() async throws {
+        for vector in try loadFixture().cases {
+            let label = "\(vector.name): \(vector.description)"
+            let httpClient = MockHttpClientService(responses: [
+                .success(HttpResponse(
+                    body: vector.response.body,
+                    headers: vector.response.headers,
+                    status: vector.response.status,
+                    statusText: ""
+                ))
+            ])
+            let provider = OpenAIProvider(options: OpenAIProviderOptions(model: "gpt-5.2", auth: .none))
+            let context = RunContext(
+                runId: "run_vector",
+                hostServices: HostServices(
+                    connectivity: MockConnectivityService(),
+                    clock: MockClockService(),
+                    httpClient: httpClient
+                )
+            )
+            let request = TaskRequest(
+                prompt: "Hello",
+                constraints: TaskRequestConstraints(cloud: nil, privacy: .cloudRequired, timeoutMs: nil)
+            )
+            let expected = vector.expected
+
+            switch expected.kind {
+            case "result":
+                let result = try await provider.run(request: request, context: context)
+                XCTAssertEqual(result.output.text, expected.text, label)
+                XCTAssertEqual(result.finishReason, expected.finishReason, label)
+                XCTAssertEqual(result.telemetry.reportedModel, expected.reportedModel, label)
+                XCTAssertEqual(result.usage?.inputTokens, expected.usage?.inputTokens, label)
+                XCTAssertEqual(result.usage?.outputTokens, expected.usage?.outputTokens, label)
+                XCTAssertEqual(result.usage?.totalTokens, expected.usage?.totalTokens, label)
+                XCTAssertEqual(result.usage == nil, expected.usage == nil, label)
+
+            case "error":
+                do {
+                    _ = try await provider.run(request: request, context: context)
+                    XCTFail("Expected an error in \(label)")
+                } catch let error as IndeRunException {
+                    XCTAssertEqual(error.errorClass, expected.errorClass, label)
+                    XCTAssertEqual(error.message, expected.message, label)
+                    if let retryable = expected.retryable {
+                        XCTAssertEqual(error.retryable, retryable, label)
+                    }
+                    if let retryAfterMs = expected.retryAfterMs {
+                        XCTAssertEqual(error.retryAfterMs, retryAfterMs, label)
+                    }
+                }
+
+            default:
+                XCTFail("Unknown expected kind \(expected.kind) in \(label)")
+            }
         }
     }
 }

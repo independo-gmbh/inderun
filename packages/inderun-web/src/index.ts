@@ -1,94 +1,60 @@
 /**
- * Unified entry point for the IndeRun Web SDK (`@independo/inderun-web`).
+ * Application entry point for the IndeRun Web SDK (`@independo/inderun-web`).
  *
- * Everything a browser app needs to run and stream tasks is exported from here:
- * the engine, the routing and provider seams, host services, error and telemetry
- * types, and the contract types the SDK's own signatures use. Provider adapters
- * are the deliberate exception — each ships from its own subpath
- * (`/openai`, `/onnx`, `/system-model`) so this surface stays provider-agnostic.
+ * It leads with the primary text API (`generateText` / `streamText`) and the
+ * factory that builds a ready engine, then carries the advanced task API
+ * (`run()` / `stream()` / `checkCapabilities()`) and the contract, error and
+ * telemetry types those signatures use. See `docs/architecture/api-layering.md`.
+ *
+ * Two kinds of export live elsewhere on purpose:
+ * - provider-authoring and host-integration APIs ship from
+ *   `@independo/inderun-web/provider`;
+ * - provider adapters ship from their own subpaths (`/openai`, `/onnx`,
+ *   `/system-model`), so this surface stays provider-agnostic.
+ *
+ * The engine's internals (router, route planner bindings, Event Gate) are not
+ * exported at all.
  */
 
 /**
- * Host services: the platform capabilities the engine reads and calls through,
- * and the seams an embedder overrides to supply its own (custom transport,
- * credential storage, clock).
+ * The primary text API: one canonical request per call, over any `IndeRunApi`.
  */
 export {
-  type AbortSignalLike,
-  type ConnectivityService,
-  type DeviceConstraintsService,
-  type SecureStorageService,
-  type ClockService,
-  type HttpClientService,
-  type HttpRequest,
-  type HttpResponse,
-  type HttpStreamResponse,
-  type HttpStreamingClientService,
-  type HostServices,
-  type ThermalState
-} from "./core/host.js";
+  generateText,
+  streamText,
+  toTaskRequest,
+  TextStreamRetractedError,
+  type GeneratedText,
+  type StreamedText,
+  type TextExecutionOptions,
+  type TextGenerationOptions,
+  type TextStream
+} from "./facade/text.js";
 
 /**
- * The provider contract. Implement `ProviderAdapter` for a Mode 1 backend and add
- * a `stream` for Mode 2; the descriptor and dynamic capability check are what the
- * router plans against.
+ * The recommended way in: builds host services, registers the providers named in
+ * the options, and returns a ready engine.
  */
 export {
-  type ProviderDescriptor,
-  type ProviderDynamicCapabilities,
-  type ProviderCapabilitySnapshot,
-  type RunContext,
-  type ProviderAdapter,
-  type ProviderStreamContext,
-  type ProviderStreamEvent,
-  type StreamRun
-} from "./core/provider.js";
+  createIndeRunWeb,
+  type CreateIndeRunWebOptions,
+  type OpenAIFactoryOptions
+} from "./web-sdk.js";
 
 /**
- * Per-run gatekeeper for a Mode 2 stream: assigns the sequence numbers callers
- * order by, and enforces that exactly one terminal outcome is produced with
- * nothing admitted after it. Exported for embedders driving a stream themselves.
+ * Model profiles: application-defined names for ordered sets of targets that a
+ * request can route within. `"auto"` is built in.
  */
-export { EventGate } from "./core/event-gate.js";
-
-/** Holds the provider adapters a given engine instance can route to. */
-export { ProviderRegistry } from "./core/registry.js";
+export { AUTO_MODEL_PROFILE, type ModelProfiles } from "./core/model-profiles.js";
 
 /**
- * Route selection. `Router` turns a request plus a host capability snapshot into
- * a provider chain; `WasmRoutePlanner` is the shared Rust planner behind it, and
- * the only planner the Web SDK has — there is no JavaScript fallback.
+ * The advanced task API. `IndeRun` implements `IndeRunApi`; constructing one by
+ * hand takes a `ProviderRegistry` and `HostServices` from
+ * `@independo/inderun-web/provider`.
  */
-export { type RouteSelection, Router } from "./core/router.js";
-export {
-  type RoutePlanner,
-  type PlannerOutcome,
-  type WasmUnavailableReason,
-  type SharedPlannerInput,
-  type SharedPlannerRoutePlan,
-  WasmRoutePlanner
-} from "./core/route-planner.js";
-
-/**
- * The normalized error taxonomy. Every failure the SDK surfaces is an
- * `IndeRunException` in one of these classes, whatever the provider raised.
- */
-export {
-  type IndeRunExceptionParams,
-  IndeRunException,
-  createCapabilityMismatch,
-  createOffline,
-  createAuthError,
-  createRateLimited,
-  createTimeout,
-  createUnavailable,
-  createInternal,
-  toIndeRunException
-} from "./core/errors.js";
-
-/** The engine itself, and the app-facing API surface it implements. */
-export { IndeRun, type StreamHandleResult } from "./core/engine.js";
+export { IndeRun, type IndeRunOptions, type StreamHandleResult } from "./core/engine.js";
 export type { IndeRunApi } from "./core/generated/inderun-api.js";
+export type { ProviderCapabilitySnapshot, StreamRun } from "./core/provider.js";
 
 /**
  * The contract types this SDK's own signatures take and return.
@@ -99,13 +65,14 @@ export type { IndeRunApi } from "./core/generated/inderun-api.js";
  * This is the npm counterpart of Gradle `api(...)` on Android and `@_exported
  * import` on Swift — see
  * {@link https://github.com/independo-gmbh/inderun/issues/189 | #189}. The
- * host-service and telemetry blocks in this file re-export their halves of the
- * same contract surface for the same reason.
+ * telemetry block below and the host-service block of the `/provider` entry
+ * point re-export their halves of the same contract surface for the same reason.
  *
  * Depend on `@independo/inderun-contracts` directly only for what is not
  * re-exported here: the JSON Schemas and the `get*ValidationIssues` validators.
  */
 export type {
+  ExecutionProvenance,
   IndeRunError,
   IndeRunErrorClass,
   StreamEvent,
@@ -114,6 +81,13 @@ export type {
   TaskRequest,
   TaskResult
 } from "@independo/inderun-contracts";
+
+/**
+ * The normalized error taxonomy. Every failure the SDK surfaces is an
+ * `IndeRunException` in one of these classes, whatever the provider raised.
+ * Provider authors create them with the `create*` helpers from `/provider`.
+ */
+export { IndeRunException, toIndeRunException } from "./core/errors.js";
 
 /**
  * Telemetry. Pass a `TelemetryService` to observe routing decisions and attempt
@@ -125,23 +99,3 @@ export {
   type TelemetryService,
   NoOpTelemetryService
 } from "./core/telemetry.js";
-
-/**
- * The browser implementations of the host services above, and the factory that
- * assembles them. Use these directly only when constructing `IndeRun` by hand.
- */
-export {
-  BrowserConnectivityService,
-  FetchHttpClient,
-  FetchStreamingHttpClient,
-  SystemClockService,
-  createBrowserHostServices,
-  type CreateBrowserHostServicesOptions,
-  type FetchHttpClientOptions
-} from "./core/browser-host.js";
-
-/**
- * The recommended way in: builds host services, registers the providers named in
- * the options, and returns a ready engine.
- */
-export { createIndeRunWeb, type CreateIndeRunWebOptions } from "./web-sdk.js";

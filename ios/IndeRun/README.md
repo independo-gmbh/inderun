@@ -52,11 +52,19 @@ try registry.register(
 )
 
 let inderun = IndeRun(registry: registry, hostServices: hostServices)
-let result = try await inderun.run(request: TaskRequest(
-    prompt: "Translate 'Hello' to Spanish",
-    constraints: TaskRequestConstraints(privacy: .localRequired)
+let result = try await inderun.generateText(TextGenerationOptions(
+    .prompt("Translate 'Hello' to Spanish"),
+    execution: TextExecutionOptions(privacy: .localRequired)
 ))
+
+let stream = try await inderun.streamText(TextGenerationOptions(.prompt("Explain routing.")))
+for try await delta in stream.textStream { print(delta, terminator: "") }
+let ending = try await stream.result()
 ```
+
+`generateText` and `streamText` are extensions on `IndeRunApi`: each compiles to one canonical
+`TaskRequest` (`TextGenerationOptions.taskRequest()`) and calls `run(request:)` or `stream(request:)`,
+which remain public as the advanced API.
 
 ### Custom local ONNX models
 

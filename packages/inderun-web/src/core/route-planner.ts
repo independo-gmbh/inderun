@@ -177,7 +177,8 @@ export function buildSharedPlannerInput(
   request: TaskRequest,
   snapshots: ProviderRuntimeSnapshot[],
   networkOnline: boolean,
-  interactionMode: InteractionMode = "run"
+  interactionMode: InteractionMode = "run",
+  modelProfile?: SharedPlannerInput["modelProfile"]
 ): SharedPlannerInput {
   const constraints = request.constraints ?? {};
   const preferences = request.preferences ?? {};
@@ -196,6 +197,7 @@ export function buildSharedPlannerInput(
     preferences: {
       optimizeFor: preferences.optimizeFor ?? "balanced"
     },
+    ...(modelProfile ? { modelProfile } : {}),
     providers: snapshots.map((snapshot) => ({
       descriptor: snapshot.descriptor,
       capabilities: snapshot.capabilities

@@ -48,7 +48,58 @@ public struct OpenAIProviderOptions: Sendable {
     }
 }
 
+/// Options for `AppleCloudProviderRegistryFactory.makeOpenAIRegistry`: the provider
+/// options with `models` in place of the single `model`. One target is registered per
+/// model, with id `<id>:<model>`, so model profiles can list each model separately.
+public struct OpenAIFactoryOptions: Sendable {
+    public let id: String
+    public let models: [String]
+    public let endpointURL: String
+    public let auth: OpenAIAuthMode
+    public let authContextRef: String?
+    public let timeoutMs: Int?
+    public let healthCheckTimeoutMs: Int?
+    public let healthCheckCacheMs: Int64?
+
+    public init(
+        id: String = "openai",
+        models: [String],
+        endpointURL: String = defaultOpenAIResponsesEndpoint,
+        auth: OpenAIAuthMode = .authContextRef,
+        authContextRef: String? = nil,
+        timeoutMs: Int? = nil,
+        healthCheckTimeoutMs: Int? = nil,
+        healthCheckCacheMs: Int64? = nil
+    ) {
+        self.id = id
+        self.models = models
+        self.endpointURL = endpointURL
+        self.auth = auth
+        self.authContextRef = authContextRef
+        self.timeoutMs = timeoutMs
+        self.healthCheckTimeoutMs = healthCheckTimeoutMs
+        self.healthCheckCacheMs = healthCheckCacheMs
+    }
+
+    /// The provider options for one target of this factory configuration.
+    public func providerOptions(model: String) -> OpenAIProviderOptions {
+        OpenAIProviderOptions(
+            id: "\(id):\(model)",
+            model: model,
+            endpointURL: endpointURL,
+            auth: auth,
+            authContextRef: authContextRef,
+            timeoutMs: timeoutMs,
+            healthCheckTimeoutMs: healthCheckTimeoutMs,
+            healthCheckCacheMs: healthCheckCacheMs
+        )
+    }
+}
+
 private struct OpenAIResponseBody {
+    /// The model id the Responses API echoes on the response object: the model that
+    /// served the request, which can be a dated snapshot of the configured alias.
+    let model: String?
     let outputText: String?
     let output: [[String: Any]]
     let status: String?
@@ -56,8 +107,13 @@ private struct OpenAIResponseBody {
     let inputTokens: Int?
     let outputTokens: Int?
     let totalTokens: Int?
+    let error: OpenAIReportedError?
+    /// OpenRouter's typed classification of a failed response. It sits beside
+    /// `error`, whose native `code` collapses many causes into `server_error`.
+    let errorType: String?
 
     init(json: [String: Any]) {
+        model = (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         outputText = json["output_text"] as? String
         output = json["output"] as? [[String: Any]] ?? []
         status = json["status"] as? String
@@ -67,19 +123,90 @@ private struct OpenAIResponseBody {
         inputTokens = usage?["input_tokens"] as? Int
         outputTokens = usage?["output_tokens"] as? Int
         totalTokens = usage?["total_tokens"] as? Int
+        error = (json["error"] as? [String: Any]).map(OpenAIReportedError.init(json:))
+        errorType = json["error_type"] as? String
     }
 }
 
-private struct OpenAIErrorBody {
+/// An error `code` as a server reports it: a name on OpenAI, the numeric HTTP
+/// status on OpenRouter.
+private enum OpenAIErrorCode {
+    case name(String)
+    case status(Int)
+
+    init?(_ value: Any?) {
+        if let name = value as? String {
+            self = .name(name)
+        } else if let number = value as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  let status = value as? Int {
+            self = .status(status)
+        } else {
+            return nil
+        }
+    }
+
+    /// The code as a detail string, whether the server sent a name or a status.
+    var detail: String {
+        switch self {
+        case let .name(name): return name
+        case let .status(status): return String(status)
+        }
+    }
+}
+
+/// The HTTP status OpenRouter documents for each typed `error_type`, so a typed
+/// failure is classified exactly like the equivalent HTTP error. Refusals and
+/// content-policy violations are documented as 403 but are not credential
+/// failures, so they classify as a rejected request (400). Unknown types have no
+/// entry and the native `code` decides instead.
+private let openRouterErrorTypeStatus: [String: Int] = [
+    "authentication": 401,
+    "payment_required": 402,
+    "permission_denied": 403,
+    "rate_limit_exceeded": 429,
+    "timeout": 504,
+    "provider_unavailable": 502,
+    "provider_overloaded": 503,
+    "server": 500,
+    "unmapped": 500,
+    "not_found": 404,
+    "image_not_found": 404,
+    "precondition_failed": 412,
+    "payload_too_large": 413,
+    "unprocessable": 422,
+    "content_policy_violation": 400,
+    "refusal": 400,
+    "context_length_exceeded": 400,
+    "max_tokens_exceeded": 400,
+    "token_limit_exceeded": 400,
+    "string_too_long": 400,
+    "invalid_request": 400,
+    "invalid_prompt": 400,
+    "invalid_image": 400,
+    "image_too_large": 400,
+    "image_too_small": 400,
+    "unsupported_image_format": 400,
+    "image_download_failed": 400
+]
+
+/// A failure reported inside a body rather than by the HTTP status: the `error`
+/// object of an HTTP error body, a 2xx run body, or a stream event.
+private struct OpenAIReportedError {
     let message: String?
     let type: String?
-    let code: String?
+    let code: OpenAIErrorCode?
+
+    init(message: String?, type: String?, code: OpenAIErrorCode?) {
+        self.message = message
+        self.type = type
+        self.code = code
+    }
 
     init(json: [String: Any]) {
-        let error = json["error"] as? [String: Any]
-        message = error?["message"] as? String
-        type = error?["type"] as? String
-        code = error?["code"] as? String
+        message = json["message"] as? String
+        type = json["type"] as? String
+        code = OpenAIErrorCode(json["code"])
     }
 }
 
@@ -96,6 +223,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         ProviderDescriptor(
             id: options.id,
             type: .cloud,
+            model: options.model,
             transport: .http,
             streamingStyle: .tokens,
             supports: ProviderDescriptor.SupportsCapabilities(
@@ -252,7 +380,26 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         }
 
         let responseBody = OpenAIResponseBody(json: parseJSONObject(response.body))
+        // A lenient server (OpenRouter among them) can answer 2xx for a run that
+        // failed upstream; that is a failure to classify, not an empty answer.
+        if let runStatus = responseBody.status, runStatus == "failed" || runStatus == "cancelled" {
+            throw mapReportedError(
+                responseBody.error,
+                fallbackMessage: "OpenAI Responses run ended with status '\(runStatus)'.",
+                runId: context.runId,
+                errorType: responseBody.errorType
+            )
+        }
+
         guard let outputText = extractOutputText(responseBody: responseBody) else {
+            if let reported = responseBody.error {
+                throw mapReportedError(
+                    reported,
+                    fallbackMessage: "OpenAI Responses payload reported an error.",
+                    runId: context.runId,
+                    errorType: responseBody.errorType
+                )
+            }
             throw createInternal(
                 message: "OpenAI Responses payload did not contain text output.",
                 runId: context.runId,
@@ -263,9 +410,14 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         var result = TaskResult(
             finishReason: finishReason(responseBody: responseBody),
             output: Output(text: outputText, type: .text),
+            provenance: nil,
             runId: context.runId,
             schemaVersion: .the10,
-            telemetry: TaskResultTelemetry(errorClass: nil, providerUsed: options.id, totalMs: 0),
+            telemetry: TaskResultTelemetry(
+                providerUsed: options.id,
+                totalMs: 0,
+                reportedModel: responseBody.model
+            ),
             usage: nil
         )
 
@@ -292,7 +444,9 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
     /// - `response.completed` and `response.incomplete` become the terminal done,
     ///   with `finalText`, `usage`, and `finishReason` read off the embedded
     ///   response object by the same helpers Mode 1 uses — it has the same shape;
-    /// - `response.failed` and `error` become a terminal failure;
+    /// - `response.failed`, `response.error` and `error` become a terminal failure,
+    ///   as does an untyped event carrying an `error` object (OpenRouter's
+    ///   documented mid-stream failure shape);
     /// - every other event type is ignored, since the set is open and additive.
     public func stream(
         request: TaskRequest,
@@ -417,11 +571,18 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
             continuation.yield(.done(
                 finalText: extractOutputText(responseBody: body) ?? "",
                 finishReason: finishReason(responseBody: body),
-                usage: usage(responseBody: body)
+                usage: usage(responseBody: body),
+                reportedModel: body.model
             ))
             return true
 
-        case "response.failed", "error":
+        case "response.failed", "response.error", "error":
+            continuation.yield(.failure(error: mapStreamError(json: json, runId: context.runId)))
+            return true
+
+        // OpenRouter's documented mid-stream failure: no event type at all, just
+        // a top-level `error` object over the already-200 response.
+        case nil where json["error"] is [String: Any]:
             continuation.yield(.failure(error: mapStreamError(json: json, runId: context.runId)))
             return true
 
@@ -430,35 +591,73 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         }
     }
 
-    /// Maps a `response.failed` / `error` stream event onto the error taxonomy.
-    /// These arrive over an HTTP 200 body, so there is no status code to
-    /// classify from; OpenAI reports rate limiting and auth failures here with
-    /// the same `code` values it uses in unary error bodies.
+    /// Maps a `response.failed` / `response.error` / `error` stream event onto
+    /// the error taxonomy. These arrive over an HTTP 200 body, so there is no
+    /// status code to classify from; the event's own `code` is classified instead.
     ///
     /// Two payload shapes exist and both are accepted: the standalone `error`
     /// event carries `code`/`message` at its root, while `response.failed`
-    /// nests them under `response.error`. The root `type` is the event name
-    /// rather than an error type, so it is never read as one.
-    private func mapStreamError(json: [String: Any], runId: String) -> Error {
-        let nested = (json["error"] as? [String: Any])
-            ?? ((json["response"] as? [String: Any])?["error"] as? [String: Any])
-            ?? [:]
-        let message = nested["message"] as? String
-            ?? json["message"] as? String
-            ?? "OpenAI Responses stream reported a failure."
-        let code = nested["code"] as? String ?? json["code"] as? String
+    /// nests them under `response.error` and some servers nest them under
+    /// `error`. The root `type` is the event name rather than an error type, so
+    /// it is never read as one. OpenRouter's typed classification comes from the
+    /// embedded response (`response.failed`) or the error's metadata (untyped
+    /// events).
+    private func mapStreamError(json: [String: Any], runId: String) -> IndeRunException {
+        let response = json["response"] as? [String: Any]
+        let nested = (json["error"] as? [String: Any]) ?? (response?["error"] as? [String: Any])
+        let reported = OpenAIReportedError(
+            message: nested?["message"] as? String ?? json["message"] as? String,
+            type: nested?["type"] as? String,
+            code: OpenAIErrorCode(nested?["code"]) ?? OpenAIErrorCode(json["code"])
+        )
+        return mapReportedError(
+            reported,
+            fallbackMessage: "OpenAI Responses stream reported a failure.",
+            runId: runId,
+            errorType: response?["error_type"] as? String
+                ?? (nested?["metadata"] as? [String: Any])?["error_type"] as? String
+        )
+    }
+
+    /// Classifies a failure reported in a body rather than by the HTTP status: a
+    /// failed stream event, or a 2xx run body whose status is `failed` or that
+    /// carries an `error` object instead of output. The most specific signal wins:
+    /// 1. OpenRouter's typed `error_type`, classified by the HTTP status it
+    ///    documents for that type (see `openRouterErrorTypeStatus`);
+    /// 2. a numeric `code`, which is an HTTP status (OpenRouter's convention) and
+    ///    is classified exactly as `mapHTTPError` classifies that status;
+    /// 3. a string code, by OpenAI's names.
+    /// Anything unrecognized is a transient `Unavailable`, since the server did
+    /// accept the request.
+    private func mapReportedError(
+        _ reported: OpenAIReportedError?,
+        fallbackMessage: String,
+        runId: String,
+        errorType: String? = nil
+    ) -> IndeRunException {
+        let message = reported?.message.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackMessage
+        let typedStatus = errorType.flatMap { openRouterErrorTypeStatus[$0] }
         let details: [String: JSONAny] = [
-            "errorType": JSONAny(nested["type"] as? String ?? JSONNull()),
-            "errorCode": JSONAny(code ?? JSONNull())
+            "errorType": JSONAny((typedStatus != nil ? errorType : reported?.type) ?? JSONNull()),
+            "errorCode": JSONAny(reported?.code?.detail ?? JSONNull())
         ]
 
-        switch code {
-        case "rate_limit_exceeded":
+        if let typedStatus {
+            return errorForStatus(typedStatus, message: message, runId: runId, details: details)
+        }
+
+        switch reported?.code {
+        case let .status(status):
+            return errorForStatus(status, message: message, runId: runId, details: details)
+        case .name("rate_limit_exceeded"):
             return createRateLimited(
                 message: message, runId: runId, providerId: options.id, retryable: true, details: details
             )
-        case "invalid_api_key", "authentication_error":
+        case .name("invalid_api_key"), .name("authentication_error"):
             return createAuthError(message: message, runId: runId, providerId: options.id, details: details)
+        // The request itself was rejected; repeating it cannot succeed.
+        case .name("invalid_prompt"), .name("image_content_policy_violation"):
+            return createInternal(message: message, runId: runId, providerId: options.id, details: details)
         default:
             return createUnavailable(
                 message: message, runId: runId, providerId: options.id, retryable: true, details: details
@@ -535,6 +734,9 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         return body
     }
 
+    /// Maps an OpenAI HTTP error response onto the IndeRun error taxonomy by its
+    /// status (see `errorForStatus`), honoring `Retry-After` on whichever status
+    /// carries it.
     private func mapHTTPError(
         status: Int,
         statusText: String,
@@ -542,25 +744,65 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
         body: String,
         runId: String
     ) -> IndeRunException {
-        let errorBody = OpenAIErrorBody(json: parseJSONObject(body))
-        let message = errorBody.message ?? "OpenAI Responses request failed with HTTP \(status) \(statusText)."
+        let errorBody = (parseJSONObject(body)["error"] as? [String: Any]).map(OpenAIReportedError.init(json:))
+        let message = errorBody?.message.flatMap { $0.isEmpty ? nil : $0 }
+            ?? "OpenAI Responses request failed with HTTP \(status) \(statusText)."
         var details: [String: JSONAny] = [
             "status": JSONAny(status),
             "statusText": JSONAny(statusText)
         ]
-        if let type = errorBody.type {
+        if let type = errorBody?.type {
             details["errorType"] = JSONAny(type)
         }
-        if let code = errorBody.code {
-            details["errorCode"] = JSONAny(code)
+        if let code = errorBody?.code {
+            details["errorCode"] = JSONAny(code.detail)
         }
 
+        return errorForStatus(
+            status,
+            message: message,
+            runId: runId,
+            retryAfterMs: parseRetryAfterMs(headers: headers),
+            details: details
+        )
+    }
+
+    /// The status classification shared by HTTP errors and numeric in-body codes:
+    /// - `401` / `403` → `AuthError`
+    /// - `402` → `Unavailable`, not retryable: the account is out of credits, so
+    ///   this target cannot serve until someone tops it up. A 402 that carries
+    ///   `Retry-After` is the exception — OpenRouter's in-flight budget limit,
+    ///   which clears on its own — and is `RateLimited`. Fallback is unaffected
+    ///   either way: the engine moves on to the next target whatever the class.
+    /// - `429` → `RateLimited`
+    /// - `408` / `504` → `Timeout`
+    /// - `409` / `5xx` → `Unavailable`
+    /// - any other status → `Internal`
+    ///
+    /// `retryAfterMs` travels on every retryable class; it is absent for numeric
+    /// in-body codes, which have no header to read it from.
+    private func errorForStatus(
+        _ status: Int,
+        message: String,
+        runId: String,
+        retryAfterMs: Int? = nil,
+        details: [String: JSONAny]
+    ) -> IndeRunException {
         if status == 401 || status == 403 {
             return createAuthError(message: message, runId: runId, providerId: options.id, details: details)
         }
 
-        if status == 429 {
-            let retryAfterMs = parseRetryAfterMs(headers: headers)
+        if status == 402 && retryAfterMs == nil {
+            return createUnavailable(
+                message: message,
+                runId: runId,
+                providerId: options.id,
+                retryable: false,
+                details: details
+            )
+        }
+
+        if status == 402 || status == 429 {
             return createRateLimited(
                 message: message,
                 runId: runId,
@@ -577,6 +819,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
                 runId: runId,
                 providerId: options.id,
                 retryable: true,
+                retryAfterMs: retryAfterMs,
                 details: details
             )
         }
@@ -587,6 +830,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
                 runId: runId,
                 providerId: options.id,
                 retryable: true,
+                retryAfterMs: retryAfterMs,
                 details: details
             )
         }
@@ -646,9 +890,17 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
 }
 
 public enum AppleCloudProviderRegistryFactory {
-    public static func makeOpenAIRegistry(options: OpenAIProviderOptions) throws -> ProviderRegistry {
+    /// Registers one OpenAI-compatible target per configured model.
+    /// - Throws: `IndeRunError` (`Internal`) when `models` is empty, or a registry
+    ///   error when two models produce the same target id.
+    public static func makeOpenAIRegistry(options: OpenAIFactoryOptions) throws -> ProviderRegistry {
+        guard !options.models.isEmpty else {
+            throw createInternal(message: "makeOpenAIRegistry requires at least one model.")
+        }
         let registry = ProviderRegistry()
-        try registry.register(OpenAIProvider(options: options))
+        for model in options.models {
+            try registry.register(OpenAIProvider(options: options.providerOptions(model: model)))
+        }
         return registry
     }
 }
@@ -672,7 +924,9 @@ private func parseRetryAfterMs(headers: [String: String]) -> Int? {
     guard let raw else { return nil }
 
     if let seconds = Double(raw), seconds.isFinite {
-        return max(0, Int(seconds * 1000))
+        // Clamped before the conversion: `Int(_:)` traps on a Double outside
+        // Int's range, and the header is server-controlled.
+        return Int(min(max(0, seconds * 1000), Double(Int32.max)))
     }
 
     let formatter = DateFormatter()

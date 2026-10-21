@@ -101,6 +101,7 @@ export class OnnxRuntimeWebProvider implements ProviderAdapter {
     return {
       id: this.id,
       type: "local",
+      model: this.modelPackage.id,
       transport: "in_process",
       supports: {
         run: true,

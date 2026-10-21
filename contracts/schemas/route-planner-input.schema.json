@@ -53,6 +53,28 @@
         }
       }
     },
+    "modelProfile": {
+      "description": "The resolved model profile the request routes within. Absent means the built-in 'auto' profile: no allow-list, and ordering by placement and preference alone. When present, providers whose id is not in targetIds are rejected with 'not_in_model_profile', and the position in targetIds ranks the survivors after placement and before preferences. Ids that name no registered provider are ignored.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "targetIds"],
+      "properties": {
+        "name": {
+          "description": "Profile name, carried for explanations.",
+          "type": "string",
+          "minLength": 1
+        },
+        "targetIds": {
+          "description": "Provider ids in profile order.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "providers": {
       "description": "Static descriptors plus dynamic capability snapshots for planning.",
       "type": "array",

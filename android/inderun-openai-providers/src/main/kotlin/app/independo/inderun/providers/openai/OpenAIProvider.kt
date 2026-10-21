@@ -35,7 +35,7 @@ import kotlinx.coroutines.flow.takeWhile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
-import java.util.Date
+import java.time.format.DateTimeFormatter
 
 const val DEFAULT_OPENAI_RESPONSES_ENDPOINT: String = "https://api.openai.com/v1/responses"
 
@@ -68,6 +68,34 @@ data class OpenAIProviderOptions(
 )
 
 /**
+ * Options for [AndroidCloudProviderRegistryFactory.makeOpenAIRegistry]: the provider options with
+ * [models] in place of the single `model`. One target is registered per model, with id
+ * `<id>:<model>`, so model profiles can list each model separately.
+ */
+data class OpenAIFactoryOptions(
+    val id: String = "openai",
+    val models: List<String>,
+    val endpointUrl: String = DEFAULT_OPENAI_RESPONSES_ENDPOINT,
+    val auth: OpenAIAuthMode = OpenAIAuthMode.authContextRef,
+    val authContextRef: String? = null,
+    val timeoutMs: Long? = null,
+    val healthCheckTimeoutMs: Long? = null,
+    val healthCheckCacheMs: Long? = null,
+) {
+    /** The provider options for one target of this factory configuration. */
+    fun providerOptions(model: String): OpenAIProviderOptions = OpenAIProviderOptions(
+        id = "$id:$model",
+        model = model,
+        endpointUrl = endpointUrl,
+        auth = auth,
+        authContextRef = authContextRef,
+        timeoutMs = timeoutMs,
+        healthCheckTimeoutMs = healthCheckTimeoutMs,
+        healthCheckCacheMs = healthCheckCacheMs,
+    )
+}
+
+/**
  * Unwinds the collection loop once a terminal event has been produced. Kotlin
  * flows have no `break`, and abandoning the collector by throwing is the
  * documented way to stop consuming one early.
@@ -82,6 +110,7 @@ class OpenAIProvider(
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = options.id,
         type = ProviderDescriptor.ProviderType.cloud,
+        model = options.model,
         transport = ProviderDescriptor.TransportType.http,
         streamingStyle = ProviderDescriptor.StreamingStyle.tokens,
         supports = ProviderDescriptor.SupportsCapabilities(
@@ -217,12 +246,35 @@ class OpenAIProvider(
         }
 
         val json = parseJsonObject(response.body)
+        // A lenient server (OpenRouter among them) can answer 2xx for a run that
+        // failed upstream; that is a failure to classify, not an empty answer.
+        val reported = json.optJSONObject("error")?.let(::reportedError)
+        val status = json.optStringOrNull("status")
+        if (status == "failed" || status == "cancelled") {
+            throw mapReportedError(
+                reported = reported,
+                fallbackMessage = "OpenAI Responses run ended with status '$status'.",
+                runId = context.runId,
+                errorType = json.optRaw("error_type"),
+            )
+        }
+
         val outputText = extractOutputText(json)
-            ?: throw createInternal(
+        if (outputText == null && reported != null) {
+            throw mapReportedError(
+                reported = reported,
+                fallbackMessage = "OpenAI Responses payload reported an error.",
+                runId = context.runId,
+                errorType = json.optRaw("error_type"),
+            )
+        }
+        if (outputText == null) {
+            throw createInternal(
                 message = "OpenAI Responses payload did not contain text output.",
                 runId = context.runId,
                 providerId = options.id,
             )
+        }
 
         val usage = usage(json)
 
@@ -232,7 +284,11 @@ class OpenAIProvider(
             output = Output(text = outputText),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
-            telemetry = TaskResultTelemetry(providerUsed = options.id, totalMs = totalMs),
+            telemetry = TaskResultTelemetry(
+                providerUsed = options.id,
+                reportedModel = reportedModel(json),
+                totalMs = totalMs,
+            ),
             usage = usage,
         )
     }
@@ -254,7 +310,9 @@ class OpenAIProvider(
      * - `response.completed` and `response.incomplete` become the terminal done,
      *   with `finalText`, `usage` and `finishReason` read off the embedded
      *   response object by the same helpers Mode 1 uses — it has the same shape;
-     * - `response.failed` and `error` become a terminal failure;
+     * - `response.failed`, `response.error` and `error` become a terminal failure,
+     *   as does an untyped event carrying an `error` object (OpenRouter's
+     *   documented mid-stream failure shape);
      * - every other event type is ignored, since the set is open and additive.
      */
     override fun stream(
@@ -370,12 +428,19 @@ class OpenAIProvider(
                         finalText = extractOutputText(body).orEmpty(),
                         finishReason = finishReason(body),
                         usage = usage(body),
+                        reportedModel = reportedModel(body),
                     ),
                 )
                 return true
             }
 
-            "response.failed", "error" -> {
+            "response.failed", "response.error", "error" -> {
+                emit(ProviderStreamEvent.Failure(mapStreamError(json, context.runId)))
+                return true
+            }
+
+            null -> {
+                if (json.optJSONObject("error") == null) return false
                 emit(ProviderStreamEvent.Failure(mapStreamError(json, context.runId)))
                 return true
             }
@@ -385,28 +450,67 @@ class OpenAIProvider(
     }
 
     /**
-     * Maps a `response.failed` / `error` stream event onto the error taxonomy.
-     * These arrive over an HTTP 200 body, so there is no status code to classify
-     * from; OpenAI reports rate limiting and auth failures here with the same
-     * `code` values it uses in unary error bodies.
+     * Maps a `response.failed` / `response.error` / `error` stream event onto the
+     * error taxonomy. These arrive over an HTTP 200 body, so there is no status
+     * code to classify from; the event's own `code` is classified instead.
      *
      * Two payload shapes exist and both are accepted: the standalone `error`
      * event carries `code`/`message` at its root, while `response.failed` nests
-     * them under `response.error`. The root `type` is the event name rather than
-     * an error type, so it is never read as one.
+     * them under `response.error` and some servers nest them under `error`. The
+     * root `type` is the event name rather than an error type, so it is never
+     * read as one. OpenRouter's typed classification comes from the embedded
+     * response (`response.failed`) or the error's metadata (untyped events).
      */
-    private fun mapStreamError(json: JSONObject, runId: String): Throwable {
+    private fun mapStreamError(json: JSONObject, runId: String): IndeRunException {
         val nested = json.optJSONObject("error")
             ?: json.optJSONObject("response")?.optJSONObject("error")
             ?: JSONObject()
-        val message = nested.optStringOrNull("message")
-            ?: json.optStringOrNull("message")
-            ?: "OpenAI Responses stream reported a failure."
-        val code = nested.optStringOrNull("code") ?: json.optStringOrNull("code")
-        val details = mapOf(
-            "errorType" to nested.optStringOrNull("type"),
-            "errorCode" to code,
+        return mapReportedError(
+            reported = ReportedError(
+                message = nested.optStringOrNull("message") ?: json.optStringOrNull("message"),
+                type = nested.optStringOrNull("type"),
+                code = nested.optErrorCode("code") ?: json.optErrorCode("code"),
+            ),
+            fallbackMessage = "OpenAI Responses stream reported a failure.",
+            runId = runId,
+            errorType = json.optJSONObject("response")?.optRaw("error_type")
+                ?: nested.optJSONObject("metadata")?.optRaw("error_type"),
         )
+    }
+
+    /**
+     * Classifies a failure reported in a body rather than by the HTTP status: a
+     * failed stream event or a 2xx run body whose status is `failed`. The most
+     * specific signal wins:
+     * 1. OpenRouter's typed `error_type` ([errorType]), classified by the HTTP
+     *    status it documents for that type (see [openRouterErrorTypeStatus]);
+     * 2. a numeric `code`, which is an HTTP status (OpenRouter's convention) and
+     *    is classified exactly as [mapHttpError] classifies that status;
+     * 3. a string code, by OpenAI's names.
+     * Anything unrecognized is a transient `Unavailable`, since the server did
+     * accept the request.
+     */
+    private fun mapReportedError(
+        reported: ReportedError?,
+        fallbackMessage: String,
+        runId: String,
+        errorType: Any? = null,
+    ): IndeRunException {
+        val message = reported?.message?.takeIf { it.isNotEmpty() } ?: fallbackMessage
+        val code = reported?.code
+        val typedStatus = openRouterErrorTypeStatus(errorType)
+        val details = mapOf(
+            "errorType" to if (typedStatus != null) errorType as String else reported?.type,
+            "errorCode" to code?.toString(),
+        )
+
+        if (typedStatus != null) {
+            return errorForStatus(status = typedStatus, message = message, runId = runId, details = details)
+        }
+
+        if (code is Long) {
+            return errorForStatus(status = code, message = message, runId = runId, details = details)
+        }
 
         return when (code) {
             "rate_limit_exceeded" -> createRateLimited(
@@ -417,6 +521,13 @@ class OpenAIProvider(
                 details = details,
             )
             "invalid_api_key", "authentication_error" -> createAuthError(
+                message = message,
+                runId = runId,
+                providerId = options.id,
+                details = details,
+            )
+            // The request itself was rejected; repeating it cannot succeed.
+            "invalid_prompt", "image_content_policy_violation" -> createInternal(
                 message = message,
                 runId = runId,
                 providerId = options.id,
@@ -514,6 +625,11 @@ class OpenAIProvider(
         return request.prompt.orEmpty()
     }
 
+    /**
+     * Maps an OpenAI HTTP error response onto the IndeRun error taxonomy by its
+     * status (see [errorForStatus]), honoring `Retry-After` on whichever status
+     * carries it.
+     */
     private fun mapHttpError(
         status: Int,
         statusText: String,
@@ -523,55 +639,95 @@ class OpenAIProvider(
     ): IndeRunException {
         val json = parseJsonObject(body)
         val error = json.optJSONObject("error")
-        val message = error?.optString("message")?.takeIf { it.isNotBlank() }
+        val message = error?.optStringOrNull("message")
             ?: "OpenAI Responses request failed with HTTP $status $statusText."
-        val details = mutableMapOf<String, Any?>(
+        val details = mapOf(
             "status" to status,
             "statusText" to statusText,
             "errorType" to error?.optStringOrNull("type"),
-            "errorCode" to error?.optStringOrNull("code"),
+            "errorCode" to error?.optErrorCode("code")?.toString(),
         )
 
-        return when {
-            status == 401 || status == 403 -> createAuthError(
-                message = message,
-                runId = runId,
-                providerId = options.id,
-                details = details,
-            )
+        return errorForStatus(
+            status = status.toLong(),
+            message = message,
+            runId = runId,
+            details = details,
+            retryAfterMs = parseRetryAfterMs(headers),
+        )
+    }
 
-            status == 429 -> createRateLimited(
-                message = message,
-                runId = runId,
-                providerId = options.id,
-                retryable = true,
-                retryAfterMs = parseRetryAfterMs(headers),
-                details = details,
-            )
+    /**
+     * The status classification shared by HTTP errors and numeric in-body codes:
+     * - `401` / `403` → `AuthError`
+     * - `402` → `Unavailable`, not retryable: the account is out of credits, so
+     *   this target cannot serve until someone tops it up. A 402 that carries
+     *   `Retry-After` is the exception — OpenRouter's in-flight budget limit,
+     *   which clears on its own — and is `RateLimited`. Fallback is unaffected
+     *   either way: the engine moves on to the next target whatever the class.
+     * - `429` → `RateLimited`
+     * - `408` / `504` → `Timeout`
+     * - `409` / `5xx` → `Unavailable`
+     * - any other status → `Internal`
+     *
+     * [retryAfterMs] travels on every retryable class; it is absent for numeric
+     * in-body codes, which have no header to read it from.
+     */
+    private fun errorForStatus(
+        status: Long,
+        message: String,
+        runId: String,
+        details: Map<String, Any?>,
+        retryAfterMs: Long? = null,
+    ): IndeRunException = when {
+        status == 401L || status == 403L -> createAuthError(
+            message = message,
+            runId = runId,
+            providerId = options.id,
+            details = details,
+        )
 
-            status == 408 || status == 504 -> createTimeout(
-                message = message,
-                runId = runId,
-                providerId = options.id,
-                retryable = true,
-                details = details,
-            )
+        status == 402L && retryAfterMs == null -> createUnavailable(
+            message = message,
+            runId = runId,
+            providerId = options.id,
+            retryable = false,
+            details = details,
+        )
 
-            status == 409 || status >= 500 -> createUnavailable(
-                message = message,
-                runId = runId,
-                providerId = options.id,
-                retryable = true,
-                details = details,
-            )
+        status == 402L || status == 429L -> createRateLimited(
+            message = message,
+            runId = runId,
+            providerId = options.id,
+            retryable = true,
+            retryAfterMs = retryAfterMs,
+            details = details,
+        )
 
-            else -> createInternal(
-                message = message,
-                runId = runId,
-                providerId = options.id,
-                details = details,
-            )
-        }
+        status == 408L || status == 504L -> createTimeout(
+            message = message,
+            runId = runId,
+            providerId = options.id,
+            retryable = true,
+            retryAfterMs = retryAfterMs,
+            details = details,
+        )
+
+        status == 409L || status >= 500L -> createUnavailable(
+            message = message,
+            runId = runId,
+            providerId = options.id,
+            retryable = true,
+            retryAfterMs = retryAfterMs,
+            details = details,
+        )
+
+        else -> createInternal(
+            message = message,
+            runId = runId,
+            providerId = options.id,
+            details = details,
+        )
     }
 
     private fun extractOutputText(json: JSONObject): String? {
@@ -597,6 +753,12 @@ class OpenAIProvider(
         return fragments.ifBlank { null }
     }
 
+    /**
+     * The model id the Responses API echoes on the response object: the model that served the
+     * request, which can be a dated snapshot of the configured alias.
+     */
+    private fun reportedModel(json: JSONObject): String? = json.optStringOrNull("model")?.takeIf { it.isNotEmpty() }
+
     private fun finishReason(json: JSONObject): FinishReason {
         if (json.optString("status") == "incomplete") {
             val reason = json.optJSONObject("incomplete_details")?.optString("reason")
@@ -608,10 +770,73 @@ class OpenAIProvider(
 }
 
 object AndroidCloudProviderRegistryFactory {
-    fun makeOpenAIRegistry(options: OpenAIProviderOptions): ProviderRegistry = ProviderRegistry().apply {
-        register(OpenAIProvider(options))
+    /**
+     * Registers one OpenAI-compatible target per configured model.
+     *
+     * @throws IllegalArgumentException when [OpenAIFactoryOptions.models] is empty.
+     */
+    fun makeOpenAIRegistry(options: OpenAIFactoryOptions): ProviderRegistry {
+        require(options.models.isNotEmpty()) { "makeOpenAIRegistry requires at least one model." }
+        return ProviderRegistry().apply {
+            options.models.forEach { model -> register(OpenAIProvider(options.providerOptions(model))) }
+        }
     }
 }
+
+/**
+ * A failure reported inside a response body or stream event. [code] is a
+ * [String] on OpenAI and the numeric HTTP status (a [Long]) on OpenRouter.
+ */
+private class ReportedError(
+    val message: String?,
+    val type: String?,
+    val code: Any?,
+)
+
+private fun reportedError(json: JSONObject): ReportedError = ReportedError(
+    message = json.optStringOrNull("message"),
+    type = json.optStringOrNull("type"),
+    code = json.optErrorCode("code"),
+)
+
+/**
+ * The HTTP status OpenRouter documents for each typed `error_type`, so a typed
+ * failure is classified exactly like the equivalent HTTP error. Refusals and
+ * content-policy violations are documented as 403 but are not credential
+ * failures, so they classify as a rejected request (400). Anything that is not
+ * a known type string returns `null` and the native `code` decides instead.
+ */
+private fun openRouterErrorTypeStatus(errorType: Any?): Long? = (errorType as? String)?.let(OPENROUTER_ERROR_TYPE_STATUS::get)
+
+private val OPENROUTER_ERROR_TYPE_STATUS: Map<String, Long> = mapOf(
+    "authentication" to 401L,
+    "payment_required" to 402L,
+    "permission_denied" to 403L,
+    "rate_limit_exceeded" to 429L,
+    "timeout" to 504L,
+    "provider_unavailable" to 502L,
+    "provider_overloaded" to 503L,
+    "server" to 500L,
+    "unmapped" to 500L,
+    "not_found" to 404L,
+    "image_not_found" to 404L,
+    "precondition_failed" to 412L,
+    "payload_too_large" to 413L,
+    "unprocessable" to 422L,
+    "content_policy_violation" to 400L,
+    "refusal" to 400L,
+    "context_length_exceeded" to 400L,
+    "max_tokens_exceeded" to 400L,
+    "token_limit_exceeded" to 400L,
+    "string_too_long" to 400L,
+    "invalid_request" to 400L,
+    "invalid_prompt" to 400L,
+    "invalid_image" to 400L,
+    "image_too_large" to 400L,
+    "image_too_small" to 400L,
+    "unsupported_image_format" to 400L,
+    "image_download_failed" to 400L,
+)
 
 private fun parseJsonObject(body: String): JSONObject = try {
     JSONObject(body)
@@ -627,6 +852,13 @@ private fun JSONObject.optStringOrNull(key: String): String? {
     return optString(key).takeIf { it.isNotBlank() }
 }
 
+/**
+ * The raw value at [key], or `null` when it is absent or JSON `null`. Unlike
+ * `optString`, which yields `""` for a missing key and coerces numbers, the
+ * caller sees exactly what the server sent and decides what it accepts.
+ */
+private fun JSONObject.optRaw(key: String): Any? = opt(key)?.takeIf { it != JSONObject.NULL }
+
 private fun JSONObject.optLongOrNull(key: String): Long? {
     if (!has(key) || isNull(key)) {
         return null
@@ -634,16 +866,38 @@ private fun JSONObject.optLongOrNull(key: String): Long? {
     return optLong(key)
 }
 
+/**
+ * An error `code` as sent: a [String] name, or a [Long] when the server sent a
+ * whole number (OpenRouter's HTTP status). `optString` would coerce `429` to
+ * `"429"` and lose the distinction, so the raw value is inspected instead.
+ */
+private fun JSONObject.optErrorCode(key: String): Any? = when (val value = opt(key)) {
+    is String -> value.takeIf { it.isNotBlank() }
+    is Int, is Long -> (value as Number).toLong()
+    is Number -> value.toDouble().takeIf { it % 1.0 == 0.0 }?.toLong() ?: value.toString()
+    else -> null
+}
+
+/**
+ * Reads `Retry-After` as either delay-seconds or an HTTP date (RFC 1123, e.g.
+ * `Wed, 21 Oct 2015 07:28:00 GMT`); a date in the past means retry now. ISO-8601
+ * instants are accepted too. `java.time` is part of the platform from API 26,
+ * this module's minSdk, so no desugaring is involved.
+ */
 private fun parseRetryAfterMs(headers: Map<String, String>): Long? {
     val raw = headers["retry-after"] ?: headers["Retry-After"] ?: return null
-    raw.toDoubleOrNull()?.let { seconds ->
+    raw.toDoubleOrNull()?.takeIf { it.isFinite() }?.let { seconds ->
         return (seconds * 1000).toLong().coerceAtLeast(0L)
     }
 
-    return try {
-        val instant = Instant.parse(raw)
-        (instant.toEpochMilli() - Date().time).coerceAtLeast(0L)
+    val dateMs = try {
+        Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(raw)).toEpochMilli()
     } catch (_: Throwable) {
-        null
+        try {
+            Instant.parse(raw).toEpochMilli()
+        } catch (_: Throwable) {
+            return null
+        }
     }
+    return (dateMs - System.currentTimeMillis()).coerceAtLeast(0L)
 }
