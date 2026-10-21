@@ -20,13 +20,13 @@ public enum TextInput: Sendable {
 /// Compact execution policy. Reuses the canonical enum values, so moving a call between
 /// the facade and `run` never changes what a constraint means.
 public struct TextExecutionOptions: Sendable {
-    public var privacy: PrivacyEnum?
+    public var privacy: Privacy?
     public var cloud: Cloud?
     public var timeoutMs: Int?
     public var optimizeFor: OptimizeFor?
 
     public init(
-        privacy: PrivacyEnum? = nil,
+        privacy: Privacy? = nil,
         cloud: Cloud? = nil,
         timeoutMs: Int? = nil,
         optimizeFor: OptimizeFor? = nil

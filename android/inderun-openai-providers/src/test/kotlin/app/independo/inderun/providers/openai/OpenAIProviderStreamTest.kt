@@ -1,10 +1,12 @@
 package app.independo.inderun.providers.openai
 
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.HttpResponse
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.StreamingStyle
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.core.ClockService
@@ -14,7 +16,6 @@ import app.independo.inderun.core.HttpClientService
 import app.independo.inderun.core.HttpStreamResponse
 import app.independo.inderun.core.HttpStreamingClientService
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderDescriptor
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
 import app.independo.inderun.core.SecureStorageService
@@ -95,8 +96,8 @@ class OpenAIProviderStreamTest {
     fun declaresStreamingAndATokenStreamingStyle() {
         val descriptor = provider().describe()
         assertTrue(descriptor.supports.streaming)
-        assertEquals(ProviderDescriptor.StreamingStyle.tokens, descriptor.streamingStyle)
-        assertEquals(ProviderDescriptor.CancelSemantics.hard, descriptor.cancel)
+        assertEquals(StreamingStyle.Tokens, descriptor.streamingStyle)
+        assertEquals(CancelSemantics.Hard, descriptor.cancel)
     }
 
     @Test

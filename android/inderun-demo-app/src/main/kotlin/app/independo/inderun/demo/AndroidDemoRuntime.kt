@@ -5,6 +5,7 @@ import app.independo.inderun.contracts.Files
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.Generation
 import app.independo.inderun.contracts.ModelPackage
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.Source
 import app.independo.inderun.contracts.SourceType
@@ -15,7 +16,6 @@ import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.providers.mlkit.AndroidMlKitGenAiProvider

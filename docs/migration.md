@@ -3,6 +3,73 @@
 IndeRun is pre-1.0: a breaking change bumps the minor version. Each section lists what an application or provider
 author has to change, per platform. The release notes carry the same changes commit by commit.
 
+## 0.4 → 0.5
+
+### Provider capability types are generated contracts
+
+`ProviderDescriptor`, `ProviderDynamicCapabilities` and `ProviderCapabilitySnapshot` are now generated from
+`contracts/schemas/provider-*.schema.json` on every platform (issue #210), so the hand-written copies are gone. The
+JSON shape is unchanged; the names of the nested types are not.
+
+| 0.4 (Swift / Kotlin nested type)            | 0.5                  |
+| ------------------------------------------- | -------------------- |
+| `ProviderDescriptor.ProviderType`           | `ProviderType`       |
+| `ProviderDescriptor.TransportType`          | `ProviderTransport`  |
+| `ProviderDescriptor.StreamingStyle`         | `StreamingStyle`     |
+| `ProviderDescriptor.SupportsCapabilities`   | `ProviderSupports`   |
+| `ProviderDescriptor.CancelSemantics`        | `CancelSemantics`    |
+| `ProviderDescriptor.ResourceLimits`         | `ProviderLimits`     |
+| `ProviderDescriptor.PrivacyDescriptor`      | `ProviderPrivacy`    |
+| `PrivacyEnum` (the request privacy constraint) | `Privacy`         |
+
+- **Web.** The three types are re-exported from `@independo/inderun-contracts`; imports from
+  `@independo/inderun-web/provider` keep working. `validateProviderCapabilitySnapshot` (plus the descriptor and
+  dynamic-capability validators) is new in the contracts package. The ONNX `OnnxRuntimeAvailability` is now a type
+  alias rather than an interface.
+- **Swift.** The types live in `IndeRunContracts`, which every module re-exports. Convenience initializers keep the
+  0.4 argument labels and defaults (`ProviderDescriptor(id:type:model:transport:…)`,
+  `ProviderDynamicCapabilities(available:reason:…)`). `ProviderPrivacy(dataLeavesDevice:)` covers the common case;
+  pass `regions:` through the generated initializer. Properties are `var`, and `ProviderCapabilitySnapshot` is now
+  `Codable`.
+- **Kotlin.** The types live in `app.independo.inderun.contracts`. Enum entries follow the generated convention and
+  carry their wire value: `ProviderType.Local`, `ProviderTransport.InProcess`, `ProviderTransport.HTTP`,
+  `CancelSemantics.None`, `StreamingStyle.Tokens` (`.rawValue` is the schema string). `ProviderLimits` fields are
+  `Long?`. Constructor parameters are in alphabetical order, so construct these types with named arguments.
+
+### Planner input carries the full descriptor
+
+`route-planner-input.schema.json` now references the provider schemas instead of carrying its own subset, so a
+planner input must contain complete descriptors (`transport`, every `supports` flag, `cancel`). This only affects
+code that calls `@independo/inderun-route-core-wasm`'s `planRouteJson` directly; the SDKs pass their descriptors
+through unchanged.
+
+### Per-task provider capabilities
+
+Providers can declare what they do per task (`taskCapabilities` on the descriptor and, for live narrowing, on the
+dynamic capabilities); see [providers.md](architecture/providers.md#provider-contract). Nothing has to change for an
+existing text provider: a descriptor without `taskCapabilities` keeps routing exactly as before for `text_to_text`.
+A provider that listed any other task in `tasks` alone is now rejected for it with `task_not_supported` — declare a
+task capability to be routed a non-text task.
+
+The planner's reason codes gain `input_not_supported`, `output_delivery_not_supported`,
+`output_format_not_supported`, `locale_not_supported` and `voice_not_available`. An exhaustive Swift `switch` over
+the generated `Code` must handle them. The generated Swift `RoutePlannerInputTask`, `ProviderDescriptor` and
+`ProviderDynamicCapabilities` memberwise initializers gain the new optional parameters; the convenience initializers
+take `taskCapabilities:` with a `nil` default.
+
+Route-plan candidates gain an optional `voice`: the voice a speech candidate must use, bound by the planner within
+the request's privacy policy. The generated Swift `Candidate` memberwise initializer gains a `voice:` parameter. Text
+requests now reach the planner with `inputs: ["text"]`, so a provider that declares a `text_to_text` capability
+without text input is rejected with `input_not_supported`.
+
+The planner no longer writes `null` for an absent optional in its output (`selectedProviderId`, `failureCode`): the key
+is omitted, which is what the route-plan schema always described.
+
+### Capacitor
+
+The bridge can drop its own copy of the snapshot type and import `ProviderCapabilitySnapshot` and
+`validateProviderCapabilitySnapshot` from `@independo/inderun-contracts`.
+
 ## 0.3 → 0.4
 
 0.4 introduces the public API layering ([api-layering.md](architecture/api-layering.md)): a primary text API, model

@@ -1,0 +1,289 @@
+{
+  "$comment": "ProviderCapabilitySnapshot vectors (contracts/schemas/provider-capability-snapshot.schema.json). 'valid' cases must validate and must round-trip through each SDK's generated type without gaining or losing a key — in particular, an absent streamingAvailable or cancellationAvailable stays absent, because absent means 'inherit the static declaration' and is a distinct state. 'invalid' cases must be rejected at the given path. Loaded by packages/contracts/src/validators.test.ts and ios/IndeRun/Tests/IndeRunTests/ProviderCapabilitySnapshotTests.swift.",
+  "valid": [
+    {
+      "id": "cloud_streaming_inherits",
+      "description": "A cloud provider that declares streaming; both tri-state booleans are absent and inherit.",
+      "snapshot": {
+        "providerId": "openai_compatible_cloud:gpt-5-mini",
+        "descriptor": {
+          "id": "openai_compatible_cloud:gpt-5-mini",
+          "type": "cloud",
+          "model": "gpt-5-mini",
+          "transport": "sse",
+          "streamingStyle": "tokens",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_text"],
+          "privacy": {
+            "dataLeavesDevice": true,
+            "regions": ["eu"]
+          }
+        },
+        "capabilities": {
+          "available": true
+        }
+      }
+    },
+    {
+      "id": "local_streaming_withdrawn",
+      "description": "A local provider whose host takes streaming away and cannot honour cancellation right now.",
+      "snapshot": {
+        "providerId": "onnx_runtime_web",
+        "descriptor": {
+          "id": "onnx_runtime_web",
+          "type": "local",
+          "transport": "in_process",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "soft",
+          "tasks": ["text_to_text"],
+          "limits": {
+            "maxInputTokens": 4096,
+            "maxOutputTokens": 512
+          },
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "streamingAvailable": false,
+          "streamingUnavailableReason": "This provider does not implement streaming.",
+          "cancellationAvailable": false
+        }
+      }
+    },
+    {
+      "id": "unavailable_system_model",
+      "description": "A platform model that is not available on this host.",
+      "snapshot": {
+        "providerId": "web_system_model",
+        "descriptor": {
+          "id": "web_system_model",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "soft",
+          "tasks": ["text_to_text"],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": false,
+          "reason": "The browser exposes no built-in model."
+        }
+      }
+    },
+    {
+      "id": "speech_playback_task_capabilities",
+      "description": "A speech provider that declares per-task capabilities and reports its voices dynamically.",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": false
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "id": "null_streaming_available",
+      "description": "null is not a fourth state of the tri-state boolean.",
+      "path": "/capabilities/streamingAvailable",
+      "snapshot": {
+        "providerId": "p",
+        "descriptor": {
+          "id": "p",
+          "type": "local",
+          "transport": "in_process",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "none",
+          "tasks": ["text_to_text"]
+        },
+        "capabilities": {
+          "available": true,
+          "streamingAvailable": null
+        }
+      }
+    },
+    {
+      "id": "missing_transport",
+      "description": "transport is part of the static declaration.",
+      "path": "/descriptor",
+      "snapshot": {
+        "providerId": "p",
+        "descriptor": {
+          "id": "p",
+          "type": "local",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "none",
+          "tasks": ["text_to_text"]
+        },
+        "capabilities": {
+          "available": true
+        }
+      }
+    },
+    {
+      "id": "unknown_cancel",
+      "description": "cancel is a closed set.",
+      "path": "/descriptor/cancel",
+      "snapshot": {
+        "providerId": "p",
+        "descriptor": {
+          "id": "p",
+          "type": "local",
+          "transport": "in_process",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "eventually",
+          "tasks": ["text_to_text"]
+        },
+        "capabilities": {
+          "available": true
+        }
+      }
+    },
+    {
+      "id": "unknown_output_delivery",
+      "description": "Output delivery is a closed set.",
+      "path": "/descriptor/taskCapabilities/0/outputs/0/delivery",
+      "snapshot": {
+        "providerId": "p",
+        "descriptor": {
+          "id": "p",
+          "type": "local",
+          "transport": "in_process",
+          "supports": {
+            "run": true,
+            "streaming": false,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "none",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": false
+              },
+              "cancel": "none",
+              "outputs": [
+                {
+                  "delivery": "download"
+                }
+              ]
+            }
+          ]
+        },
+        "capabilities": {
+          "available": true
+        }
+      }
+    }
+  ]
+}

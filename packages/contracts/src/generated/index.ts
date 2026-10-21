@@ -12,5 +12,8 @@ export type { ModelPackage } from "./model-package.js";
 export type { StreamRunHandle } from "./stream-run.js";
 export type { StreamEvent } from "./stream-event.js";
 export type { StreamTerminalOutcome } from "./stream-terminal-outcome.js";
+export type { ProviderCapabilitySnapshot } from "./provider-capability-snapshot.js";
+export type { ProviderDescriptor } from "./provider-descriptor.js";
+export type { ProviderDynamicCapabilities } from "./provider-dynamic-capabilities.js";
 export type { ExecutionProvenance } from "./execution-provenance.js";
 export * from "./schemas.js";

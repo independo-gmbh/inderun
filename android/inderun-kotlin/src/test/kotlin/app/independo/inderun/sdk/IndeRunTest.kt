@@ -3,12 +3,18 @@ package app.independo.inderun.sdk
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.independo.inderun.contracts.AttemptOutcome
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Locality
 import app.independo.inderun.contracts.Output
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
@@ -23,8 +29,6 @@ import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ModelProfiles
 import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
@@ -70,7 +74,7 @@ class IndeRunTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             ),
         )
 
@@ -91,7 +95,7 @@ class IndeRunTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Hello",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
             ),
         )
 
@@ -118,9 +122,9 @@ class IndeRunTest {
         val unavailable = object : ProviderAdapter {
             override fun describe(): ProviderDescriptor = ProviderDescriptor(
                 id = "unavailable-provider",
-                type = ProviderDescriptor.ProviderType.cloud,
-                transport = ProviderDescriptor.TransportType.http,
-                supports = ProviderDescriptor.SupportsCapabilities(
+                type = ProviderType.Cloud,
+                transport = ProviderTransport.HTTP,
+                supports = ProviderSupports(
                     run = true,
                     streaming = false,
                     realtime = false,
@@ -129,7 +133,7 @@ class IndeRunTest {
                     structuredOutput = false,
                     multimodal = false,
                 ),
-                cancel = ProviderDescriptor.CancelSemantics.none,
+                cancel = CancelSemantics.None,
                 tasks = listOf("text_to_text"),
             )
 
@@ -172,9 +176,9 @@ class IndeRunTest {
         telemetry: TelemetryService? = null,
     ): IndeRun {
         val registry = ProviderRegistry().apply {
-            register(NamedProvider("local_a", ProviderDescriptor.ProviderType.local))
-            register(NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud))
-            register(NamedProvider("cloud_b", ProviderDescriptor.ProviderType.cloud))
+            register(NamedProvider("local_a", ProviderType.Local))
+            register(NamedProvider("cloud_a", ProviderType.Cloud))
+            register(NamedProvider("cloud_b", ProviderType.Cloud))
         }
         return IndeRun(registry, profileHostServices(), telemetry, ModelProfiles(profiles))
     }
@@ -251,7 +255,7 @@ class IndeRunTest {
 
     @Test
     fun provenanceAttributesADirectSuccessToTheProviderThatRan() = runTest {
-        val result = provenanceEngine(NamedProvider("local_a", ProviderDescriptor.ProviderType.local))
+        val result = provenanceEngine(NamedProvider("local_a", ProviderType.Local))
             .run(profileRequest())
 
         val provenance = result.provenance!!
@@ -268,9 +272,9 @@ class IndeRunTest {
     @Test
     fun provenanceRecordsALocalToCloudFallback() = runTest {
         val result = provenanceEngine(
-            NamedProvider("local_a", ProviderDescriptor.ProviderType.local, fails = true),
-            NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud),
-        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalPreferred)))
+            NamedProvider("local_a", ProviderType.Local, fails = true),
+            NamedProvider("cloud_a", ProviderType.Cloud),
+        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = Privacy.LocalPreferred)))
 
         val provenance = result.provenance!!
         assertEquals("cloud_a", provenance.providerId)
@@ -284,9 +288,9 @@ class IndeRunTest {
     @Test
     fun provenanceReportsCloudOnlyExecutionWithTheRejectedLocalCandidate() = runTest {
         val result = provenanceEngine(
-            NamedProvider("local_a", ProviderDescriptor.ProviderType.local),
-            NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud),
-        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)))
+            NamedProvider("local_a", ProviderType.Local),
+            NamedProvider("cloud_a", ProviderType.Cloud),
+        ).run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired)))
 
         val provenance = result.provenance!!
         assertEquals(Locality.Cloud, provenance.locality)
@@ -297,8 +301,8 @@ class IndeRunTest {
     @Test
     fun provenanceOnARoutingRefusalIsAttributedToNoProvider() = runTest {
         val error = runCatching {
-            provenanceEngine(NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud))
-                .run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)))
+            provenanceEngine(NamedProvider("cloud_a", ProviderType.Cloud))
+                .run(profileRequest().copy(constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired)))
         }.exceptionOrNull() as IndeRunException
 
         val provenance = error.provenance!!
@@ -314,8 +318,8 @@ class IndeRunTest {
     fun provenanceCarriesEveryFailedAttemptWhenTheChainFails() = runTest {
         val error = runCatching {
             provenanceEngine(
-                NamedProvider("local_a", ProviderDescriptor.ProviderType.local, fails = true),
-                NamedProvider("cloud_a", ProviderDescriptor.ProviderType.cloud, fails = true),
+                NamedProvider("local_a", ProviderType.Local, fails = true),
+                NamedProvider("cloud_a", ProviderType.Cloud, fails = true),
             ).run(profileRequest())
         }.exceptionOrNull() as IndeRunException
 
@@ -329,14 +333,14 @@ class IndeRunTest {
 
     private class NamedProvider(
         private val id: String,
-        private val type: ProviderDescriptor.ProviderType,
+        private val type: ProviderType,
         private val fails: Boolean = false,
     ) : ProviderAdapter {
         override fun describe(): ProviderDescriptor = ProviderDescriptor(
             id = id,
             type = type,
-            transport = ProviderDescriptor.TransportType.in_process,
-            supports = ProviderDescriptor.SupportsCapabilities(
+            transport = ProviderTransport.InProcess,
+            supports = ProviderSupports(
                 run = true,
                 streaming = false,
                 realtime = false,
@@ -345,7 +349,7 @@ class IndeRunTest {
                 structuredOutput = false,
                 multimodal = false,
             ),
-            cancel = ProviderDescriptor.CancelSemantics.soft,
+            cancel = CancelSemantics.Soft,
             tasks = listOf("text_to_text"),
         )
 
@@ -369,9 +373,9 @@ class IndeRunTest {
     private class FakeProvider : ProviderAdapter {
         override fun describe(): ProviderDescriptor = ProviderDescriptor(
             id = "sdk-provider",
-            type = ProviderDescriptor.ProviderType.local,
-            transport = ProviderDescriptor.TransportType.in_process,
-            supports = ProviderDescriptor.SupportsCapabilities(
+            type = ProviderType.Local,
+            transport = ProviderTransport.InProcess,
+            supports = ProviderSupports(
                 run = true,
                 streaming = false,
                 realtime = false,
@@ -380,7 +384,7 @@ class IndeRunTest {
                 structuredOutput = false,
                 multimodal = false,
             ),
-            cancel = ProviderDescriptor.CancelSemantics.soft,
+            cancel = CancelSemantics.Soft,
             tasks = listOf("text_to_text"),
         )
 

@@ -529,7 +529,7 @@ export const routePlannerInputSchema = {
   ],
   "properties": {
     "task": {
-      "description": "Minimal task descriptor for provider task matching.",
+      "description": "Task descriptor for provider task matching: the kind plus the requirements routing can check against declared capabilities. Absent requirement fields are never checked, so a text request carries the kind alone.",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -537,8 +537,85 @@ export const routePlannerInputSchema = {
       ],
       "properties": {
         "kind": {
+          "description": "The task kind, matched against the providers' task capabilities.",
           "type": "string",
           "minLength": 1
+        },
+        "inputs": {
+          "description": "Input media kinds the request carries. Every one must be accepted by the provider's task capability. The SDKs send ['text'] for text_to_text.",
+          "type": "array",
+          "items": {
+            "$ref": "provider-descriptor.schema.json#/$defs/inputKind"
+          }
+        },
+        "delivery": {
+          "title": "DeliveryRequirement",
+          "description": "The output delivery the request requires. Absent for text, whose delivery is implicitly inline.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "$ref": "provider-descriptor.schema.json#/$defs/outputDelivery"
+            },
+            "mediaTypes": {
+              "description": "Acceptable media types; the provider must declare at least one for the requested delivery. Absent means any.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "locale": {
+          "title": "LocaleRequirement",
+          "description": "The locale the request requires. Under 'language' matching the region is a preference: a provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider that cannot enumerate its locales is not rejected on this basis; it must fail before committing instead.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "tag",
+            "match"
+          ],
+          "properties": {
+            "tag": {
+              "description": "BCP 47 tag.",
+              "type": "string",
+              "minLength": 1
+            },
+            "match": {
+              "title": "LocaleMatch",
+              "description": "'exact' requires the full tag; 'language' requires only the primary language subtag and treats the region as a preference.",
+              "enum": [
+                "exact",
+                "language"
+              ]
+            }
+          }
+        },
+        "voice": {
+          "title": "VoiceRequirement",
+          "description": "Voice traits the request asks for. Only a 'required' voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a candidate to, always within the request's privacy policy.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "requirement"
+          ],
+          "properties": {
+            "gender": {
+              "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+            },
+            "requirement": {
+              "title": "RequirementLevel",
+              "description": "'required' takes part in routing; 'preferred' does not.",
+              "enum": [
+                "required",
+                "preferred"
+              ]
+            }
+          }
         }
       }
     },
@@ -619,7 +696,7 @@ export const routePlannerInputSchema = {
       }
     },
     "providers": {
-      "description": "Static descriptors plus dynamic capability snapshots for planning.",
+      "description": "Static descriptors plus dynamic capability checks for planning. Both shapes are the provider schemas themselves, shared by $ref, so the planner reads exactly what checkCapabilities() reports.",
       "type": "array",
       "items": {
         "type": "object",
@@ -630,107 +707,12 @@ export const routePlannerInputSchema = {
         ],
         "properties": {
           "descriptor": {
-            "type": "object",
-            "additionalProperties": true,
-            "required": [
-              "id",
-              "type",
-              "supports",
-              "tasks"
-            ],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "type": {
-                "enum": [
-                  "local",
-                  "edge",
-                  "cloud"
-                ]
-              },
-              "supports": {
-                "type": "object",
-                "additionalProperties": true,
-                "required": [
-                  "run"
-                ],
-                "properties": {
-                  "run": {
-                    "type": "boolean"
-                  },
-                  "streaming": {
-                    "description": "Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a descriptor that predates this field cannot be assumed to stream.",
-                    "type": "boolean"
-                  }
-                }
-              },
-              "cancel": {
-                "description": "Cancellation guarantee the provider offers. Carried for route explanations and telemetry; the planner does not filter on it.",
-                "enum": [
-                  "hard",
-                  "soft",
-                  "none"
-                ]
-              },
-              "tasks": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "privacy": {
-                "description": "Descriptor privacy metadata used to enforce local/cloud routing rules.",
-                "type": "object",
-                "additionalProperties": true,
-                "required": [
-                  "dataLeavesDevice"
-                ],
-                "properties": {
-                  "dataLeavesDevice": {
-                    "type": "boolean"
-                  },
-                  "regions": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
+            "description": "The provider's static capability declaration.",
+            "$ref": "provider-descriptor.schema.json"
           },
           "capabilities": {
-            "type": "object",
-            "additionalProperties": true,
-            "required": [
-              "available"
-            ],
-            "properties": {
-              "available": {
-                "type": "boolean"
-              },
-              "reason": {
-                "type": "string",
-                "minLength": 1
-              },
-              "streamingAvailable": {
-                "description": "Whether the provider can stream right now in this host environment. Absent inherits the static descriptor.supports.streaming value.",
-                "type": "boolean"
-              },
-              "streamingUnavailableReason": {
-                "description": "Human-readable explanation used when streamingAvailable is false. Absent lets the planner synthesize a default message.",
-                "type": "string",
-                "minLength": 1
-              },
-              "cancellationAvailable": {
-                "description": "Whether cancellation is honored right now in this host environment. Absent inherits the static descriptor.cancel value (any value other than 'none' means available).",
-                "type": "boolean"
-              }
-            }
+            "description": "The provider's live capability check, already folded by the engine (for example, streamingAvailable is false when the provider declares streaming but does not implement it).",
+            "$ref": "provider-dynamic-capabilities.schema.json"
           }
         }
       }
@@ -783,6 +765,10 @@ export const routePlanSchema = {
           "order": {
             "type": "integer",
             "minimum": 0
+          },
+          "voice": {
+            "description": "The voice this candidate must use if it is attempted, chosen by the planner from the provider's dynamic voice inventory. It is the best voice that satisfies the request's locale, required voice traits and privacy — under local-required privacy always one that keeps data on the device — ranked by preferred gender, then exact locale region, then on-device before network. The adapter must use a voice with exactly these traits. Absent when the request names no locale or voice, or the provider does not list its voices; the adapter then chooses itself under the same rules.",
+            "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voice"
           }
         }
       }
@@ -813,7 +799,7 @@ export const routePlanSchema = {
               ],
               "properties": {
                 "code": {
-                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider.",
+                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider. 'input_not_supported', 'output_delivery_not_supported', 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the provider's task capability lacks an input kind, output delivery, media type, locale or voice the request requires.",
                   "enum": [
                     "task_not_supported",
                     "run_not_supported",
@@ -823,7 +809,12 @@ export const routePlanSchema = {
                     "cloud_constraint",
                     "offline",
                     "capability_unavailable",
-                    "not_in_model_profile"
+                    "not_in_model_profile",
+                    "input_not_supported",
+                    "output_delivery_not_supported",
+                    "output_format_not_supported",
+                    "locale_not_supported",
+                    "voice_not_available"
                   ]
                 },
                 "message": {
@@ -1766,6 +1757,458 @@ export const streamTerminalOutcomeSchema = {
   ]
 } as const;
 
+export const providerCapabilitySnapshotSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/provider-capability-snapshot.schema.json",
+  "title": "ProviderCapabilitySnapshot",
+  "description": "One registered provider's identity, static declaration and live capability check, as returned by checkCapabilities(). A read-only snapshot: producing it executes no task and has no side effects.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "providerId",
+    "descriptor",
+    "capabilities"
+  ],
+  "properties": {
+    "providerId": {
+      "description": "Identifier of the provider; equal to descriptor.id.",
+      "type": "string",
+      "minLength": 1
+    },
+    "descriptor": {
+      "description": "The provider's static capability declaration.",
+      "$ref": "provider-descriptor.schema.json"
+    },
+    "capabilities": {
+      "description": "The provider's live capability check at the time of the call.",
+      "$ref": "provider-dynamic-capabilities.schema.json"
+    }
+  }
+} as const;
+
+export const providerDescriptorSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/provider-descriptor.schema.json",
+  "title": "ProviderDescriptor",
+  "description": "A provider's static capability declaration: identity, placement, transport, supported interaction modes and tasks, cancellation guarantee, resource limits and privacy posture. It does not change while the provider is registered. The route planner, checkCapabilities() and execution provenance all read this one shape.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "type",
+    "transport",
+    "supports",
+    "cancel",
+    "tasks"
+  ],
+  "properties": {
+    "id": {
+      "description": "Unique identifier of the provider instance (a target), e.g. 'apple_foundation_models' or 'openai_compatible_cloud:gpt-5-mini'. Model profiles list targets by this id.",
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "title": "ProviderType",
+      "description": "Execution placement: 'local' (on the device), 'edge', or 'cloud'.",
+      "enum": [
+        "local",
+        "edge",
+        "cloud"
+      ]
+    },
+    "model": {
+      "description": "The model this provider instance is bound to, when it can name one. Cloud providers report the model id they send; platform-managed models report an opaque platform alias rather than a guessed weight name. Absent means the provider cannot name its model.",
+      "type": "string",
+      "minLength": 1
+    },
+    "transport": {
+      "title": "ProviderTransport",
+      "description": "How the engine reaches the provider: in-process runtime, operating-system service, buffered HTTP, server-sent events, or a realtime connection.",
+      "enum": [
+        "in_process",
+        "system_service",
+        "http",
+        "sse",
+        "realtime"
+      ]
+    },
+    "streamingStyle": {
+      "title": "StreamingStyle",
+      "description": "How a streaming provider delivers incremental output: individual tokens, larger chunks, or whole snapshots. Absent for providers that do not stream.",
+      "enum": [
+        "tokens",
+        "chunks",
+        "snapshots"
+      ]
+    },
+    "supports": {
+      "title": "ProviderSupports",
+      "description": "Interaction modes and features the provider statically declares.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "run",
+        "streaming",
+        "realtime",
+        "tools",
+        "reasoningEvents",
+        "structuredOutput",
+        "multimodal"
+      ],
+      "properties": {
+        "run": {
+          "description": "Whether the provider supports Mode 1 run (request/response).",
+          "type": "boolean"
+        },
+        "streaming": {
+          "description": "Whether the provider supports Mode 2 stream. A provider that declares it must also implement the streaming adapter; the engines report it as unavailable otherwise.",
+          "type": "boolean"
+        },
+        "realtime": {
+          "description": "Whether the provider supports Mode 3 realtime sessions. Reserved; no engine implements Mode 3 yet.",
+          "type": "boolean"
+        },
+        "tools": {
+          "description": "Whether the provider supports tool calling.",
+          "type": "boolean"
+        },
+        "reasoningEvents": {
+          "description": "Whether the provider emits reasoning events alongside content.",
+          "type": "boolean"
+        },
+        "structuredOutput": {
+          "description": "Whether the provider supports structured output constrained by a JSON schema.",
+          "type": "boolean"
+        },
+        "multimodal": {
+          "description": "Whether the provider accepts non-text inputs such as images or audio.",
+          "type": "boolean"
+        }
+      }
+    },
+    "cancel": {
+      "title": "CancelSemantics",
+      "description": "Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops reading locally while remote work may continue, 'none' means cancellation is unsupported. Independently of this value, the engine delivers no event after a cancel.",
+      "enum": [
+        "hard",
+        "soft",
+        "none"
+      ]
+    },
+    "tasks": {
+      "description": "Task kinds the provider supports, e.g. 'text_to_text'. When taskCapabilities is present it must describe the same kinds and is what routing reads; without it, routing infers capabilities for 'text_to_text' alone (see taskCapabilities).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "limits": {
+      "title": "ProviderLimits",
+      "description": "Optional input and output resource limits.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "maxInputTokens": {
+          "description": "Largest accepted input, in tokens.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxOutputTokens": {
+          "description": "Largest output the provider produces, in tokens.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxImageBytes": {
+          "description": "Largest accepted image, in bytes.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxAudioSeconds": {
+          "description": "Longest accepted or produced audio, in seconds.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "privacy": {
+      "title": "ProviderPrivacy",
+      "description": "Data-egress posture, used to enforce local and cloud routing rules. Absent means a local or edge provider is treated as keeping data on the device and a cloud provider as sending it off.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "dataLeavesDevice"
+      ],
+      "properties": {
+        "dataLeavesDevice": {
+          "description": "Whether request content leaves the device.",
+          "type": "boolean"
+        },
+        "regions": {
+          "description": "Geographic regions where a cloud provider processes data.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "taskCapabilities": {
+      "description": "What the provider can do for each task: accepted inputs, interaction modes, output deliveries and formats, cancellation, locales and privacy. When present it is authoritative for routing and must list every task the provider serves. When absent (a legacy descriptor), routing infers exactly one entry — 'text_to_text' with text input, inline output, run/stream from supports and cancel from cancel — if tasks contains 'text_to_text', and nothing for any other task: a legacy descriptor is never treated as capable of a non-text task.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/taskCapability"
+      }
+    }
+  },
+  "$defs": {
+    "taskCapability": {
+      "title": "ProviderTaskCapability",
+      "description": "The provider's static capabilities for one task kind.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "kind",
+        "inputs",
+        "interaction",
+        "cancel",
+        "outputs"
+      ],
+      "properties": {
+        "kind": {
+          "description": "The task kind this entry describes, e.g. 'text_to_speech'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "description": "Input media kinds the provider accepts for this task.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/inputKind"
+          }
+        },
+        "interaction": {
+          "title": "ProviderTaskInteraction",
+          "description": "Interaction modes the provider supports for this task.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "run",
+            "stream"
+          ],
+          "properties": {
+            "run": {
+              "description": "Whether the provider supports Mode 1 run for this task.",
+              "type": "boolean"
+            },
+            "stream": {
+              "description": "Whether the provider supports Mode 2 stream for this task.",
+              "type": "boolean"
+            }
+          }
+        },
+        "cancel": {
+          "description": "Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g. when stopping playback is immediate but a synthesis request cannot be aborted.",
+          "$ref": "#/properties/cancel"
+        },
+        "outputs": {
+          "description": "How results of this task can be delivered. A provider lists only what it really produces: a provider that can only play audio lists 'playback' and never 'artifact'.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/taskOutput"
+          }
+        },
+        "locales": {
+          "description": "BCP 47 locales the provider can serve for this task, when it knows them statically. Absent means unknown; the dynamic check may report them instead.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "privacy": {
+          "description": "Data-egress posture for this task when it differs from the provider-level privacy, e.g. a provider whose speech synthesis uses a network service. Absent inherits descriptor.privacy.",
+          "$ref": "#/properties/privacy"
+        }
+      }
+    },
+    "taskOutput": {
+      "title": "ProviderTaskOutput",
+      "description": "One way the provider can deliver a task's result.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "delivery"
+      ],
+      "properties": {
+        "delivery": {
+          "$ref": "#/$defs/outputDelivery"
+        },
+        "mediaTypes": {
+          "description": "Media types the provider can produce with this delivery, e.g. 'audio/wav'. Absent means the provider does not declare them; a request that requires specific media types never routes to such an output.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "inputKind": {
+      "title": "TaskInputKind",
+      "description": "A kind of input medium a task consumes.",
+      "enum": [
+        "text",
+        "image",
+        "audio"
+      ]
+    },
+    "outputDelivery": {
+      "title": "OutputDelivery",
+      "description": "How a task's result reaches the application: 'inline' content in the result (text), 'playback' as a managed, audible effect on the device with no retrievable bytes, or 'artifact' as retrievable media.",
+      "enum": [
+        "inline",
+        "playback",
+        "artifact"
+      ]
+    }
+  }
+} as const;
+
+export const providerDynamicCapabilitiesSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/provider-dynamic-capabilities.schema.json",
+  "title": "ProviderDynamicCapabilities",
+  "$comment": "streamingAvailable and cancellationAvailable are tri-state on purpose: true, false, or absent. Absent means 'inherit the static declaration' and is a distinct state from both booleans. They must never become nullable: null would be a fourth state no consumer handles, and bridges omit the key specifically to preserve 'absent'.",
+  "description": "A provider's live capability check, evaluated on the current host when routing or when checkCapabilities() is called. Unlike the descriptor it can change between calls.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "available"
+  ],
+  "properties": {
+    "available": {
+      "description": "Whether the provider is available and functional on this host right now.",
+      "type": "boolean"
+    },
+    "reason": {
+      "description": "Why the provider is unavailable, when available is false.",
+      "type": "string",
+      "minLength": 1
+    },
+    "streamingAvailable": {
+      "description": "Whether the provider can stream (Mode 2) on this host right now. Absent inherits the static descriptor.supports.streaming value; only set it when the host takes streaming away from a provider that otherwise declares it. Never null.",
+      "type": "boolean"
+    },
+    "streamingUnavailableReason": {
+      "description": "Why streaming is unavailable, when streamingAvailable is false. Absent lets the route planner synthesize a default message.",
+      "type": "string",
+      "minLength": 1
+    },
+    "cancellationAvailable": {
+      "description": "Whether cancellation is honored on this host right now. Absent inherits the static descriptor.cancel value: any value other than 'none' means available. Never null.",
+      "type": "boolean"
+    },
+    "taskCapabilities": {
+      "description": "Per-task overrides of the provider-level check, for tasks whose availability differs on this host, e.g. a voice that is not installed. Every field of an entry is optional and absent inherits the provider-level value; a false at either level wins.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/taskAvailability"
+      }
+    }
+  },
+  "$defs": {
+    "taskAvailability": {
+      "title": "ProviderTaskAvailability",
+      "description": "The live check for one task kind.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "description": "The task kind this entry describes.",
+          "type": "string",
+          "minLength": 1
+        },
+        "available": {
+          "description": "Whether the task can run on this host right now. Absent inherits the provider-level available. Never null.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why the task is unavailable, when available is false.",
+          "type": "string",
+          "minLength": 1
+        },
+        "streamingAvailable": {
+          "description": "Whether the task can stream on this host right now. Absent inherits. Never null.",
+          "type": "boolean"
+        },
+        "streamingUnavailableReason": {
+          "description": "Why streaming is unavailable for this task, when streamingAvailable is false.",
+          "type": "string",
+          "minLength": 1
+        },
+        "cancellationAvailable": {
+          "description": "Whether cancellation is honored for this task right now. Absent inherits. Never null.",
+          "type": "boolean"
+        },
+        "locales": {
+          "description": "BCP 47 locales available for this task right now. Absent means the provider cannot enumerate them.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "voices": {
+          "description": "Voices available for this task right now. Absent means the provider cannot enumerate them; a request that requires a voice then never routes to it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/voice"
+          }
+        }
+      }
+    },
+    "voice": {
+      "title": "ProviderVoice",
+      "description": "Provider-neutral traits of one available voice. Carries no provider voice identifier.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "locale"
+      ],
+      "properties": {
+        "locale": {
+          "description": "BCP 47 locale the voice speaks.",
+          "type": "string",
+          "minLength": 1
+        },
+        "gender": {
+          "$ref": "#/$defs/voiceGender"
+        },
+        "networkRequired": {
+          "description": "Whether using the voice sends data off the device. Absent inherits the task's privacy posture.",
+          "type": "boolean"
+        }
+      }
+    },
+    "voiceGender": {
+      "title": "VoiceGender",
+      "description": "Perceived gender of a voice, as the platform reports it.",
+      "enum": [
+        "female",
+        "male",
+        "neutral"
+      ]
+    }
+  }
+} as const;
+
 export const executionProvenanceSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/execution-provenance.schema.json",
@@ -1893,7 +2336,12 @@ export const executionProvenanceSchema = {
                 "cloud_constraint",
                 "offline",
                 "capability_unavailable",
-                "not_in_model_profile"
+                "not_in_model_profile",
+                "input_not_supported",
+                "output_delivery_not_supported",
+                "output_format_not_supported",
+                "locale_not_supported",
+                "voice_not_available"
               ]
             }
           }

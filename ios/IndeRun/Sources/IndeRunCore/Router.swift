@@ -190,25 +190,23 @@ private func buildSharedPlannerInput(
         providers: snapshots.map { snapshot in
             SharedPlannerProviderInput(
                 capabilities: streamingAwareCapabilities(for: snapshot),
-                descriptor: SharedPlannerProviderDescriptor(
-                    cancel: cancelSemantics(from: snapshot.descriptor.cancel),
-                    id: snapshot.descriptor.id,
-                    privacy: snapshot.descriptor.privacy.map { privacy in
-                        PrivacyClass(
-                            dataLeavesDevice: privacy.dataLeavesDevice,
-                            regions: privacy.regions
-                        )
-                    },
-                    supports: SharedPlannerProviderSupports(
-                        run: snapshot.descriptor.supports.run,
-                        streaming: snapshot.descriptor.supports.streaming
-                    ),
-                    tasks: snapshot.descriptor.tasks,
-                    type: descriptorType(from: snapshot.descriptor.type)
-                )
+                descriptor: snapshot.descriptor
             )
         },
-        task: SharedPlannerTask(kind: request.task.kind.rawValue)
+        task: plannerTask(for: request)
+    )
+}
+
+/// Projects the request's task onto the requirements the planner can check. A text
+/// request carries text input; the speech requirements arrive with the speech request
+/// shape (#245). Mirrors `plannerTask` in the Web SDK's route planner.
+private func plannerTask(for request: TaskRequest) -> SharedPlannerTask {
+    SharedPlannerTask(
+        delivery: nil,
+        inputs: request.task.kind == .textToText ? [.text] : nil,
+        kind: request.task.kind.rawValue,
+        locale: nil,
+        voice: nil
     )
 }
 
@@ -216,7 +214,7 @@ private func buildSharedPlannerInput(
 /// dynamic capability the planner sees, so the mismatch is rejected during
 /// planning with an explanation instead of surfacing as an unexplained failure
 /// later. Mirrors `toSharedPlannerCapabilities` in the Web SDK's route planner.
-private func streamingAwareCapabilities(for snapshot: ProviderSnapshot) -> SharedPlannerCapabilities {
+private func streamingAwareCapabilities(for snapshot: ProviderSnapshot) -> ProviderDynamicCapabilities {
     let declaresStreaming = snapshot.capabilities.streamingAvailable
         ?? snapshot.descriptor.supports.streaming
     let implementsStream = snapshot.provider is any StreamingProviderAdapter
@@ -226,39 +224,16 @@ private func streamingAwareCapabilities(for snapshot: ProviderSnapshot) -> Share
             ? "Provider '\(snapshot.descriptor.id)' declares streaming but does not implement stream()."
             : nil)
 
-    return SharedPlannerCapabilities(
-        available: snapshot.capabilities.available,
-        cancellationAvailable: snapshot.capabilities.cancellationAvailable,
-        reason: snapshot.capabilities.reason,
-        streamingAvailable: streamingAvailable,
-        streamingUnavailableReason: streamingUnavailableReason
-    )
+    // Copy and override rather than rebuild, so a field added to the schema reaches the
+    // planner without touching this function.
+    var capabilities = snapshot.capabilities
+    capabilities.streamingAvailable = streamingAvailable
+    capabilities.streamingUnavailableReason = streamingAvailable ? nil : streamingUnavailableReason
+    return capabilities
 }
 
 private struct ProviderSnapshot: Sendable {
     let provider: any ProviderAdapter
     let descriptor: ProviderDescriptor
     let capabilities: ProviderDynamicCapabilities
-}
-
-private func cancelSemantics(from value: ProviderDescriptor.CancelSemantics) -> Cancel {
-    switch value {
-    case .hard:
-        return .hard
-    case .soft:
-        return .soft
-    case .none:
-        return .none
-    }
-}
-
-private func descriptorType(from value: ProviderDescriptor.ProviderType) -> DescriptorType {
-    switch value {
-    case .local:
-        return .local
-    case .edge:
-        return .edge
-    case .cloud:
-        return .cloud
-    }
 }

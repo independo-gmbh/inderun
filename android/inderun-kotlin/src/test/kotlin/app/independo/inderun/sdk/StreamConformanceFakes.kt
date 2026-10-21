@@ -1,8 +1,14 @@
 package app.independo.inderun.sdk
 
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Output
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
@@ -14,8 +20,6 @@ import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
 import app.independo.inderun.core.RunContext
@@ -52,7 +56,7 @@ internal fun conformanceHostServices(online: Boolean = true): HostServices = Hos
 
 internal fun conformanceRequest(
     requestId: String? = null,
-    privacy: PrivacyEnum? = null,
+    privacy: Privacy? = null,
 ) = TaskRequest(
     schemaVersion = SchemaVersion.V1_0,
     requestId = requestId,
@@ -85,7 +89,7 @@ internal class FakeStreamProvider(
     private val script: List<Step> = emptyList(),
     private val throwAfterScript: Throwable? = null,
     private val throwImmediately: Throwable? = null,
-    private val type: ProviderDescriptor.ProviderType = ProviderDescriptor.ProviderType.local,
+    private val type: ProviderType = ProviderType.Local,
     private val streamingAvailable: Boolean? = null,
     private val streamingUnavailableReason: String? = null,
     /** Completed once the flow is actually collected, so a test can cancel mid-attempt without racing. */
@@ -148,7 +152,7 @@ internal class FakeStreamProvider(
 internal class FakeRunOnlyProvider(
     private val id: String,
     private val declaresStreaming: Boolean = false,
-    private val type: ProviderDescriptor.ProviderType = ProviderDescriptor.ProviderType.local,
+    private val type: ProviderType = ProviderType.Local,
 ) : ProviderAdapter {
     var callCount: Int = 0
         private set
@@ -172,12 +176,12 @@ internal class FakeRunOnlyProvider(
 internal fun streamDescriptor(
     id: String,
     streaming: Boolean,
-    type: ProviderDescriptor.ProviderType = ProviderDescriptor.ProviderType.local,
+    type: ProviderType = ProviderType.Local,
 ) = ProviderDescriptor(
     id = id,
     type = type,
-    transport = ProviderDescriptor.TransportType.in_process,
-    supports = ProviderDescriptor.SupportsCapabilities(
+    transport = ProviderTransport.InProcess,
+    supports = ProviderSupports(
         run = true,
         streaming = streaming,
         realtime = false,
@@ -186,6 +190,6 @@ internal fun streamDescriptor(
         structuredOutput = false,
         multimodal = false,
     ),
-    cancel = ProviderDescriptor.CancelSemantics.soft,
+    cancel = CancelSemantics.Soft,
     tasks = listOf("text_to_text"),
 )

@@ -6,6 +6,7 @@ import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.RoutePlan
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
@@ -24,7 +25,6 @@ import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ModelProfiles
 import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
@@ -225,7 +225,7 @@ class IndeRun(
     override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = registry.list().map { provider ->
         val descriptor = provider.describe()
         val capabilities = provider.capabilities(hostServices)
-        ProviderCapabilitySnapshot(descriptor.id, descriptor, capabilities)
+        ProviderCapabilitySnapshot(providerId = descriptor.id, descriptor = descriptor, capabilities = capabilities)
     }
 
     /**

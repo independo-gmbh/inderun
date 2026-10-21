@@ -111,6 +111,24 @@ const schemas = [
     constName: "streamTerminalOutcomeSchema"
   },
   {
+    input: "provider-capability-snapshot.schema.json",
+    typeOutput: "provider-capability-snapshot.ts",
+    constName: "providerCapabilitySnapshotSchema"
+  },
+  {
+    input: "provider-descriptor.schema.json",
+    typeOutput: "provider-descriptor.ts",
+    constName: "providerDescriptorSchema",
+    // Reached through `$ref` from the capability snapshot and the route-planner input.
+    nativeRoot: false
+  },
+  {
+    input: "provider-dynamic-capabilities.schema.json",
+    typeOutput: "provider-dynamic-capabilities.ts",
+    constName: "providerDynamicCapabilitiesSchema",
+    nativeRoot: false
+  },
+  {
     input: "execution-provenance.schema.json",
     typeOutput: "execution-provenance.ts",
     constName: "executionProvenanceSchema",
@@ -481,6 +499,9 @@ async function generateRustContracts(tempDir) {
     "--derive-debug",
     "--derive-clone",
     "--derive-partial-eq",
+    // An absent optional is omitted rather than written as `null`: the schemas do not
+    // admit null, and the SDK parsers read a missing key as absent.
+    "--skip-serializing-none",
     "--no-leading-comments",
     ...rustSchemaInputs.map((input) => join(schemasDir, input)),
     "--out",

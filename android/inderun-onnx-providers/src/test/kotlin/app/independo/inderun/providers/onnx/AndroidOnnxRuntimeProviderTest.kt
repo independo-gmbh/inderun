@@ -3,7 +3,7 @@ package app.independo.inderun.providers.onnx
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.ModelPackage
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.Source
 import app.independo.inderun.contracts.SourceType
@@ -230,7 +230,7 @@ class AndroidOnnxRuntimeProviderTest {
         schemaVersion = SchemaVersion.V1_0,
         prompt = prompt,
         task = TaskRequestTask(),
-        constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+        constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
     )
 
     private fun fakeHostServices(): HostServices = HostServices(

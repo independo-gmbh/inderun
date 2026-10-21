@@ -1,10 +1,18 @@
 package app.independo.inderun.providers.openai
 
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.Method
 import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.StreamingStyle
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -13,8 +21,6 @@ import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HttpClientService
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
@@ -109,11 +115,11 @@ class OpenAIProvider(
     private var cachedHealth: Pair<ProviderDynamicCapabilities, Long>? = null
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = options.id,
-        type = ProviderDescriptor.ProviderType.cloud,
+        type = ProviderType.Cloud,
         model = options.model,
-        transport = ProviderDescriptor.TransportType.http,
-        streamingStyle = ProviderDescriptor.StreamingStyle.tokens,
-        supports = ProviderDescriptor.SupportsCapabilities(
+        transport = ProviderTransport.HTTP,
+        streamingStyle = StreamingStyle.Tokens,
+        supports = ProviderSupports(
             run = true,
             streaming = true,
             realtime = false,
@@ -122,9 +128,9 @@ class OpenAIProvider(
             structuredOutput = false,
             multimodal = false,
         ),
-        cancel = ProviderDescriptor.CancelSemantics.hard,
+        cancel = CancelSemantics.Hard,
         tasks = listOf("text_to_text"),
-        privacy = ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice = true),
+        privacy = ProviderPrivacy(dataLeavesDevice = true),
     )
 
     /**

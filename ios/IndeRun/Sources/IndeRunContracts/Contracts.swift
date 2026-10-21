@@ -13,6 +13,7 @@
 //   let streamRunHandle = try StreamRunHandle(json)
 //   let streamEvent = try StreamEvent(json)
 //   let streamTerminalOutcome = try StreamTerminalOutcome(json)
+//   let providerCapabilitySnapshot = try ProviderCapabilitySnapshot(json)
 
 import Foundation
 
@@ -141,7 +142,7 @@ public struct TaskRequestConstraints: Codable, Sendable {
     /// Cloud execution constraint.
     public var cloud: Cloud?
     /// Privacy requirement or preference for execution placement.
-    public var privacy: PrivacyEnum?
+    public var privacy: Privacy?
     /// Optional routing timeout budget in milliseconds.
     public var timeoutMs: Int?
 
@@ -151,7 +152,7 @@ public struct TaskRequestConstraints: Codable, Sendable {
         case timeoutMs = "timeoutMs"
     }
 
-    public init(cloud: Cloud?, privacy: PrivacyEnum?, timeoutMs: Int?) {
+    public init(cloud: Cloud?, privacy: Privacy?, timeoutMs: Int?) {
         self.cloud = cloud
         self.privacy = privacy
         self.timeoutMs = timeoutMs
@@ -178,7 +179,7 @@ public extension TaskRequestConstraints {
 
     func with(
         cloud: Cloud?? = nil,
-        privacy: PrivacyEnum?? = nil,
+        privacy: Privacy?? = nil,
         timeoutMs: Int?? = nil
     ) -> TaskRequestConstraints {
         return TaskRequestConstraints(
@@ -205,7 +206,7 @@ public enum Cloud: String, Codable, Sendable {
 }
 
 /// Privacy requirement or preference for execution placement.
-public enum PrivacyEnum: String, Codable, Sendable {
+public enum Privacy: String, Codable, Sendable {
     case cloudAllowed = "cloud_allowed"
     case cloudRequired = "cloud_required"
     case localPreferred = "local_preferred"
@@ -997,17 +998,25 @@ public extension ExecutionProvenanceRouteRejection {
 /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
 /// but the dynamic capability snapshot reports it cannot stream in the current host
 /// environment. 'not_in_model_profile' means the request named a model profile that does not
-/// list this provider.
+/// list this provider. 'input_not_supported', 'output_delivery_not_supported',
+/// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
+/// provider's task capability lacks an input kind, output delivery, media type, locale or
+/// voice the request requires.
 public enum Code: String, Codable, Sendable {
     case capabilityUnavailable = "capability_unavailable"
     case cloudConstraint = "cloud_constraint"
+    case inputNotSupported = "input_not_supported"
+    case localeNotSupported = "locale_not_supported"
     case notInModelProfile = "not_in_model_profile"
     case offline = "offline"
+    case outputDeliveryNotSupported = "output_delivery_not_supported"
+    case outputFormatNotSupported = "output_format_not_supported"
     case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"
     case streamingNotSupported = "streaming_not_supported"
     case streamingUnavailable = "streaming_unavailable"
     case taskNotSupported = "task_not_supported"
+    case voiceNotAvailable = "voice_not_available"
 }
 
 /// Required metadata providing an overview of the execution result and performance metrics.
@@ -1502,9 +1511,13 @@ public struct RoutePlannerInput: Codable, Sendable {
     public var modelProfile: ModelProfile?
     /// Soft route ordering preferences applied after hard filtering.
     public var preferences: RoutePlannerInputPreferences
-    /// Static descriptors plus dynamic capability snapshots for planning.
+    /// Static descriptors plus dynamic capability checks for planning. Both shapes are the
+    /// provider schemas themselves, shared by $ref, so the planner reads exactly what
+    /// checkCapabilities() reports.
     public var providers: [Provider]
-    /// Minimal task descriptor for provider task matching.
+    /// Task descriptor for provider task matching: the kind plus the requirements routing can
+    /// check against declared capabilities. Absent requirement fields are never checked, so a
+    /// text request carries the kind alone.
     public var task: RoutePlannerInputTask
 
     public enum CodingKeys: String, CodingKey {
@@ -1579,7 +1592,7 @@ public struct RoutePlannerInputConstraints: Codable, Sendable {
     /// Current connectivity snapshot used for cloud route planning.
     public var networkOnline: Bool?
     /// Privacy requirement or preference for execution placement.
-    public var privacy: PrivacyEnum?
+    public var privacy: Privacy?
 
     public enum CodingKeys: String, CodingKey {
         case cloud = "cloud"
@@ -1587,7 +1600,7 @@ public struct RoutePlannerInputConstraints: Codable, Sendable {
         case privacy = "privacy"
     }
 
-    public init(cloud: Cloud?, networkOnline: Bool?, privacy: PrivacyEnum?) {
+    public init(cloud: Cloud?, networkOnline: Bool?, privacy: Privacy?) {
         self.cloud = cloud
         self.networkOnline = networkOnline
         self.privacy = privacy
@@ -1615,7 +1628,7 @@ public extension RoutePlannerInputConstraints {
     func with(
         cloud: Cloud?? = nil,
         networkOnline: Bool?? = nil,
-        privacy: PrivacyEnum?? = nil
+        privacy: Privacy?? = nil
     ) -> RoutePlannerInputConstraints {
         return RoutePlannerInputConstraints(
             cloud: cloud ?? self.cloud,
@@ -1753,15 +1766,19 @@ public extension RoutePlannerInputPreferences {
 
 // MARK: - Provider
 public struct Provider: Codable, Sendable {
-    public var capabilities: Capabilities
-    public var descriptor: Descriptor
+    /// The provider's live capability check, already folded by the engine (for example,
+    /// streamingAvailable is false when the provider declares streaming but does not implement
+    /// it).
+    public var capabilities: ProviderDynamicCapabilities
+    /// The provider's static capability declaration.
+    public var descriptor: ProviderDescriptor
 
     public enum CodingKeys: String, CodingKey {
         case capabilities = "capabilities"
         case descriptor = "descriptor"
     }
 
-    public init(capabilities: Capabilities, descriptor: Descriptor) {
+    public init(capabilities: ProviderDynamicCapabilities, descriptor: ProviderDescriptor) {
         self.capabilities = capabilities
         self.descriptor = descriptor
     }
@@ -1786,8 +1803,8 @@ public extension Provider {
     }
 
     func with(
-        capabilities: Capabilities? = nil,
-        descriptor: Descriptor? = nil
+        capabilities: ProviderDynamicCapabilities? = nil,
+        descriptor: ProviderDescriptor? = nil
     ) -> Provider {
         return Provider(
             capabilities: capabilities ?? self.capabilities,
@@ -1804,19 +1821,34 @@ public extension Provider {
     }
 }
 
-// MARK: - Capabilities
-public struct Capabilities: Codable, Sendable {
+/// The provider's live capability check, already folded by the engine (for example,
+/// streamingAvailable is false when the provider declares streaming but does not implement
+/// it).
+///
+/// A provider's live capability check, evaluated on the current host when routing or when
+/// checkCapabilities() is called. Unlike the descriptor it can change between calls.
+///
+/// The provider's live capability check at the time of the call.
+// MARK: - ProviderDynamicCapabilities
+public struct ProviderDynamicCapabilities: Codable, Sendable {
+    /// Whether the provider is available and functional on this host right now.
     public var available: Bool
-    /// Whether cancellation is honored right now in this host environment. Absent inherits the
-    /// static descriptor.cancel value (any value other than 'none' means available).
+    /// Whether cancellation is honored on this host right now. Absent inherits the static
+    /// descriptor.cancel value: any value other than 'none' means available. Never null.
     public var cancellationAvailable: Bool?
+    /// Why the provider is unavailable, when available is false.
     public var reason: String?
-    /// Whether the provider can stream right now in this host environment. Absent inherits the
-    /// static descriptor.supports.streaming value.
+    /// Whether the provider can stream (Mode 2) on this host right now. Absent inherits the
+    /// static descriptor.supports.streaming value; only set it when the host takes streaming
+    /// away from a provider that otherwise declares it. Never null.
     public var streamingAvailable: Bool?
-    /// Human-readable explanation used when streamingAvailable is false. Absent lets the planner
-    /// synthesize a default message.
+    /// Why streaming is unavailable, when streamingAvailable is false. Absent lets the route
+    /// planner synthesize a default message.
     public var streamingUnavailableReason: String?
+    /// Per-task overrides of the provider-level check, for tasks whose availability differs on
+    /// this host, e.g. a voice that is not installed. Every field of an entry is optional and
+    /// absent inherits the provider-level value; a false at either level wins.
+    public var taskCapabilities: [ProviderTaskAvailability]?
 
     public enum CodingKeys: String, CodingKey {
         case available = "available"
@@ -1824,22 +1856,24 @@ public struct Capabilities: Codable, Sendable {
         case reason = "reason"
         case streamingAvailable = "streamingAvailable"
         case streamingUnavailableReason = "streamingUnavailableReason"
+        case taskCapabilities = "taskCapabilities"
     }
 
-    public init(available: Bool, cancellationAvailable: Bool?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?) {
+    public init(available: Bool, cancellationAvailable: Bool?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, taskCapabilities: [ProviderTaskAvailability]?) {
         self.available = available
         self.cancellationAvailable = cancellationAvailable
         self.reason = reason
         self.streamingAvailable = streamingAvailable
         self.streamingUnavailableReason = streamingUnavailableReason
+        self.taskCapabilities = taskCapabilities
     }
 }
 
-// MARK: Capabilities convenience initializers and mutators
+// MARK: ProviderDynamicCapabilities convenience initializers and mutators
 
-public extension Capabilities {
+public extension ProviderDynamicCapabilities {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Capabilities.self, from: data)
+        self = try newJSONDecoder().decode(ProviderDynamicCapabilities.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -1858,14 +1892,16 @@ public extension Capabilities {
         cancellationAvailable: Bool?? = nil,
         reason: String?? = nil,
         streamingAvailable: Bool?? = nil,
-        streamingUnavailableReason: String?? = nil
-    ) -> Capabilities {
-        return Capabilities(
+        streamingUnavailableReason: String?? = nil,
+        taskCapabilities: [ProviderTaskAvailability]?? = nil
+    ) -> ProviderDynamicCapabilities {
+        return ProviderDynamicCapabilities(
             available: available ?? self.available,
             cancellationAvailable: cancellationAvailable ?? self.cancellationAvailable,
             reason: reason ?? self.reason,
             streamingAvailable: streamingAvailable ?? self.streamingAvailable,
-            streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason
+            streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason,
+            taskCapabilities: taskCapabilities ?? self.taskCapabilities
         )
     }
 
@@ -1878,42 +1914,57 @@ public extension Capabilities {
     }
 }
 
-// MARK: - Descriptor
-public struct Descriptor: Codable, Sendable {
-    /// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
-    /// the planner does not filter on it.
-    public var cancel: Cancel?
-    public var id: String
-    /// Descriptor privacy metadata used to enforce local/cloud routing rules.
-    public var privacy: PrivacyClass?
-    public var supports: Supports
-    public var tasks: [String]
-    public var type: DescriptorType
+/// The live check for one task kind.
+// MARK: - ProviderTaskAvailability
+public struct ProviderTaskAvailability: Codable, Sendable {
+    /// Whether the task can run on this host right now. Absent inherits the provider-level
+    /// available. Never null.
+    public var available: Bool?
+    /// Whether cancellation is honored for this task right now. Absent inherits. Never null.
+    public var cancellationAvailable: Bool?
+    /// The task kind this entry describes.
+    public var kind: String
+    /// BCP 47 locales available for this task right now. Absent means the provider cannot
+    /// enumerate them.
+    public var locales: [String]?
+    /// Why the task is unavailable, when available is false.
+    public var reason: String?
+    /// Whether the task can stream on this host right now. Absent inherits. Never null.
+    public var streamingAvailable: Bool?
+    /// Why streaming is unavailable for this task, when streamingAvailable is false.
+    public var streamingUnavailableReason: String?
+    /// Voices available for this task right now. Absent means the provider cannot enumerate
+    /// them; a request that requires a voice then never routes to it.
+    public var voices: [ProviderVoice]?
 
     public enum CodingKeys: String, CodingKey {
-        case cancel = "cancel"
-        case id = "id"
-        case privacy = "privacy"
-        case supports = "supports"
-        case tasks = "tasks"
-        case type = "type"
+        case available = "available"
+        case cancellationAvailable = "cancellationAvailable"
+        case kind = "kind"
+        case locales = "locales"
+        case reason = "reason"
+        case streamingAvailable = "streamingAvailable"
+        case streamingUnavailableReason = "streamingUnavailableReason"
+        case voices = "voices"
     }
 
-    public init(cancel: Cancel?, id: String, privacy: PrivacyClass?, supports: Supports, tasks: [String], type: DescriptorType) {
-        self.cancel = cancel
-        self.id = id
-        self.privacy = privacy
-        self.supports = supports
-        self.tasks = tasks
-        self.type = type
+    public init(available: Bool?, cancellationAvailable: Bool?, kind: String, locales: [String]?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, voices: [ProviderVoice]?) {
+        self.available = available
+        self.cancellationAvailable = cancellationAvailable
+        self.kind = kind
+        self.locales = locales
+        self.reason = reason
+        self.streamingAvailable = streamingAvailable
+        self.streamingUnavailableReason = streamingUnavailableReason
+        self.voices = voices
     }
 }
 
-// MARK: Descriptor convenience initializers and mutators
+// MARK: ProviderTaskAvailability convenience initializers and mutators
 
-public extension Descriptor {
+public extension ProviderTaskAvailability {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Descriptor.self, from: data)
+        self = try newJSONDecoder().decode(ProviderTaskAvailability.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -1928,19 +1979,232 @@ public extension Descriptor {
     }
 
     func with(
-        cancel: Cancel?? = nil,
+        available: Bool?? = nil,
+        cancellationAvailable: Bool?? = nil,
+        kind: String? = nil,
+        locales: [String]?? = nil,
+        reason: String?? = nil,
+        streamingAvailable: Bool?? = nil,
+        streamingUnavailableReason: String?? = nil,
+        voices: [ProviderVoice]?? = nil
+    ) -> ProviderTaskAvailability {
+        return ProviderTaskAvailability(
+            available: available ?? self.available,
+            cancellationAvailable: cancellationAvailable ?? self.cancellationAvailable,
+            kind: kind ?? self.kind,
+            locales: locales ?? self.locales,
+            reason: reason ?? self.reason,
+            streamingAvailable: streamingAvailable ?? self.streamingAvailable,
+            streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason,
+            voices: voices ?? self.voices
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Provider-neutral traits of one available voice. Carries no provider voice identifier.
+///
+/// The voice this candidate must use if it is attempted, chosen by the planner from the
+/// provider's dynamic voice inventory. It is the best voice that satisfies the request's
+/// locale, required voice traits and privacy — under local-required privacy always one that
+/// keeps data on the device — ranked by preferred gender, then exact locale region, then
+/// on-device before network. The adapter must use a voice with exactly these traits. Absent
+/// when the request names no locale or voice, or the provider does not list its voices; the
+/// adapter then chooses itself under the same rules.
+// MARK: - ProviderVoice
+public struct ProviderVoice: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// BCP 47 locale the voice speaks.
+    public var locale: String
+    /// Whether using the voice sends data off the device. Absent inherits the task's privacy
+    /// posture.
+    public var networkRequired: Bool?
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case locale = "locale"
+        case networkRequired = "networkRequired"
+    }
+
+    public init(gender: VoiceGender?, locale: String, networkRequired: Bool?) {
+        self.gender = gender
+        self.locale = locale
+        self.networkRequired = networkRequired
+    }
+}
+
+// MARK: ProviderVoice convenience initializers and mutators
+
+public extension ProviderVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        locale: String? = nil,
+        networkRequired: Bool?? = nil
+    ) -> ProviderVoice {
+        return ProviderVoice(
+            gender: gender ?? self.gender,
+            locale: locale ?? self.locale,
+            networkRequired: networkRequired ?? self.networkRequired
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Perceived gender of a voice, as the platform reports it.
+public enum VoiceGender: String, Codable, Sendable {
+    case female = "female"
+    case male = "male"
+    case neutral = "neutral"
+}
+
+/// The provider's static capability declaration.
+///
+/// A provider's static capability declaration: identity, placement, transport, supported
+/// interaction modes and tasks, cancellation guarantee, resource limits and privacy posture.
+/// It does not change while the provider is registered. The route planner,
+/// checkCapabilities() and execution provenance all read this one shape.
+// MARK: - ProviderDescriptor
+public struct ProviderDescriptor: Codable, Sendable {
+    /// Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+    /// reading locally while remote work may continue, 'none' means cancellation is unsupported.
+    /// Independently of this value, the engine delivers no event after a cancel.
+    public var cancel: CancelSemantics
+    /// Unique identifier of the provider instance (a target), e.g. 'apple_foundation_models' or
+    /// 'openai_compatible_cloud:gpt-5-mini'. Model profiles list targets by this id.
+    public var id: String
+    /// Optional input and output resource limits.
+    public var limits: ProviderLimits?
+    /// The model this provider instance is bound to, when it can name one. Cloud providers
+    /// report the model id they send; platform-managed models report an opaque platform alias
+    /// rather than a guessed weight name. Absent means the provider cannot name its model.
+    public var model: String?
+    /// Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+    /// or edge provider is treated as keeping data on the device and a cloud provider as sending
+    /// it off.
+    public var privacy: ProviderPrivacy?
+    /// How a streaming provider delivers incremental output: individual tokens, larger chunks,
+    /// or whole snapshots. Absent for providers that do not stream.
+    public var streamingStyle: StreamingStyle?
+    /// Interaction modes and features the provider statically declares.
+    public var supports: ProviderSupports
+    /// What the provider can do for each task: accepted inputs, interaction modes, output
+    /// deliveries and formats, cancellation, locales and privacy. When present it is
+    /// authoritative for routing and must list every task the provider serves. When absent (a
+    /// legacy descriptor), routing infers exactly one entry — 'text_to_text' with text input,
+    /// inline output, run/stream from supports and cancel from cancel — if tasks contains
+    /// 'text_to_text', and nothing for any other task: a legacy descriptor is never treated as
+    /// capable of a non-text task.
+    public var taskCapabilities: [ProviderTaskCapability]?
+    /// Task kinds the provider supports, e.g. 'text_to_text'. When taskCapabilities is present
+    /// it must describe the same kinds and is what routing reads; without it, routing infers
+    /// capabilities for 'text_to_text' alone (see taskCapabilities).
+    public var tasks: [String]
+    /// How the engine reaches the provider: in-process runtime, operating-system service,
+    /// buffered HTTP, server-sent events, or a realtime connection.
+    public var transport: ProviderTransport
+    /// Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+    public var type: ProviderType
+
+    public enum CodingKeys: String, CodingKey {
+        case cancel = "cancel"
+        case id = "id"
+        case limits = "limits"
+        case model = "model"
+        case privacy = "privacy"
+        case streamingStyle = "streamingStyle"
+        case supports = "supports"
+        case taskCapabilities = "taskCapabilities"
+        case tasks = "tasks"
+        case transport = "transport"
+        case type = "type"
+    }
+
+    public init(cancel: CancelSemantics, id: String, limits: ProviderLimits?, model: String?, privacy: ProviderPrivacy?, streamingStyle: StreamingStyle?, supports: ProviderSupports, taskCapabilities: [ProviderTaskCapability]?, tasks: [String], transport: ProviderTransport, type: ProviderType) {
+        self.cancel = cancel
+        self.id = id
+        self.limits = limits
+        self.model = model
+        self.privacy = privacy
+        self.streamingStyle = streamingStyle
+        self.supports = supports
+        self.taskCapabilities = taskCapabilities
+        self.tasks = tasks
+        self.transport = transport
+        self.type = type
+    }
+}
+
+// MARK: ProviderDescriptor convenience initializers and mutators
+
+public extension ProviderDescriptor {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderDescriptor.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        cancel: CancelSemantics? = nil,
         id: String? = nil,
-        privacy: PrivacyClass?? = nil,
-        supports: Supports? = nil,
+        limits: ProviderLimits?? = nil,
+        model: String?? = nil,
+        privacy: ProviderPrivacy?? = nil,
+        streamingStyle: StreamingStyle?? = nil,
+        supports: ProviderSupports? = nil,
+        taskCapabilities: [ProviderTaskCapability]?? = nil,
         tasks: [String]? = nil,
-        type: DescriptorType? = nil
-    ) -> Descriptor {
-        return Descriptor(
+        transport: ProviderTransport? = nil,
+        type: ProviderType? = nil
+    ) -> ProviderDescriptor {
+        return ProviderDescriptor(
             cancel: cancel ?? self.cancel,
             id: id ?? self.id,
+            limits: limits ?? self.limits,
+            model: model ?? self.model,
             privacy: privacy ?? self.privacy,
+            streamingStyle: streamingStyle ?? self.streamingStyle,
             supports: supports ?? self.supports,
+            taskCapabilities: taskCapabilities ?? self.taskCapabilities,
             tasks: tasks ?? self.tasks,
+            transport: transport ?? self.transport,
             type: type ?? self.type
         )
     }
@@ -1954,18 +2218,98 @@ public extension Descriptor {
     }
 }
 
-/// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
-/// the planner does not filter on it.
-public enum Cancel: String, Codable, Sendable {
+/// Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+/// reading locally while remote work may continue, 'none' means cancellation is unsupported.
+/// Independently of this value, the engine delivers no event after a cancel.
+///
+/// Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+/// when stopping playback is immediate but a synthesis request cannot be aborted.
+public enum CancelSemantics: String, Codable, Sendable {
     case hard = "hard"
     case none = "none"
     case soft = "soft"
 }
 
-/// Descriptor privacy metadata used to enforce local/cloud routing rules.
-// MARK: - PrivacyClass
-public struct PrivacyClass: Codable, Sendable {
+/// Optional input and output resource limits.
+// MARK: - ProviderLimits
+public struct ProviderLimits: Codable, Sendable {
+    /// Longest accepted or produced audio, in seconds.
+    public var maxAudioSeconds: Int?
+    /// Largest accepted image, in bytes.
+    public var maxImageBytes: Int?
+    /// Largest accepted input, in tokens.
+    public var maxInputTokens: Int?
+    /// Largest output the provider produces, in tokens.
+    public var maxOutputTokens: Int?
+
+    public enum CodingKeys: String, CodingKey {
+        case maxAudioSeconds = "maxAudioSeconds"
+        case maxImageBytes = "maxImageBytes"
+        case maxInputTokens = "maxInputTokens"
+        case maxOutputTokens = "maxOutputTokens"
+    }
+
+    public init(maxAudioSeconds: Int?, maxImageBytes: Int?, maxInputTokens: Int?, maxOutputTokens: Int?) {
+        self.maxAudioSeconds = maxAudioSeconds
+        self.maxImageBytes = maxImageBytes
+        self.maxInputTokens = maxInputTokens
+        self.maxOutputTokens = maxOutputTokens
+    }
+}
+
+// MARK: ProviderLimits convenience initializers and mutators
+
+public extension ProviderLimits {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderLimits.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        maxAudioSeconds: Int?? = nil,
+        maxImageBytes: Int?? = nil,
+        maxInputTokens: Int?? = nil,
+        maxOutputTokens: Int?? = nil
+    ) -> ProviderLimits {
+        return ProviderLimits(
+            maxAudioSeconds: maxAudioSeconds ?? self.maxAudioSeconds,
+            maxImageBytes: maxImageBytes ?? self.maxImageBytes,
+            maxInputTokens: maxInputTokens ?? self.maxInputTokens,
+            maxOutputTokens: maxOutputTokens ?? self.maxOutputTokens
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+/// or edge provider is treated as keeping data on the device and a cloud provider as sending
+/// it off.
+///
+/// Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+/// provider whose speech synthesis uses a network service. Absent inherits
+/// descriptor.privacy.
+// MARK: - ProviderPrivacy
+public struct ProviderPrivacy: Codable, Sendable {
+    /// Whether request content leaves the device.
     public var dataLeavesDevice: Bool
+    /// Geographic regions where a cloud provider processes data.
     public var regions: [String]?
 
     public enum CodingKeys: String, CodingKey {
@@ -1979,11 +2323,11 @@ public struct PrivacyClass: Codable, Sendable {
     }
 }
 
-// MARK: PrivacyClass convenience initializers and mutators
+// MARK: ProviderPrivacy convenience initializers and mutators
 
-public extension PrivacyClass {
+public extension ProviderPrivacy {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(PrivacyClass.self, from: data)
+        self = try newJSONDecoder().decode(ProviderPrivacy.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -2000,8 +2344,8 @@ public extension PrivacyClass {
     func with(
         dataLeavesDevice: Bool? = nil,
         regions: [String]?? = nil
-    ) -> PrivacyClass {
-        return PrivacyClass(
+    ) -> ProviderPrivacy {
+        return ProviderPrivacy(
             dataLeavesDevice: dataLeavesDevice ?? self.dataLeavesDevice,
             regions: regions ?? self.regions
         )
@@ -2016,29 +2360,224 @@ public extension PrivacyClass {
     }
 }
 
-// MARK: - Supports
-public struct Supports: Codable, Sendable {
+/// How a streaming provider delivers incremental output: individual tokens, larger chunks,
+/// or whole snapshots. Absent for providers that do not stream.
+public enum StreamingStyle: String, Codable, Sendable {
+    case chunks = "chunks"
+    case snapshots = "snapshots"
+    case tokens = "tokens"
+}
+
+/// Interaction modes and features the provider statically declares.
+// MARK: - ProviderSupports
+public struct ProviderSupports: Codable, Sendable {
+    /// Whether the provider accepts non-text inputs such as images or audio.
+    public var multimodal: Bool
+    /// Whether the provider supports Mode 3 realtime sessions. Reserved; no engine implements
+    /// Mode 3 yet.
+    public var realtime: Bool
+    /// Whether the provider emits reasoning events alongside content.
+    public var reasoningEvents: Bool
+    /// Whether the provider supports Mode 1 run (request/response).
     public var run: Bool
-    /// Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
-    /// descriptor that predates this field cannot be assumed to stream.
-    public var streaming: Bool?
+    /// Whether the provider supports Mode 2 stream. A provider that declares it must also
+    /// implement the streaming adapter; the engines report it as unavailable otherwise.
+    public var streaming: Bool
+    /// Whether the provider supports structured output constrained by a JSON schema.
+    public var structuredOutput: Bool
+    /// Whether the provider supports tool calling.
+    public var tools: Bool
 
     public enum CodingKeys: String, CodingKey {
+        case multimodal = "multimodal"
+        case realtime = "realtime"
+        case reasoningEvents = "reasoningEvents"
         case run = "run"
         case streaming = "streaming"
+        case structuredOutput = "structuredOutput"
+        case tools = "tools"
     }
 
-    public init(run: Bool, streaming: Bool?) {
+    public init(multimodal: Bool, realtime: Bool, reasoningEvents: Bool, run: Bool, streaming: Bool, structuredOutput: Bool, tools: Bool) {
+        self.multimodal = multimodal
+        self.realtime = realtime
+        self.reasoningEvents = reasoningEvents
         self.run = run
         self.streaming = streaming
+        self.structuredOutput = structuredOutput
+        self.tools = tools
     }
 }
 
-// MARK: Supports convenience initializers and mutators
+// MARK: ProviderSupports convenience initializers and mutators
 
-public extension Supports {
+public extension ProviderSupports {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Supports.self, from: data)
+        self = try newJSONDecoder().decode(ProviderSupports.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        multimodal: Bool? = nil,
+        realtime: Bool? = nil,
+        reasoningEvents: Bool? = nil,
+        run: Bool? = nil,
+        streaming: Bool? = nil,
+        structuredOutput: Bool? = nil,
+        tools: Bool? = nil
+    ) -> ProviderSupports {
+        return ProviderSupports(
+            multimodal: multimodal ?? self.multimodal,
+            realtime: realtime ?? self.realtime,
+            reasoningEvents: reasoningEvents ?? self.reasoningEvents,
+            run: run ?? self.run,
+            streaming: streaming ?? self.streaming,
+            structuredOutput: structuredOutput ?? self.structuredOutput,
+            tools: tools ?? self.tools
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The provider's static capabilities for one task kind.
+// MARK: - ProviderTaskCapability
+public struct ProviderTaskCapability: Codable, Sendable {
+    /// Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+    /// when stopping playback is immediate but a synthesis request cannot be aborted.
+    public var cancel: CancelSemantics
+    /// Input media kinds the provider accepts for this task.
+    public var inputs: [TaskInputKind]
+    /// Interaction modes the provider supports for this task.
+    public var interaction: ProviderTaskInteraction
+    /// The task kind this entry describes, e.g. 'text_to_speech'.
+    public var kind: String
+    /// BCP 47 locales the provider can serve for this task, when it knows them statically.
+    /// Absent means unknown; the dynamic check may report them instead.
+    public var locales: [String]?
+    /// How results of this task can be delivered. A provider lists only what it really produces:
+    /// a provider that can only play audio lists 'playback' and never 'artifact'.
+    public var outputs: [ProviderTaskOutput]
+    /// Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+    /// provider whose speech synthesis uses a network service. Absent inherits
+    /// descriptor.privacy.
+    public var privacy: ProviderPrivacy?
+
+    public enum CodingKeys: String, CodingKey {
+        case cancel = "cancel"
+        case inputs = "inputs"
+        case interaction = "interaction"
+        case kind = "kind"
+        case locales = "locales"
+        case outputs = "outputs"
+        case privacy = "privacy"
+    }
+
+    public init(cancel: CancelSemantics, inputs: [TaskInputKind], interaction: ProviderTaskInteraction, kind: String, locales: [String]?, outputs: [ProviderTaskOutput], privacy: ProviderPrivacy?) {
+        self.cancel = cancel
+        self.inputs = inputs
+        self.interaction = interaction
+        self.kind = kind
+        self.locales = locales
+        self.outputs = outputs
+        self.privacy = privacy
+    }
+}
+
+// MARK: ProviderTaskCapability convenience initializers and mutators
+
+public extension ProviderTaskCapability {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderTaskCapability.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        cancel: CancelSemantics? = nil,
+        inputs: [TaskInputKind]? = nil,
+        interaction: ProviderTaskInteraction? = nil,
+        kind: String? = nil,
+        locales: [String]?? = nil,
+        outputs: [ProviderTaskOutput]? = nil,
+        privacy: ProviderPrivacy?? = nil
+    ) -> ProviderTaskCapability {
+        return ProviderTaskCapability(
+            cancel: cancel ?? self.cancel,
+            inputs: inputs ?? self.inputs,
+            interaction: interaction ?? self.interaction,
+            kind: kind ?? self.kind,
+            locales: locales ?? self.locales,
+            outputs: outputs ?? self.outputs,
+            privacy: privacy ?? self.privacy
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A kind of input medium a task consumes.
+public enum TaskInputKind: String, Codable, Sendable {
+    case audio = "audio"
+    case image = "image"
+    case text = "text"
+}
+
+/// Interaction modes the provider supports for this task.
+// MARK: - ProviderTaskInteraction
+public struct ProviderTaskInteraction: Codable, Sendable {
+    /// Whether the provider supports Mode 1 run for this task.
+    public var run: Bool
+    /// Whether the provider supports Mode 2 stream for this task.
+    public var stream: Bool
+
+    public enum CodingKeys: String, CodingKey {
+        case run = "run"
+        case stream = "stream"
+    }
+
+    public init(run: Bool, stream: Bool) {
+        self.run = run
+        self.stream = stream
+    }
+}
+
+// MARK: ProviderTaskInteraction convenience initializers and mutators
+
+public extension ProviderTaskInteraction {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderTaskInteraction.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -2054,11 +2593,11 @@ public extension Supports {
 
     func with(
         run: Bool? = nil,
-        streaming: Bool?? = nil
-    ) -> Supports {
-        return Supports(
+        stream: Bool? = nil
+    ) -> ProviderTaskInteraction {
+        return ProviderTaskInteraction(
             run: run ?? self.run,
-            streaming: streaming ?? self.streaming
+            stream: stream ?? self.stream
         )
     }
 
@@ -2071,23 +2610,126 @@ public extension Supports {
     }
 }
 
-public enum DescriptorType: String, Codable, Sendable {
+/// One way the provider can deliver a task's result.
+// MARK: - ProviderTaskOutput
+public struct ProviderTaskOutput: Codable, Sendable {
+    public var delivery: OutputDelivery
+    /// Media types the provider can produce with this delivery, e.g. 'audio/wav'. Absent means
+    /// the provider does not declare them; a request that requires specific media types never
+    /// routes to such an output.
+    public var mediaTypes: [String]?
+
+    public enum CodingKeys: String, CodingKey {
+        case delivery = "delivery"
+        case mediaTypes = "mediaTypes"
+    }
+
+    public init(delivery: OutputDelivery, mediaTypes: [String]?) {
+        self.delivery = delivery
+        self.mediaTypes = mediaTypes
+    }
+}
+
+// MARK: ProviderTaskOutput convenience initializers and mutators
+
+public extension ProviderTaskOutput {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderTaskOutput.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        delivery: OutputDelivery? = nil,
+        mediaTypes: [String]?? = nil
+    ) -> ProviderTaskOutput {
+        return ProviderTaskOutput(
+            delivery: delivery ?? self.delivery,
+            mediaTypes: mediaTypes ?? self.mediaTypes
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// How a task's result reaches the application: 'inline' content in the result (text),
+/// 'playback' as a managed, audible effect on the device with no retrievable bytes, or
+/// 'artifact' as retrievable media.
+public enum OutputDelivery: String, Codable, Sendable {
+    case artifact = "artifact"
+    case inline = "inline"
+    case playback = "playback"
+}
+
+/// How the engine reaches the provider: in-process runtime, operating-system service,
+/// buffered HTTP, server-sent events, or a realtime connection.
+public enum ProviderTransport: String, Codable, Sendable {
+    case http = "http"
+    case inProcess = "in_process"
+    case realtime = "realtime"
+    case sse = "sse"
+    case systemService = "system_service"
+}
+
+/// Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+public enum ProviderType: String, Codable, Sendable {
     case cloud = "cloud"
     case edge = "edge"
     case local = "local"
 }
 
-/// Minimal task descriptor for provider task matching.
+/// Task descriptor for provider task matching: the kind plus the requirements routing can
+/// check against declared capabilities. Absent requirement fields are never checked, so a
+/// text request carries the kind alone.
 // MARK: - RoutePlannerInputTask
 public struct RoutePlannerInputTask: Codable, Sendable {
+    /// The output delivery the request requires. Absent for text, whose delivery is implicitly
+    /// inline.
+    public var delivery: DeliveryRequirement?
+    /// Input media kinds the request carries. Every one must be accepted by the provider's task
+    /// capability. The SDKs send ['text'] for text_to_text.
+    public var inputs: [TaskInputKind]?
+    /// The task kind, matched against the providers' task capabilities.
     public var kind: String
+    /// The locale the request requires. Under 'language' matching the region is a preference: a
+    /// provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider
+    /// that cannot enumerate its locales is not rejected on this basis; it must fail before
+    /// committing instead.
+    public var locale: LocaleRequirement?
+    /// Voice traits the request asks for. Only a 'required' voice can reject a provider; a
+    /// 'preferred' one shapes which listed voice the plan binds a candidate to, always within
+    /// the request's privacy policy.
+    public var voice: VoiceRequirement?
 
     public enum CodingKeys: String, CodingKey {
+        case delivery = "delivery"
+        case inputs = "inputs"
         case kind = "kind"
+        case locale = "locale"
+        case voice = "voice"
     }
 
-    public init(kind: String) {
+    public init(delivery: DeliveryRequirement?, inputs: [TaskInputKind]?, kind: String, locale: LocaleRequirement?, voice: VoiceRequirement?) {
+        self.delivery = delivery
+        self.inputs = inputs
         self.kind = kind
+        self.locale = locale
+        self.voice = voice
     }
 }
 
@@ -2110,10 +2752,18 @@ public extension RoutePlannerInputTask {
     }
 
     func with(
-        kind: String? = nil
+        delivery: DeliveryRequirement?? = nil,
+        inputs: [TaskInputKind]?? = nil,
+        kind: String? = nil,
+        locale: LocaleRequirement?? = nil,
+        voice: VoiceRequirement?? = nil
     ) -> RoutePlannerInputTask {
         return RoutePlannerInputTask(
-            kind: kind ?? self.kind
+            delivery: delivery ?? self.delivery,
+            inputs: inputs ?? self.inputs,
+            kind: kind ?? self.kind,
+            locale: locale ?? self.locale,
+            voice: voice ?? self.voice
         )
     }
 
@@ -2124,6 +2774,193 @@ public extension RoutePlannerInputTask {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
+}
+
+/// The output delivery the request requires. Absent for text, whose delivery is implicitly
+/// inline.
+// MARK: - DeliveryRequirement
+public struct DeliveryRequirement: Codable, Sendable {
+    /// Acceptable media types; the provider must declare at least one for the requested
+    /// delivery. Absent means any.
+    public var mediaTypes: [String]?
+    public var mode: OutputDelivery
+
+    public enum CodingKeys: String, CodingKey {
+        case mediaTypes = "mediaTypes"
+        case mode = "mode"
+    }
+
+    public init(mediaTypes: [String]?, mode: OutputDelivery) {
+        self.mediaTypes = mediaTypes
+        self.mode = mode
+    }
+}
+
+// MARK: DeliveryRequirement convenience initializers and mutators
+
+public extension DeliveryRequirement {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(DeliveryRequirement.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        mediaTypes: [String]?? = nil,
+        mode: OutputDelivery? = nil
+    ) -> DeliveryRequirement {
+        return DeliveryRequirement(
+            mediaTypes: mediaTypes ?? self.mediaTypes,
+            mode: mode ?? self.mode
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The locale the request requires. Under 'language' matching the region is a preference: a
+/// provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider
+/// that cannot enumerate its locales is not rejected on this basis; it must fail before
+/// committing instead.
+// MARK: - LocaleRequirement
+public struct LocaleRequirement: Codable, Sendable {
+    /// 'exact' requires the full tag; 'language' requires only the primary language subtag and
+    /// treats the region as a preference.
+    public var match: LocaleMatch
+    /// BCP 47 tag.
+    public var tag: String
+
+    public enum CodingKeys: String, CodingKey {
+        case match = "match"
+        case tag = "tag"
+    }
+
+    public init(match: LocaleMatch, tag: String) {
+        self.match = match
+        self.tag = tag
+    }
+}
+
+// MARK: LocaleRequirement convenience initializers and mutators
+
+public extension LocaleRequirement {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(LocaleRequirement.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        match: LocaleMatch? = nil,
+        tag: String? = nil
+    ) -> LocaleRequirement {
+        return LocaleRequirement(
+            match: match ?? self.match,
+            tag: tag ?? self.tag
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'exact' requires the full tag; 'language' requires only the primary language subtag and
+/// treats the region as a preference.
+public enum LocaleMatch: String, Codable, Sendable {
+    case exact = "exact"
+    case language = "language"
+}
+
+/// Voice traits the request asks for. Only a 'required' voice can reject a provider; a
+/// 'preferred' one shapes which listed voice the plan binds a candidate to, always within
+/// the request's privacy policy.
+// MARK: - VoiceRequirement
+public struct VoiceRequirement: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// 'required' takes part in routing; 'preferred' does not.
+    public var requirement: RequirementLevel
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case requirement = "requirement"
+    }
+
+    public init(gender: VoiceGender?, requirement: RequirementLevel) {
+        self.gender = gender
+        self.requirement = requirement
+    }
+}
+
+// MARK: VoiceRequirement convenience initializers and mutators
+
+public extension VoiceRequirement {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(VoiceRequirement.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        requirement: RequirementLevel? = nil
+    ) -> VoiceRequirement {
+        return VoiceRequirement(
+            gender: gender ?? self.gender,
+            requirement: requirement ?? self.requirement
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'required' takes part in routing; 'preferred' does not.
+public enum RequirementLevel: String, Codable, Sendable {
+    case preferred = "preferred"
+    case requirementLevelRequired = "required"
 }
 
 /// Deterministic shared-core Mode-1 route planning result.
@@ -2210,15 +3047,25 @@ public extension RoutePlan {
 public struct Candidate: Codable, Sendable {
     public var order: Int
     public var providerId: String
+    /// The voice this candidate must use if it is attempted, chosen by the planner from the
+    /// provider's dynamic voice inventory. It is the best voice that satisfies the request's
+    /// locale, required voice traits and privacy — under local-required privacy always one that
+    /// keeps data on the device — ranked by preferred gender, then exact locale region, then
+    /// on-device before network. The adapter must use a voice with exactly these traits. Absent
+    /// when the request names no locale or voice, or the provider does not list its voices; the
+    /// adapter then chooses itself under the same rules.
+    public var voice: ProviderVoice?
 
     public enum CodingKeys: String, CodingKey {
         case order = "order"
         case providerId = "providerId"
+        case voice = "voice"
     }
 
-    public init(order: Int, providerId: String) {
+    public init(order: Int, providerId: String, voice: ProviderVoice?) {
         self.order = order
         self.providerId = providerId
+        self.voice = voice
     }
 }
 
@@ -2242,11 +3089,13 @@ public extension Candidate {
 
     func with(
         order: Int? = nil,
-        providerId: String? = nil
+        providerId: String? = nil,
+        voice: ProviderVoice?? = nil
     ) -> Candidate {
         return Candidate(
             order: order ?? self.order,
-            providerId: providerId ?? self.providerId
+            providerId: providerId ?? self.providerId,
+            voice: voice ?? self.voice
         )
     }
 
@@ -2379,7 +3228,10 @@ public struct Reason: Codable, Sendable {
     /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
     /// but the dynamic capability snapshot reports it cannot stream in the current host
     /// environment. 'not_in_model_profile' means the request named a model profile that does not
-    /// list this provider.
+    /// list this provider. 'input_not_supported', 'output_delivery_not_supported',
+    /// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
+    /// provider's task capability lacks an input kind, output delivery, media type, locale or
+    /// voice the request requires.
     public var code: Code
     public var message: String
 
@@ -3837,6 +4689,70 @@ public extension StreamTerminalOutcomeUsage {
             inputTokens: inputTokens ?? self.inputTokens,
             outputTokens: outputTokens ?? self.outputTokens,
             totalTokens: totalTokens ?? self.totalTokens
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// One registered provider's identity, static declaration and live capability check, as
+/// returned by checkCapabilities(). A read-only snapshot: producing it executes no task and
+/// has no side effects.
+// MARK: - ProviderCapabilitySnapshot
+public struct ProviderCapabilitySnapshot: Codable, Sendable {
+    /// The provider's live capability check at the time of the call.
+    public var capabilities: ProviderDynamicCapabilities
+    /// The provider's static capability declaration.
+    public var descriptor: ProviderDescriptor
+    /// Identifier of the provider; equal to descriptor.id.
+    public var providerId: String
+
+    public enum CodingKeys: String, CodingKey {
+        case capabilities = "capabilities"
+        case descriptor = "descriptor"
+        case providerId = "providerId"
+    }
+
+    public init(capabilities: ProviderDynamicCapabilities, descriptor: ProviderDescriptor, providerId: String) {
+        self.capabilities = capabilities
+        self.descriptor = descriptor
+        self.providerId = providerId
+    }
+}
+
+// MARK: ProviderCapabilitySnapshot convenience initializers and mutators
+
+public extension ProviderCapabilitySnapshot {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderCapabilitySnapshot.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        capabilities: ProviderDynamicCapabilities? = nil,
+        descriptor: ProviderDescriptor? = nil,
+        providerId: String? = nil
+    ) -> ProviderCapabilitySnapshot {
+        return ProviderCapabilitySnapshot(
+            capabilities: capabilities ?? self.capabilities,
+            descriptor: descriptor ?? self.descriptor,
+            providerId: providerId ?? self.providerId
         )
     }
 

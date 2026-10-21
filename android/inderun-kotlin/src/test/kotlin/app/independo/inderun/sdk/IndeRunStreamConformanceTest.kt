@@ -2,7 +2,7 @@ package app.independo.inderun.sdk
 
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Outcome
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.TelemetryEvent
 import app.independo.inderun.contracts.TelemetryEventType
@@ -668,13 +668,13 @@ private val handlers: Map<String, suspend () -> Observation> = mapOf(
             register(
                 FakeStreamProvider(
                     "p_cloud_streaming",
-                    type = app.independo.inderun.core.ProviderDescriptor.ProviderType.cloud,
+                    type = app.independo.inderun.contracts.ProviderType.Cloud,
                 ),
             )
         }
         captureRejection {
             IndeRun(registry, conformanceHostServices())
-                .stream(conformanceRequest(privacy = PrivacyEnum.LocalRequired))
+                .stream(conformanceRequest(privacy = Privacy.LocalRequired))
         }
     },
 
@@ -683,13 +683,13 @@ private val handlers: Map<String, suspend () -> Observation> = mapOf(
             register(
                 FakeStreamProvider(
                     "p_cloud_streaming",
-                    type = app.independo.inderun.core.ProviderDescriptor.ProviderType.cloud,
+                    type = app.independo.inderun.contracts.ProviderType.Cloud,
                 ),
             )
         }
         captureRejection {
             IndeRun(registry, conformanceHostServices(online = false))
-                .stream(conformanceRequest(privacy = PrivacyEnum.CloudAllowed))
+                .stream(conformanceRequest(privacy = Privacy.CloudAllowed))
         }
     },
 
@@ -697,7 +697,7 @@ private val handlers: Map<String, suspend () -> Observation> = mapOf(
         val registry = ProviderRegistry().apply { register(FakeRunOnlyProvider("p_local_run_only")) }
         captureRejection {
             IndeRun(registry, conformanceHostServices(online = false))
-                .stream(conformanceRequest(privacy = PrivacyEnum.CloudAllowed))
+                .stream(conformanceRequest(privacy = Privacy.CloudAllowed))
         }
     },
 

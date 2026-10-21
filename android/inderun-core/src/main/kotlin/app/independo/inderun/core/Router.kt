@@ -3,6 +3,8 @@ package app.independo.inderun.core
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.TaskRequest
 
 data class RouteSelection(

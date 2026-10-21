@@ -1,7 +1,7 @@
 /* This file was generated from contracts/api/inderun-api.json. Do not edit by hand. */
 
-import type { TaskRequest, TaskResult } from "@independo/inderun-contracts";
-import type { StreamRun, ProviderCapabilitySnapshot } from "../provider.js";
+import type { TaskRequest, TaskResult, ProviderCapabilitySnapshot } from "@independo/inderun-contracts";
+import type { StreamRun } from "../provider.js";
 
 export interface IndeRunApi {
   /**

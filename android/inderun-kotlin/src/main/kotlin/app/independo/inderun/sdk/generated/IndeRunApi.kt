@@ -2,9 +2,9 @@
 
 package app.independo.inderun.sdk.generated
 
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
-import app.independo.inderun.core.ProviderCapabilitySnapshot
 import app.independo.inderun.core.StreamRun
 
 interface IndeRunApi {

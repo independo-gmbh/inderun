@@ -41,12 +41,25 @@ options in, the exact canonical `TaskRequest` out. All three SDKs run every case
 `generateText`/`streamText` translation, which is what holds the facades to one mapping without
 declaring them on the generated `IndeRunApi`.
 
+`fixtures/task-contracts/` holds the three examples ADR 016 is checked against: text generation, text-to-speech
+(managed playback and a retrievable artifact), and a contract-only image-to-text case. Each file's `status` says
+what the committed schemas must do with it — `current` cases must validate, `proposed` and `contract_only` cases
+must be rejected at `/task/kind` until the schema change that admits them lands —
+and `packages/contracts/src/task-contract-fixtures.test.ts` enforces that.
+
+`fixtures/routing/planner-conformance.json` holds the shared route-planner vectors: complete `RoutePlannerInput`s and
+the exact `RoutePlan` each must produce, messages included. The planner is one Rust crate, so these check the
+boundaries around it — that every platform hands it the same shape and reads the same plan back. The Rust crate runs
+them natively, `@independo/inderun-route-core-wasm` through WASM, the Swift suite through the C interface, and the
+Kotlin suite through JNI; `packages/contracts` validates every input and plan against the schemas. When planner
+behaviour changes on purpose, regenerate `expected` from the planner and review the diff case by case.
+
 The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It emits TypeScript artifacts for
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
 
-`execution-provenance.schema.json` (`ExecutionProvenance`) is the one shape shared by `$ref` rather than
+`execution-provenance.schema.json` (`ExecutionProvenance`) was the first shape shared by `$ref` rather than
 duplicated by value. It is carried on six payloads — `TaskResult`, `IndeRunError`, every `StreamTerminalOutcome`
 branch, and the terminal `StreamEvent` payload — and by-value copies made quicktype emit six unrelated Swift and
 Kotlin types for one concept. The referencing schemas point at it with a relative `$ref`, which quicktype resolves
@@ -54,6 +67,14 @@ from the file and Ajv resolves against the shared `$id` base; `validators.ts` co
 The generator leaves it out of the Swift/Kotlin root list (it arrives through the references) and restores its
 title as the type name. What provenance means is in
 [`docs/architecture/architecture.md`](../docs/architecture/architecture.md#execution-provenance).
+
+The provider capability contracts follow the same pattern. `provider-descriptor.schema.json` (`ProviderDescriptor`)
+and `provider-dynamic-capabilities.schema.json` (`ProviderDynamicCapabilities`) are referenced by
+`provider-capability-snapshot.schema.json` (`ProviderCapabilitySnapshot`, what `checkCapabilities()` returns) and by
+`route-planner-input.schema.json`, so the planner reads exactly the shape providers declare and the snapshot
+reports. Each nested object and enum carries a `title`, which is what quicktype names the generated type after.
+`fixtures/provider/capability-snapshots.json` holds valid and invalid snapshots; the TypeScript validators and a
+Swift decode/re-encode test both run it, the latter to prove an absent tri-state flag stays absent.
 
 ## Generated enums carry their wire value
 
@@ -83,6 +104,12 @@ Kotlin enum is emitted without one (issue #212).
   `additionalProperties: true` for this reason, and `StreamEvent` specifically closes its type
   union with an open catch-all branch so a consumer built against an older revision of the schema
   does not hard-fail when a newer, additive revision introduces a new known event type.
+- **Widening a discriminator** from a `const` to an `enum`, with the new value's requirements expressed as an
+  `if`/`then` branch, is additive too: every existing payload stays valid, and a consumer built against the narrower
+  schema rejects the new value through validation instead of misreading it. This is how new task kinds enter the
+  1.0 contracts ([ADR 016](../docs/architecture/decisions/016-modality-extensible-task-contracts.md)). quicktype does
+  not read `if`/`then`, so the per-value requirements live only in the validators; the generated types carry every
+  branch's fields as optional properties.
 - **Breaking changes** (removing/renaming a required field, changing what a `const`/`enum` value
   means) require a new `$id` version segment (e.g. `.../2.0/...`) and a new `schemaVersion` const,
   coexisting with `1.0` during a migration window. The existing "rejects unsupported schema

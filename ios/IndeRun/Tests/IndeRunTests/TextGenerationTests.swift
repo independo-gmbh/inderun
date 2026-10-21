@@ -109,7 +109,7 @@ final class TextGenerationTests: XCTestCase {
         }
         let execution = (raw["execution"] as? [String: Any]).map { execution in
             TextExecutionOptions(
-                privacy: (execution["privacy"] as? String).flatMap(PrivacyEnum.init(rawValue:)),
+                privacy: (execution["privacy"] as? String).flatMap(Privacy.init(rawValue:)),
                 cloud: (execution["cloud"] as? String).flatMap(Cloud.init(rawValue:)),
                 timeoutMs: execution["timeoutMs"] as? Int,
                 optimizeFor: (execution["optimizeFor"] as? String).flatMap(OptimizeFor.init(rawValue:))

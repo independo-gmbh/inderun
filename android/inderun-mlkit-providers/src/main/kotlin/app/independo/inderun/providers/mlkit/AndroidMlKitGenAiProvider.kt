@@ -1,16 +1,22 @@
 package app.independo.inderun.providers.mlkit
 
 import android.content.Context
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.StreamingStyle
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
@@ -113,13 +119,13 @@ class AndroidMlKitGenAiProvider(
 
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = id,
-        type = ProviderDescriptor.ProviderType.local,
-        transport = ProviderDescriptor.TransportType.system_service,
+        type = ProviderType.Local,
+        transport = ProviderTransport.SystemService,
         // `chunks`, not `tokens`: ML Kit hands back incremental text without
         // documenting a token boundary, so claiming `tokens` would assert
         // something the SDK does not.
-        streamingStyle = ProviderDescriptor.StreamingStyle.chunks,
-        supports = ProviderDescriptor.SupportsCapabilities(
+        streamingStyle = StreamingStyle.Chunks,
+        supports = ProviderSupports(
             run = true,
             streaming = true,
             realtime = false,
@@ -131,9 +137,9 @@ class AndroidMlKitGenAiProvider(
         // ML Kit does not document that AICore stops generating when the caller
         // walks away, so the guarantee is `soft`: the adapter stops relaying, and
         // the engine's Event Gate is what makes the caller-visible promise.
-        cancel = ProviderDescriptor.CancelSemantics.soft,
+        cancel = CancelSemantics.Soft,
         tasks = listOf("text_to_text"),
-        privacy = ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice = false),
+        privacy = ProviderPrivacy(dataLeavesDevice = false),
     )
 
     /**

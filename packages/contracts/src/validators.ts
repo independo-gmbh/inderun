@@ -6,6 +6,9 @@ import type { IndeRunError } from "./generated/inderun-error.js";
 import type { HttpRequest } from "./generated/http-request.js";
 import type { HttpResponse } from "./generated/http-response.js";
 import type { ModelPackage } from "./generated/model-package.js";
+import type { ProviderCapabilitySnapshot } from "./generated/provider-capability-snapshot.js";
+import type { ProviderDescriptor } from "./generated/provider-descriptor.js";
+import type { ProviderDynamicCapabilities } from "./generated/provider-dynamic-capabilities.js";
 import type { RoutePlan } from "./generated/route-plan.js";
 import type { RoutePlannerInput } from "./generated/route-planner-input.js";
 import {
@@ -14,6 +17,9 @@ import {
   httpResponseSchema,
   inderunErrorSchema,
   modelPackageSchema,
+  providerCapabilitySnapshotSchema,
+  providerDescriptorSchema,
+  providerDynamicCapabilitiesSchema,
   routePlanSchema,
   routePlannerInputSchema,
   streamEventSchema,
@@ -50,6 +56,11 @@ const ajv = new Ajv2020Constructor({
 // Referenced by `$ref` from every schema that carries provenance, so it has to be known
 // to Ajv before any of them compiles. Compiling it registers it under its `$id`.
 const validateExecutionProvenanceSchema = ajv.compile(executionProvenanceSchema);
+// Likewise, the provider descriptor and dynamic capabilities are referenced from the
+// capability snapshot and the route-planner input.
+const validateProviderDescriptorSchema = ajv.compile(providerDescriptorSchema);
+const validateProviderDynamicCapabilitiesSchema = ajv.compile(providerDynamicCapabilitiesSchema);
+const validateProviderCapabilitySnapshotSchema = ajv.compile(providerCapabilitySnapshotSchema);
 const validateTaskRequestSchema = ajv.compile(taskRequestSchema);
 const validateTaskResultSchema = ajv.compile(taskResultSchema);
 const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
@@ -97,6 +108,22 @@ export function validateRoutePlan(value: unknown): value is RoutePlan {
 
 export function validateModelPackage(value: unknown): value is ModelPackage {
   return getModelPackageValidationIssues(value).length === 0;
+}
+
+export function validateProviderDescriptor(value: unknown): value is ProviderDescriptor {
+  return getProviderDescriptorValidationIssues(value).length === 0;
+}
+
+export function validateProviderDynamicCapabilities(
+  value: unknown
+): value is ProviderDynamicCapabilities {
+  return getProviderDynamicCapabilitiesValidationIssues(value).length === 0;
+}
+
+export function validateProviderCapabilitySnapshot(
+  value: unknown
+): value is ProviderCapabilitySnapshot {
+  return getProviderCapabilitySnapshotValidationIssues(value).length === 0;
 }
 
 export function validateStreamRunHandle(value: unknown): value is StreamRunHandle {
@@ -168,6 +195,18 @@ export function getModelPackageValidationIssues(value: unknown): ValidationIssue
   return getValidationIssues(validateModelPackageSchema, value, {
     forbidInlineSecrets: true
   });
+}
+
+export function getProviderDescriptorValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateProviderDescriptorSchema, value);
+}
+
+export function getProviderDynamicCapabilitiesValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateProviderDynamicCapabilitiesSchema, value);
+}
+
+export function getProviderCapabilitySnapshotValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateProviderCapabilitySnapshotSchema, value);
 }
 
 export function getStreamRunHandleValidationIssues(value: unknown): ValidationIssue[] {
