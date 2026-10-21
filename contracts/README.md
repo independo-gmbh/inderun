@@ -92,6 +92,7 @@ emits the `IndeRunApi` interface/protocol for TypeScript, Swift, and Kotlin, and
 each platform implements/conforms to the generated declaration. CI fails if regenerating produces an uncommitted
 diff.
 
-Scoped for now to `IndeRunApi` (`run` and `checkCapabilities`) only. See
+Scoped for now to `IndeRunApi` (`run`, `stream`, and `checkCapabilities`) only. The primary text API is written
+against this interface rather than declared on it, and stays outside the spec. See
 [`docs/architecture/api-surface-generation.md`](../docs/architecture/api-surface-generation.md) for the research
-pass, options considered, and remaining scope (`ProviderAdapter`, streaming/session operations).
+pass, options considered, and remaining scope (`ProviderAdapter`, session operations).

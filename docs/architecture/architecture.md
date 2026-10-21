@@ -13,6 +13,8 @@ IndeRun is organized into four layers:
 
 The separation matters because provider-specific details should remain behind adapter boundaries whenever a normalized IndeRun shape exists.
 
+The public SDK surface is itself split into a primary familiar API, the advanced task-based execution API, and a provider-authoring surface, with the engine internals behind them carrying no compatibility promise. [api-layering.md](./api-layering.md) defines those layers, model profiles, and the mapping from the familiar API onto the canonical contract.
+
 ## Execution Model
 
 The public execution paths are Mode 1 `run()` (request/response) and Mode 2 `stream()` (incremental output with cancellation). Both validate the request, select a provider deterministically, execute, and normalize the result or error; they differ in what they hand back and in how narrow fallback is, not in how a provider is chosen.
@@ -30,7 +32,7 @@ For Mode 2 the same rule holds, with one consequence worth stating: a live event
 
 Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introspection call that returns each registered provider's static descriptor and current dynamic capability check without executing a task or producing side effects. It exists with the same shape on the TypeScript, Swift, and Kotlin engines, and is intended for UI that needs to show live provider availability before a run (for example, the Web demo's provider badges).
 
-`IndeRun`'s method-signature surface (`run`/`checkCapabilities`) across TypeScript, Swift, and Kotlin is now generated from a versioned spec and CI-enforced — each platform's hand-written `IndeRun` class implements/conforms to the generated `IndeRunApi` interface/protocol, and CI fails on regeneration drift. `ProviderAdapter` parity is still kept in sync by convention and review, not generation. See [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and current status.
+`IndeRun`'s method-signature surface (`run`/`stream`/`checkCapabilities`) across TypeScript, Swift, and Kotlin is now generated from a versioned spec and CI-enforced — each platform's hand-written `IndeRun` class implements/conforms to the generated `IndeRunApi` interface/protocol, and CI fails on regeneration drift. `ProviderAdapter` parity is still kept in sync by convention and review, not generation. See [`api-surface-generation.md`](./api-surface-generation.md) for the research pass and current status.
 
 ### Placement Constraints
 
