@@ -119,7 +119,7 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
         }
         return TaskResult(
             runId: context.runId,
-            output: Output(text: "Hello from \(id)"),
+            output: TaskOutput(text: "Hello from \(id)"),
             finishReason: FinishReason.stop,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
         )

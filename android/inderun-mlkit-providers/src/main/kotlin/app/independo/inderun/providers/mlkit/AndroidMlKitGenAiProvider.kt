@@ -3,7 +3,6 @@ package app.independo.inderun.providers.mlkit
 import android.content.Context
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
-import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderPrivacy
@@ -12,6 +11,8 @@ import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamingStyle
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -269,7 +270,7 @@ class AndroidMlKitGenAiProvider(
 
             return TaskResult(
                 finishReason = canonicalFinishReason(output.finishReason),
-                output = Output(text = output.text),
+                output = TaskOutput(type = TaskOutputType.TEXT, text = output.text),
                 runId = context.runId,
                 schemaVersion = SchemaVersion.V1_0,
                 telemetry = TaskResultTelemetry(providerUsed = id, totalMs = duration.toDouble()),

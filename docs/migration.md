@@ -65,6 +65,33 @@ without text input is rejected with `input_not_supported`.
 The planner no longer writes `null` for an absent optional in its output (`selectedProviderId`, `failureCode`): the key
 is omitted, which is what the route-plan schema always described.
 
+### Task-generic requests and results
+
+The request, result and terminal contracts admit `text_to_speech` next to `text_to_text`
+([ADR 016](architecture/decisions/016-modality-extensible-task-contracts.md)). The JSON of a text request, result or
+stream is unchanged; the generated types are not, because one type now describes every task.
+
+| 0.4 (generated type)                                   | 0.5                                                          |
+| ------------------------------------------------------ | ------------------------------------------------------------ |
+| `Output` / `OutputType` (Swift, Kotlin)                | `TaskOutput` / `TaskOutputType`                              |
+| `Kind` (Swift)                                         | `TaskKind`                                                   |
+| `TaskResult.output.text: String`                       | `String?` — set whenever `output.type` is `text`             |
+| terminal `finalText` / `partialText` (TS)              | optional — a non-text run carries `output` instead           |
+| `TaskKind` / `TaskOutputType` cases                    | gain `text_to_speech` / `playback`, `artifact`               |
+
+- **Primary text API: nothing to change.** `generateText` / `streamText` still return a non-optional string.
+- **Web.** Read `result.output.text ?? ""` where you read the generated result directly. New narrowed aliases in
+  `@independo/inderun-contracts` (`TextTaskRequest`, `SpeechTaskRequest`, `TextTaskOutput`, `PlaybackTaskOutput`,
+  `ArtifactTaskOutput`) restate the per-task requirements the generated types cannot carry, and
+  `validateTaskOutput` / `validateMediaArtifact` are new.
+- **Swift.** Build an output with `TaskOutput(text:)`, `TaskOutput(playback:speech:)` or
+  `TaskOutput(artifact:speech:)`. `TaskRequest(...)` gains `speech:` and `delivery:` parameters with `nil` defaults.
+  An exhaustive `switch` over `TaskKind` or `TaskOutputType` must handle the new cases.
+- **Kotlin.** Construct `TaskOutput(type = TaskOutputType.TEXT, text = …)`; `TaskOutput.type` has no default because
+  it is meaningful for every task. An exhaustive `when` must handle `TaskKind.TEXT_TO_SPEECH` and the new
+  `TaskOutputType` entries.
+- **Provider authors.** A text provider returns the same result as before with the renamed type.
+
 ### Capacitor
 
 The bridge can drop its own copy of the snapshot type and import `ProviderCapabilitySnapshot` and

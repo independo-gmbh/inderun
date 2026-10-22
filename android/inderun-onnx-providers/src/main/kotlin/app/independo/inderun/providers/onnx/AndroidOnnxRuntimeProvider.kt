@@ -5,7 +5,6 @@ import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.ModelPackage
-import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderPrivacy
@@ -14,6 +13,8 @@ import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.SourceType
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -198,7 +199,7 @@ class AndroidOnnxRuntimeProvider(
         return TaskResult(
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
-            output = Output(text = output.text),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = output.text),
             finishReason = output.finishReason ?: FinishReason.STOP,
             usage = output.usage,
             telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),

@@ -3,9 +3,13 @@
 package app.independo.inderun.contracts
 
 /**
- * The request payload for a Mode 1 (request/response) text-to-text execution. At least one
- * of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be
- * present together, though callers should typically supply just one;
+ * The request payload for a run() or stream() execution. The common envelope
+ * (schemaVersion, requestId, task, modelProfile, constraints, preferences, telemetry,
+ * authContextRef) is task-agnostic; each task kind owns its payload (ADR 016).
+ * text_to_text: at least one of `prompt` (single-turn) or `messages` (multi-turn) must be
+ * present — both may be present together, though callers should typically supply just one —
+ * and `speech`/`delivery` are forbidden. text_to_speech: `speech` and `delivery` are
+ * required and `prompt`, `messages` and `generation` are forbidden.
  * `constraints`/`preferences` steer routing but never select a provider directly.
  */
 data class TaskRequest(
@@ -19,6 +23,13 @@ data class TaskRequest(
      * Request-level routing constraints used by the planner.
      */
     val constraints: TaskRequestConstraints? = null,
+
+    /**
+     * How the result of a non-text task must reach the application (ADR 016). Required for
+     * non-text tasks and forbidden for text_to_text, whose output is implicitly inline. A
+     * provider never substitutes playback for an artifact or the reverse.
+     */
+    val delivery: OutputDeliveryRequest? = null,
 
     /**
      * Optional configuration for fine-tuning how the AI model generates its response.
@@ -60,8 +71,14 @@ data class TaskRequest(
     val schemaVersion: SchemaVersion,
 
     /**
-     * A descriptor specifying the type of work to be performed. For text-to-text, the kind must
-     * be 'text_to_text'.
+     * The text_to_speech payload. Required for text_to_speech and forbidden for every other
+     * kind.
+     */
+    val speech: SpeechInput? = null,
+
+    /**
+     * A descriptor specifying the type of work to be performed. The kind selects which payload
+     * the request must carry.
      */
     val task: TaskRequestTask,
 
@@ -117,6 +134,37 @@ enum class Privacy(val rawValue: String) {
 
     companion object {
         fun fromRawValue(value: String): Privacy? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * How the result of a non-text task must reach the application (ADR 016). Required for
+ * non-text tasks and forbidden for text_to_text, whose output is implicitly inline. A
+ * provider never substitutes playback for an artifact or the reverse.
+ */
+data class OutputDeliveryRequest(
+    /**
+     * Only valid with 'artifact' delivery: the acceptable media types, always a hard
+     * requirement. Absent means the provider chooses and the artifact reports what it produced.
+     */
+    val mediaTypes: List<String>? = null,
+
+    val mode: OutputDelivery,
+)
+
+/**
+ * How a task's result reaches the application: 'inline' content in the result (text),
+ * 'playback' as a managed, audible effect on the device with no retrievable bytes, or
+ * 'artifact' as retrievable media.
+ */
+enum class OutputDelivery(val rawValue: String) {
+    Artifact("artifact"),
+    Inline("inline"),
+    Playback("playback"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): OutputDelivery? = entries.firstOrNull { it.rawValue == value }
     }
 }
 
@@ -215,18 +263,114 @@ enum class SchemaVersion(val rawValue: String) {
 }
 
 /**
- * A descriptor specifying the type of work to be performed. For text-to-text, the kind must
- * be 'text_to_text'.
+ * The text_to_speech payload. Required for text_to_speech and forbidden for every other
+ * kind.
+ */
+data class SpeechInput(
+    /**
+     * BCP 47 tag of the language to speak, e.g. 'de-AT'.
+     */
+    val locale: String,
+
+    /**
+     * 'language' (default): the primary language subtag is a hard requirement and the region is
+     * a preference. 'exact': the full tag is a hard requirement.
+     */
+    val localeMatch: LocaleMatch? = null,
+
+    /**
+     * Plain text to speak. Markup such as SSML is out of scope.
+     */
+    val text: String,
+
+    /**
+     * Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
+     * and is never a reason to fail; a 'required' one takes part in routing and is never
+     * relaxed silently. Carries no provider voice identifier.
+     */
+    val voice: SpeechVoice? = null,
+)
+
+/**
+ * 'language' (default): the primary language subtag is a hard requirement and the region is
+ * a preference. 'exact': the full tag is a hard requirement.
+ *
+ * 'exact' requires the full tag; 'language' requires only the primary language subtag and
+ * treats the region as a preference.
+ */
+enum class LocaleMatch(val rawValue: String) {
+    Exact("exact"),
+    Language("language"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): LocaleMatch? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
+ * and is never a reason to fail; a 'required' one takes part in routing and is never
+ * relaxed silently. Carries no provider voice identifier.
+ */
+data class SpeechVoice(
+    val gender: VoiceGender? = null,
+
+    /**
+     * 'preferred' (default) or 'required'. A required voice must name at least one trait.
+     */
+    val requirement: RequirementLevel? = null,
+)
+
+/**
+ * Perceived gender of a voice, as the platform reports it.
+ */
+enum class VoiceGender(val rawValue: String) {
+    Female("female"),
+    Male("male"),
+    Neutral("neutral"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): VoiceGender? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * 'preferred' (default) or 'required'. A required voice must name at least one trait.
+ *
+ * 'required' takes part in routing; 'preferred' does not.
+ */
+enum class RequirementLevel(val rawValue: String) {
+    Preferred("preferred"),
+    Required("required"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): RequirementLevel? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * A descriptor specifying the type of work to be performed. The kind selects which payload
+ * the request must carry.
  */
 data class TaskRequestTask(
     /**
-     * The standard task category. Currently supports 'text_to_text' for prompt-based
-     * interactions.
+     * The operation: 'text_to_text' (prompt-based text generation) or 'text_to_speech' (speech
+     * synthesis from text). A consumer built against an older revision rejects a kind it does
+     * not know through validation.
      */
     val kind: TaskKind = TaskKind.TEXT_TO_TEXT,
 )
 
+/**
+ * The operation: 'text_to_text' (prompt-based text generation) or 'text_to_speech' (speech
+ * synthesis from text). A consumer built against an older revision rejects a kind it does
+ * not know through validation.
+ */
 enum class TaskKind(val rawValue: String) {
+    TEXT_TO_SPEECH("text_to_speech"),
     TEXT_TO_TEXT("text_to_text"),
     ;
 
@@ -270,12 +414,14 @@ enum class TelemetryLevel(val rawValue: String) {
 }
 
 /**
- * The response payload for a completed text-to-text execution. A full execution failure
- * (validation, routing, or every attempted provider failing) is surfaced by run() throwing
- * an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
- * are reserved for a provider reporting a non-fatal, degraded outcome on an
- * otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI
- * provider; telemetry.errorClass is not currently set by any provider in this codebase).
+ * The response payload for a completed run() execution, for every task kind; output.type
+ * tells the content representation apart (text, managed playback, retrievable artifact). A
+ * full execution failure (validation, routing, or every attempted provider failing) is
+ * surfaced by run() throwing an IndeRunError instead of returning a TaskResult;
+ * finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal,
+ * degraded outcome on an otherwise-successful result (finishReason 'error' is produced by
+ * the Android ML Kit GenAI provider; telemetry.errorClass is not currently set by any
+ * provider in this codebase).
  */
 data class TaskResult(
     /**
@@ -288,9 +434,9 @@ data class TaskResult(
     val finishReason: FinishReason,
 
     /**
-     * The normalized content returned from the selected provider.
+     * The normalized output of the selected provider. See task-output.schema.json.
      */
-    val output: Output,
+    val output: TaskOutput,
 
     /**
      * Normalized execution provenance: which target ran, its declared locality, the configured
@@ -346,26 +492,167 @@ enum class FinishReason(val rawValue: String) {
 }
 
 /**
- * The normalized content returned from the selected provider.
+ * The normalized output of the selected provider. See task-output.schema.json.
+ *
+ * The normalized output of a run, shared by TaskResult and the completed and cancelled
+ * stream terminal outcomes (ADR 016). 'type' describes the content representation, not the
+ * task: 'text' carries inline text, 'playback' reports a managed, audible effect that has
+ * no retrievable bytes, and 'artifact' references retrievable media (ADR 017). A playback
+ * output is never an artifact, and an artifact output never implies that anything was
+ * played.
+ *
+ * The normalized output of the run, the same shape run() returns in TaskResult.output. Set
+ * for every non-text run; a text run may set it alongside finalText. See
+ * task-output.schema.json.
+ *
+ * The normalized output of a cancelled non-text run up to the cancellation point, e.g. how
+ * long playback lasted before it was stopped. See task-output.schema.json.
  */
-data class Output(
+data class TaskOutput(
     /**
-     * The actual text generated by the execution.
+     * The retrievable media the run produced. Required when type is 'artifact'.
      */
-    val text: String,
+    val artifact: MediaArtifact? = null,
 
     /**
-     * Output payload category (e.g., 'text' for Mode 1 text-to-text).
+     * Completion of managed playback. Required when type is 'playback'. Carries no media.
      */
-    val type: OutputType = OutputType.TEXT,
+    val playback: PlaybackOutput? = null,
+
+    /**
+     * The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+     * visible without being an error.
+     */
+    val speech: SpeechOutput? = null,
+
+    /**
+     * The text the run produced. Required when type is 'text'.
+     */
+    val text: String? = null,
+
+    /**
+     * The content representation: 'text', 'playback' or 'artifact'.
+     */
+    val type: TaskOutputType,
 )
 
-enum class OutputType(val rawValue: String) {
+/**
+ * The retrievable media the run produced. Required when type is 'artifact'.
+ *
+ * A reference to retrievable media a run produced (ADR 017). It carries no bytes and no
+ * location: an engine-owned artifact is read through the engine by id, and an
+ * application-owned one was written to an application destination. Media-neutral: audio,
+ * images and video share this shape and differ only in mediaType.
+ */
+data class MediaArtifact(
+    /**
+     * Size of the media in bytes. Always set for an artifact the engine materialized.
+     */
+    val byteLength: Long? = null,
+
+    /**
+     * Duration of time-based media in milliseconds, where the producer knows it.
+     */
+    val durationMs: Double? = null,
+
+    /**
+     * Opaque, engine-issued identifier. Never a path, URL or provider identifier.
+     */
+    val id: String,
+
+    /**
+     * How long the engine keeps the bytes. 'until_disposed': until the application disposes the
+     * artifact or the process ends; the artifact outlives the run that produced it.
+     */
+    val lifetime: ArtifactLifetime,
+
+    /**
+     * IANA media type of the bytes, e.g. 'audio/wav'. Encoding parameters ride on the media
+     * type (e.g. 'audio/L16;rate=22050').
+     */
+    val mediaType: String,
+
+    /**
+     * 'engine': the engine holds the bytes and the application reads them by id until it
+     * disposes the artifact. 'application': the bytes were written to the application
+     * destination named by destinationRef and the engine holds nothing.
+     */
+    val owner: ArtifactOwner,
+)
+
+/**
+ * How long the engine keeps the bytes. 'until_disposed': until the application disposes the
+ * artifact or the process ends; the artifact outlives the run that produced it.
+ */
+enum class ArtifactLifetime(val rawValue: String) {
+    UntilDisposed("until_disposed"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ArtifactLifetime? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * 'engine': the engine holds the bytes and the application reads them by id until it
+ * disposes the artifact. 'application': the bytes were written to the application
+ * destination named by destinationRef and the engine holds nothing.
+ */
+enum class ArtifactOwner(val rawValue: String) {
+    Application("application"),
+    Engine("engine"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ArtifactOwner? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Completion of managed playback. Required when type is 'playback'. Carries no media.
+ */
+data class PlaybackOutput(
+    /**
+     * How long audible playback lasted, in milliseconds. For a cancelled run, how long it
+     * played before it was stopped.
+     */
+    val durationMs: Double? = null,
+)
+
+/**
+ * The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+ * visible without being an error.
+ */
+data class SpeechOutput(
+    /**
+     * BCP 47 tag of the locale that was spoken.
+     */
+    val locale: String,
+
+    /**
+     * Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+     */
+    val voice: SpeechOutputVoice? = null,
+)
+
+/**
+ * Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+ */
+data class SpeechOutputVoice(
+    val gender: VoiceGender? = null,
+)
+
+/**
+ * The content representation: 'text', 'playback' or 'artifact'.
+ */
+enum class TaskOutputType(val rawValue: String) {
+    ARTIFACT("artifact"),
+    PLAYBACK("playback"),
     TEXT("text"),
     ;
 
     companion object {
-        fun fromRawValue(value: String): OutputType? = entries.firstOrNull { it.rawValue == value }
+        fun fromRawValue(value: String): TaskOutputType? = entries.firstOrNull { it.rawValue == value }
     }
 }
 
@@ -443,6 +730,14 @@ data class ExecutionProvenance(
 )
 
 data class ExecutionProvenanceAttempt(
+    /**
+     * Whether the run committed to this provider during the attempt: its first content was
+     * delivered, it signalled the first possible audible effect, or it handed over an artifact.
+     * After commit a failure ends the run instead of falling back. Absent means the attempt did
+     * not commit.
+     */
+    val committed: Boolean? = null,
+
     /**
      * Normalized error class of a failed attempt.
      */
@@ -1032,20 +1327,6 @@ data class ProviderVoice(
 )
 
 /**
- * Perceived gender of a voice, as the platform reports it.
- */
-enum class VoiceGender(val rawValue: String) {
-    Female("female"),
-    Male("male"),
-    Neutral("neutral"),
-    ;
-
-    companion object {
-        fun fromRawValue(value: String): VoiceGender? = entries.firstOrNull { it.rawValue == value }
-    }
-}
-
-/**
  * The provider's static capability declaration.
  *
  * A provider's static capability declaration: identity, placement, transport, supported
@@ -1338,22 +1619,6 @@ data class ProviderTaskOutput(
 )
 
 /**
- * How a task's result reaches the application: 'inline' content in the result (text),
- * 'playback' as a managed, audible effect on the device with no retrievable bytes, or
- * 'artifact' as retrievable media.
- */
-enum class OutputDelivery(val rawValue: String) {
-    Artifact("artifact"),
-    Inline("inline"),
-    Playback("playback"),
-    ;
-
-    companion object {
-        fun fromRawValue(value: String): OutputDelivery? = entries.firstOrNull { it.rawValue == value }
-    }
-}
-
-/**
  * How the engine reaches the provider: in-process runtime, operating-system service,
  * buffered HTTP, server-sent events, or a realtime connection.
  */
@@ -1457,20 +1722,6 @@ data class LocaleRequirement(
 )
 
 /**
- * 'exact' requires the full tag; 'language' requires only the primary language subtag and
- * treats the region as a preference.
- */
-enum class LocaleMatch(val rawValue: String) {
-    Exact("exact"),
-    Language("language"),
-    ;
-
-    companion object {
-        fun fromRawValue(value: String): LocaleMatch? = entries.firstOrNull { it.rawValue == value }
-    }
-}
-
-/**
  * Voice traits the request asks for. Only a 'required' voice can reject a provider; a
  * 'preferred' one shapes which listed voice the plan binds a candidate to, always within
  * the request's privacy policy.
@@ -1483,19 +1734,6 @@ data class VoiceRequirement(
      */
     val requirement: RequirementLevel,
 )
-
-/**
- * 'required' takes part in routing; 'preferred' does not.
- */
-enum class RequirementLevel(val rawValue: String) {
-    Preferred("preferred"),
-    Required("required"),
-    ;
-
-    companion object {
-        fun fromRawValue(value: String): RequirementLevel? = entries.firstOrNull { it.rawValue == value }
-    }
-}
 
 /**
  * Deterministic shared-core Mode-1 route planning result.
@@ -1959,6 +2197,7 @@ data class Payload(
     val finalText: String? = null,
     val finishReason: FinishReason? = null,
     val outcome: Outcome? = null,
+    val output: TaskOutput? = null,
 
     /**
      * Normalized execution provenance: which target ran, its declared locality, the configured
@@ -2033,23 +2272,25 @@ data class PayloadUsage(
  * How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive
  * terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by
  * 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal
- * outcome is a fixed architectural guarantee, not something new outcome kinds get added
- * to). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is
- * delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback').
- * This shape is also embedded by value as the payload of the terminal StreamEvent
- * (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a
- * completion future/promise a stream handle resolves independently of consuming the full
- * event sequence; the two copies must stay structurally identical. Note on
- * additionalProperties: per this repo's forward-compatible convention every branch permits
- * unknown extra fields, so mutual exclusivity is enforced via the required 'outcome'
- * discriminator plus each branch's own required peer field (finalText/error/partialText)
- * being present, not by forbidding a payload from also carrying an unrelated stray field
- * from another branch's vocabulary.
+ * outcome is a fixed architectural guarantee, not something new outcome kinds get added to;
+ * the payload of each branch may grow additively). Exactly one StreamTerminalOutcome is
+ * produced per run, and no further StreamEvent is delivered after it (see
+ * docs/architecture/architecture.md, 'Cancellation And Fallback'). This shape is also
+ * embedded by value as the payload of the terminal StreamEvent (stream-event.schema.json)
+ * so it can additionally be exposed standalone, e.g. as a completion future/promise a
+ * stream handle resolves independently of consuming the full event sequence; the two copies
+ * must stay structurally identical. Note on additionalProperties: per this repo's
+ * forward-compatible convention every branch permits unknown extra fields, so mutual
+ * exclusivity is enforced via the required 'outcome' discriminator plus each branch's own
+ * required peer field being present (finalText or output / error / partialText or output),
+ * not by forbidding a payload from also carrying an unrelated stray field from another
+ * branch's vocabulary.
  */
 data class StreamTerminalOutcome(
     /**
-     * The full, cumulative text produced by the run. Equivalent in role to
-     * TaskResult.output.text for Mode 1.
+     * The full, cumulative text produced by a text run. Equivalent in role to
+     * TaskResult.output.text for Mode 1. A text run sets it; a non-text run carries output
+     * instead.
      */
     val finalText: String? = null,
 
@@ -2073,6 +2314,16 @@ data class StreamTerminalOutcome(
      * further fallback attempt is made, per the engine's cancellation guarantee.
      */
     val outcome: Outcome,
+
+    /**
+     * The normalized output of the run, the same shape run() returns in TaskResult.output. Set
+     * for every non-text run; a text run may set it alongside finalText. See
+     * task-output.schema.json.
+     *
+     * The normalized output of a cancelled non-text run up to the cancellation point, e.g. how
+     * long playback lasted before it was stopped. See task-output.schema.json.
+     */
+    val output: TaskOutput? = null,
 
     /**
      * Normalized execution provenance: which target ran, its declared locality, the configured
@@ -2114,9 +2365,13 @@ data class StreamTerminalOutcome(
     val error: StreamTerminalOutcomeError? = null,
 
     /**
-     * Whatever cumulative text had already been delivered via content_delta/content_snapshot
-     * StreamEvents before the cancellation point. May be empty if cancellation occurred before
-     * any content was produced.
+     * Whatever cumulative text a text run had already delivered before it failed after
+     * committing to its provider. Absent when nothing was delivered.
+     *
+     * Whatever cumulative text a text run had already delivered via
+     * content_delta/content_snapshot StreamEvents before the cancellation point. May be empty
+     * if cancellation occurred before any content was produced. A non-text run carries output
+     * instead.
      */
     val partialText: String? = null,
 

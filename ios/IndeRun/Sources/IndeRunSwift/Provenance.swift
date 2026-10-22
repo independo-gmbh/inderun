@@ -49,7 +49,9 @@ struct ProvenanceRecorder {
         errorClass: IndeRunErrorClass? = nil
     ) {
         attempts.append(
-            ExecutionProvenanceAttempt(errorClass: errorClass, outcome: outcome, providerId: providerId)
+            ExecutionProvenanceAttempt(
+                committed: nil, errorClass: errorClass, outcome: outcome, providerId: providerId
+            )
         )
     }
 

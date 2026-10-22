@@ -8,6 +8,7 @@
   "required": ["type", "runId", "timestamp", "payload"],
   "properties": {
     "type": {
+      "title": "TelemetryEventType",
       "description": "Telemetry event kind emitted by the orchestrator or provider integration.",
       "enum": [
         "route_decided",

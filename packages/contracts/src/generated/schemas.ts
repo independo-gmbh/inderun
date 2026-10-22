@@ -4,23 +4,107 @@ export const taskRequestSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-request.schema.json",
   "title": "TaskRequest",
-  "description": "The request payload for a Mode 1 (request/response) text-to-text execution. At least one of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be present together, though callers should typically supply just one; `constraints`/`preferences` steer routing but never select a provider directly.",
+  "description": "The request payload for a run() or stream() execution. The common envelope (schemaVersion, requestId, task, modelProfile, constraints, preferences, telemetry, authContextRef) is task-agnostic; each task kind owns its payload (ADR 016). text_to_text: at least one of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be present together, though callers should typically supply just one — and `speech`/`delivery` are forbidden. text_to_speech: `speech` and `delivery` are required and `prompt`, `messages` and `generation` are forbidden. `constraints`/`preferences` steer routing but never select a provider directly.",
   "type": "object",
   "additionalProperties": true,
   "required": [
     "schemaVersion",
     "task"
   ],
-  "anyOf": [
+  "allOf": [
     {
-      "required": [
-        "prompt"
-      ]
+      "if": {
+        "properties": {
+          "task": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "text_to_text"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "anyOf": [
+          {
+            "required": [
+              "prompt"
+            ]
+          },
+          {
+            "required": [
+              "messages"
+            ]
+          }
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "speech"
+              ]
+            },
+            {
+              "required": [
+                "delivery"
+              ]
+            }
+          ]
+        }
+      }
     },
     {
-      "required": [
-        "messages"
-      ]
+      "if": {
+        "properties": {
+          "task": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "text_to_speech"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "speech",
+          "delivery"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "prompt"
+              ]
+            },
+            {
+              "required": [
+                "messages"
+              ]
+            },
+            {
+              "required": [
+                "generation"
+              ]
+            }
+          ]
+        },
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "playback",
+                  "artifact"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "properties": {
@@ -34,7 +118,7 @@ export const taskRequestSchema = {
       "minLength": 1
     },
     "task": {
-      "description": "A descriptor specifying the type of work to be performed. For text-to-text, the kind must be 'text_to_text'.",
+      "description": "A descriptor specifying the type of work to be performed. The kind selects which payload the request must carry.",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -42,8 +126,12 @@ export const taskRequestSchema = {
       ],
       "properties": {
         "kind": {
-          "description": "The standard task category. Currently supports 'text_to_text' for prompt-based interactions.",
-          "const": "text_to_text"
+          "title": "TaskKind",
+          "description": "The operation: 'text_to_text' (prompt-based text generation) or 'text_to_speech' (speech synthesis from text). A consumer built against an older revision rejects a kind it does not know through validation.",
+          "enum": [
+            "text_to_text",
+            "text_to_speech"
+          ]
         }
       }
     },
@@ -75,6 +163,108 @@ export const taskRequestSchema = {
           },
           "content": {
             "description": "The actual text content of the message.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "speech": {
+      "title": "SpeechInput",
+      "description": "The text_to_speech payload. Required for text_to_speech and forbidden for every other kind.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "text",
+        "locale"
+      ],
+      "properties": {
+        "text": {
+          "description": "Plain text to speak. Markup such as SSML is out of scope.",
+          "type": "string",
+          "minLength": 1
+        },
+        "locale": {
+          "description": "BCP 47 tag of the language to speak, e.g. 'de-AT'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "localeMatch": {
+          "title": "LocaleMatch",
+          "description": "'language' (default): the primary language subtag is a hard requirement and the region is a preference. 'exact': the full tag is a hard requirement.",
+          "enum": [
+            "exact",
+            "language"
+          ]
+        },
+        "voice": {
+          "title": "SpeechVoice",
+          "description": "Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to fail; a 'required' one takes part in routing and is never relaxed silently. Carries no provider voice identifier.",
+          "type": "object",
+          "additionalProperties": true,
+          "if": {
+            "properties": {
+              "requirement": {
+                "const": "required"
+              }
+            },
+            "required": [
+              "requirement"
+            ]
+          },
+          "then": {
+            "required": [
+              "gender"
+            ]
+          },
+          "properties": {
+            "gender": {
+              "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+            },
+            "requirement": {
+              "title": "RequirementLevel",
+              "description": "'preferred' (default) or 'required'. A required voice must name at least one trait.",
+              "enum": [
+                "required",
+                "preferred"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "delivery": {
+      "title": "OutputDeliveryRequest",
+      "description": "How the result of a non-text task must reach the application (ADR 016). Required for non-text tasks and forbidden for text_to_text, whose output is implicitly inline. A provider never substitutes playback for an artifact or the reverse.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "mode"
+      ],
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "artifact"
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "mediaTypes"
+          ]
+        }
+      },
+      "properties": {
+        "mode": {
+          "$ref": "provider-descriptor.schema.json#/$defs/outputDelivery"
+        },
+        "mediaTypes": {
+          "description": "Only valid with 'artifact' delivery: the acceptable media types, always a hard requirement. Absent means the provider chooses and the artifact reports what it produced.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
             "type": "string",
             "minLength": 1
           }
@@ -204,7 +394,7 @@ export const taskResultSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/task-result.schema.json",
   "title": "TaskResult",
-  "description": "The response payload for a completed text-to-text execution. A full execution failure (validation, routing, or every attempted provider failing) is surfaced by run() throwing an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal, degraded outcome on an otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI provider; telemetry.errorClass is not currently set by any provider in this codebase).",
+  "description": "The response payload for a completed run() execution, for every task kind; output.type tells the content representation apart (text, managed playback, retrievable artifact). A full execution failure (validation, routing, or every attempted provider failing) is surfaced by run() throwing an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal, degraded outcome on an otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI provider; telemetry.errorClass is not currently set by any provider in this codebase).",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -225,23 +415,8 @@ export const taskResultSchema = {
       "minLength": 1
     },
     "output": {
-      "description": "The normalized content returned from the selected provider.",
-      "type": "object",
-      "additionalProperties": true,
-      "required": [
-        "type",
-        "text"
-      ],
-      "properties": {
-        "type": {
-          "description": "Output payload category (e.g., 'text' for Mode 1 text-to-text).",
-          "const": "text"
-        },
-        "text": {
-          "description": "The actual text generated by the execution.",
-          "type": "string"
-        }
-      }
+      "description": "The normalized output of the selected provider. See task-output.schema.json.",
+      "$ref": "task-output.schema.json"
     },
     "finishReason": {
       "description": "How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or 'cancelled'. 'error' is reserved for a provider reporting a non-fatal issue on an otherwise-returned result — the Android ML Kit GenAI provider produces it when Gemini Nano reports a finish reason that is neither a natural stop nor the token limit. A full execution failure is instead surfaced by run() throwing an IndeRunError.",
@@ -483,6 +658,7 @@ export const telemetryEventSchema = {
   ],
   "properties": {
     "type": {
+      "title": "TelemetryEventType",
       "description": "Telemetry event kind emitted by the orchestrator or provider integration.",
       "enum": [
         "route_decided",
@@ -1311,8 +1487,19 @@ export const streamEventSchema = {
               "required": [
                 "schemaVersion",
                 "runId",
-                "outcome",
-                "finalText"
+                "outcome"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "finalText"
+                  ]
+                },
+                {
+                  "required": [
+                    "output"
+                  ]
+                }
               ],
               "properties": {
                 "schemaVersion": {
@@ -1327,6 +1514,9 @@ export const streamEventSchema = {
                 },
                 "finalText": {
                   "type": "string"
+                },
+                "output": {
+                  "$ref": "task-output.schema.json"
                 },
                 "finishReason": {
                   "enum": [
@@ -1398,6 +1588,9 @@ export const streamEventSchema = {
                 "outcome": {
                   "const": "error"
                 },
+                "partialText": {
+                  "type": "string"
+                },
                 "error": {
                   "type": "object",
                   "additionalProperties": true,
@@ -1458,8 +1651,19 @@ export const streamEventSchema = {
               "required": [
                 "schemaVersion",
                 "runId",
-                "outcome",
-                "partialText"
+                "outcome"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "partialText"
+                  ]
+                },
+                {
+                  "required": [
+                    "output"
+                  ]
+                }
               ],
               "properties": {
                 "schemaVersion": {
@@ -1474,6 +1678,9 @@ export const streamEventSchema = {
                 },
                 "partialText": {
                   "type": "string"
+                },
+                "output": {
+                  "$ref": "task-output.schema.json"
                 },
                 "reason": {
                   "type": "string"
@@ -1545,7 +1752,7 @@ export const streamTerminalOutcomeSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/stream-terminal-outcome.schema.json",
   "title": "StreamTerminalOutcome",
-  "description": "How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal outcome is a fixed architectural guarantee, not something new outcome kinds get added to). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback'). This shape is also embedded by value as the payload of the terminal StreamEvent (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a completion future/promise a stream handle resolves independently of consuming the full event sequence; the two copies must stay structurally identical. Note on additionalProperties: per this repo's forward-compatible convention every branch permits unknown extra fields, so mutual exclusivity is enforced via the required 'outcome' discriminator plus each branch's own required peer field (finalText/error/partialText) being present, not by forbidding a payload from also carrying an unrelated stray field from another branch's vocabulary.",
+  "description": "How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal outcome is a fixed architectural guarantee, not something new outcome kinds get added to; the payload of each branch may grow additively). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback'). This shape is also embedded by value as the payload of the terminal StreamEvent (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a completion future/promise a stream handle resolves independently of consuming the full event sequence; the two copies must stay structurally identical. Note on additionalProperties: per this repo's forward-compatible convention every branch permits unknown extra fields, so mutual exclusivity is enforced via the required 'outcome' discriminator plus each branch's own required peer field being present (finalText or output / error / partialText or output), not by forbidding a payload from also carrying an unrelated stray field from another branch's vocabulary.",
   "oneOf": [
     {
       "type": "object",
@@ -1553,8 +1760,19 @@ export const streamTerminalOutcomeSchema = {
       "required": [
         "schemaVersion",
         "runId",
-        "outcome",
-        "finalText"
+        "outcome"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "finalText"
+          ]
+        },
+        {
+          "required": [
+            "output"
+          ]
+        }
       ],
       "properties": {
         "schemaVersion": {
@@ -1571,8 +1789,12 @@ export const streamTerminalOutcomeSchema = {
           "const": "completed"
         },
         "finalText": {
-          "description": "The full, cumulative text produced by the run. Equivalent in role to TaskResult.output.text for Mode 1.",
+          "description": "The full, cumulative text produced by a text run. Equivalent in role to TaskResult.output.text for Mode 1. A text run sets it; a non-text run carries output instead.",
           "type": "string"
+        },
+        "output": {
+          "description": "The normalized output of the run, the same shape run() returns in TaskResult.output. Set for every non-text run; a text run may set it alongside finalText. See task-output.schema.json.",
+          "$ref": "task-output.schema.json"
         },
         "finishReason": {
           "description": "How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end), 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an otherwise completed run). 'cancelled' is included so this enum stays identical to TaskResult.finishReason, but it is unreachable here: cancellation is its own terminal outcome branch. Optional: providers that do not report a finish reason omit it.",
@@ -1711,6 +1933,10 @@ export const streamTerminalOutcomeSchema = {
             }
           }
         },
+        "partialText": {
+          "description": "Whatever cumulative text a text run had already delivered before it failed after committing to its provider. Absent when nothing was delivered.",
+          "type": "string"
+        },
         "provenance": {
           "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",
           "$ref": "execution-provenance.schema.json"
@@ -1723,8 +1949,19 @@ export const streamTerminalOutcomeSchema = {
       "required": [
         "schemaVersion",
         "runId",
-        "outcome",
-        "partialText"
+        "outcome"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "partialText"
+          ]
+        },
+        {
+          "required": [
+            "output"
+          ]
+        }
       ],
       "properties": {
         "schemaVersion": {
@@ -1741,8 +1978,12 @@ export const streamTerminalOutcomeSchema = {
           "const": "cancelled"
         },
         "partialText": {
-          "description": "Whatever cumulative text had already been delivered via content_delta/content_snapshot StreamEvents before the cancellation point. May be empty if cancellation occurred before any content was produced.",
+          "description": "Whatever cumulative text a text run had already delivered via content_delta/content_snapshot StreamEvents before the cancellation point. May be empty if cancellation occurred before any content was produced. A non-text run carries output instead.",
           "type": "string"
+        },
+        "output": {
+          "description": "The normalized output of a cancelled non-text run up to the cancellation point, e.g. how long playback lasted before it was stopped. See task-output.schema.json.",
+          "$ref": "task-output.schema.json"
         },
         "reason": {
           "description": "Optional human-readable reason the run was cancelled (e.g. caller-initiated abort). Not a machine-taxonomy field; use errorClass on the 'error' outcome branch for failure classification.",
@@ -2209,6 +2450,173 @@ export const providerDynamicCapabilitiesSchema = {
   }
 } as const;
 
+export const taskOutputSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/task-output.schema.json",
+  "title": "TaskOutput",
+  "description": "The normalized output of a run, shared by TaskResult and the completed and cancelled stream terminal outcomes (ADR 016). 'type' describes the content representation, not the task: 'text' carries inline text, 'playback' reports a managed, audible effect that has no retrievable bytes, and 'artifact' references retrievable media (ADR 017). A playback output is never an artifact, and an artifact output never implies that anything was played.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "text"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "playback"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "playback"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "artifact"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "artifact"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "type": {
+      "title": "TaskOutputType",
+      "description": "The content representation: 'text', 'playback' or 'artifact'.",
+      "enum": [
+        "text",
+        "playback",
+        "artifact"
+      ]
+    },
+    "text": {
+      "description": "The text the run produced. Required when type is 'text'.",
+      "type": "string"
+    },
+    "playback": {
+      "title": "PlaybackOutput",
+      "description": "Completion of managed playback. Required when type is 'playback'. Carries no media.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "durationMs": {
+          "description": "How long audible playback lasted, in milliseconds. For a cancelled run, how long it played before it was stopped.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "artifact": {
+      "description": "The retrievable media the run produced. Required when type is 'artifact'.",
+      "$ref": "media-artifact.schema.json"
+    },
+    "speech": {
+      "title": "SpeechOutput",
+      "description": "The locale and voice traits a text-to-speech run actually used, so an unmet preference is visible without being an error.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "locale"
+      ],
+      "properties": {
+        "locale": {
+          "description": "BCP 47 tag of the locale that was spoken.",
+          "type": "string",
+          "minLength": 1
+        },
+        "voice": {
+          "title": "SpeechOutputVoice",
+          "description": "Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "gender": {
+              "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+            }
+          }
+        }
+      }
+    }
+  }
+} as const;
+
+export const mediaArtifactSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/media-artifact.schema.json",
+  "title": "MediaArtifact",
+  "description": "A reference to retrievable media a run produced (ADR 017). It carries no bytes and no location: an engine-owned artifact is read through the engine by id, and an application-owned one was written to an application destination. Media-neutral: audio, images and video share this shape and differ only in mediaType.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "mediaType",
+    "owner",
+    "lifetime"
+  ],
+  "properties": {
+    "id": {
+      "description": "Opaque, engine-issued identifier. Never a path, URL or provider identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "mediaType": {
+      "description": "IANA media type of the bytes, e.g. 'audio/wav'. Encoding parameters ride on the media type (e.g. 'audio/L16;rate=22050').",
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "title": "ArtifactOwner",
+      "description": "'engine': the engine holds the bytes and the application reads them by id until it disposes the artifact. 'application': the bytes were written to the application destination named by destinationRef and the engine holds nothing.",
+      "enum": [
+        "engine",
+        "application"
+      ]
+    },
+    "lifetime": {
+      "title": "ArtifactLifetime",
+      "description": "How long the engine keeps the bytes. 'until_disposed': until the application disposes the artifact or the process ends; the artifact outlives the run that produced it.",
+      "enum": [
+        "until_disposed"
+      ]
+    },
+    "byteLength": {
+      "description": "Size of the media in bytes. Always set for an artifact the engine materialized.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "durationMs": {
+      "description": "Duration of time-based media in milliseconds, where the producer knows it.",
+      "type": "number",
+      "minimum": 0
+    }
+  }
+} as const;
+
 export const executionProvenanceSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/execution-provenance.schema.json",
@@ -2292,6 +2700,10 @@ export const executionProvenanceSchema = {
               "failed",
               "cancelled"
             ]
+          },
+          "committed": {
+            "description": "Whether the run committed to this provider during the attempt: its first content was delivered, it signalled the first possible audible effect, or it handed over an artifact. After commit a failure ends the run instead of falling back. Absent means the attempt did not commit.",
+            "type": "boolean"
           },
           "errorClass": {
             "description": "Normalized error class of a failed attempt.",

@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  getMediaArtifactValidationIssues,
+  getStreamEventValidationIssues,
   getStreamTerminalOutcomeValidationIssues,
+  getTaskOutputValidationIssues,
   getTaskRequestValidationIssues,
   getTaskResultValidationIssues
 } from "./index.js";
@@ -65,6 +68,17 @@ describe("task-contract fixtures", () => {
             }
             if (fixtureCase.terminal !== undefined) {
               expect(getStreamTerminalOutcomeValidationIssues(fixtureCase.terminal)).toEqual([]);
+              // The terminal StreamEvent embeds its own copy of the outcome.
+              expect(
+                getStreamEventValidationIssues({
+                  schemaVersion: "1.0",
+                  runId: "run_fixture",
+                  sequence: 0,
+                  timestamp: 0,
+                  type: "terminal",
+                  payload: fixtureCase.terminal
+                })
+              ).toEqual([]);
             }
           });
         } else {
@@ -74,6 +88,35 @@ describe("task-contract fixtures", () => {
           });
         }
       }
+    });
+  }
+});
+
+// Shared MediaArtifact vectors (ADR 017), including the hypothetical image artifact.
+const artifactFixtures = JSON.parse(
+  readFileSync(
+    fileURLToPath(
+      new URL("../../../contracts/fixtures/artifacts/media-artifacts.json", import.meta.url)
+    ),
+    "utf8"
+  )
+) as {
+  valid: Array<{ id: string; artifact: unknown }>;
+  invalid: Array<{ id: string; artifact: unknown }>;
+};
+
+describe("media artifact fixtures", () => {
+  for (const { id, artifact } of artifactFixtures.valid) {
+    it(`${id}: validates as a reference and as an artifact output`, () => {
+      expect(getMediaArtifactValidationIssues(artifact)).toEqual([]);
+      expect(getTaskOutputValidationIssues({ type: "artifact", artifact })).toEqual([]);
+    });
+  }
+
+  for (const { id, artifact } of artifactFixtures.invalid) {
+    it(`${id}: is rejected`, () => {
+      expect(getMediaArtifactValidationIssues(artifact)).not.toEqual([]);
+      expect(getTaskOutputValidationIssues({ type: "artifact", artifact })).not.toEqual([]);
     });
   }
 });

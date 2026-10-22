@@ -154,7 +154,7 @@ final class TextGenerationTests: XCTestCase {
     func testGenerateTextRunsTheCanonicalRequestAndSummarizesTheResult() async throws {
         let taskResult = TaskResult(
             runId: "run_1",
-            output: Output(text: "Hello"),
+            output: TaskOutput(text: "Hello"),
             finishReason: .stop,
             usage: TaskResultUsage(inputTokens: nil, outputTokens: nil, totalTokens: 3),
             telemetry: TaskResultTelemetry(providerUsed: "p1", totalMs: 5)
@@ -210,7 +210,7 @@ final class TextGenerationTests: XCTestCase {
     private func provenance(_ outcome: AttemptOutcome) -> ExecutionProvenance {
         ExecutionProvenance(
             attemptCount: 1,
-            attempts: [ExecutionProvenanceAttempt(errorClass: nil, outcome: outcome, providerId: "p1")],
+            attempts: [ExecutionProvenanceAttempt(committed: nil, errorClass: nil, outcome: outcome, providerId: "p1")],
             configuredModel: nil,
             fallbackOccurred: false,
             locality: .onDevice,

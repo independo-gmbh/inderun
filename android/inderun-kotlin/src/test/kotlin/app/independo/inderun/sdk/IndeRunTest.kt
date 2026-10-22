@@ -8,7 +8,6 @@ import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Locality
-import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
@@ -16,6 +15,8 @@ import app.independo.inderun.contracts.ProviderSupports
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
@@ -363,7 +364,7 @@ class IndeRunTest {
 
         private fun succeed(context: RunContext): TaskResult = TaskResult(
             finishReason = FinishReason.STOP,
-            output = Output(text = "Hello from $id"),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello from $id"),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
@@ -392,7 +393,7 @@ class IndeRunTest {
 
         override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
             finishReason = FinishReason.STOP,
-            output = Output(text = "Hello from sdk provider"),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello from sdk provider"),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = "sdk-provider", totalMs = 0.0),

@@ -409,7 +409,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
 
         var result = TaskResult(
             finishReason: finishReason(responseBody: responseBody),
-            output: Output(text: outputText, type: .text),
+            output: TaskOutput(text: outputText),
             provenance: nil,
             runId: context.runId,
             schemaVersion: .the10,

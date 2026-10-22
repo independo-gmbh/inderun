@@ -3,6 +3,7 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 
 import type { ExecutionProvenance } from "./generated/execution-provenance.js";
 import type { IndeRunError } from "./generated/inderun-error.js";
+import type { MediaArtifact } from "./generated/media-artifact.js";
 import type { HttpRequest } from "./generated/http-request.js";
 import type { HttpResponse } from "./generated/http-response.js";
 import type { ModelPackage } from "./generated/model-package.js";
@@ -16,6 +17,7 @@ import {
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
+  mediaArtifactSchema,
   modelPackageSchema,
   providerCapabilitySnapshotSchema,
   providerDescriptorSchema,
@@ -25,6 +27,7 @@ import {
   streamEventSchema,
   streamRunSchema,
   streamTerminalOutcomeSchema,
+  taskOutputSchema,
   taskRequestSchema,
   taskResultSchema,
   telemetryEventSchema
@@ -32,6 +35,7 @@ import {
 import type { StreamEvent } from "./generated/stream-event.js";
 import type { StreamRunHandle } from "./generated/stream-run.js";
 import type { StreamTerminalOutcome } from "./generated/stream-terminal-outcome.js";
+import type { TaskOutput } from "./generated/task-output.js";
 import type { TaskRequest } from "./generated/task-request.js";
 import type { TaskResult } from "./generated/task-result.js";
 import type { TelemetryEvent } from "./generated/telemetry-event.js";
@@ -61,6 +65,10 @@ const validateExecutionProvenanceSchema = ajv.compile(executionProvenanceSchema)
 const validateProviderDescriptorSchema = ajv.compile(providerDescriptorSchema);
 const validateProviderDynamicCapabilitiesSchema = ajv.compile(providerDynamicCapabilitiesSchema);
 const validateProviderCapabilitySnapshotSchema = ajv.compile(providerCapabilitySnapshotSchema);
+// The normalized output (and the media artifact it references) is shared by the result
+// and both terminal-outcome copies.
+const validateMediaArtifactSchema = ajv.compile(mediaArtifactSchema);
+const validateTaskOutputSchema = ajv.compile(taskOutputSchema);
 const validateTaskRequestSchema = ajv.compile(taskRequestSchema);
 const validateTaskResultSchema = ajv.compile(taskResultSchema);
 const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
@@ -80,6 +88,14 @@ export function validateTaskRequest(value: unknown): value is TaskRequest {
 
 export function validateTaskResult(value: unknown): value is TaskResult {
   return getTaskResultValidationIssues(value).length === 0;
+}
+
+export function validateTaskOutput(value: unknown): value is TaskOutput {
+  return getTaskOutputValidationIssues(value).length === 0;
+}
+
+export function validateMediaArtifact(value: unknown): value is MediaArtifact {
+  return getMediaArtifactValidationIssues(value).length === 0;
 }
 
 export function validateIndeRunError(value: unknown): value is IndeRunError {
@@ -151,6 +167,16 @@ export function getTaskResultValidationIssues(value: unknown): ValidationIssue[]
   return getValidationIssues(validateTaskResultSchema, value, {
     forbidInlineSecrets: true
   });
+}
+
+export function getTaskOutputValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateTaskOutputSchema, value, {
+    forbidInlineSecrets: true
+  });
+}
+
+export function getMediaArtifactValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateMediaArtifactSchema, value);
 }
 
 export function getIndeRunErrorValidationIssues(value: unknown): ValidationIssue[] {

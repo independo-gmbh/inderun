@@ -87,6 +87,13 @@ export class IndeRun implements IndeRunApi {
    */
   private validateRequest(request: TaskRequest, runId: string): ResolvedModelProfile {
     const validationIssues = getTaskRequestValidationIssues(request);
+    if (validationIssues.length === 0 && request.task.kind !== "text_to_text") {
+      // The contracts admit text_to_speech (ADR 016), but this engine cannot execute it yet.
+      validationIssues.push({
+        path: "/task/kind",
+        message: `task kind "${request.task.kind}" is not supported by this engine yet`
+      });
+    }
     if (validationIssues.length === 0) {
       const resolved = resolveModelProfile(this.modelProfiles, request.modelProfile);
       if (resolved.known) {

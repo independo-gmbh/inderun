@@ -11,7 +11,6 @@ import app.independo.inderun.contracts.Locality
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OptimizeFor
-import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.Payload
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
@@ -25,6 +24,8 @@ import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.StreamTerminalOutcomeError
 import app.independo.inderun.contracts.StreamTerminalOutcomeTelemetry
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestTelemetry
 import app.independo.inderun.contracts.TaskResult
@@ -237,7 +238,7 @@ class TextGenerationTest {
     fun generateTextRunsTheCanonicalRequestAndSummarizesTheResult() = runTest {
         val taskResult = TaskResult(
             finishReason = FinishReason.STOP,
-            output = Output(text = "Hello"),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = "run_1",
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = "p1", totalMs = 5.0),
@@ -278,7 +279,7 @@ class TextGenerationTest {
 
             override suspend fun run(request: TaskRequest, context: RunContext) = TaskResult(
                 finishReason = FinishReason.STOP,
-                output = Output(text = "Echo: ${request.prompt}"),
+                output = TaskOutput(type = TaskOutputType.TEXT, text = "Echo: ${request.prompt}"),
                 runId = context.runId,
                 schemaVersion = SchemaVersion.V1_0,
                 telemetry = TaskResultTelemetry(providerUsed = "local_a", totalMs = 0.0),

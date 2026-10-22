@@ -21,9 +21,8 @@ export const kotlinEnumOverrides = {
     kotlinName: "MessageRole",
     constants: { Assistant: "ASSISTANT", RoleSystem: "SYSTEM", User: "USER" }
   },
-  Kind: {
-    kotlinName: "TaskKind",
-    constants: { TextToText: "TEXT_TO_TEXT" }
+  TaskKind: {
+    constants: { TextToSpeech: "TEXT_TO_SPEECH", TextToText: "TEXT_TO_TEXT" }
   },
   Level: {
     kotlinName: "TelemetryLevel",
@@ -38,8 +37,8 @@ export const kotlinEnumOverrides = {
   FinishReason: {
     constants: { Cancelled: "CANCELLED", Error: "ERROR", Length: "LENGTH", Stop: "STOP" }
   },
-  OutputType: {
-    constants: { Text: "TEXT" }
+  TaskOutputType: {
+    constants: { Artifact: "ARTIFACT", Playback: "PLAYBACK", Text: "TEXT" }
   }
 };
 

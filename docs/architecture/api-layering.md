@@ -126,7 +126,8 @@ Nothing about the layering assumes chat-completion semantics.
 [ADR 016](./decisions/016-modality-extensible-task-contracts.md) fixes how the canonical contract grows for
 `text_to_speech`: task, modalities, interaction mode, output delivery and execution policy are separate axes; each
 task owns one payload object in an otherwise shared envelope; and the change stays additive within schema version
-1.0.
+1.0. The advanced layer's `TaskResult` and terminal outcome carry a task-generic `TaskOutput` (`text`, `playback` or
+`artifact`); the primary text API reads its text and keeps returning a non-optional string.
 
 ## Package Entry Points
 

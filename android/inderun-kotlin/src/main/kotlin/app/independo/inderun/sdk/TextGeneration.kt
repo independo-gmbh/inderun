@@ -214,7 +214,9 @@ class TextStream internal constructor(
 suspend fun IndeRunApi.generateText(options: TextGenerationOptions): GeneratedText {
     val result = run(options.toTaskRequest())
     return GeneratedText(
-        text = result.output.text,
+        // A text run always produces text; `TaskOutput.text` is optional only because the same
+        // type describes playback and artifacts (ADR 016).
+        text = result.output.text.orEmpty(),
         finishReason = result.finishReason,
         usage = result.usage,
         runId = result.runId,
@@ -276,14 +278,14 @@ private fun settle(terminal: StreamEvent, runId: String): StreamedText {
     }
     return when (payload?.outcome) {
         Outcome.Completed -> StreamedText(
-            text = payload.finalText.orEmpty(),
+            text = (payload.finalText ?: payload.output?.text).orEmpty(),
             finishReason = payload.finishReason,
             usage = usage,
             runId = runId,
             provenance = payload.provenance,
         )
         Outcome.Cancelled -> StreamedText(
-            text = payload.partialText.orEmpty(),
+            text = (payload.partialText ?: payload.output?.text).orEmpty(),
             finishReason = FinishReason.CANCELLED,
             usage = null,
             runId = runId,

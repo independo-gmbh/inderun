@@ -2,7 +2,7 @@ import Foundation
 import IndeRunContracts
 
 /// The generated `Payload` is the flattened union of every `StreamEvent` variant's
-/// payload, so constructing one means naming all twelve fields. These factories
+/// payload, so constructing one means naming every field. These factories
 /// keep that noise out of the orchestrator and, more importantly, keep the
 /// terminal payload a faithful copy of ``StreamTerminalOutcome`` — the two shapes
 /// are required by contract to stay structurally identical.
@@ -15,6 +15,7 @@ extension Payload {
             finalText: nil,
             finishReason: nil,
             outcome: nil,
+            output: nil,
             provenance: nil,
             runId: nil,
             schemaVersion: nil,
@@ -34,6 +35,7 @@ extension Payload {
             finalText: outcome.finalText,
             finishReason: outcome.finishReason,
             outcome: outcome.outcome,
+            output: outcome.output,
             provenance: outcome.provenance,
             runId: outcome.runId,
             schemaVersion: outcome.schemaVersion,
@@ -79,6 +81,7 @@ extension StreamTerminalOutcome {
             finalText: finalText,
             finishReason: finishReason,
             outcome: .completed,
+            output: nil,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
@@ -107,6 +110,7 @@ extension StreamTerminalOutcome {
             finalText: nil,
             finishReason: nil,
             outcome: .error,
+            output: nil,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
@@ -138,6 +142,7 @@ extension StreamTerminalOutcome {
             finalText: nil,
             finishReason: nil,
             outcome: .cancelled,
+            output: nil,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,

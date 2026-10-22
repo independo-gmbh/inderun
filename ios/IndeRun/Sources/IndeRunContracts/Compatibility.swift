@@ -23,11 +23,14 @@ public extension TaskRequest {
         constraints: TaskRequestConstraints? = nil,
         preferences: TaskRequestPreferences? = nil,
         telemetry: TelemetryPreferences? = nil,
-        authContextRef: String? = nil
+        authContextRef: String? = nil,
+        speech: SpeechInput? = nil,
+        delivery: OutputDeliveryRequest? = nil
     ) {
         self.init(
             authContextRef: authContextRef,
             constraints: constraints,
+            delivery: delivery,
             generation: generation,
             messages: messages,
             modelProfile: modelProfile,
@@ -35,6 +38,7 @@ public extension TaskRequest {
             prompt: prompt,
             requestId: requestId,
             schemaVersion: SchemaVersion(rawValue: schemaVersion) ?? .the10,
+            speech: speech,
             task: task,
             telemetry: telemetry
         )
@@ -57,9 +61,22 @@ public extension Message {
     }
 }
 
-public extension Output {
-    init(type: String = "text", text: String) {
-        self.init(text: text, type: OutputType(rawValue: type) ?? .text)
+/// One initializer per output representation (ADR 016), so a caller cannot build a
+/// `.playback` output without its payload or a `.text` output without its text.
+public extension TaskOutput {
+    /// Inline text.
+    init(text: String) {
+        self.init(artifact: nil, playback: nil, speech: nil, text: text, type: .text)
+    }
+
+    /// Completion of managed playback; carries no media.
+    init(playback: PlaybackOutput, speech: SpeechOutput? = nil) {
+        self.init(artifact: nil, playback: playback, speech: speech, text: nil, type: .playback)
+    }
+
+    /// A reference to retrievable media (ADR 017).
+    init(artifact: MediaArtifact, speech: SpeechOutput? = nil) {
+        self.init(artifact: artifact, playback: nil, speech: speech, text: nil, type: .artifact)
     }
 }
 
@@ -67,7 +84,7 @@ public extension TaskResult {
     init(
         schemaVersion: String = "1.0",
         runId: String,
-        output: Output,
+        output: TaskOutput,
         finishReason: FinishReason,
         usage: UsageInfo? = nil,
         telemetry: TelemetryInfo,

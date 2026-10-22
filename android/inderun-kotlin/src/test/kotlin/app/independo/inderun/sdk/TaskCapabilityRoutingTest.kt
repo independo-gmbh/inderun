@@ -4,7 +4,6 @@ import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
-import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
@@ -19,6 +18,8 @@ import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskInputKind
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TaskResult
@@ -187,7 +188,7 @@ class TaskCapabilityRoutingTest {
 
         override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
             finishReason = FinishReason.STOP,
-            output = Output(text = "Hello"),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = "z_text", totalMs = 0.0),

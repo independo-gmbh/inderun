@@ -126,7 +126,7 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
     func run(request: TaskRequest, context: RunContext) async throws -> TaskResult {
         TaskResult(
             runId: context.runId,
-            output: Output(text: "unused"),
+            output: TaskOutput(text: "unused"),
             finishReason: FinishReason.stop,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
         )
@@ -228,7 +228,7 @@ final class DeclaredOnlyStreamProvider: ProviderAdapter, @unchecked Sendable {
     func run(request: TaskRequest, context: RunContext) async throws -> TaskResult {
         TaskResult(
             runId: context.runId,
-            output: Output(text: "unused"),
+            output: TaskOutput(text: "unused"),
             finishReason: FinishReason.stop,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
         )
