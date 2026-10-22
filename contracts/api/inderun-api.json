@@ -22,6 +22,20 @@
           "params": [],
           "returns": { "type": "ProviderCapabilitySnapshot", "source": "contracts", "list": true },
           "async": true
+        },
+        "readArtifact": {
+          "description": "Reads a byte range of an engine-owned media artifact a run produced (ADR 017): the bytes in the platform's native byte type, with their offset, the artifact's total size, and whether the range reaches its end. Reads are repeatable until the artifact is disposed, and each returns at most the engine's configured maximum read size. Throws an IndeRunException with errorClass Unavailable and details.code 'artifact_not_found' for an unknown, disposed or application-owned artifact, and a validation error for an offset beyond the end.",
+          "params": [{ "name": "request", "type": "ArtifactReadRequest", "source": "contracts" }],
+          "returns": { "type": "ArtifactChunk", "source": "core" },
+          "async": true,
+          "throws": true
+        },
+        "disposeArtifact": {
+          "description": "Releases the bytes of an engine-owned media artifact. Idempotent: disposing an artifact twice, or one the engine does not hold, does nothing. After disposal readArtifact reports 'artifact_not_found'. An artifact outlives the run that produced it, so an application that keeps none should dispose each one it receives.",
+          "params": [{ "name": "artifact", "type": "MediaArtifact", "source": "contracts" }],
+          "returns": { "type": "void" },
+          "async": true,
+          "throws": false
         }
       }
     }

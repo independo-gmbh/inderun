@@ -243,9 +243,12 @@ signatures reference. That guarantee comes from the JSON-Schema/quicktype
 contract pipeline instead (`pnpm generate` / `contracts/schemas/*.schema.json`),
 which now covers every payload `IndeRunApi` names: `TaskRequest`, `TaskResult`,
 and — since issue #210 — `ProviderCapabilitySnapshot` with its nested
-`ProviderDescriptor` and `ProviderDynamicCapabilities`. The one remaining
-`"core"`-sourced type, `StreamRun`, is not a payload: it carries a live event
-sequence and a cancel hook in each platform's idiom, so it stays hand-written.
+`ProviderDescriptor` and `ProviderDynamicCapabilities`, and the artifact operations'
+`ArtifactReadRequest` and `MediaArtifact` (ADR 017). The two `"core"`-sourced types are
+not payloads: `StreamRun` carries a live event sequence and a cancel hook, and
+`ArtifactChunk` carries bytes in the platform's native byte type, so both stay
+hand-written. An operation that returns nothing declares `"returns": { "type": "void" }`,
+which emits `Promise<void>` in TypeScript and no return type in Kotlin and Swift.
 
 ## Next step
 

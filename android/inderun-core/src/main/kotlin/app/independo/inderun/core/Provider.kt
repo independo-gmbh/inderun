@@ -22,6 +22,14 @@ data class RunContext(
      */
     val voice: ProviderVoice? = null,
     /**
+     * Where the provider writes retrievable media for an `artifact` request (ADR 017). The engine
+     * holds the bytes; the provider returns the reference [ArtifactWriter.finish] gives it in an
+     * `artifact` output. Finishing commits the run. Artifacts this attempt does not return, or that
+     * a failed or cancelled attempt wrote, are discarded by the engine. A context built outside an
+     * engine writes into a private store whose writers always commit.
+     */
+    val artifacts: ArtifactSink = ArtifactSink.standalone(),
+    /**
      * What [commit] does. The engine supplies it; a context built outside an engine -- a
      * provider's own unit test -- always commits.
      */

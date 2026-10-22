@@ -76,7 +76,9 @@ Three, mutually exclusive, and unlike `type` this set is **closed** — it will 
 `finalText` and `partialText` are a text run's cumulative text, so a consumer that only wants the
 result can ignore every content event and read the terminal. A non-text run streams no content
 events: it ends with the same `output` that `run()` returns — a playback completion or a media
-artifact reference ([ADR 016](architecture/decisions/016-modality-extensible-task-contracts.md)). A
+artifact reference ([ADR 016](architecture/decisions/016-modality-extensible-task-contracts.md)). Media bytes are
+never streamed: read an artifact with `readArtifact()` once the terminal has arrived
+([ADR 017](architecture/decisions/017-media-artifacts.md)). A
 cancelled playback run that had committed carries a `playback` output, because sound may already have
 been heard; one cancelled before it committed, like an artifact run cancelled before its artifact was
 handed over, carries neither field. `provenance` says how the run played

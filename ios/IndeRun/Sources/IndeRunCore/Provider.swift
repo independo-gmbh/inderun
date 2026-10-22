@@ -16,20 +16,31 @@ public struct RunContext: Sendable {
     /// under the same rule (ADR 016 §4). The engine has re-checked it against the request's
     /// privacy policy immediately before the attempt.
     public let voice: ProviderVoice?
+    /// Where the provider writes retrievable media for an `artifact` request (ADR 017). The
+    /// engine holds the bytes; the provider returns the reference `finish()` gives it in an
+    /// `artifact` output. Finishing commits the run. Artifacts this attempt does not return,
+    /// or that a failed or cancelled attempt wrote, are discarded by the engine.
+    public let artifacts: any ArtifactSink
     private let commitHandler: @Sendable () -> Bool
 
-    /// - Parameter commit: What ``commit()`` does. The engine supplies its own; a context
-    ///   built elsewhere (e.g. to call a provider directly) commits unless the calling task
-    ///   is cancelled, which is the engine's rule for `run()`.
+    /// - Parameters:
+    ///   - artifacts: Where the provider writes artifacts. The engine supplies the attempt's
+    ///     view of its own store; when `nil`, a context built elsewhere writes into a
+    ///     standalone ``ArtifactStore`` of its own, handing over under `commit`.
+    ///   - commit: What ``commit()`` does. The engine supplies its own; a context built
+    ///     elsewhere (e.g. to call a provider directly) commits unless the calling task is
+    ///     cancelled, which is the engine's rule for `run()`.
     public init(
         runId: String,
         hostServices: HostServices,
         voice: ProviderVoice? = nil,
+        artifacts: (any ArtifactSink)? = nil,
         commit: @escaping @Sendable () -> Bool = { !Task.isCancelled }
     ) {
         self.runId = runId
         self.hostServices = hostServices
         self.voice = voice
+        self.artifacts = artifacts ?? ArtifactStore().attempt(commit: commit)
         self.commitHandler = commit
     }
 

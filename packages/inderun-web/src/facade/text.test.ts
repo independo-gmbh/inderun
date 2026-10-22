@@ -81,7 +81,11 @@ function fakeApi(script: { result?: TaskResult; events?: StreamEvent[] }): IndeR
     },
     async checkCapabilities() {
       return [];
-    }
+    },
+    async readArtifact() {
+      throw new Error("the text facade never reads artifacts");
+    },
+    async disposeArtifact() {}
   };
 }
 

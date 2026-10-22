@@ -1,7 +1,7 @@
 /* This file was generated from contracts/api/inderun-api.json. Do not edit by hand. */
 
-import type { TaskRequest, TaskResult, ProviderCapabilitySnapshot } from "@independo/inderun-contracts";
-import type { StreamRun } from "../provider.js";
+import type { TaskRequest, TaskResult, ProviderCapabilitySnapshot, ArtifactReadRequest, MediaArtifact } from "@independo/inderun-contracts";
+import type { StreamRun, ArtifactChunk } from "../provider.js";
 
 export interface IndeRunApi {
   /**
@@ -16,4 +16,12 @@ export interface IndeRunApi {
    * Returns a live snapshot of every registered provider's static descriptor and current dynamic availability, without executing a task or producing any side effects. Call this before run() when you need to show which providers/models are currently available — for example a settings screen or provider picker. Availability can change between calls (a local model can unload, cloud credentials can expire), so don't cache the result across a run() call.
    */
   checkCapabilities(): Promise<ProviderCapabilitySnapshot[]>;
+  /**
+   * Reads a byte range of an engine-owned media artifact a run produced (ADR 017): the bytes in the platform's native byte type, with their offset, the artifact's total size, and whether the range reaches its end. Reads are repeatable until the artifact is disposed, and each returns at most the engine's configured maximum read size. Throws an IndeRunException with errorClass Unavailable and details.code 'artifact_not_found' for an unknown, disposed or application-owned artifact, and a validation error for an offset beyond the end.
+   */
+  readArtifact(request: ArtifactReadRequest): Promise<ArtifactChunk>;
+  /**
+   * Releases the bytes of an engine-owned media artifact. Idempotent: disposing an artifact twice, or one the engine does not hold, does nothing. After disposal readArtifact reports 'artifact_not_found'. An artifact outlives the run that produced it, so an application that keeps none should dispose each one it receives.
+   */
+  disposeArtifact(artifact: MediaArtifact): Promise<void>;
 }

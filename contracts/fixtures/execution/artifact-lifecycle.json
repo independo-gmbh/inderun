@@ -1,0 +1,329 @@
+{
+  "$comment": "Cross-SDK catalog for the engine-owned media artifact store (ADR 017): ranged reads, disposal, the limits, and what the engine discards on its own. Like streaming/engine-conformance.json it is a scenario catalog: 'setup' is normative prose naming the fakes and what they write, 'expect' is shared data, and each SDK registers one handler per 'id' behind a guard test that fails when the handler ids and the ids here differ. Cases run run() unless 'mode' is 'stream'. A provider's 'finished' artifacts are the references its writer's finish() returned, in order; 'finishedReadable' says whether readArtifact still finds each one after the run.",
+  "$expectKeys": {
+    "output": "Fields of the result's (or completed terminal's) output.artifact, compared exactly; the id is checked only for being present.",
+    "reads": "readArtifact calls made in order after the run, each with its request and the chunk's offset, byte length, totalBytes and done. Every chunk's bytes must equal the pattern over [offset, offset + length).",
+    "readRejects": "readArtifact calls that must throw, with the error class, retryable flag, details.code, or a validation issue path.",
+    "runRejectsWith": "run() threw: the error class and, when given, details.code.",
+    "providerCallCounts": "How many times each provider was entered.",
+    "attempts": "Provenance attempts as [providerId, outcome] pairs.",
+    "providerObservedCodes": "details.code of every error each fake's writer threw at it, in order.",
+    "finishedReadable": "Per provider, whether each artifact it finished is still readable after the run.",
+    "terminal": "Stream mode: fields of the terminal payload; 'absentOutput' asserts the key is missing.",
+    "maxSerializedEventBytes": "Stream mode: the largest JSON encoding of any delivered StreamEvent, in bytes, must stay below this."
+  },
+  "cases": [
+    {
+      "id": "read_full",
+      "description": "A finished artifact is read whole in one call, with the metadata the engine recorded.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` starts the artifact with durationMs 500, writes 1000 bytes in one write, finishes, and returns the artifact. The consumer reads with no offset or maxBytes.",
+      "expect": {
+        "output": {
+          "mediaType": "audio/wav",
+          "owner": "engine",
+          "lifetime": "until_disposed",
+          "byteLength": 1000,
+          "durationMs": 500
+        },
+        "reads": [
+          {
+            "request": {},
+            "offset": 0,
+            "length": 1000,
+            "totalBytes": 1000,
+            "done": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "chunked_reads_cover_bytes_once",
+      "description": "Ranged reads that follow each chunk's end cover every byte exactly once and report the last chunk as done.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` writes 1000 bytes in three writes (300, 300, 400), finishes and returns the artifact. The consumer reads with maxBytes 400 at offsets 0, 400 and 800.",
+      "expect": {
+        "reads": [
+          {
+            "request": {
+              "offset": 0,
+              "maxBytes": 400
+            },
+            "offset": 0,
+            "length": 400,
+            "totalBytes": 1000,
+            "done": false
+          },
+          {
+            "request": {
+              "offset": 400,
+              "maxBytes": 400
+            },
+            "offset": 400,
+            "length": 400,
+            "totalBytes": 1000,
+            "done": false
+          },
+          {
+            "request": {
+              "offset": 800,
+              "maxBytes": 400
+            },
+            "offset": 800,
+            "length": 200,
+            "totalBytes": 1000,
+            "done": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "read_is_bounded_by_the_engine_limit",
+      "description": "No read returns more than the engine's maximum read size, whatever the caller asks for.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. The engine is configured with maxReadBytes 256. `p1` writes 1000 bytes, finishes and returns the artifact. The consumer reads with no maxBytes, then with offset 900 and maxBytes 5000.",
+      "expect": {
+        "reads": [
+          {
+            "request": {},
+            "offset": 0,
+            "length": 256,
+            "totalBytes": 1000,
+            "done": false
+          },
+          {
+            "request": {
+              "offset": 900,
+              "maxBytes": 5000
+            },
+            "offset": 900,
+            "length": 100,
+            "totalBytes": 1000,
+            "done": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "repeated_reads_identical",
+      "description": "Reading the same range twice returns the same bytes; a read does not consume the artifact.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` writes 1000 bytes, finishes and returns the artifact. The consumer reads offset 100 with maxBytes 50 twice.",
+      "expect": {
+        "reads": [
+          {
+            "request": {
+              "offset": 100,
+              "maxBytes": 50
+            },
+            "offset": 100,
+            "length": 50,
+            "totalBytes": 1000,
+            "done": false
+          },
+          {
+            "request": {
+              "offset": 100,
+              "maxBytes": 50
+            },
+            "offset": 100,
+            "length": 50,
+            "totalBytes": 1000,
+            "done": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "read_at_end_is_empty_and_beyond_end_is_rejected",
+      "description": "An offset at the end returns an empty, final chunk; one past the end is a validation error.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` writes 1000 bytes, finishes and returns the artifact. The consumer reads at offset 1000, then at offset 1001.",
+      "expect": {
+        "reads": [
+          {
+            "request": {
+              "offset": 1000
+            },
+            "offset": 1000,
+            "length": 0,
+            "totalBytes": 1000,
+            "done": true
+          }
+        ],
+        "readRejects": [
+          {
+            "request": {
+              "offset": 1001
+            },
+            "errorClass": "Internal",
+            "validationIssuePath": "/offset"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dispose_is_idempotent_then_not_found",
+      "description": "Disposing twice is harmless, and a disposed artifact can no longer be read.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` writes 10 bytes, finishes and returns the artifact. The consumer disposes it twice, then reads it.",
+      "expect": {
+        "readRejects": [
+          {
+            "request": {},
+            "errorClass": "Unavailable",
+            "retryable": false,
+            "code": "artifact_not_found"
+          }
+        ]
+      }
+    },
+    {
+      "id": "unknown_id_not_found",
+      "description": "An id the engine never issued reads like a disposed one.",
+      "setup": "No run. The consumer reads artifactId 'art_unknown'.",
+      "expect": {
+        "readRejects": [
+          {
+            "request": {
+              "artifactId": "art_unknown"
+            },
+            "errorClass": "Unavailable",
+            "retryable": false,
+            "code": "artifact_not_found"
+          }
+        ]
+      }
+    },
+    {
+      "id": "post_handoff_failure_is_terminal_and_disposes",
+      "description": "Handing over an artifact commits the run: a failure after it is the run's failure, no fallback happens, and the engine discards the artifact the application never received.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` writes 10 bytes, finishes, then throws Unavailable. `p2` is registered as the fallback and would return a 10-byte artifact.",
+      "expect": {
+        "runRejectsWith": {
+          "errorClass": "Unavailable"
+        },
+        "providerCallCounts": {
+          "p1": 1,
+          "p2": 0
+        },
+        "attempts": [["p1", "failed"]],
+        "finishedReadable": {
+          "p1": [false]
+        }
+      }
+    },
+    {
+      "id": "too_large_is_pre_commit_and_falls_back",
+      "description": "An artifact that exceeds the per-artifact limit fails its attempt before commit, so the run falls back.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. The engine is configured with maxArtifactBytes 100. `p1` writes 101 bytes in one write and rethrows what the writer throws. `p2` writes 50 bytes, finishes and returns the artifact.",
+      "expect": {
+        "output": {
+          "mediaType": "audio/wav",
+          "owner": "engine",
+          "lifetime": "until_disposed",
+          "byteLength": 50
+        },
+        "attempts": [
+          ["p1", "failed"],
+          ["p2", "succeeded"]
+        ],
+        "providerObservedCodes": {
+          "p1": ["artifact_too_large"]
+        }
+      }
+    },
+    {
+      "id": "store_full_refuses_handoff_until_disposed",
+      "description": "The store refuses a handoff that would exceed its total limit, before commit; disposing an earlier artifact makes room again.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. The engine is configured with maxStoreBytes 150. `p1` writes 100 bytes, finishes and returns the artifact, rethrowing anything the writer throws. The consumer runs three times, disposing the first run's artifact between the second and third runs.",
+      "expect": {
+        "runs": ["succeeded", "rejected", "succeeded"],
+        "runRejectsWith": {
+          "errorClass": "Unavailable"
+        },
+        "providerObservedCodes": {
+          "p1": ["artifact_store_full"]
+        }
+      }
+    },
+    {
+      "id": "unreturned_artifacts_disposed",
+      "description": "An artifact a winning attempt finished but did not return is discarded; the returned one stays.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` finishes a 10-byte artifact, then a 20-byte one, and returns the second.",
+      "expect": {
+        "output": {
+          "mediaType": "audio/wav",
+          "owner": "engine",
+          "lifetime": "until_disposed",
+          "byteLength": 20
+        },
+        "finishedReadable": {
+          "p1": [false, true]
+        }
+      }
+    },
+    {
+      "id": "foreign_artifact_is_output_mismatch",
+      "description": "An artifact output this attempt did not hand over -- a forged or stale id -- is a provider fault; nothing was committed, so the run falls back.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. `p1` returns an artifact output with id 'art_forged', mediaType 'audio/wav', owner 'engine', lifetime 'until_disposed', without writing anything. `p2` writes 10 bytes, finishes and returns the artifact.",
+      "expect": {
+        "output": {
+          "mediaType": "audio/wav",
+          "owner": "engine",
+          "lifetime": "until_disposed",
+          "byteLength": 10
+        },
+        "attempts": [
+          ["p1", "failed"],
+          ["p2", "succeeded"]
+        ]
+      }
+    },
+    {
+      "id": "cancelled_stream_disposes_artifact",
+      "mode": "stream",
+      "description": "Cancelling a stream after the artifact was handed over but before the result ends the run as cancelled, with no output, and discards the artifact.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` writes 10 bytes, finishes, then waits for cancellation. The consumer cancels once the artifact has been handed over.",
+      "expect": {
+        "terminal": {
+          "outcome": "cancelled",
+          "absentOutput": true
+        },
+        "finishedReadable": {
+          "p1": [false]
+        }
+      }
+    },
+    {
+      "id": "events_carry_no_media_bytes",
+      "mode": "stream",
+      "description": "A stream that produces a large artifact delivers only small events: the bytes stay in the store and the terminal carries a reference.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251, continuing across writes of one artifact. `p1` writes 1048576 bytes, finishes, and emits result with the artifact.",
+      "expect": {
+        "terminal": {
+          "outcome": "completed"
+        },
+        "output": {
+          "mediaType": "audio/wav",
+          "owner": "engine",
+          "lifetime": "until_disposed",
+          "byteLength": 1048576
+        },
+        "maxSerializedEventBytes": 4096
+      }
+    },
+    {
+      "id": "stored_media_type_decides_the_match",
+      "description": "The engine checks the media type the store recorded when the artifact was written, not the one the provider claims when it returns the reference: an audio/mpeg artifact relabelled audio/wav does not satisfy a request for audio/wav. Handing it over had committed the run, so the mismatch is terminal and the artifact is discarded.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251. `p1` writes 10 bytes as 'audio/mpeg', finishes, and returns that artifact's reference with mediaType changed to 'audio/wav'. `p2` is registered as the fallback and would return a 10-byte 'audio/wav' artifact.",
+      "expect": {
+        "runRejectsWith": {
+          "errorClass": "Internal",
+          "code": "output_mismatch"
+        },
+        "providerCallCounts": {
+          "p1": 1,
+          "p2": 0
+        },
+        "finishedReadable": {
+          "p1": [false]
+        }
+      }
+    }
+  ]
+}

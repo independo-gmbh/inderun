@@ -2604,6 +2604,170 @@
         ],
         "selectedProviderId": "legacy_local_text"
       }
+    },
+    {
+      "id": "third_task_image_artifact_routed",
+      "description": "A task the SDKs do not ship -- text_to_image with a PNG artifact -- routes through the same per-task matching as speech: the kind, the input, the artifact delivery and its media type, with no planner change. It keeps the matcher honest about being task-generic (#245).",
+      "input": {
+        "task": {
+          "kind": "text_to_image",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "artifact",
+            "mediaTypes": ["image/png"]
+          }
+        },
+        "constraints": {
+          "privacy": "local_required",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "image_jpeg_only",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_image"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_image",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "artifact",
+                      "mediaTypes": ["image/jpeg"]
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "image_png_local",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_image"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_image",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "soft",
+                  "outputs": [
+                    {
+                      "delivery": "artifact",
+                      "mediaTypes": ["image/png", "image/webp"]
+                    }
+                  ]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          },
+          {
+            "descriptor": {
+              "id": "legacy_text",
+              "type": "local",
+              "transport": "in_process",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "soft",
+              "tasks": ["text_to_text"],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "image_png_local"
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "image_png_local",
+          "summary": "Selected provider 'image_png_local' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "image_jpeg_only",
+            "reasons": [
+              {
+                "code": "output_format_not_supported",
+                "message": "Provider 'image_jpeg_only' produces none of the required media types (image/png) for task 'text_to_image'."
+              }
+            ]
+          },
+          {
+            "providerId": "legacy_text",
+            "reasons": [
+              {
+                "code": "task_not_supported",
+                "message": "Provider 'legacy_text' does not support task 'text_to_image'."
+              }
+            ]
+          }
+        ],
+        "selectedProviderId": "image_png_local"
+      }
     }
   ]
 }

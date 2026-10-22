@@ -46,6 +46,12 @@ private final class FakeApi: IndeRunApi, @unchecked Sendable {
     }
 
     func checkCapabilities() async -> [ProviderCapabilitySnapshot] { [] }
+
+    func readArtifact(request: ArtifactReadRequest) async throws -> ArtifactChunk {
+        throw createInternal(message: "the text facade never reads artifacts")
+    }
+
+    func disposeArtifact(artifact: MediaArtifact) async {}
 }
 
 final class TextGenerationTests: XCTestCase {

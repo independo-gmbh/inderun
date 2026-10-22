@@ -69,6 +69,16 @@ const taskProfiles = new Map<string, TaskProfile>([
   [textToSpeech.kind, textToSpeech]
 ]);
 
+/**
+ * Adds a task profile. Internal and not exported from the package: a real task needs its
+ * schema kind and payload first (ADR 016). It exists so a test can prove a third task runs
+ * through routing, execution and output normalization without changing the engine.
+ * @internal
+ */
+export function registerTaskProfile(profile: TaskProfile): void {
+  taskProfiles.set(profile.kind, profile);
+}
+
 /** The profile for `kind`, or `undefined` when this engine cannot execute the task. */
 export function taskProfileFor(kind: string): TaskProfile | undefined {
   return taskProfiles.get(kind);

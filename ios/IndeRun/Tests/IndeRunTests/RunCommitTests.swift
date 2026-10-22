@@ -237,26 +237,25 @@ final class RunCommitTests: XCTestCase {
 
     func testAcceptsAnArtifactMediaTypeIgnoringParametersAndCase() async throws {
         let calls = CallLog()
-        let artifact = TaskOutput(artifact: MediaArtifact(
-            byteLength: 4,
-            durationMs: nil,
-            id: "art_1",
-            lifetime: .untilDisposed,
-            mediaType: "Audio/L16; rate=22050",
-            owner: .engine
-        ))
         let engine = try engine([
             SpeechRunProvider(
                 id: "p1",
                 outputs: [ProviderTaskOutput(delivery: .artifact, mediaTypes: ["audio/L16"])],
                 calls: calls
-            ) { _ in artifact }
+            ) { context in
+                let writer = context.artifacts.create(spec: ArtifactSpec(mediaType: "Audio/L16; rate=22050"))
+                try writer.write(Data([1, 2, 3, 4]))
+                return TaskOutput(artifact: try writer.finish())
+            }
         ])
 
         let result = try await engine.run(
             request: makeSpeechRequest(delivery: OutputDeliveryRequest(mediaTypes: ["audio/l16"], mode: .artifact))
         )
 
-        XCTAssertEqual(result.output.artifact?.id, "art_1")
+        let artifact = try XCTUnwrap(result.output.artifact)
+        XCTAssertEqual(artifact.mediaType, "Audio/L16; rate=22050")
+        XCTAssertEqual(artifact.byteLength, 4)
+        XCTAssertTrue(artifact.id.hasPrefix("art_"))
     }
 }

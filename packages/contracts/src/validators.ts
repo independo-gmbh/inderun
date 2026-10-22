@@ -1,6 +1,7 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
+import type { ArtifactReadRequest } from "./generated/artifact-read-request.js";
 import type { ExecutionProvenance } from "./generated/execution-provenance.js";
 import type { IndeRunError } from "./generated/inderun-error.js";
 import type { MediaArtifact } from "./generated/media-artifact.js";
@@ -13,6 +14,7 @@ import type { ProviderDynamicCapabilities } from "./generated/provider-dynamic-c
 import type { RoutePlan } from "./generated/route-plan.js";
 import type { RoutePlannerInput } from "./generated/route-planner-input.js";
 import {
+  artifactReadRequestSchema,
   executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
@@ -69,6 +71,7 @@ const validateProviderCapabilitySnapshotSchema = ajv.compile(providerCapabilityS
 // and both terminal-outcome copies.
 const validateMediaArtifactSchema = ajv.compile(mediaArtifactSchema);
 const validateTaskOutputSchema = ajv.compile(taskOutputSchema);
+const validateArtifactReadRequestSchema = ajv.compile(artifactReadRequestSchema);
 const validateTaskRequestSchema = ajv.compile(taskRequestSchema);
 const validateTaskResultSchema = ajv.compile(taskResultSchema);
 const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
@@ -96,6 +99,10 @@ export function validateTaskOutput(value: unknown): value is TaskOutput {
 
 export function validateMediaArtifact(value: unknown): value is MediaArtifact {
   return getMediaArtifactValidationIssues(value).length === 0;
+}
+
+export function validateArtifactReadRequest(value: unknown): value is ArtifactReadRequest {
+  return getArtifactReadRequestValidationIssues(value).length === 0;
 }
 
 export function validateIndeRunError(value: unknown): value is IndeRunError {
@@ -177,6 +184,10 @@ export function getTaskOutputValidationIssues(value: unknown): ValidationIssue[]
 
 export function getMediaArtifactValidationIssues(value: unknown): ValidationIssue[] {
   return getValidationIssues(validateMediaArtifactSchema, value);
+}
+
+export function getArtifactReadRequestValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateArtifactReadRequestSchema, value);
 }
 
 export function getIndeRunErrorValidationIssues(value: unknown): ValidationIssue[] {

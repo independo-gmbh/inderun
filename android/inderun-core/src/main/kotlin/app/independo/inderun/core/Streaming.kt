@@ -90,6 +90,11 @@ data class ProviderStreamContext(
      */
     val voice: ProviderVoice? = null,
     /**
+     * Where the provider writes retrievable media for an `artifact` request; see
+     * [RunContext.artifacts]. Handing an artifact over commits the run.
+     */
+    val artifacts: ArtifactSink = ArtifactSink.standalone(),
+    /**
      * What [commit] does. The engine supplies it; a context built outside an engine -- a
      * provider's own unit test -- always commits.
      */

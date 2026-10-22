@@ -53,6 +53,10 @@ must be rejected at `/task/kind` until the schema change that admits them lands 
 and `packages/contracts/src/task-contract-fixtures.test.ts` enforces that. Text and text-to-speech are `current`;
 image-to-text stays a contract-only vector. `fixtures/artifacts/media-artifacts.json` holds valid and invalid
 `MediaArtifact` references, an image among them to keep the reference media-neutral.
+`fixtures/execution/artifact-lifecycle.json` is a scenario catalog like `engine-conformance.json`, for the
+engine-owned artifact store: ranged reads, disposal, the size limits, and the artifacts the engine discards on its
+own. Each SDK registers one handler per case id behind the same kind of guard test.
+`artifact-read-request.schema.json` (`ArtifactReadRequest`) is the input of `IndeRunApi.readArtifact`.
 
 `fixtures/routing/planner-conformance.json` holds the shared route-planner vectors: complete `RoutePlannerInput`s and
 the exact `RoutePlan` each must produce, messages included. The planner is one Rust crate, so these check the

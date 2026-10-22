@@ -1,5 +1,6 @@
 package app.independo.inderun.sdk
 
+import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.AttemptOutcome
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Cloud
@@ -8,6 +9,7 @@ import app.independo.inderun.contracts.ExecutionProvenanceAttempt
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Locality
+import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OptimizeFor
@@ -32,6 +34,7 @@ import app.independo.inderun.contracts.TaskRequestTelemetry
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.contracts.TelemetryLevel
+import app.independo.inderun.core.ArtifactChunk
 import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
@@ -95,6 +98,10 @@ private class FakeApi(
     }
 
     override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = emptyList()
+
+    override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk = error("the text facade never reads artifacts")
+
+    override suspend fun disposeArtifact(artifact: MediaArtifact) = Unit
 }
 
 @RunWith(RobolectricTestRunner::class)

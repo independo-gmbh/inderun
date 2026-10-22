@@ -17,6 +17,7 @@ export type * from "./generated/index.js";
 
 /** The JSON Schemas those models were generated from, for runtime use. */
 export {
+  artifactReadRequestSchema,
   executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
@@ -42,6 +43,7 @@ export {
  * boolean type guard.
  */
 export {
+  getArtifactReadRequestValidationIssues,
   getExecutionProvenanceValidationIssues,
   getHttpRequestValidationIssues,
   getHttpResponseValidationIssues,
@@ -78,6 +80,7 @@ export {
   validateTaskRequest,
   validateTaskResult,
   validateTelemetryEvent,
+  validateArtifactReadRequest,
   type ValidationIssue
 } from "./validators.js";
 /**

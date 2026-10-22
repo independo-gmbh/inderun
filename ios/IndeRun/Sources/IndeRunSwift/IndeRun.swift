@@ -8,21 +8,29 @@ public final class IndeRun: IndeRunApi {
     private let telemetryService: (any TelemetryService)?
     private let router: Router
     private let modelProfiles: ModelProfiles
+    /// The engine's in-memory media artifact store (ADR 017). Artifacts outlive the run that
+    /// produced them and live until disposed or until this instance is released.
+    private let artifacts: ArtifactStore
 
-    /// - Parameter modelProfiles: Named model profiles requests can route within
-    ///   (`TaskRequest.modelProfile`). Defaults to none, so every request routes
-    ///   within the built-in `auto` profile.
+    /// - Parameters:
+    ///   - modelProfiles: Named model profiles requests can route within
+    ///     (`TaskRequest.modelProfile`). Defaults to none, so every request routes
+    ///     within the built-in `auto` profile.
+    ///   - artifactLimits: Size limits of the engine's in-memory artifact store (ADR 017).
+    ///     Defaults: 16 MiB per artifact, 64 MiB in total, 1 MiB per `readArtifact` call.
     public init(
         registry: ProviderRegistry,
         hostServices: HostServices,
         telemetryService: (any TelemetryService)? = nil,
-        modelProfiles: ModelProfiles = .none
+        modelProfiles: ModelProfiles = .none,
+        artifactLimits: ArtifactLimits = ArtifactLimits()
     ) {
         self.registry = registry
         self.hostServices = hostServices
         self.telemetryService = telemetryService ?? hostServices.telemetry
         self.router = Router(registry: registry)
         self.modelProfiles = modelProfiles
+        self.artifacts = ArtifactStore(limits: artifactLimits)
     }
 
     /// Routes through `router` instead of one planning with the shared core, so tests can
@@ -31,13 +39,15 @@ public final class IndeRun: IndeRunApi {
         registry: ProviderRegistry,
         hostServices: HostServices,
         router: Router,
-        modelProfiles: ModelProfiles = .none
+        modelProfiles: ModelProfiles = .none,
+        artifactLimits: ArtifactLimits = ArtifactLimits()
     ) {
         self.registry = registry
         self.hostServices = hostServices
         self.telemetryService = hostServices.telemetry
         self.router = router
         self.modelProfiles = modelProfiles
+        self.artifacts = ArtifactStore(limits: artifactLimits)
     }
 
     /// The planner input for the request's model profile; `nil` means `auto`.
@@ -110,7 +120,9 @@ public final class IndeRun: IndeRunApi {
     /// committed (`RunContext.commit()`, for managed playback no later than its first possible
     /// audible effect); a committed attempt's failure is the run's failure. Text providers
     /// never commit, so text fallback is unchanged. An output that does not match the
-    /// request's delivery fails the attempt as `Internal` with details code `output_mismatch`.
+    /// request's delivery fails the attempt as `Internal` with details code `output_mismatch`,
+    /// as does an artifact the attempt did not hand over through `RunContext.artifacts`.
+    /// Artifacts an attempt finished and the run does not return are disposed (ADR 017).
     ///
     /// - Parameter request: The standard request payload including prompt, constraints, preferences, and task description.
     /// - Returns: A normalized `TaskResult` containing generated text and execution telemetry.
@@ -169,8 +181,15 @@ public final class IndeRun: IndeRunApi {
                 let providerId = provider.describe().id
                 attemptedIds.append(providerId)
                 let latch = CommitLatch()
-                // A commit() arriving after the attempt ended is refused.
-                defer { _ = latch.close() }
+                let commit: @Sendable () -> Bool = { latch.commit(unless: { Task.isCancelled }).granted }
+                let attemptArtifacts = artifacts.attempt(commit: commit)
+                // Whatever the attempt finished and did not return is discarded on every exit,
+                // and a commit() arriving after the attempt ended is refused.
+                var keptArtifactId: String?
+                defer {
+                    _ = latch.close()
+                    attemptArtifacts.release(keeping: keptArtifactId)
+                }
 
                 do {
                     if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
@@ -183,14 +202,18 @@ public final class IndeRun: IndeRunApi {
                             runId: runId,
                             hostServices: hostServices,
                             voice: candidate.voice,
-                            commit: { latch.commit(unless: { Task.isCancelled }).granted }
+                            artifacts: attemptArtifacts,
+                            commit: commit
                         )
                     )
-                    if let mismatch = checkOutput(
-                        request: request, delivery: delivery, output: result.output, providerId: providerId
-                    ) {
-                        throw mismatch
-                    }
+                    result.output = try normalizeOutput(
+                        request: request,
+                        delivery: delivery,
+                        output: result.output,
+                        providerId: providerId,
+                        attemptArtifacts: attemptArtifacts
+                    )
+                    keptArtifactId = result.output.artifact?.id
 
                     let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
                     let totalMs = Double(endTime - startTime)
@@ -524,8 +547,15 @@ public final class IndeRun: IndeRunApi {
                 return granted
             }
 
-            // A commit() arriving after the attempt ended is refused.
-            defer { _ = latch.close() }
+            let commit: @Sendable () -> Bool = { markCommitted { cancellation.isCancelled || gate.isTerminated } }
+            let attemptArtifacts = artifacts.attempt(commit: commit)
+            // Whatever the attempt finished and did not return is discarded on every exit; the
+            // cancelled and committed-failure paths release earlier, before their terminal.
+            var keptArtifactId: String?
+            defer {
+                _ = latch.close()
+                attemptArtifacts.release(keeping: keptArtifactId)
+            }
 
             var partialText = ""
             do {
@@ -538,7 +568,8 @@ public final class IndeRun: IndeRunApi {
                     hostServices: hostServices,
                     cancellation: cancellation,
                     voice: candidate.voice,
-                    commit: { markCommitted { cancellation.isCancelled || gate.isTerminated } }
+                    artifacts: attemptArtifacts,
+                    commit: commit
                 )
 
                 var terminatedInLoop = false
@@ -572,12 +603,15 @@ public final class IndeRun: IndeRunApi {
 
                     case .done, .result:
                         // The run's final output: text from `.done`, any task's from `.result`.
-                        let completion = Self.completion(of: event)
-                        if let mismatch = checkOutput(
-                            request: request, delivery: delivery, output: completion.output, providerId: providerId
-                        ) {
-                            throw mismatch
-                        }
+                        var completion = Self.completion(of: event)
+                        completion.output = try normalizeOutput(
+                            request: request,
+                            delivery: delivery,
+                            output: completion.output,
+                            providerId: providerId,
+                            attemptArtifacts: attemptArtifacts
+                        )
+                        keptArtifactId = completion.output.artifact?.id
                         _ = markCommitted { false }
                         provenance.attempted(providerId, .succeeded, committed: true)
                         let outcome = StreamTerminalOutcome.completed(
@@ -614,6 +648,7 @@ public final class IndeRun: IndeRunApi {
                 }
 
                 if cancellation.isCancelled {
+                    attemptArtifacts.release()
                     emitCancelled(
                         partialText: partialText,
                         provider: provider,
@@ -630,6 +665,7 @@ public final class IndeRun: IndeRunApi {
                 )
             } catch {
                 if cancellation.isCancelled {
+                    attemptArtifacts.release()
                     emitCancelled(
                         partialText: partialText,
                         provider: provider,
@@ -667,6 +703,7 @@ public final class IndeRun: IndeRunApi {
                 }
 
                 // Committed: the failure belongs to this provider, not to the chain.
+                attemptArtifacts.release()
                 emitFailure(
                     exception: exception, partialText: textRun ? partialText : nil, providerId: providerId,
                     attempted: attemptedProviderIds, runId: runId, gate: gate,
@@ -729,7 +766,7 @@ public final class IndeRun: IndeRunApi {
     /// What a terminal `.done` or `.result` event completes the run with. `reportsOutput`
     /// is false for `.done`, whose outcome keeps carrying only `finalText` as it always has.
     private struct Completion {
-        let output: TaskOutput
+        var output: TaskOutput
         let finalText: String?
         let reportsOutput: Bool
         let finishReason: FinishReason?
@@ -751,6 +788,62 @@ public final class IndeRun: IndeRunApi {
             )
         case .delta, .snapshot, .failure:
             preconditionFailure("completion(of:) is only called for .done and .result")
+        }
+    }
+
+    /// Checks that an artifact in a provider's output is one this attempt produced, swaps in the
+    /// reference the store holds, and only then checks the output against the requested
+    /// delivery: the artifact's media type, size and ownership are the engine's record rather
+    /// than the provider's claim.
+    private func normalizeOutput(
+        request: TaskRequest,
+        delivery: OutputDelivery,
+        output: TaskOutput,
+        providerId: String,
+        attemptArtifacts: AttemptArtifacts
+    ) throws -> TaskOutput {
+        var resolved = output
+        if let artifact = output.artifact {
+            guard attemptArtifacts.owns(artifactId: artifact.id),
+                  let reference = artifacts.reference(artifactId: artifact.id) else {
+                throw createInternal(
+                    message: "Provider '\(providerId)' returned an artifact it did not hand over in this attempt.",
+                    providerId: providerId,
+                    details: ["code": JSONAny("output_mismatch")]
+                )
+            }
+            resolved.artifact = reference
+        }
+        if let mismatch = checkOutput(request: request, delivery: delivery, output: resolved, providerId: providerId) {
+            throw mismatch
+        }
+        return resolved
+    }
+
+    /// Reads a byte range of an engine-owned media artifact (ADR 017). See
+    /// `IndeRunApi.readArtifact`.
+    public func readArtifact(request: ArtifactReadRequest) async throws -> ArtifactChunk {
+        var issues: [(path: String, message: String)] = []
+        if request.artifactId.isEmpty {
+            issues.append((path: "/artifactId", message: "artifactId must be non-empty."))
+        }
+        if let offset = request.offset, offset < 0 {
+            issues.append((path: "/offset", message: "offset must be >= 0."))
+        }
+        if let maxBytes = request.maxBytes, maxBytes < 1 {
+            issues.append((path: "/maxBytes", message: "maxBytes must be >= 1."))
+        }
+        if !issues.isEmpty {
+            throw artifactReadValidationFailure(issues)
+        }
+        return try artifacts.read(request)
+    }
+
+    /// Releases an engine-owned artifact's bytes. Idempotent; an application-owned artifact
+    /// holds nothing in the engine, so disposing one does nothing.
+    public func disposeArtifact(artifact: MediaArtifact) async {
+        if artifact.owner == .engine {
+            artifacts.dispose(artifactId: artifact.id)
         }
     }
 

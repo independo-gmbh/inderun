@@ -1,10 +1,13 @@
 package app.independo.inderun.sdk
 
 import android.content.Context
+import app.independo.inderun.contracts.ArtifactOwner
+import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.AttemptOutcome
 import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.InteractionMode
+import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.ModelProfile
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.PlaybackOutput
@@ -22,6 +25,10 @@ import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TelemetryEvent
 import app.independo.inderun.contracts.TelemetryEventType
+import app.independo.inderun.core.ArtifactChunk
+import app.independo.inderun.core.ArtifactLimits
+import app.independo.inderun.core.ArtifactStore
+import app.independo.inderun.core.AttemptArtifacts
 import app.independo.inderun.core.EventGate
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
@@ -75,14 +82,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @param telemetry Optional telemetry sink. Falls back to [HostServices.telemetry] when not provided.
  * @param modelProfiles Named model profiles requests can route within (`TaskRequest.modelProfile`).
  *   Defaults to none, so every request routes within the built-in `auto` profile.
+ * @param artifactLimits Size limits of the engine's in-memory artifact store (ADR 017). Defaults:
+ *   16 MiB per artifact, 64 MiB in total, 1 MiB per [readArtifact] call.
  */
 class IndeRun(
     private val registry: ProviderRegistry,
     private val hostServices: HostServices,
     telemetry: TelemetryService? = null,
     private val modelProfiles: ModelProfiles = ModelProfiles(),
+    artifactLimits: ArtifactLimits = ArtifactLimits(),
 ) : IndeRunApi {
     private val router = Router(registry)
+    private val artifacts = ArtifactStore(artifactLimits)
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
 
     /**
@@ -148,6 +159,14 @@ class IndeRun(
                 // Closed when the attempt ends, so a commit() from a provider callback that fires
                 // after the run moved on is refused.
                 val latch = CommitLatch()
+                val commit = {
+                    val (granted, _) = latch.commit { caller?.isActive == false }
+                    granted
+                }
+                val attemptArtifacts = artifacts.attempt(commit)
+                // The artifact the application receives; every other one this attempt wrote is
+                // released when the attempt ends, however it ends.
+                var keptArtifactId: String? = null
 
                 try {
                     // A refusal fails this attempt before it starts, so it falls back like any
@@ -156,12 +175,15 @@ class IndeRun(
 
                     val result = provider.run(
                         request = request,
-                        context = RunContext(runId = runId, hostServices = hostServices, voice = voice) {
-                            val (granted, _) = latch.commit { caller?.isActive == false }
-                            granted
-                        },
+                        context = RunContext(
+                            runId = runId,
+                            hostServices = hostServices,
+                            voice = voice,
+                            artifacts = attemptArtifacts,
+                            commitHandler = commit,
+                        ),
                     )
-                    checkOutput(request, delivery, result.output, providerId)?.let { throw it }
+                    val output = normalizeOutput(request, delivery, result.output, providerId, attemptArtifacts)
 
                     val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
                     provenance.attempted(providerId, AttemptOutcome.Succeeded, committed = latch.isCommitted)
@@ -182,12 +204,13 @@ class IndeRun(
 
                     return result.copy(
                         runId = runId,
+                        output = output,
                         telemetry = result.telemetry.copy(
                             providerUsed = providerId,
                             totalMs = totalMs,
                         ),
                         provenance = provenance.build(provider.describe(), result.telemetry.reportedModel),
-                    )
+                    ).also { keptArtifactId = output.artifact?.id }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
@@ -212,6 +235,7 @@ class IndeRun(
                     if (index == providers.lastIndex) throw attemptError
                 } finally {
                     latch.close()
+                    attemptArtifacts.release(keptArtifactId)
                 }
             }
 
@@ -265,6 +289,69 @@ class IndeRun(
         val descriptor = provider.describe()
         val capabilities = provider.capabilities(hostServices)
         ProviderCapabilitySnapshot(providerId = descriptor.id, descriptor = descriptor, capabilities = capabilities)
+    }
+
+    /**
+     * Reads a byte range of an engine-owned media artifact a run produced (ADR 017). Reads are
+     * repeatable until the artifact is disposed, and each returns at most
+     * [ArtifactLimits.maxReadBytes].
+     *
+     * @throws app.independo.inderun.core.IndeRunException `Unavailable` (`details.code:
+     *   "artifact_not_found"`) for an unknown, disposed or application-owned artifact; `Internal`
+     *   with `details.validationIssues` for a malformed request or an offset beyond the end.
+     */
+    override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk {
+        val validationIssues = buildList {
+            if (request.artifactId.isEmpty()) {
+                add(mapOf("path" to "/artifactId", "message" to "must NOT have fewer than 1 characters"))
+            }
+            request.offset?.takeIf { it < 0 }?.let { add(mapOf("path" to "/offset", "message" to "must be >= 0")) }
+            request.maxBytes?.takeIf { it < 1 }?.let { add(mapOf("path" to "/maxBytes", "message" to "must be >= 1")) }
+        }
+        if (validationIssues.isNotEmpty()) {
+            throw createInternal(
+                message = "Validation failed for ArtifactReadRequest: " +
+                    validationIssues.joinToString("; ") { "${it["path"]} - ${it["message"]}" },
+                details = mapOf("validationIssues" to validationIssues),
+            )
+        }
+        return artifacts.read(request)
+    }
+
+    /**
+     * Releases the bytes of an engine-owned media artifact. Idempotent: disposing an artifact twice,
+     * or one the engine does not hold, does nothing.
+     */
+    override suspend fun disposeArtifact(artifact: MediaArtifact) {
+        if (artifact.owner == ArtifactOwner.Engine) artifacts.dispose(artifact.id)
+    }
+
+    /**
+     * Checks that an artifact in a provider's output is one this attempt produced, swaps in the
+     * reference the store holds, and only then checks the output against the requested delivery:
+     * the artifact's media type, size and ownership are the engine's record rather than the
+     * provider's claim.
+     */
+    private fun normalizeOutput(
+        request: TaskRequest,
+        delivery: OutputDelivery,
+        output: TaskOutput?,
+        providerId: String,
+        attemptArtifacts: AttemptArtifacts,
+    ): TaskOutput {
+        val resolved = output?.artifact?.let { artifact ->
+            val stored = artifacts.reference(artifact.id)
+            if (!attemptArtifacts.owns(artifact.id) || stored == null) {
+                throw createInternal(
+                    message = "Provider '$providerId' returned an artifact it did not hand over in this attempt.",
+                    providerId = providerId,
+                    details = mapOf("code" to "output_mismatch"),
+                )
+            }
+            output.copy(artifact = stored)
+        } ?: output
+        checkOutput(request, delivery, resolved, providerId)?.let { throw it }
+        return checkNotNull(resolved)
     }
 
     /**
@@ -534,6 +621,12 @@ class IndeRun(
                 return granted
             }
 
+            val commit = { markCommitted { cancellation.isCancelled || gate.isTerminated } }
+            val attemptArtifacts = artifacts.attempt(commit)
+            // The artifact the completed terminal carries; every other one this attempt wrote is
+            // released when the attempt ends, however it ends.
+            var keptArtifactId: String? = null
+
             var partialText = ""
             var terminated = false
             try {
@@ -555,9 +648,9 @@ class IndeRun(
                     hostServices = hostServices,
                     cancellation = cancellation,
                     voice = candidate.voice,
-                ) {
-                    markCommitted { cancellation.isCancelled || gate.isTerminated }
-                }
+                    artifacts = attemptArtifacts,
+                    commitHandler = commit,
+                )
 
                 val providerEvents = Channel<ProviderStreamEvent>(Channel.BUFFERED)
                 val producer = launch {
@@ -602,8 +695,14 @@ class IndeRun(
                             is ProviderStreamEvent.Done, is ProviderStreamEvent.Result -> {
                                 val done = event as? ProviderStreamEvent.Done
                                 val result = event as? ProviderStreamEvent.Result
-                                val output = result?.output ?: TaskOutput(type = TaskOutputType.TEXT, text = done?.finalText)
-                                checkOutput(request, delivery, output, providerId)?.let { throw it }
+                                val output = normalizeOutput(
+                                    request,
+                                    delivery,
+                                    result?.output ?: TaskOutput(type = TaskOutputType.TEXT, text = done?.finalText),
+                                    providerId,
+                                    attemptArtifacts,
+                                )
+                                keptArtifactId = output.artifact?.id
                                 markCommitted()
                                 provenance.attempted(providerId, AttemptOutcome.Succeeded, committed = latch.isCommitted)
                                 val terminal = gate.terminate(
@@ -628,7 +727,7 @@ class IndeRun(
                                             provider.describe(),
                                             done?.reportedModel ?: result?.reportedModel,
                                         ),
-                                        output = result?.output,
+                                        output = output.takeIf { result != null },
                                     ),
                                     now(),
                                 )
@@ -657,6 +756,7 @@ class IndeRun(
                 if (terminated) return
 
                 if (cancellation.isCancelled) {
+                    attemptArtifacts.release()
                     emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
                     return
                 }
@@ -672,12 +772,14 @@ class IndeRun(
                 // outcome it is owed; only cancellation of the collector itself
                 // propagates.
                 if (cancellation.isCancelled && currentCoroutineContext().isActive) {
+                    attemptArtifacts.release()
                     emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
                     return
                 }
                 throw error
             } catch (error: Throwable) {
                 if (cancellation.isCancelled) {
+                    attemptArtifacts.release()
                     emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
                     return
                 }
@@ -710,6 +812,7 @@ class IndeRun(
                 }
 
                 // Committed: the failure belongs to this provider, not to the chain.
+                attemptArtifacts.release()
                 emitFailure(
                     exception,
                     partialText,
@@ -720,6 +823,7 @@ class IndeRun(
                 return
             } finally {
                 latch.close()
+                attemptArtifacts.release(keptArtifactId)
             }
         }
 
@@ -797,6 +901,7 @@ class IndeRun(
          * @param context The application or activity context.
          * @param registry Optional provider registry override.
          * @param modelProfiles Named model profiles requests can route within.
+         * @param artifactLimits Size limits of the engine's in-memory artifact store.
          * @return A new [IndeRun] instance.
          */
         @JvmStatic
@@ -805,11 +910,12 @@ class IndeRun(
             context: Context,
             registry: ProviderRegistry? = null,
             modelProfiles: ModelProfiles = ModelProfiles(),
+            artifactLimits: ArtifactLimits = ArtifactLimits(),
         ): IndeRun {
             val appContext = context.applicationContext
             val services = HostServicesFactory.create(appContext)
             val providerRegistry = registry ?: AndroidProviderRegistryFactory.makeDefaultRegistry(appContext)
-            return IndeRun(providerRegistry, services, modelProfiles = modelProfiles)
+            return IndeRun(providerRegistry, services, modelProfiles = modelProfiles, artifactLimits = artifactLimits)
         }
     }
 }

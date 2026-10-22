@@ -54,7 +54,12 @@ export { AUTO_MODEL_PROFILE, type ModelProfiles } from "./core/model-profiles.js
  */
 export { IndeRun, type IndeRunOptions, type StreamHandleResult } from "./core/engine.js";
 export type { IndeRunApi } from "./core/generated/inderun-api.js";
-export type { ProviderCapabilitySnapshot, StreamRun } from "./core/provider.js";
+export type {
+  ArtifactChunk,
+  ArtifactLimits,
+  ProviderCapabilitySnapshot,
+  StreamRun
+} from "./core/provider.js";
 
 /**
  * The contract types this SDK's own signatures take and return.

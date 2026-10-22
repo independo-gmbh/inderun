@@ -18,6 +18,7 @@ Every provider should define:
 - whether those modes and its cancellation behavior are actually available on the current host, when the runtime can take them away from a provider that otherwise declares them
 - its cancellation behavior
 - normalized error and telemetry behavior
+- for retrievable media, that it writes through the engine's artifact sink on its context (`artifacts.create(...)`, then `finish()`, which hands the artifact over and commits) and returns the reference it was given, never bytes or a path of its own
 - when it commits: a provider whose output has an external effect before it returns (managed playback) calls `commit()` on its context no later than that effect, and must not start it when `commit()` returns `false`; one that only hands over a result at the end commits by doing so
 - the model its backend reports for a run, when the backend names one (`TaskResult.telemetry.reportedModel` for `run`, the `done` stream event for `stream`); the engine carries it into [execution provenance](./architecture.md#execution-provenance) and never infers it
 

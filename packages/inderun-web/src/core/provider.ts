@@ -9,6 +9,15 @@ import type {
   TaskResult
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
+import type { ArtifactSink } from "./artifacts.js";
+
+export type {
+  ArtifactChunk,
+  ArtifactLimits,
+  ArtifactSink,
+  ArtifactSpec,
+  ArtifactWriter
+} from "./artifacts.js";
 
 /**
  * A provider's static declaration, live capability check, and the pair as
@@ -60,6 +69,13 @@ export interface RunContext {
    * it. Text streams commit implicitly on their first content event.
    */
   commit(): boolean;
+  /**
+   * Where the provider writes retrievable media for an `artifact` request (ADR 017). The
+   * engine holds the bytes; the provider returns the reference `finish()` gives it in an
+   * `artifact` output. Finishing commits the run. Artifacts this attempt does not return,
+   * or that a failed or cancelled attempt wrote, are discarded by the engine.
+   */
+  artifacts: ArtifactSink;
 }
 
 /**

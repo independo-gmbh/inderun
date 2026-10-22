@@ -98,10 +98,22 @@ stream is unchanged; the generated types are not, because one type now describes
   `TaskOutputType` entries.
 - **Provider authors.** A text provider returns the same result as before with the renamed type.
 
+### Media artifacts and two new `IndeRunApi` operations
+
+`IndeRunApi` gains `readArtifact(request)` and `disposeArtifact(artifact)`
+([ADR 017](architecture/decisions/017-media-artifacts.md)). Anything that implements the interface — a bridge, a test
+fake — must add both. A run with `artifact` delivery returns a `MediaArtifact` reference; read its bytes in ranges
+with `readArtifact({ artifactId, offset?, maxBytes? })`, which returns an `ArtifactChunk` (`Uint8Array` / `Data` /
+`ByteArray`), and dispose it when done — artifacts outlive their run. The engine options gain artifact store limits
+(`artifacts` on Web, an `artifactLimits` parameter on Swift and Kotlin). Provider contexts gain an `artifacts` sink
+for providers that produce media.
+
 ### Capacitor
 
 The bridge can drop its own copy of the snapshot type and import `ProviderCapabilitySnapshot` and
-`validateProviderCapabilitySnapshot` from `@independo/inderun-contracts`.
+`validateProviderCapabilitySnapshot` from `@independo/inderun-contracts`. It must implement `readArtifact` and
+`disposeArtifact` by forwarding to the native engine; only the artifact id crosses the bridge, and each read is bounded
+by the engine's maximum read size.
 
 ## 0.3 → 0.4
 

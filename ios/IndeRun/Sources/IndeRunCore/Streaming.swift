@@ -89,22 +89,33 @@ public struct ProviderStreamContext: Sendable {
     /// under the same rule (ADR 016 §4). The engine has re-checked it against the request's
     /// privacy policy immediately before the attempt.
     public let voice: ProviderVoice?
+    /// Where the provider writes retrievable media for an `artifact` request (ADR 017); see
+    /// ``RunContext/artifacts``. Finishing an artifact commits the run, and is refused once the
+    /// stream was cancelled or has ended.
+    public let artifacts: any ArtifactSink
     private let commitHandler: @Sendable () -> Bool
 
-    /// - Parameter commit: What ``commit()`` does. The engine supplies its own; when `nil`,
-    ///   the context commits unless `cancellation` has fired.
+    /// - Parameters:
+    ///   - artifacts: Where the provider writes artifacts. The engine supplies the attempt's
+    ///     view of its own store; when `nil`, the context writes into a standalone
+    ///     ``ArtifactStore`` of its own, handing over under `commit`.
+    ///   - commit: What ``commit()`` does. The engine supplies its own; when `nil`, the
+    ///     context commits unless `cancellation` has fired.
     public init(
         runId: String,
         hostServices: HostServices,
         cancellation: StreamCancellationToken,
         voice: ProviderVoice? = nil,
+        artifacts: (any ArtifactSink)? = nil,
         commit: (@Sendable () -> Bool)? = nil
     ) {
+        let commitHandler = commit ?? { !cancellation.isCancelled }
         self.runId = runId
         self.hostServices = hostServices
         self.cancellation = cancellation
         self.voice = voice
-        self.commitHandler = commit ?? { !cancellation.isCancelled }
+        self.artifacts = artifacts ?? ArtifactStore().attempt(commit: commitHandler)
+        self.commitHandler = commitHandler
     }
 
     /// Commits the run to this provider. Call it immediately before the attempt's first

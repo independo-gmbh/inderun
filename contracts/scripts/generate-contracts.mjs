@@ -129,6 +129,11 @@ const schemas = [
     nativeRoot: false
   },
   {
+    input: "artifact-read-request.schema.json",
+    typeOutput: "artifact-read-request.ts",
+    constName: "artifactReadRequestSchema"
+  },
+  {
     input: "task-output.schema.json",
     typeOutput: "task-output.ts",
     constName: "taskOutputSchema",

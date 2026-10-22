@@ -14,6 +14,7 @@
 //   let streamEvent = try StreamEvent(json)
 //   let streamTerminalOutcome = try StreamTerminalOutcome(json)
 //   let providerCapabilitySnapshot = try ProviderCapabilitySnapshot(json)
+//   let artifactReadRequest = try ArtifactReadRequest(json)
 
 import Foundation
 
@@ -5305,6 +5306,73 @@ public extension ProviderCapabilitySnapshot {
             capabilities: capabilities ?? self.capabilities,
             descriptor: descriptor ?? self.descriptor,
             providerId: providerId ?? self.providerId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A ranged read of an engine-owned media artifact through IndeRunApi.readArtifact (ADR
+/// 017). Reads are repeatable until the artifact is disposed; each returns at most the
+/// engine's configured maximum read size, which bounds what one call -- and one bridge
+/// message -- carries.
+// MARK: - ArtifactReadRequest
+public struct ArtifactReadRequest: Codable, Sendable {
+    /// MediaArtifact.id of the artifact to read.
+    public var artifactId: String
+    /// Most bytes to return. Absent, or larger than the engine's maximum read size, means that
+    /// maximum.
+    public var maxBytes: Int?
+    /// Byte offset to read from. Absent means 0. An offset equal to the artifact's size returns
+    /// an empty, final chunk; a larger one is rejected.
+    public var offset: Int?
+
+    public enum CodingKeys: String, CodingKey {
+        case artifactId = "artifactId"
+        case maxBytes = "maxBytes"
+        case offset = "offset"
+    }
+
+    public init(artifactId: String, maxBytes: Int?, offset: Int?) {
+        self.artifactId = artifactId
+        self.maxBytes = maxBytes
+        self.offset = offset
+    }
+}
+
+// MARK: ArtifactReadRequest convenience initializers and mutators
+
+public extension ArtifactReadRequest {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ArtifactReadRequest.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        artifactId: String? = nil,
+        maxBytes: Int?? = nil,
+        offset: Int?? = nil
+    ) -> ArtifactReadRequest {
+        return ArtifactReadRequest(
+            artifactId: artifactId ?? self.artifactId,
+            maxBytes: maxBytes ?? self.maxBytes,
+            offset: offset ?? self.offset
         )
     }
 
