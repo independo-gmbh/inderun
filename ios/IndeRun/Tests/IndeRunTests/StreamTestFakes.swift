@@ -318,7 +318,7 @@ final class DeclaredOnlyStreamProvider: ProviderAdapter, @unchecked Sendable {
 
 /// The request the `non_text_outputs` conformance cases stream: speech 'Hallo' in de-AT,
 /// played back on the device.
-func makeSpeechRequest(delivery: OutputDeliveryRequest = OutputDeliveryRequest(mediaTypes: nil, mode: .playback)) -> TaskRequest {
+func makeSpeechRequest(delivery: OutputDeliveryRequest = OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback)) -> TaskRequest {
     TaskRequest(
         task: TaskDescriptor(kind: .textToSpeech),
         constraints: TaskRequestConstraints(privacy: .localRequired),

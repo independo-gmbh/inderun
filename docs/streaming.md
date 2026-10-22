@@ -81,7 +81,9 @@ never streamed: read an artifact with `readArtifact()` once the terminal has arr
 ([ADR 017](architecture/decisions/017-media-artifacts.md)). A
 cancelled playback run that had committed carries a `playback` output, because sound may already have
 been heard; one cancelled before it committed, like an artifact run cancelled before its artifact was
-handed over, carries neither field. `provenance` says how the run played
+handed over, carries neither field. A cancel that lands while the engine writes an artifact to an
+application destination does not interrupt the write, so that cancelled outcome carries the
+application-owned artifact whose bytes are already there. `provenance` says how the run played
 out: the target it is attributed to and that target's declared locality, the configured and reported
 model, every attempt and how it ended (so `fallbackOccurred` is a reported fact rather than something
 to infer by comparing `handle.providerId` with `telemetry.providerUsed`), and why the planner rejected

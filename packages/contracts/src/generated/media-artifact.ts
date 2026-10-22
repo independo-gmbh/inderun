@@ -12,6 +12,11 @@ export type MediaArtifact = {
      */
     byteLength?: number;
     /**
+     * The request's delivery.destinationRef the bytes were written to. Set exactly when owner
+     * is 'application'.
+     */
+    destinationRef?: string;
+    /**
      * Duration of time-based media in milliseconds, where the producer knows it.
      */
     durationMs?: number;

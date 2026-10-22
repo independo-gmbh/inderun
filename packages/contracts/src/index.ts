@@ -115,6 +115,7 @@ export type {
  */
 export type {
   AbortSignalLike,
+  ArtifactDestinationService,
   ConnectivityService,
   ThermalState,
   DeviceConstraintsService,

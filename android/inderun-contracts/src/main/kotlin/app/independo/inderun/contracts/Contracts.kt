@@ -147,6 +147,15 @@ enum class Privacy(val rawValue: String) {
  */
 data class OutputDeliveryRequest(
     /**
+     * Only valid with 'artifact' delivery: an opaque reference to an application destination
+     * the engine writes the finished artifact to, resolved by the host's artifact-destination
+     * service (ADR 017) -- never a raw path or URL, like authContextRef for credentials. The
+     * result's artifact is then application-owned and the engine keeps no copy. A host without
+     * the service refuses the request before routing.
+     */
+    val destinationRef: String? = null,
+
+    /**
      * Only valid with 'artifact' delivery: the acceptable media types, always a hard
      * requirement. Absent means the provider chooses and the artifact reports what it produced.
      */
@@ -509,9 +518,11 @@ enum class FinishReason(val rawValue: String) {
  * task-output.schema.json.
  *
  * What a cancelled non-text run had already produced: a playback run that committed (audio
- * may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
- * artifact run cancelled before its artifact was handed over, whose partial media the
- * engine discards. See task-output.schema.json.
+ * may have been heard) carries a playback output, and an artifact run cancelled while the
+ * engine was writing its artifact to an application destination carries that
+ * application-owned artifact, whose bytes the write left at the destination. Absent when
+ * nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+ * whose partial media the engine discards. See task-output.schema.json.
  */
 data class TaskOutput(
     /**
@@ -554,6 +565,12 @@ data class MediaArtifact(
      * Size of the media in bytes. Always set for an artifact the engine materialized.
      */
     val byteLength: Long? = null,
+
+    /**
+     * The request's delivery.destinationRef the bytes were written to. Set exactly when owner
+     * is 'application'.
+     */
+    val destinationRef: String? = null,
 
     /**
      * Duration of time-based media in milliseconds, where the producer knows it.
@@ -2326,9 +2343,11 @@ data class StreamTerminalOutcome(
      * task-output.schema.json.
      *
      * What a cancelled non-text run had already produced: a playback run that committed (audio
-     * may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
-     * artifact run cancelled before its artifact was handed over, whose partial media the
-     * engine discards. See task-output.schema.json.
+     * may have been heard) carries a playback output, and an artifact run cancelled while the
+     * engine was writing its artifact to an application destination carries that
+     * application-owned artifact, whose bytes the write left at the destination. Absent when
+     * nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+     * whose partial media the engine discards. See task-output.schema.json.
      */
     val output: TaskOutput? = null,
 

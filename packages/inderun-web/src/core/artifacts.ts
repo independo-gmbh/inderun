@@ -170,6 +170,11 @@ export class ArtifactStore {
     return reference;
   }
 
+  /** @internal The whole artifact, for writing it to an application destination. */
+  bytes(artifactId: string): Uint8Array | undefined {
+    return this.artifacts.get(artifactId)?.bytes;
+  }
+
   /** @internal */
   get maxArtifactBytes(): number {
     return this.limits.maxArtifactBytes;

@@ -64,6 +64,21 @@ class TaskContractFixtureTest {
     }
 
     @Test
+    fun `invalid fixture requests fail the profile validation`() {
+        var checked = 0
+        for (file in fixturesDir().listFiles { file -> file.name.endsWith(".json") }.orEmpty().sortedBy { it.name }) {
+            val invalid = JSONObject(file.readText(Charsets.UTF_8)).optJSONArray("invalidRequests") ?: continue
+            for (index in 0 until invalid.length()) {
+                val entry = invalid.getJSONObject(index)
+                val request = parseTaskRequest(entry.getJSONObject("request"))
+                assertTrue(entry.getString("id"), taskProfileFor(request.task.kind)!!.validate(request).isNotEmpty())
+                checked++
+            }
+        }
+        assertTrue("No invalid task-contract fixture requests were found", checked > 0)
+    }
+
+    @Test
     fun `recheck refuses a network voice only under local_required`() {
         val voice = ProviderVoice(locale = "de-AT", networkRequired = true)
         val localRequired = speechRequest(privacy = Privacy.LocalRequired)
@@ -171,6 +186,7 @@ class TaskContractFixtureTest {
             OutputDeliveryRequest(
                 mode = OutputDelivery.fromRawValue(delivery.getString("mode"))!!,
                 mediaTypes = delivery.optJSONArray("mediaTypes")?.let { types -> List(types.length()) { types.getString(it) } },
+                destinationRef = delivery.optStringOrNull("destinationRef"),
             )
         },
         constraints = json.optJSONObject("constraints")?.let { constraints ->

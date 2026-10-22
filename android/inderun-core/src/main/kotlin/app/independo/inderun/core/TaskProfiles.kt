@@ -94,6 +94,14 @@ private object TextToSpeechProfile : TaskProfile {
             if (delivery.mode != OutputDelivery.Playback && delivery.mode != OutputDelivery.Artifact) {
                 add("delivery.mode must be 'playback' or 'artifact' for task.kind 'text_to_speech'.")
             }
+            delivery.destinationRef?.let { destinationRef ->
+                if (delivery.mode != OutputDelivery.Artifact) {
+                    add("delivery.destinationRef is only allowed with delivery.mode 'artifact'.")
+                }
+                if (destinationRef.isEmpty()) {
+                    add("delivery.destinationRef must be non-empty.")
+                }
+            }
             val mediaTypes = delivery.mediaTypes
             if (mediaTypes != null) {
                 if (delivery.mode != OutputDelivery.Artifact) {

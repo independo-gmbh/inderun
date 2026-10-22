@@ -51,7 +51,9 @@ declaring them on the generated `IndeRunApi`.
 what the committed schemas must do with it — `current` cases must validate, `proposed` and `contract_only` cases
 must be rejected at `/task/kind` until the schema change that admits them lands —
 and `packages/contracts/src/task-contract-fixtures.test.ts` enforces that. Text and text-to-speech are `current`;
-image-to-text stays a contract-only vector. `fixtures/artifacts/media-artifacts.json` holds valid and invalid
+image-to-text stays a contract-only vector. A file's `invalidRequests` are requests the schema's per-kind rules
+reject; the Swift and Kotlin task profiles restate those rules by hand, and their fixture tests hold each profile to
+rejecting every one. `fixtures/artifacts/media-artifacts.json` holds valid and invalid
 `MediaArtifact` references, an image among them to keep the reference media-neutral.
 `fixtures/execution/artifact-lifecycle.json` is a scenario catalog like `engine-conformance.json`, for the
 engine-owned artifact store: ranged reads, disposal, the size limits, and the artifacts the engine discards on its

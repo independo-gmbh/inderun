@@ -36,6 +36,11 @@
       "description": "Duration of time-based media in milliseconds, where the producer knows it.",
       "type": "number",
       "minimum": 0
+    },
+    "destinationRef": {
+      "description": "The request's delivery.destinationRef the bytes were written to. Set exactly when owner is 'application'.",
+      "type": "string",
+      "minLength": 1
     }
   }
 }

@@ -124,15 +124,24 @@ package enum TaskProfiles {
         if delivery.mode == .inline {
             issues.append("delivery.mode must be 'playback' or 'artifact' for task.kind 'text_to_speech'.")
         }
-        guard let mediaTypes = delivery.mediaTypes else { return issues }
-        if delivery.mode != .artifact {
-            issues.append("delivery.mediaTypes is only valid with 'artifact' delivery.")
+        if let destinationRef = delivery.destinationRef {
+            if delivery.mode != .artifact {
+                issues.append("delivery.destinationRef is only valid with 'artifact' delivery.")
+            }
+            if destinationRef.isEmpty {
+                issues.append("delivery.destinationRef must be non-empty.")
+            }
         }
-        if mediaTypes.isEmpty || mediaTypes.contains(where: \.isEmpty) {
-            issues.append("delivery.mediaTypes must be a non-empty list of non-empty media types.")
-        }
-        if Set(mediaTypes).count != mediaTypes.count {
-            issues.append("delivery.mediaTypes must not repeat a media type.")
+        if let mediaTypes = delivery.mediaTypes {
+            if delivery.mode != .artifact {
+                issues.append("delivery.mediaTypes is only valid with 'artifact' delivery.")
+            }
+            if mediaTypes.isEmpty || mediaTypes.contains(where: \.isEmpty) {
+                issues.append("delivery.mediaTypes must be a non-empty list of non-empty media types.")
+            }
+            if Set(mediaTypes).count != mediaTypes.count {
+                issues.append("delivery.mediaTypes must not repeat a media type.")
+            }
         }
         return issues
     }

@@ -34,6 +34,8 @@ type FixtureFile = {
   task: string;
   status: "current" | "proposed" | "contract_only";
   cases: FixtureCase[];
+  /** Requests the schema's per-kind rules reject; every SDK must reject them too. */
+  invalidRequests?: Array<{ id: string; request: unknown }>;
 };
 
 const fixtureFiles = readdirSync(fixturesDir)
@@ -87,6 +89,12 @@ describe("task-contract fixtures", () => {
             expect(issues.map((issue) => issue.path)).toContain("/task/kind");
           });
         }
+      }
+
+      for (const invalid of fixture.invalidRequests ?? []) {
+        it(`${invalid.id}: is rejected by the schema`, () => {
+          expect(getTaskRequestValidationIssues(invalid.request)).not.toEqual([]);
+        });
       }
     });
   }

@@ -175,6 +175,12 @@ class ArtifactStore(private val limits: ArtifactLimits = ArtifactLimits()) {
         }
     }
 
+    /**
+     * A copy of the whole artifact's bytes, or null once it was disposed: what the engine writes to
+     * an application destination.
+     */
+    fun bytes(artifactId: String): ByteArray? = synchronized(lock) { artifacts[artifactId]?.bytes }?.copyOf()
+
     /** The stored reference for [artifactId], or null once it was disposed. */
     fun reference(artifactId: String): MediaArtifact? = synchronized(lock) { artifacts[artifactId]?.reference }
 

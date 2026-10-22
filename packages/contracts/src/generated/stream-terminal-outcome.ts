@@ -50,9 +50,11 @@ export type StreamTerminalOutcome = {
      * task-output.schema.json.
      *
      * What a cancelled non-text run had already produced: a playback run that committed (audio
-     * may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
-     * artifact run cancelled before its artifact was handed over, whose partial media the
-     * engine discards. See task-output.schema.json.
+     * may have been heard) carries a playback output, and an artifact run cancelled while the
+     * engine was writing its artifact to an application destination carries that
+     * application-owned artifact, whose bytes the write left at the destination. Absent when
+     * nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+     * whose partial media the engine discards. See task-output.schema.json.
      */
     output?: TaskOutput;
     /**
@@ -298,9 +300,11 @@ export type Outcome = "completed" | "error" | "cancelled";
  * played.
  *
  * What a cancelled non-text run had already produced: a playback run that committed (audio
- * may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
- * artifact run cancelled before its artifact was handed over, whose partial media the
- * engine discards. See task-output.schema.json.
+ * may have been heard) carries a playback output, and an artifact run cancelled while the
+ * engine was writing its artifact to an application destination carries that
+ * application-owned artifact, whose bytes the write left at the destination. Absent when
+ * nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+ * whose partial media the engine discards. See task-output.schema.json.
  */
 export type TaskOutput = {
     /**
@@ -340,6 +344,11 @@ export type MediaArtifact = {
      * Size of the media in bytes. Always set for an artifact the engine materialized.
      */
     byteLength?: number;
+    /**
+     * The request's delivery.destinationRef the bytes were written to. Set exactly when owner
+     * is 'application'.
+     */
+    destinationRef?: string;
     /**
      * Duration of time-based media in milliseconds, where the producer knows it.
      */

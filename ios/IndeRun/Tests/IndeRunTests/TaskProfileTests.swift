@@ -131,7 +131,7 @@ final class TaskProfileTests: XCTestCase {
                 text: "Hallo",
                 voice: SpeechVoice(gender: .female, requirement: nil)
             ),
-            delivery: OutputDeliveryRequest(mediaTypes: nil, mode: .playback)
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback)
         )
     }
 
@@ -255,7 +255,7 @@ final class TaskProfileTests: XCTestCase {
         var request = speechRequest()
         request.speech?.text = ""
         request.speech?.voice = SpeechVoice(gender: nil, requirement: .requirementLevelRequired)
-        request.delivery = OutputDeliveryRequest(mediaTypes: ["audio/wav"], mode: .inline)
+        request.delivery = OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .inline)
 
         let issues = TaskProfiles.profile(for: .textToSpeech).validate(request)
 

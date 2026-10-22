@@ -87,7 +87,9 @@ its artifact over, the engine writes it to the destination, drops its own copy, 
 
 A host without a destination service — the default browser host — refuses a request with a `destinationRef` before
 routing, with `CapabilityMismatch` (`details.code: "artifact_destination_unsupported"`). A failed destination write
-happens after the run committed, so it is a terminal error and never a fallback.
+happens after the run committed, so it is a terminal error and never a fallback. Cancellation never starts a
+destination write and does not interrupt one in progress; a stream cancelled during the write ends `cancelled`, and
+because the bytes are then at the destination, its outcome carries the application-owned artifact.
 
 ### 5. Commit
 

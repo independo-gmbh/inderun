@@ -1,5 +1,5 @@
 {
-  "$comment": "ADR 016 example 2: text_to_speech with managed playback and with a retrievable audio artifact (ADR 017). status 'current': every request, result and terminal here validates against the committed 1.0 schemas (packages/contracts/src/task-contract-fixtures.test.ts). The planner object is the projection onto route-planner-input's task (#243) that every SDK must produce for the request.",
+  "$comment": "ADR 016 example 2: text_to_speech with managed playback and with a retrievable audio artifact (ADR 017). status 'current': every request, result and terminal here validates against the committed 1.0 schemas (packages/contracts/src/task-contract-fixtures.test.ts). The planner object is the projection onto route-planner-input's task (#243) that every SDK must produce for the request. 'invalidRequests' are requests the schema's per-kind rules reject; every SDK's request validation must reject each one too (the Web engine validates against the schema, Swift and Kotlin restate the rules in their task profiles).",
   "task": "text_to_speech",
   "status": "current",
   "cases": [
@@ -101,6 +101,45 @@
         "inputs": ["text"],
         "delivery": { "mode": "artifact", "mediaTypes": ["audio/wav", "audio/mpeg"] },
         "locale": { "tag": "en-GB", "match": "exact" }
+      }
+    }
+  ],
+  "invalidRequests": [
+    {
+      "id": "destination_ref_with_playback",
+      "description": "destinationRef is only valid with artifact delivery.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Hallo",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "playback",
+          "destinationRef": "dest_greeting"
+        }
+      }
+    },
+    {
+      "id": "empty_destination_ref",
+      "description": "destinationRef must not be empty.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Hallo",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "artifact",
+          "mediaTypes": ["audio/wav"],
+          "destinationRef": ""
+        }
       }
     }
   ]

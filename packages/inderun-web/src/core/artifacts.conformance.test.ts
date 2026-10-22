@@ -25,6 +25,7 @@ import {
   type RunContext
 } from "../provider.js";
 import { createMockHostServices, drain } from "../test/stream-fakes.js";
+import type { HostServices } from "./host.js";
 
 /**
  * The Web half of the cross-SDK artifact-store catalog
@@ -60,6 +61,13 @@ interface Expectations {
   finishedReadable?: Record<string, boolean[]>;
   terminal?: { outcome?: string; absentOutput?: boolean };
   maxSerializedEventBytes?: number;
+  rejectsBeforeRouting?: { errorClass: string; code: string };
+  destinationWrites?: {
+    destinationRef: string;
+    mediaType: string;
+    byteLength: number;
+    bytesMatchPattern: boolean;
+  }[];
 }
 
 interface CatalogCase {
@@ -238,18 +246,28 @@ interface Observation {
   runOutcomes?: string[];
   events?: StreamEvent[];
   fakes: ArtifactFake[];
+  destinationWrites?: { destinationRef: string; artifact: MediaArtifact; bytes: Uint8Array }[];
 }
 
-function engineWith(fakes: ArtifactFake[], limits?: ArtifactLimits): IndeRun {
+function engineWith(
+  fakes: ArtifactFake[],
+  limits?: ArtifactLimits,
+  host: HostServices = createMockHostServices()
+): IndeRun {
   const registry = new ProviderRegistry();
   for (const fake of fakes) registry.register(fake);
-  return new IndeRun(registry, createMockHostServices(), limits ? { artifacts: limits } : {});
+  return new IndeRun(registry, host, limits ? { artifacts: limits } : {});
 }
 
-async function runCase(fakes: ArtifactFake[], limits?: ArtifactLimits): Promise<Observation> {
-  const engine = engineWith(fakes, limits);
+async function runCase(
+  fakes: ArtifactFake[],
+  limits?: ArtifactLimits,
+  host?: HostServices,
+  runRequest: TaskRequest = request
+): Promise<Observation> {
+  const engine = engineWith(fakes, limits, host);
   try {
-    const result = await engine.run(request);
+    const result = await engine.run(runRequest);
     return {
       engine,
       output: result.output,
@@ -266,7 +284,79 @@ async function runCase(fakes: ArtifactFake[], limits?: ArtifactLimits): Promise<
   }
 }
 
+const destinationRequest: TaskRequest = {
+  ...request,
+  delivery: { mode: "artifact", mediaTypes: ["audio/wav"], destinationRef: "dest_greeting" }
+};
+
+/**
+ * A host whose destination service accepts every reference and records each write. With
+ * `blockWrites`, a write waits for `release()`; `writeStarted` resolves when one begins.
+ */
+function destinationHost(options: { failWrites?: boolean; blockWrites?: boolean } = {}) {
+  const writes: NonNullable<Observation["destinationWrites"]> = [];
+  let markStarted = () => {};
+  let release = () => {};
+  const writeStarted = new Promise<void>((resolve) => (markStarted = resolve));
+  const released = new Promise<void>((resolve) => (release = resolve));
+  const host: HostServices = {
+    ...createMockHostServices(),
+    artifactDestinations: {
+      accepts: async () => true,
+      write: async (destinationRef, artifact, bytes) => {
+        markStarted();
+        if (options.blockWrites) await released;
+        if (options.failWrites) throw new Error("disk full at /private/dest_greeting");
+        writes.push({ destinationRef, artifact, bytes: bytes.slice() });
+      }
+    }
+  };
+  return { host, writes, writeStarted, release };
+}
+
 const handlers: Record<string, () => Promise<Observation>> = {
+  async destination_unsupported_refused_before_routing() {
+    const fake = new ArtifactFake("p1", [{ write: 10 }, { finish: true }, { returnFinished: 0 }]);
+    return runCase([fake], undefined, createMockHostServices(), destinationRequest);
+  },
+  async destination_written_and_store_released() {
+    const { host, writes } = destinationHost();
+    const fake = new ArtifactFake("p1", [{ write: 1000 }, { finish: true }, { returnFinished: 0 }]);
+    const observed = await runCase([fake], undefined, host, destinationRequest);
+    return { ...observed, destinationWrites: writes };
+  },
+  async cancel_during_destination_write_is_cancelled() {
+    const { host, writes, writeStarted, release } = destinationHost({ blockWrites: true });
+    const fake = new ArtifactFake("p1", [{ write: 10 }, { finish: true }, { returnFinished: 0 }]);
+    const engine = engineWith([fake], undefined, host);
+    const { events, cancel } = await engine.stream(destinationRequest);
+    const collector = drain(events);
+    await writeStarted;
+    cancel();
+    release();
+    const received = await collector;
+    const terminal = received.find((event) => event.type === "terminal")!;
+    const output = (terminal.payload as unknown as { output?: TaskOutput }).output;
+    return {
+      engine,
+      fakes: [fake],
+      events: received,
+      destinationWrites: writes,
+      ...(output ? { output } : {})
+    };
+  },
+  async destination_write_failure_is_terminal() {
+    const { host } = destinationHost({ failWrites: true });
+    return runCase(
+      [
+        new ArtifactFake("p1", [{ write: 10 }, { finish: true }, { returnFinished: 0 }]),
+        new ArtifactFake("p2", [{ write: 10 }, { finish: true }, { returnFinished: 0 }])
+      ],
+      undefined,
+      host,
+      destinationRequest
+    );
+  },
   read_full: () =>
     runCase([
       new ArtifactFake("p1", [{ write: 1000 }, { finish: true }, { returnFinished: 0 }], {
@@ -469,6 +559,24 @@ async function assertCase(expected: Expectations, observed: Observation): Promis
     if (expected.terminal.outcome !== undefined)
       expect(payload["outcome"]).toBe(expected.terminal.outcome);
     if (expected.terminal.absentOutput === true) expect(payload).not.toHaveProperty("output");
+  }
+  if (expected.rejectsBeforeRouting !== undefined) {
+    expect(observed.rejection, "expected run() to throw").toBeInstanceOf(IndeRunException);
+    expect(observed.rejection!.errorClass).toBe(expected.rejectsBeforeRouting.errorClass);
+    expect(observed.rejection!.details?.["code"]).toBe(expected.rejectsBeforeRouting.code);
+    expect(observed.attempts ?? []).toEqual([]);
+  }
+  if (expected.destinationWrites !== undefined) {
+    expect(
+      (observed.destinationWrites ?? []).map((write) => ({
+        destinationRef: write.destinationRef,
+        mediaType: write.artifact.mediaType,
+        byteLength: write.bytes.byteLength,
+        bytesMatchPattern:
+          JSON.stringify([...write.bytes]) ===
+          JSON.stringify([...pattern(0, write.bytes.byteLength)])
+      }))
+    ).toEqual(expected.destinationWrites);
   }
   if (expected.maxSerializedEventBytes !== undefined) {
     for (const event of observed.events ?? []) {

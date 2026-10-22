@@ -120,6 +120,7 @@ class IndeRun(
 
         try {
             validateRequest(request, runId)
+            checkDestination(request, runId)
 
             val routeSelection = router.selectRoute(
                 request,
@@ -183,7 +184,12 @@ class IndeRun(
                             commitHandler = commit,
                         ),
                     )
-                    val output = normalizeOutput(request, delivery, result.output, providerId, attemptArtifacts)
+                    val output = deliverToDestination(
+                        request,
+                        normalizeOutput(request, delivery, result.output, providerId, attemptArtifacts),
+                        providerId,
+                    )
+                    keptArtifactId = engineOwnedArtifactId(output)
 
                     val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
                     provenance.attempted(providerId, AttemptOutcome.Succeeded, committed = latch.isCommitted)
@@ -210,7 +216,7 @@ class IndeRun(
                             totalMs = totalMs,
                         ),
                         provenance = provenance.build(provider.describe(), result.telemetry.reportedModel),
-                    ).also { keptArtifactId = output.artifact?.id }
+                    )
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
@@ -355,6 +361,52 @@ class IndeRun(
     }
 
     /**
+     * Refuses, before routing, an artifact request whose `destinationRef` this host cannot write
+     * to: there is no point running a provider whose result has nowhere to go.
+     */
+    private suspend fun checkDestination(request: TaskRequest, runId: String) {
+        val destinationRef = request.delivery?.destinationRef ?: return
+        val destinations = hostServices.artifactDestinations ?: throw createCapabilityMismatch(
+            message = "This host has no application artifact destinations.",
+            runId = runId,
+            details = mapOf("code" to "artifact_destination_unsupported"),
+        )
+        if (!destinations.accepts(destinationRef, request.delivery?.mediaTypes)) {
+            throw createCapabilityMismatch(
+                message = "The host refused the requested artifact destination.",
+                runId = runId,
+                details = mapOf("code" to "artifact_destination_refused"),
+            )
+        }
+    }
+
+    /**
+     * Writes a finished artifact to the request's application destination, if it names one, and
+     * drops the engine's copy: the result's artifact is then application-owned. The run has
+     * committed by now, so a failed write is the run's failure, never a fallback.
+     */
+    private suspend fun deliverToDestination(request: TaskRequest, output: TaskOutput, providerId: String): TaskOutput {
+        val destinationRef = request.delivery?.destinationRef ?: return output
+        val artifact = output.artifact ?: return output
+        try {
+            hostServices.artifactDestinations!!.write(destinationRef, artifact, artifacts.bytes(artifact.id)!!)
+        } catch (error: CancellationException) {
+            artifacts.dispose(artifact.id)
+            throw error
+        } catch (_: Throwable) {
+            // The host's error stays out of the run's error: it may name the destination.
+            artifacts.dispose(artifact.id)
+            throw createInternal(
+                message = "Writing the artifact to its application destination failed.",
+                providerId = providerId,
+                details = mapOf("code" to "artifact_destination_write_failed"),
+            )
+        }
+        artifacts.dispose(artifact.id)
+        return output.copy(artifact = artifact.copy(owner = ArtifactOwner.Application, destinationRef = destinationRef))
+    }
+
+    /**
      * Emits a telemetry event, swallowing any sink failures so telemetry can
      * never disrupt primary execution flows.
      */
@@ -405,8 +457,11 @@ class IndeRun(
 
         try {
             validateRequest(request, runId)
-        } catch (error: IndeRunException) {
-            throw error.withProvenance(preRunProvenance.build())
+            checkDestination(request, runId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw toIndeRunException(error, fallbackRunId = runId).withProvenance(preRunProvenance.build())
         }
 
         val routeSelection = try {
@@ -502,8 +557,16 @@ class IndeRun(
         val textRun = delivery == OutputDelivery.Inline
 
         // `provider` is the one running when cancellation landed, if any, and `committed` whether
-        // its attempt had committed; the outcome is attributed to it.
-        suspend fun emitCancelled(partialText: String, provider: ProviderAdapter?, committed: Boolean, attempted: List<String>) {
+        // its attempt had committed; the outcome is attributed to it. `delivered` is an artifact
+        // already written to its application destination: those bytes are the application's now,
+        // so the outcome reports them.
+        suspend fun emitCancelled(
+            partialText: String,
+            provider: ProviderAdapter?,
+            committed: Boolean,
+            attempted: List<String>,
+            delivered: TaskOutput? = null,
+        ) {
             val providerId = provider?.describe()?.id
             providerId?.let { provenance.attempted(it, AttemptOutcome.Cancelled, committed = committed) }
             val terminal = gate.terminate(
@@ -515,7 +578,7 @@ class IndeRun(
                     reason = cancellation.reason,
                     provenance = provenance.build(provider?.describe()),
                     // Committed playback may have been heard.
-                    output = if (committed && delivery == OutputDelivery.Playback) {
+                    output = delivered ?: if (committed && delivery == OutputDelivery.Playback) {
                         TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput())
                     } else {
                         null
@@ -695,15 +758,27 @@ class IndeRun(
                             is ProviderStreamEvent.Done, is ProviderStreamEvent.Result -> {
                                 val done = event as? ProviderStreamEvent.Done
                                 val result = event as? ProviderStreamEvent.Result
-                                val output = normalizeOutput(
+                                val normalized = normalizeOutput(
                                     request,
                                     delivery,
                                     result?.output ?: TaskOutput(type = TaskOutputType.TEXT, text = done?.finalText),
                                     providerId,
                                     attemptArtifacts,
                                 )
-                                keptArtifactId = output.artifact?.id
                                 markCommitted()
+                                // No destination write starts after a cancel. One already running
+                                // is not interrupted, but the run still ends cancelled: bytes
+                                // already at the destination are the application's, so the outcome
+                                // reports them, and anything the engine still holds is released.
+                                if (cancellation.isCancelled) break
+                                val output = deliverToDestination(request, normalized, providerId)
+                                if (cancellation.isCancelled) {
+                                    if (output.artifact?.owner != ArtifactOwner.Application) break
+                                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList(), output)
+                                    terminated = true
+                                    break
+                                }
+                                keptArtifactId = engineOwnedArtifactId(output)
                                 provenance.attempted(providerId, AttemptOutcome.Succeeded, committed = latch.isCommitted)
                                 val terminal = gate.terminate(
                                     completedOutcome(
@@ -919,6 +994,9 @@ class IndeRun(
         }
     }
 }
+
+/** The id of an artifact output the engine still holds, which an attempt must keep. */
+private fun engineOwnedArtifactId(output: TaskOutput): String? = output.artifact?.takeIf { it.owner == ArtifactOwner.Engine }?.id
 
 /**
  * Records the moment a run committed to one attempt's provider (see [RunContext.commit]).

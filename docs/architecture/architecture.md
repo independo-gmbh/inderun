@@ -110,9 +110,17 @@ claim: its media type, size and ownership are what the provider wrote, and that 
 `delivery.mediaTypes`. Artifact bytes, like request content, never appear in telemetry, provenance
 or error details. `contracts/fixtures/execution/artifact-lifecycle.json` holds the cases every engine runs.
 
+An application that wants the bytes somewhere specific names a destination with `delivery.destinationRef`. The
+engine resolves it through the host's optional artifact-destination service, refuses the request before routing when
+the host has none (the default browser host) or refuses the reference, and after the winning attempt hands its
+artifact over writes it there and drops its own copy; the result's artifact is then application-owned. Providers
+never see destinations, so there is one write path per engine. A failed write is post-commit, so it fails the run
+and never falls back. A cancel never starts a write and does not interrupt one in progress; a stream cancelled during
+the write ends `cancelled`, and its outcome carries the application-owned artifact the write left at the destination.
+
 ## Security And Parity
 
-Credentials must be referenced through secure storage, not embedded in request payloads. Cross-platform behavior should stay aligned even when the underlying runtime differs by OS or provider.
+Credentials must be referenced through secure storage, not embedded in request payloads. Artifact destinations follow the same pattern: a request carries an opaque `destinationRef` the host resolves, never a path or URL, so a request that came from a webview cannot address arbitrary storage. Cross-platform behavior should stay aligned even when the underlying runtime differs by OS or provider.
 
 Bridge packages may accept minimal provider bootstrap options when the underlying platform SDK cannot infer required cloud-provider configuration from the canonical request alone. That bootstrap must stay limited to provider registration inputs and must not duplicate routing or orchestration semantics.
 

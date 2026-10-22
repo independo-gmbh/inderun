@@ -7,8 +7,26 @@ import XCTest
 /// generated Swift types and the task-profile table (#245). For every file whose status is
 /// `current`, each request must survive the `TaskRequest` Codable round trip, and the kind's
 /// profile must project it onto exactly the recorded planner task -- the projection the Web
-/// and Kotlin engines produce for the same request.
+/// and Kotlin engines produce for the same request. Every `invalidRequests` entry must fail the
+/// kind's validation, as it fails the schema the Web engine validates against.
 final class TaskContractFixtureTests: XCTestCase {
+    func testInvalidRequestsFailTheProfileValidation() throws {
+        var checked = 0
+        for file in try fixtureFiles() {
+            let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+            for entry in root["invalidRequests"] as? [[String: Any]] ?? [] {
+                let id = try XCTUnwrap(entry["id"] as? String)
+                let request = try JSONDecoder().decode(
+                    TaskRequest.self,
+                    from: JSONSerialization.data(withJSONObject: try XCTUnwrap(entry["request"], id))
+                )
+                XCTAssertFalse(TaskProfiles.profile(for: request.task.kind).validate(request).isEmpty, id)
+                checked += 1
+            }
+        }
+        XCTAssertGreaterThan(checked, 0)
+    }
+
     func testCurrentRequestsRoundTripThroughTaskRequest() throws {
         let cases = try loadCurrentCases()
         XCTAssertFalse(cases.isEmpty)
@@ -55,8 +73,8 @@ final class TaskContractFixtureTests: XCTestCase {
         }
     }
 
-    /// `(fixture task/case id, case)` for every case in a `current` fixture file.
-    private func loadCurrentCases() throws -> [(String, [String: Any])] {
+    /// Every fixture file in `contracts/fixtures/task-contracts`, by name.
+    private func fixtureFiles() throws -> [URL] {
         let directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -64,12 +82,15 @@ final class TaskContractFixtureTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("contracts/fixtures/task-contracts")
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
 
+    /// `(fixture task/case id, case)` for every case in a `current` fixture file.
+    private func loadCurrentCases() throws -> [(String, [String: Any])] {
         var cases: [(String, [String: Any])] = []
-        for file in files {
+        for file in try fixtureFiles() {
             let root = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
             )

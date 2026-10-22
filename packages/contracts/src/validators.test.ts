@@ -197,6 +197,15 @@ describe("TaskRequest per-task requirements (ADR 016)", () => {
     ).toBe(false);
   });
 
+  it("accepts a destinationRef only with artifact delivery", () => {
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "artifact", destinationRef: "dest_1" } })
+    ).toBe(true);
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "playback", destinationRef: "dest_1" } })
+    ).toBe(false);
+  });
+
   it("requires a trait on a required voice but not on a preferred one", () => {
     const withVoice = (voice: object) => ({ ...speech, speech: { ...speech.speech, voice } });
     expect(validateTaskRequest(withVoice({ requirement: "required" }))).toBe(false);

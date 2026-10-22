@@ -29,6 +29,7 @@ import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
+import app.independo.inderun.core.ArtifactDestinationService
 import app.independo.inderun.core.ArtifactLimits
 import app.independo.inderun.core.ArtifactSink
 import app.independo.inderun.core.ArtifactSpec
@@ -125,6 +126,10 @@ private val artifactRequest = TaskRequest(
     speech = SpeechInput(text = "Hallo", locale = "de-AT"),
     delivery = OutputDeliveryRequest(mode = OutputDelivery.Artifact, mediaTypes = listOf("audio/wav")),
     constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
+)
+
+private val destinationRequest = artifactRequest.copy(
+    delivery = OutputDeliveryRequest(mode = OutputDelivery.Artifact, mediaTypes = listOf("audio/wav"), destinationRef = "dest_greeting"),
 )
 
 /** byte[i] = i % 251 over [start, start + length). */
@@ -275,17 +280,53 @@ private class ArtifactObservation(
     val attempts: List<List<String>>? = null,
     val runOutcomes: List<String>? = null,
     val events: List<StreamEvent>? = null,
+    val destinationWrites: List<DestinationWrite>? = null,
 )
 
-private fun engineWith(fakes: List<ArtifactFake>, limits: ArtifactLimits = ArtifactLimits()): IndeRun {
-    val registry = ProviderRegistry().apply { fakes.forEach { register(it) } }
-    return IndeRun(registry, conformanceHostServices(), artifactLimits = limits)
+private class DestinationWrite(val destinationRef: String, val artifact: MediaArtifact, val bytes: ByteArray)
+
+/** A destination service that accepts every reference and records each write, or fails them all. */
+/** With [blockWrites], a write waits for [release]; [writeStarted] completes when one begins. */
+private class RecordingDestinations(
+    private val failWrites: Boolean = false,
+    private val blockWrites: Boolean = false,
+) : ArtifactDestinationService {
+    val writes = mutableListOf<DestinationWrite>()
+    val writeStarted = CompletableDeferred<Unit>()
+    private val released = CompletableDeferred<Unit>()
+
+    fun release() {
+        released.complete(Unit)
+    }
+
+    override suspend fun accepts(destinationRef: String, mediaTypes: List<String>?) = true
+
+    override suspend fun write(destinationRef: String, artifact: MediaArtifact, bytes: ByteArray) {
+        writeStarted.complete(Unit)
+        if (blockWrites) released.await()
+        if (failWrites) error("disk full at /private/dest_greeting")
+        writes += DestinationWrite(destinationRef, artifact, bytes.copyOf())
+    }
 }
 
-private suspend fun runCase(fakes: List<ArtifactFake>, limits: ArtifactLimits = ArtifactLimits()): ArtifactObservation {
-    val engine = engineWith(fakes, limits)
+private fun engineWith(
+    fakes: List<ArtifactFake>,
+    limits: ArtifactLimits = ArtifactLimits(),
+    host: HostServices = conformanceHostServices(),
+): IndeRun {
+    val registry = ProviderRegistry().apply { fakes.forEach { register(it) } }
+    return IndeRun(registry, host, artifactLimits = limits)
+}
+
+private suspend fun runCase(
+    fakes: List<ArtifactFake>,
+    limits: ArtifactLimits = ArtifactLimits(),
+    host: HostServices = conformanceHostServices(),
+    request: TaskRequest = artifactRequest,
+): ArtifactObservation {
+    val engine = engineWith(fakes, limits, host)
     return try {
-        val result = engine.run(artifactRequest)
+        val result = engine.run(request)
         ArtifactObservation(
             engine = engine,
             fakes = fakes,
@@ -305,6 +346,51 @@ private suspend fun runCase(fakes: List<ArtifactFake>, limits: ArtifactLimits = 
 private fun writeFinishReturn(bytes: Int) = listOf(ArtifactStep.Write(bytes), ArtifactStep.Finish, ArtifactStep.ReturnFinished(0))
 
 private val artifactHandlers: Map<String, suspend () -> ArtifactObservation> = mapOf(
+    "destination_unsupported_refused_before_routing" to {
+        runCase(listOf(ArtifactFake("p1", writeFinishReturn(10))), request = destinationRequest)
+    },
+    "destination_written_and_store_released" to {
+        val destinations = RecordingDestinations()
+        val host = conformanceHostServices().copy(artifactDestinations = destinations)
+        val observed = runCase(listOf(ArtifactFake("p1", writeFinishReturn(1000))), host = host, request = destinationRequest)
+        ArtifactObservation(
+            engine = observed.engine,
+            fakes = observed.fakes,
+            output = observed.output,
+            rejection = observed.rejection,
+            attempts = observed.attempts,
+            destinationWrites = destinations.writes,
+        )
+    },
+    "cancel_during_destination_write_is_cancelled" to {
+        val destinations = RecordingDestinations(blockWrites = true)
+        val fake = ArtifactFake("p1", writeFinishReturn(10))
+        val engine = engineWith(listOf(fake), host = conformanceHostServices().copy(artifactDestinations = destinations))
+        val run = engine.stream(destinationRequest)
+        val events = mutableListOf<StreamEvent>()
+        coroutineScope {
+            val collector = launch { run.events.collect { events += it } }
+            destinations.writeStarted.await()
+            run.cancel()
+            destinations.release()
+            collector.join()
+        }
+        ArtifactObservation(
+            engine = engine,
+            fakes = listOf(fake),
+            events = events,
+            output = events.firstOrNull { it.type == "terminal" }?.payload?.output,
+            destinationWrites = destinations.writes,
+        )
+    },
+    "destination_write_failure_is_terminal" to {
+        val host = conformanceHostServices().copy(artifactDestinations = RecordingDestinations(failWrites = true))
+        runCase(
+            listOf(ArtifactFake("p1", writeFinishReturn(10)), ArtifactFake("p2", writeFinishReturn(10))),
+            host = host,
+            request = destinationRequest,
+        )
+    },
     "read_full" to {
         runCase(listOf(ArtifactFake("p1", writeFinishReturn(1000), ArtifactSpec(mediaType = "audio/wav", durationMs = 500.0))))
     },
@@ -441,6 +527,7 @@ private fun MediaArtifact.fields(): Map<String, Any?> = buildMap {
     put("lifetime", lifetime.rawValue)
     byteLength?.let { put("byteLength", it) }
     durationMs?.let { put("durationMs", it) }
+    destinationRef?.let { put("destinationRef", it) }
 }
 
 private fun JSONObject.expectedFields(): Map<String, Any?> = keys().asSequence().associateWith { key ->
@@ -518,6 +605,29 @@ private suspend fun checkArtifactCase(label: String, expected: JSONObject, obser
             same("runRejectsWith errorClass", wanted.getString("errorClass"), rejection.errorClass.rawValue)
             if (wanted.has("code")) same("runRejectsWith code", wanted.getString("code"), rejection.details?.get("code"))
         }
+    }
+
+    expected.optJSONObject("rejectsBeforeRouting")?.let { wanted ->
+        val rejection = observed.rejection
+        require(rejection != null) { "expected run() to throw" }
+        if (rejection != null) {
+            same("rejectsBeforeRouting errorClass", wanted.getString("errorClass"), rejection.errorClass.rawValue)
+            same("rejectsBeforeRouting code", wanted.getString("code"), rejection.details?.get("code"))
+            same("rejectsBeforeRouting attempts", emptyList<List<String>>(), observed.attempts.orEmpty())
+        }
+    }
+
+    expected.optJSONArray("destinationWrites")?.let { wanted ->
+        same(
+            "destinationWrites",
+            (0 until wanted.length()).map { index ->
+                val write = wanted.getJSONObject(index)
+                listOf(write.getString("destinationRef"), write.getString("mediaType"), write.getInt("byteLength"), write.getBoolean("bytesMatchPattern"))
+            },
+            observed.destinationWrites.orEmpty().map { write ->
+                listOf(write.destinationRef, write.artifact.mediaType, write.bytes.size, write.bytes.contentEquals(pattern(0, write.bytes.size)))
+            },
+        )
     }
 
     expected.optJSONArray("runs")?.let { wanted ->

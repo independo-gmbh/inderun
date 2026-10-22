@@ -145,6 +145,7 @@ public final class IndeRun: IndeRunApi {
                     details: ["validationIssues": JSONAny(validationIssues.joined(separator: ", "))]
                 )
             }
+            try await checkDestination(request: request, runId: runId)
 
             // 2. Select route
             let routeSelection = try await router.selectRoute(
@@ -213,7 +214,10 @@ public final class IndeRun: IndeRunApi {
                         providerId: providerId,
                         attemptArtifacts: attemptArtifacts
                     )
-                    keptArtifactId = result.output.artifact?.id
+                    result.output = try await deliverToDestination(
+                        request: request, output: result.output, providerId: providerId
+                    )
+                    keptArtifactId = engineOwnedArtifactId(result.output)
 
                     let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
                     let totalMs = Double(endTime - startTime)
@@ -345,6 +349,11 @@ public final class IndeRun: IndeRunApi {
                 details: ["validationIssues": JSONAny(validationIssues.joined(separator: ", "))]
             ).withProvenance(provenance.build())
         }
+        do {
+            try await checkDestination(request: request, runId: runId)
+        } catch {
+            throw toIndeRunException(error, fallbackRunId: runId).withProvenance(provenance.build())
+        }
 
         let routeSelection: RouteSelection
         do {
@@ -454,17 +463,26 @@ public final class IndeRun: IndeRunApi {
         /// whether its attempt had committed; the outcome is attributed to it. A text run
         /// reports what it delivered; committed playback reports that it played; an
         /// uncommitted non-text run produced nothing to report.
+        ///
+        /// `delivered` is an artifact already written to its application destination: those
+        /// bytes are the application's now, so the outcome reports them.
         func emitCancelled(
-            partialText: String, provider: (any ProviderAdapter)?, committed: Bool, attempted: [String]
+            partialText: String,
+            provider: (any ProviderAdapter)?,
+            committed: Bool,
+            attempted: [String],
+            delivered: TaskOutput? = nil
         ) {
             let providerId = provider?.describe().id
             if let providerId { provenance.attempted(providerId, .cancelled, committed: committed) }
             let outcome = StreamTerminalOutcome.cancelled(
                 runId: runId,
                 partialText: textRun ? partialText : nil,
-                output: committed && delivery == .playback
-                    ? TaskOutput(playback: PlaybackOutput(durationMs: nil))
-                    : nil,
+                output: delivered ?? (
+                    committed && delivery == .playback
+                        ? TaskOutput(playback: PlaybackOutput(durationMs: nil))
+                        : nil
+                ),
                 reason: cancellation.reason,
                 provenance: provenance.build(attributedTo: provider?.describe())
             )
@@ -573,7 +591,7 @@ public final class IndeRun: IndeRunApi {
                 )
 
                 var terminatedInLoop = false
-                for try await event in streaming.stream(request: request, context: context) {
+                providerEvents: for try await event in streaming.stream(request: request, context: context) {
                     if cancellation.isCancelled { break }
 
                     switch event {
@@ -611,8 +629,27 @@ public final class IndeRun: IndeRunApi {
                             providerId: providerId,
                             attemptArtifacts: attemptArtifacts
                         )
-                        keptArtifactId = completion.output.artifact?.id
                         _ = markCommitted { false }
+                        // No destination write starts after a cancel. One already running is
+                        // not interrupted, but the run still ends cancelled: bytes already at the
+                        // destination are the application's, so the outcome reports them, and
+                        // anything the engine still holds is released.
+                        if cancellation.isCancelled { break providerEvents }
+                        completion.output = try await deliverToDestination(
+                            request: request, output: completion.output, providerId: providerId
+                        )
+                        if cancellation.isCancelled {
+                            guard completion.output.artifact?.owner == .application else { break providerEvents }
+                            emitCancelled(
+                                partialText: partialText,
+                                provider: provider,
+                                committed: latch.isCommitted,
+                                attempted: attemptedProviderIds,
+                                delivered: completion.output
+                            )
+                            return
+                        }
+                        keptArtifactId = engineOwnedArtifactId(completion.output)
                         provenance.attempted(providerId, .succeeded, committed: true)
                         let outcome = StreamTerminalOutcome.completed(
                             runId: runId,
@@ -820,6 +857,64 @@ public final class IndeRun: IndeRunApi {
         return resolved
     }
 
+    /// Refuses, before routing, an artifact request whose `destinationRef` this host cannot
+    /// write to: there is no point running a provider whose result has nowhere to go.
+    private func checkDestination(request: TaskRequest, runId: String) async throws {
+        guard let destinationRef = request.delivery?.destinationRef else { return }
+        guard let destinations = hostServices.artifactDestinations else {
+            throw createCapabilityMismatch(
+                message: "This host has no application artifact destinations.",
+                runId: runId,
+                details: ["code": JSONAny("artifact_destination_unsupported")]
+            )
+        }
+        if !(await destinations.accepts(destinationRef: destinationRef, mediaTypes: request.delivery?.mediaTypes)) {
+            throw createCapabilityMismatch(
+                message: "The host refused the requested artifact destination.",
+                runId: runId,
+                details: ["code": JSONAny("artifact_destination_refused")]
+            )
+        }
+    }
+
+    /// Writes a finished artifact to the request's application destination, if it names one,
+    /// and drops the engine's copy: the result's artifact is then application-owned. The run
+    /// has committed by now, so a failed write is the run's failure, never a fallback.
+    private func deliverToDestination(
+        request: TaskRequest,
+        output: TaskOutput,
+        providerId: String
+    ) async throws -> TaskOutput {
+        guard let destinationRef = request.delivery?.destinationRef,
+              let artifact = output.artifact else { return output }
+        // Both hold here: `checkDestination` refused the request otherwise, and
+        // `normalizeOutput` only returns an artifact the store still holds.
+        guard let destinations = hostServices.artifactDestinations,
+              let bytes = artifacts.bytes(artifactId: artifact.id) else {
+            throw createInternal(
+                message: "The artifact to write to its application destination is no longer held.",
+                providerId: providerId,
+                details: ["code": JSONAny("artifact_destination_write_failed")]
+            )
+        }
+        do {
+            try await destinations.write(destinationRef: destinationRef, artifact: artifact, bytes: bytes)
+        } catch {
+            // The host's error stays out of the run's error: it may name the destination.
+            artifacts.dispose(artifactId: artifact.id)
+            throw createInternal(
+                message: "Writing the artifact to its application destination failed.",
+                providerId: providerId,
+                details: ["code": JSONAny("artifact_destination_write_failed")]
+            )
+        }
+        artifacts.dispose(artifactId: artifact.id)
+        var delivered = output
+        delivered.artifact?.owner = .application
+        delivered.artifact?.destinationRef = destinationRef
+        return delivered
+    }
+
     /// Reads a byte range of an engine-owned media artifact (ADR 017). See
     /// `IndeRunApi.readArtifact`.
     public func readArtifact(request: ArtifactReadRequest) async throws -> ArtifactChunk {
@@ -864,6 +959,11 @@ public final class IndeRun: IndeRunApi {
         }
         return snapshots
     }
+}
+
+/// The id of an artifact output the engine still holds, which an attempt must keep.
+private func engineOwnedArtifactId(_ output: TaskOutput) -> String? {
+    output.artifact?.owner == .engine ? output.artifact?.id : nil
 }
 
 /// Records the moment a run committed to one attempt's provider (see `RunContext.commit()`).

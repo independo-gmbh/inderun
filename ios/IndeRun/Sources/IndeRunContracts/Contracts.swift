@@ -241,17 +241,25 @@ public enum Privacy: String, Codable, Sendable {
 /// provider never substitutes playback for an artifact or the reverse.
 // MARK: - OutputDeliveryRequest
 public struct OutputDeliveryRequest: Codable, Sendable {
+    /// Only valid with 'artifact' delivery: an opaque reference to an application destination
+    /// the engine writes the finished artifact to, resolved by the host's artifact-destination
+    /// service (ADR 017) -- never a raw path or URL, like authContextRef for credentials. The
+    /// result's artifact is then application-owned and the engine keeps no copy. A host without
+    /// the service refuses the request before routing.
+    public var destinationRef: String?
     /// Only valid with 'artifact' delivery: the acceptable media types, always a hard
     /// requirement. Absent means the provider chooses and the artifact reports what it produced.
     public var mediaTypes: [String]?
     public var mode: OutputDelivery
 
     public enum CodingKeys: String, CodingKey {
+        case destinationRef = "destinationRef"
         case mediaTypes = "mediaTypes"
         case mode = "mode"
     }
 
-    public init(mediaTypes: [String]?, mode: OutputDelivery) {
+    public init(destinationRef: String?, mediaTypes: [String]?, mode: OutputDelivery) {
+        self.destinationRef = destinationRef
         self.mediaTypes = mediaTypes
         self.mode = mode
     }
@@ -276,10 +284,12 @@ public extension OutputDeliveryRequest {
     }
 
     func with(
+        destinationRef: String?? = nil,
         mediaTypes: [String]?? = nil,
         mode: OutputDelivery? = nil
     ) -> OutputDeliveryRequest {
         return OutputDeliveryRequest(
+            destinationRef: destinationRef ?? self.destinationRef,
             mediaTypes: mediaTypes ?? self.mediaTypes,
             mode: mode ?? self.mode
         )
@@ -918,9 +928,11 @@ public enum FinishReason: String, Codable, Sendable {
 /// task-output.schema.json.
 ///
 /// What a cancelled non-text run had already produced: a playback run that committed (audio
-/// may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
-/// artifact run cancelled before its artifact was handed over, whose partial media the
-/// engine discards. See task-output.schema.json.
+/// may have been heard) carries a playback output, and an artifact run cancelled while the
+/// engine was writing its artifact to an application destination carries that
+/// application-owned artifact, whose bytes the write left at the destination. Absent when
+/// nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+/// whose partial media the engine discards. See task-output.schema.json.
 // MARK: - TaskOutput
 public struct TaskOutput: Codable, Sendable {
     /// The retrievable media the run produced. Required when type is 'artifact'.
@@ -1005,6 +1017,9 @@ public extension TaskOutput {
 public struct MediaArtifact: Codable, Sendable {
     /// Size of the media in bytes. Always set for an artifact the engine materialized.
     public var byteLength: Int?
+    /// The request's delivery.destinationRef the bytes were written to. Set exactly when owner
+    /// is 'application'.
+    public var destinationRef: String?
     /// Duration of time-based media in milliseconds, where the producer knows it.
     public var durationMs: Double?
     /// Opaque, engine-issued identifier. Never a path, URL or provider identifier.
@@ -1022,6 +1037,7 @@ public struct MediaArtifact: Codable, Sendable {
 
     public enum CodingKeys: String, CodingKey {
         case byteLength = "byteLength"
+        case destinationRef = "destinationRef"
         case durationMs = "durationMs"
         case id = "id"
         case lifetime = "lifetime"
@@ -1029,8 +1045,9 @@ public struct MediaArtifact: Codable, Sendable {
         case owner = "owner"
     }
 
-    public init(byteLength: Int?, durationMs: Double?, id: String, lifetime: ArtifactLifetime, mediaType: String, owner: ArtifactOwner) {
+    public init(byteLength: Int?, destinationRef: String?, durationMs: Double?, id: String, lifetime: ArtifactLifetime, mediaType: String, owner: ArtifactOwner) {
         self.byteLength = byteLength
+        self.destinationRef = destinationRef
         self.durationMs = durationMs
         self.id = id
         self.lifetime = lifetime
@@ -1059,6 +1076,7 @@ public extension MediaArtifact {
 
     func with(
         byteLength: Int?? = nil,
+        destinationRef: String?? = nil,
         durationMs: Double?? = nil,
         id: String? = nil,
         lifetime: ArtifactLifetime? = nil,
@@ -1067,6 +1085,7 @@ public extension MediaArtifact {
     ) -> MediaArtifact {
         return MediaArtifact(
             byteLength: byteLength ?? self.byteLength,
+            destinationRef: destinationRef ?? self.destinationRef,
             durationMs: durationMs ?? self.durationMs,
             id: id ?? self.id,
             lifetime: lifetime ?? self.lifetime,
@@ -4904,9 +4923,11 @@ public struct StreamTerminalOutcome: Codable, Sendable {
     /// task-output.schema.json.
     ///
     /// What a cancelled non-text run had already produced: a playback run that committed (audio
-    /// may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
-    /// artifact run cancelled before its artifact was handed over, whose partial media the
-    /// engine discards. See task-output.schema.json.
+    /// may have been heard) carries a playback output, and an artifact run cancelled while the
+    /// engine was writing its artifact to an application destination carries that
+    /// application-owned artifact, whose bytes the write left at the destination. Absent when
+    /// nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+    /// whose partial media the engine discards. See task-output.schema.json.
     public var output: TaskOutput?
     /// Normalized execution provenance: which target ran, its declared locality, the configured
     /// and reported model, and how fallback and routing played out. See

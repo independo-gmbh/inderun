@@ -152,6 +152,12 @@ public final class ArtifactStore: @unchecked Sendable {
         }
     }
 
+    /// The whole artifact, for writing it to an application destination; `nil` once it was
+    /// disposed.
+    public func bytes(artifactId: String) -> Data? {
+        lock.locked { artifacts[artifactId]?.bytes }
+    }
+
     /// The stored reference for `artifactId`, or `nil` once it was disposed.
     public func reference(artifactId: String) -> MediaArtifact? {
         lock.locked { artifacts[artifactId]?.reference }
@@ -168,6 +174,7 @@ public final class ArtifactStore: @unchecked Sendable {
             }
             let reference = MediaArtifact(
                 byteLength: bytes.count,
+                destinationRef: nil,
                 durationMs: spec.durationMs,
                 id: "art_\(randomHex(byteCount: 12))",
                 lifetime: .untilDisposed,

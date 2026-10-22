@@ -213,6 +213,7 @@ final class RunCommitTests: XCTestCase {
         let calls = CallLog()
         let artifact = TaskOutput(artifact: MediaArtifact(
             byteLength: nil,
+            destinationRef: nil,
             durationMs: nil,
             id: "art_1",
             lifetime: .untilDisposed,
@@ -229,7 +230,7 @@ final class RunCommitTests: XCTestCase {
 
         let error = try await runExpectingFailure(
             engine,
-            makeSpeechRequest(delivery: OutputDeliveryRequest(mediaTypes: ["audio/wav"], mode: .artifact))
+            makeSpeechRequest(delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact))
         )
 
         XCTAssertEqual(error.details?["code"]?.value as? String, "output_mismatch")
@@ -250,7 +251,7 @@ final class RunCommitTests: XCTestCase {
         ])
 
         let result = try await engine.run(
-            request: makeSpeechRequest(delivery: OutputDeliveryRequest(mediaTypes: ["audio/l16"], mode: .artifact))
+            request: makeSpeechRequest(delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/l16"], mode: .artifact))
         )
 
         let artifact = try XCTUnwrap(result.output.artifact)

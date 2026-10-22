@@ -1,7 +1,7 @@
 {
-  "$comment": "Cross-SDK catalog for the engine-owned media artifact store (ADR 017): ranged reads, disposal, the limits, and what the engine discards on its own. Like streaming/engine-conformance.json it is a scenario catalog: 'setup' is normative prose naming the fakes and what they write, 'expect' is shared data, and each SDK registers one handler per 'id' behind a guard test that fails when the handler ids and the ids here differ. Cases run run() unless 'mode' is 'stream'. A provider's 'finished' artifacts are the references its writer's finish() returned, in order; 'finishedReadable' says whether readArtifact still finds each one after the run.",
+  "$comment": "Cross-SDK catalog for the engine-owned media artifact store (ADR 017): ranged reads, disposal, the limits, and what the engine discards on its own. Like streaming/engine-conformance.json it is a scenario catalog: 'setup' is normative prose naming the fakes and what they write, 'expect' is shared data, and each SDK registers one handler per 'id' behind a guard test that fails when the handler ids and the ids here differ. Cases run run() unless 'mode' is 'stream'. A provider's 'finished' artifacts are the references its writer's finish() returned, in order; 'finishedReadable' says whether readArtifact still finds each one after the run. Cases with a destinationRef run on a host whose artifact-destination service accepts every reference and records each write, unless the setup says the host has none or its write fails.",
   "$expectKeys": {
-    "output": "Fields of the result's (or completed terminal's) output.artifact, compared exactly; the id is checked only for being present.",
+    "output": "Fields of the result's (or, in stream mode, the terminal's) output.artifact, compared exactly; the id is checked only for being present.",
     "reads": "readArtifact calls made in order after the run, each with its request and the chunk's offset, byte length, totalBytes and done. Every chunk's bytes must equal the pattern over [offset, offset + length).",
     "readRejects": "readArtifact calls that must throw, with the error class, retryable flag, details.code, or a validation issue path.",
     "runRejectsWith": "run() threw: the error class and, when given, details.code.",
@@ -10,7 +10,9 @@
     "providerObservedCodes": "details.code of every error each fake's writer threw at it, in order.",
     "finishedReadable": "Per provider, whether each artifact it finished is still readable after the run.",
     "terminal": "Stream mode: fields of the terminal payload; 'absentOutput' asserts the key is missing.",
-    "maxSerializedEventBytes": "Stream mode: the largest JSON encoding of any delivered StreamEvent, in bytes, must stay below this."
+    "maxSerializedEventBytes": "Stream mode: the largest JSON encoding of any delivered StreamEvent, in bytes, must stay below this.",
+    "rejectsBeforeRouting": "run() threw before any provider was entered: the error class and details.code.",
+    "destinationWrites": "What the host's artifact-destination service was asked to write, in order: the destinationRef, the artifact's media type and byte length, and whether the bytes follow the pattern."
   },
   "cases": [
     {
@@ -308,6 +310,68 @@
       }
     },
     {
+      "id": "destination_unsupported_refused_before_routing",
+      "description": "A host with no artifact-destination service refuses a request that names a destination before any provider runs, rather than producing media with nowhere to go.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'] and destinationRef 'dest_greeting', privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251. The host has no artifact-destination service. `p1` would write 10 bytes, finish and return the artifact.",
+      "expect": {
+        "rejectsBeforeRouting": {
+          "errorClass": "CapabilityMismatch",
+          "code": "artifact_destination_unsupported"
+        },
+        "providerCallCounts": {
+          "p1": 0
+        }
+      }
+    },
+    {
+      "id": "destination_written_and_store_released",
+      "description": "The engine writes the finished artifact to the application destination, returns it as application-owned, and keeps no copy.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'] and destinationRef 'dest_greeting', privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251. `p1` writes 1000 bytes, finishes and returns the artifact.",
+      "expect": {
+        "output": {
+          "mediaType": "audio/wav",
+          "owner": "application",
+          "lifetime": "until_disposed",
+          "byteLength": 1000,
+          "destinationRef": "dest_greeting"
+        },
+        "destinationWrites": [
+          {
+            "destinationRef": "dest_greeting",
+            "mediaType": "audio/wav",
+            "byteLength": 1000,
+            "bytesMatchPattern": true
+          }
+        ],
+        "readRejects": [
+          {
+            "request": {},
+            "errorClass": "Unavailable",
+            "retryable": false,
+            "code": "artifact_not_found"
+          }
+        ]
+      }
+    },
+    {
+      "id": "destination_write_failure_is_terminal",
+      "description": "A failed destination write happens after commit, so the run fails without falling back, and the engine discards its copy.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'] and destinationRef 'dest_greeting', privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251. The host's write fails. `p1` writes 10 bytes, finishes and returns the artifact; `p2` is registered as the fallback and would do the same.",
+      "expect": {
+        "runRejectsWith": {
+          "errorClass": "Internal",
+          "code": "artifact_destination_write_failed"
+        },
+        "providerCallCounts": {
+          "p1": 1,
+          "p2": 0
+        },
+        "finishedReadable": {
+          "p1": [false]
+        }
+      }
+    },
+    {
       "id": "stored_media_type_decides_the_match",
       "description": "The engine checks the media type the store recorded when the artifact was written, not the one the provider claims when it returns the reference: an audio/mpeg artifact relabelled audio/wav does not satisfy a request for audio/wav. Handing it over had committed the run, so the mismatch is terminal and the artifact is discarded.",
       "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'], privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251. `p1` writes 10 bytes as 'audio/mpeg', finishes, and returns that artifact's reference with mediaType changed to 'audio/wav'. `p2` is registered as the fallback and would return a 10-byte 'audio/wav' artifact.",
@@ -320,6 +384,35 @@
           "p1": 1,
           "p2": 0
         },
+        "finishedReadable": {
+          "p1": [false]
+        }
+      }
+    },
+    {
+      "id": "cancel_during_destination_write_is_cancelled",
+      "mode": "stream",
+      "description": "A cancel that lands while the host is writing the artifact to its destination ends the stream cancelled, not completed. The engine does not interrupt a write already in progress, so the cancelled terminal carries the application-owned artifact: its bytes are at the destination, and the application owns them.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, artifact delivery with mediaTypes ['audio/wav'] and destinationRef 'dest_greeting', privacy local_required. Every fake declares a text_to_speech capability with artifact output 'audio/wav'. Written bytes follow the pattern byte[i] = i % 251. The host's write blocks until the test releases it. `p1` writes 10 bytes, finishes and returns the artifact. The consumer cancels once the host write has started, then releases the write.",
+      "expect": {
+        "terminal": {
+          "outcome": "cancelled"
+        },
+        "output": {
+          "mediaType": "audio/wav",
+          "owner": "application",
+          "lifetime": "until_disposed",
+          "byteLength": 10,
+          "destinationRef": "dest_greeting"
+        },
+        "destinationWrites": [
+          {
+            "destinationRef": "dest_greeting",
+            "mediaType": "audio/wav",
+            "byteLength": 10,
+            "bytesMatchPattern": true
+          }
+        ],
         "finishedReadable": {
           "p1": [false]
         }

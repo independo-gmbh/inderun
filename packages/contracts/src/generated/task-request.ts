@@ -114,6 +114,14 @@ export type Privacy = "local_required" | "local_preferred" | "cloud_allowed" | "
  */
 export type OutputDeliveryRequest = {
     /**
+     * Only valid with 'artifact' delivery: an opaque reference to an application destination
+     * the engine writes the finished artifact to, resolved by the host's artifact-destination
+     * service (ADR 017) -- never a raw path or URL, like authContextRef for credentials. The
+     * result's artifact is then application-owned and the engine keeps no copy. A host without
+     * the service refuses the request before routing.
+     */
+    destinationRef?: string;
+    /**
      * Only valid with 'artifact' delivery: the acceptable media types, always a hard
      * requirement. Absent means the provider chooses and the artifact reports what it produced.
      */

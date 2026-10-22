@@ -106,7 +106,9 @@ fake — must add both. A run with `artifact` delivery returns a `MediaArtifact`
 with `readArtifact({ artifactId, offset?, maxBytes? })`, which returns an `ArtifactChunk` (`Uint8Array` / `Data` /
 `ByteArray`), and dispose it when done — artifacts outlive their run. The engine options gain artifact store limits
 (`artifacts` on Web, an `artifactLimits` parameter on Swift and Kotlin). Provider contexts gain an `artifacts` sink
-for providers that produce media.
+for providers that produce media. A request may name an application destination with `delivery.destinationRef`
+(artifact delivery only); it needs the new optional host service (`artifactDestinations` on Web `HostServices`, the
+matching protocol / interface on Swift and Kotlin), and a host without one refuses the request before routing.
 
 ### Capacitor
 

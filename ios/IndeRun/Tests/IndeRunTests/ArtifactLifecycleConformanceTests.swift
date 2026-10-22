@@ -42,11 +42,19 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
         let lifetime: String
         var byteLength: Int?
         var durationMs: Double?
+        var destinationRef: String?
     }
 
     private struct RunRejection: Decodable {
         let errorClass: String
         var code: String?
+    }
+
+    private struct DestinationWrite: Decodable, Equatable {
+        let destinationRef: String
+        let mediaType: String
+        let byteLength: Int
+        let bytesMatchPattern: Bool
     }
 
     private struct TerminalExpectation: Decodable {
@@ -66,6 +74,8 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
         var finishedReadable: [String: [Bool]]?
         var terminal: TerminalExpectation?
         var maxSerializedEventBytes: Int?
+        var rejectsBeforeRouting: RunRejection?
+        var destinationWrites: [DestinationWrite]?
     }
 
     private struct CatalogCase: Decodable {
@@ -123,6 +133,7 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
         var attempts: [[String]]?
         var runOutcomes: [String]?
         var events: [StreamEvent]?
+        var destinationWrites: [RecordingDestinations.Write]?
     }
 
     // MARK: Handlers
@@ -131,6 +142,51 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
 
     private var handlers: [String: Handler] {
         [
+            "destination_unsupported_refused_before_routing": { [self] in
+                try await runCase(
+                    [ArtifactFake(id: "p1", steps: [.write(10), .finish, .returnFinished(0)])],
+                    request: Self.destinationRequest
+                )
+            },
+            "destination_written_and_store_released": { [self] in
+                let destinations = RecordingDestinations()
+                var observed = try await runCase(
+                    [ArtifactFake(id: "p1", steps: [.write(1000), .finish, .returnFinished(0)])],
+                    destinations: destinations,
+                    request: Self.destinationRequest
+                )
+                observed.destinationWrites = destinations.writes
+                return observed
+            },
+            "cancel_during_destination_write_is_cancelled": { [self] in
+                let destinations = RecordingDestinations(blockWrites: true)
+                let fake = ArtifactFake(id: "p1", steps: [.write(10), .finish, .returnFinished(0)])
+                let engine = try engine(with: [fake], destinations: destinations)
+                let run = try await engine.stream(request: Self.destinationRequest)
+                let collector = Task { try await Self.drain(run) }
+                await destinations.waitUntilWriteStarted()
+                run.cancel()
+                destinations.release()
+                let events = try await collector.value
+                var observed = Observation(
+                    engine: engine,
+                    fakes: [fake],
+                    output: events.first { $0.type == "terminal" }?.payload?.output,
+                    events: events
+                )
+                observed.destinationWrites = destinations.writes
+                return observed
+            },
+            "destination_write_failure_is_terminal": { [self] in
+                try await runCase(
+                    [
+                        ArtifactFake(id: "p1", steps: [.write(10), .finish, .returnFinished(0)]),
+                        ArtifactFake(id: "p2", steps: [.write(10), .finish, .returnFinished(0)])
+                    ],
+                    destinations: RecordingDestinations(failWrites: true),
+                    request: Self.destinationRequest
+                )
+            },
             "read_full": { [self] in
                 try await runCase([
                     ArtifactFake(
@@ -250,23 +306,40 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
     // MARK: Helpers
 
     private static let request = makeSpeechRequest(
-        delivery: OutputDeliveryRequest(mediaTypes: ["audio/wav"], mode: .artifact)
+        delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact)
     )
 
-    private func engine(with fakes: [ArtifactFake], limits: ArtifactLimits = ArtifactLimits()) throws -> IndeRun {
+    private static let destinationRequest = makeSpeechRequest(
+        delivery: OutputDeliveryRequest(destinationRef: "dest_greeting", mediaTypes: ["audio/wav"], mode: .artifact)
+    )
+
+    private func engine(
+        with fakes: [ArtifactFake],
+        limits: ArtifactLimits = ArtifactLimits(),
+        destinations: ArtifactDestinationService? = nil
+    ) throws -> IndeRun {
         let registry = ProviderRegistry()
         for fake in fakes { try registry.register(fake) }
         return IndeRun(
             registry: registry,
-            hostServices: HostServices(connectivity: MockConnectivityService(), clock: MockClockService()),
+            hostServices: HostServices(
+                connectivity: MockConnectivityService(),
+                clock: MockClockService(),
+                artifactDestinations: destinations
+            ),
             artifactLimits: limits
         )
     }
 
-    private func runCase(_ fakes: [ArtifactFake], limits: ArtifactLimits = ArtifactLimits()) async throws -> Observation {
-        let engine = try engine(with: fakes, limits: limits)
+    private func runCase(
+        _ fakes: [ArtifactFake],
+        limits: ArtifactLimits = ArtifactLimits(),
+        destinations: ArtifactDestinationService? = nil,
+        request: TaskRequest = ArtifactLifecycleConformanceTests.request
+    ) async throws -> Observation {
+        let engine = try engine(with: fakes, limits: limits, destinations: destinations)
         do {
-            let result = try await engine.run(request: Self.request)
+            let result = try await engine.run(request: request)
             return Observation(
                 engine: engine,
                 fakes: fakes,
@@ -318,7 +391,8 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
                     owner: artifact.owner.rawValue,
                     lifetime: artifact.lifetime.rawValue,
                     byteLength: artifact.byteLength,
-                    durationMs: artifact.durationMs
+                    durationMs: artifact.durationMs,
+                    destinationRef: artifact.destinationRef
                 ),
                 output,
                 "\(label): output"
@@ -398,6 +472,29 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
                 XCTAssertNil(payload.output, "\(label): terminal output must be absent")
             }
         }
+        if let beforeRouting = expected.rejectsBeforeRouting {
+            guard let rejection = observed.rejection else {
+                XCTFail("\(label): expected run() to throw")
+                return
+            }
+            XCTAssertEqual(rejection.errorClass.rawValue, beforeRouting.errorClass, "\(label): errorClass")
+            XCTAssertEqual(rejection.details?["code"]?.value as? String, beforeRouting.code, "\(label): code")
+            XCTAssertEqual(observed.attempts ?? [], [], "\(label): no attempt before routing")
+        }
+        if let writes = expected.destinationWrites {
+            XCTAssertEqual(
+                (observed.destinationWrites ?? []).map { write in
+                    DestinationWrite(
+                        destinationRef: write.destinationRef,
+                        mediaType: write.artifact.mediaType,
+                        byteLength: write.bytes.count,
+                        bytesMatchPattern: write.bytes == pattern(start: 0, count: write.bytes.count)
+                    )
+                },
+                writes,
+                "\(label): destination writes"
+            )
+        }
         if let maxBytes = expected.maxSerializedEventBytes {
             for event in observed.events ?? [] {
                 let size = try JSONEncoder().encode(event).count
@@ -411,7 +508,66 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
     }
 }
 
-// MARK: - Fake
+// MARK: - Fakes
+
+/// A host artifact-destination service that accepts every reference and records each write,
+/// or fails every write with an error naming a path the run's error must not repeat.
+private final class RecordingDestinations: ArtifactDestinationService, @unchecked Sendable {
+    struct Write {
+        let destinationRef: String
+        let artifact: MediaArtifact
+        let bytes: Data
+    }
+
+    private let failWrites: Bool
+    /// When set, a write waits for `release()` before it completes.
+    private let blockWrites: Bool
+    private let lock = NSLock()
+    private var recorded: [Write] = []
+    private var started = false
+    private var released = false
+
+    init(failWrites: Bool = false, blockWrites: Bool = false) {
+        self.failWrites = failWrites
+        self.blockWrites = blockWrites
+    }
+
+    var writes: [Write] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    /// Waits until a write has begun. Bounded, so a broken path fails rather than hangs.
+    func waitUntilWriteStarted() async {
+        for _ in 0 ..< 500 where !lock.withLock({ started }) {
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+    }
+
+    func release() {
+        lock.withLock { released = true }
+    }
+
+    func accepts(destinationRef: String, mediaTypes: [String]?) async -> Bool {
+        true
+    }
+
+    func write(destinationRef: String, artifact: MediaArtifact, bytes: Data) async throws {
+        lock.withLock { started = true }
+        if blockWrites {
+            for _ in 0 ..< 500 where !lock.withLock({ released }) {
+                try? await Task.sleep(nanoseconds: 2_000_000)
+            }
+        }
+        if failWrites {
+            throw CocoaError(.fileWriteOutOfSpace, userInfo: [NSFilePathErrorKey: "/private/dest_greeting"])
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(Write(destinationRef: destinationRef, artifact: artifact, bytes: bytes))
+    }
+}
 
 /// byte[i] = i % 251 over [start, start + count).
 private func pattern(start: Int, count: Int) -> Data {
@@ -563,6 +719,7 @@ private final class ArtifactFake: StreamingProviderAdapter, @unchecked Sendable 
             case .returnForged:
                 return TaskOutput(artifact: MediaArtifact(
                     byteLength: nil,
+                    destinationRef: nil,
                     durationMs: nil,
                     id: "art_forged",
                     lifetime: .untilDisposed,

@@ -13,7 +13,7 @@ final class ThirdTaskOutputTests: XCTestCase {
         TaskRequest(
             task: TaskDescriptor(kind: .textToSpeech),
             speech: SpeechInput(locale: "de-AT", localeMatch: nil, text: "Hallo", voice: nil),
-            delivery: OutputDeliveryRequest(mediaTypes: mediaTypes, mode: .artifact)
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: mediaTypes, mode: .artifact)
         )
     }
 
@@ -21,6 +21,7 @@ final class ThirdTaskOutputTests: XCTestCase {
         TaskOutput(
             artifact: MediaArtifact(
                 byteLength: 8,
+                destinationRef: nil,
                 durationMs: nil,
                 id: "art_image",
                 lifetime: .untilDisposed,
