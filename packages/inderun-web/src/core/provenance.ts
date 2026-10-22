@@ -35,15 +35,20 @@ export class ProvenanceRecorder {
     }
   }
 
-  /** Records how one provider attempt ended. */
+  /**
+   * Records how one provider attempt ended, and whether the run had committed to it
+   * (first content delivered, first possible audible effect, or an artifact handed over).
+   */
   attempted(
     providerId: string,
     outcome: ExecutionProvenanceAttempt["outcome"],
-    errorClass?: IndeRunErrorClass
+    errorClass?: IndeRunErrorClass,
+    committed = false
   ): void {
     this.attempts.push({
       providerId,
       outcome,
+      ...(committed ? { committed: true } : {}),
       ...(errorClass !== undefined ? { errorClass } : {})
     });
   }

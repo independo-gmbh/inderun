@@ -1,12 +1,12 @@
 {
-  "$comment": "Cross-SDK conformance catalog for Mode 2 engine orchestration: the scenarios every IndeRun engine (packages/inderun-web/src/core/engine.ts, ios/.../IndeRunSwift/IndeRun.swift, android/.../sdk/IndeRun.kt) must satisfy identically. Unlike sse-framing.json and openai-responses-transcript.json, which are fully data-driven (bytes in, events out), this file is a *scenario catalog*: 'setup' and 'expect' are shared data, but the trigger -- when a cancel lands relative to a provider emit -- stays in each platform's own concurrency primitives, because Swift structured concurrency, a Kotlin cold Flow and JS microtasks do not coordinate identically and encoding that timing here would make the fixture own behavior that belongs to the engines. Each SDK's conformance suite registers one handler per 'id' and a guard test fails when the handler ids and the ids in this file are not equal, so a scenario that exists on one platform and not another is a red test rather than a review finding. 'setup' is prose but is normative: it names the provider ids and the exact texts each fake emits, so the three handlers observe the same run. The provider event vocabulary is already identical across the SDKs (delta / snapshot / done(finalText, finishReason?, usage?) / error|failure), so only the syntax differs. Platform-specific coverage -- the Apple Foundation Models and ML Kit end-to-end engine streams, ML Kit's real policy retraction, Swift's ARC teardown -- deliberately stays out of this catalog and in each platform's own suite. See docs/streaming-conformance.md.",
+  "$comment": "Cross-SDK conformance catalog for Mode 2 engine orchestration: the scenarios every IndeRun engine (packages/inderun-web/src/core/engine.ts, ios/.../IndeRunSwift/IndeRun.swift, android/.../sdk/IndeRun.kt) must satisfy identically. Unlike sse-framing.json and openai-responses-transcript.json, which are fully data-driven (bytes in, events out), this file is a *scenario catalog*: 'setup' and 'expect' are shared data, but the trigger -- when a cancel lands relative to a provider emit -- stays in each platform's own concurrency primitives, because Swift structured concurrency, a Kotlin cold Flow and JS microtasks do not coordinate identically and encoding that timing here would make the fixture own behavior that belongs to the engines. Each SDK's conformance suite registers one handler per 'id' and a guard test fails when the handler ids and the ids in this file are not equal, so a scenario that exists on one platform and not another is a red test rather than a review finding. 'setup' is prose but is normative: it names the provider ids and the exact texts each fake emits, so the three handlers observe the same run. The provider event vocabulary is already identical across the SDKs (delta / snapshot / done(finalText, finishReason?, usage?) / result(output) / error|failure, plus a commit() call on the context), so only the syntax differs. Cases in the 'non_text_outputs' category stream a text_to_speech request (speech 'Hallo' in de-AT, playback delivery) to fakes that declare a text_to_speech playback capability. Platform-specific coverage -- the Apple Foundation Models and ML Kit end-to-end engine streams, ML Kit's real policy retraction, Swift's ARC teardown -- deliberately stays out of this catalog and in each platform's own suite. See docs/streaming-conformance.md.",
   "$expectKeys": {
     "eventTypes": "The canonical StreamEvent.type of every delivered event, in order.",
     "sequences": "StreamEvent.sequence of every delivered event, in order.",
     "contentTexts": "The text carried by each content event, in order, ignoring the terminal.",
     "terminalCount": "How many events of type 'terminal' were delivered. The Event Gate admits exactly one.",
     "eventsAfterTerminal": "How many events were delivered after the terminal. Always 0.",
-    "terminal": "Fields of the terminal payload. 'absentFinishReason'/'absentUsage' assert the key is missing rather than null.",
+    "terminal": "Fields of the terminal payload. 'absentFinishReason'/'absentUsage'/'absentPartialText'/'absentOutput' assert the key is missing rather than null. 'output' is compared by deep equality.",
     "rejectsWith": "stream() threw instead of returning a run. 'reasons' are RoutePlan rejection codes; 'messages' are the provider's own verbatim explanation.",
     "providerCallCounts": "How many times each provider's stream() was entered.",
     "providerInterrupted": "The fake provider observed its own cancellation rather than being abandoned.",
@@ -19,7 +19,8 @@
     "telemetryForbiddenPayloadValues": "Substrings that must appear in no telemetry payload value of this run.",
     "telemetryStableMessageEvents": "Telemetry types whose payload 'message' must be the error class's stable message, never the raw provider text.",
     "noReplayOnSecondIteration": "A second consumer of the same run's events never sees the run again.",
-    "provenance": "Fields of the terminal payload's provenance. 'attempts' lists [providerId, outcome] pairs in attempt order; 'absentProviderId' asserts the key is missing."
+    "provenance": "Fields of the terminal payload's provenance. 'attempts' lists [providerId, outcome] pairs in attempt order; 'committedAttempts' lists the providerIds whose attempt carries committed: true; 'absentProviderId' asserts the key is missing.",
+    "commitResults": "What each provider's commit() calls returned, in call order."
   },
   "cases": [
     {
@@ -464,6 +465,250 @@
       "setup": "`p1` emits delta 'a' and done(finalText 'a'). The events sequence is fully consumed, then consumed again.",
       "expect": { "noReplayOnSecondIteration": true },
       "$divergence": "Kotlin raises IllegalStateException on a second collect; TypeScript and Swift complete without yielding. The shared guarantee is that the run is never replayed -- not how a second consumer learns that. Recorded rather than forced: unifying it is a behavior decision that belongs upstream of the conformance suite. See docs/streaming-conformance.md."
+    },
+    {
+      "id": "playback_commit_then_completed_with_output",
+      "category": "non_text_outputs",
+      "description": "A playback provider commits before it would be heard and ends with a playback output. The run completes with that output and no content events, because content events are text-only.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` calls commit(), then emits result(output {type 'playback', playback {durationMs 1200}}).",
+      "expect": {
+        "eventTypes": ["terminal"],
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "completed",
+          "output": {
+            "type": "playback",
+            "playback": {
+              "durationMs": 1200
+            }
+          },
+          "absentPartialText": true
+        },
+        "commitResults": {
+          "p1": [true]
+        },
+        "provenance": {
+          "providerId": "p1",
+          "attemptCount": 1,
+          "attempts": [["p1", "succeeded"]],
+          "committedAttempts": ["p1"]
+        }
+      }
+    },
+    {
+      "id": "playback_pre_commit_failure_falls_back",
+      "category": "non_text_outputs",
+      "description": "A playback provider that fails before committing has played nothing, so the next provider may speak instead.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1_failing` throws a CapabilityMismatch before calling commit(); `p2_healthy` calls commit(), then emits result(output {type 'playback', playback {}}).",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "completed",
+          "output": {
+            "type": "playback",
+            "playback": {}
+          }
+        },
+        "providerCallCounts": {
+          "p1_failing": 1,
+          "p2_healthy": 1
+        },
+        "provenance": {
+          "providerId": "p2_healthy",
+          "attemptCount": 2,
+          "fallbackOccurred": true,
+          "attempts": [
+            ["p1_failing", "failed"],
+            ["p2_healthy", "succeeded"]
+          ],
+          "committedAttempts": ["p2_healthy"]
+        }
+      }
+    },
+    {
+      "id": "playback_post_commit_failure_never_falls_back",
+      "category": "non_text_outputs",
+      "description": "After commit the user may already have heard the speech; a later failure ends the run with an error rather than letting a second provider play the text again.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` calls commit(), then throws; `p2_healthy` is registered as the fallback.",
+      "expect": {
+        "eventTypes": ["terminal"],
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "error",
+          "absentPartialText": true
+        },
+        "providerCallCounts": {
+          "p2_healthy": 0
+        },
+        "provenance": {
+          "providerId": "p1",
+          "attemptCount": 1,
+          "fallbackOccurred": false,
+          "attempts": [["p1", "failed"]],
+          "committedAttempts": ["p1"]
+        }
+      }
+    },
+    {
+      "id": "playback_cancel_carries_output_and_is_idempotent",
+      "category": "non_text_outputs",
+      "description": "Cancelling committed playback stops it and ends the run as cancelled with a playback output, because sound may have been heard. A second cancel changes nothing.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` calls commit(), then waits for cancellation. Once the commit has happened the consumer cancels with reason 'stop', then cancels again with reason 'again'.",
+      "expect": {
+        "eventTypes": ["terminal"],
+        "terminalCount": 1,
+        "eventsAfterTerminal": 0,
+        "terminal": {
+          "outcome": "cancelled",
+          "reason": "stop",
+          "output": {
+            "type": "playback",
+            "playback": {}
+          },
+          "absentPartialText": true
+        },
+        "providerInterrupted": true,
+        "provenance": {
+          "providerId": "p1",
+          "attempts": [["p1", "cancelled"]],
+          "committedAttempts": ["p1"]
+        }
+      }
+    },
+    {
+      "id": "commit_after_cancel_is_refused",
+      "category": "non_text_outputs",
+      "description": "A provider asking to commit after the run was cancelled is told no, so it never starts audio for a run nobody is waiting for; nothing was played, so the cancelled outcome carries no output.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` waits for cancellation without committing, then calls commit() and ends its stream. The consumer cancels as soon as the attempt has started.",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "cancelled",
+          "absentOutput": true,
+          "absentPartialText": true
+        },
+        "commitResults": {
+          "p1": [false]
+        },
+        "provenance": {
+          "attempts": [["p1", "cancelled"]],
+          "committedAttempts": []
+        }
+      }
+    },
+    {
+      "id": "completion_error_race_yields_first_terminal",
+      "category": "non_text_outputs",
+      "description": "A provider that reports a failure after it already handed over its result does not change how the run ended.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` calls commit(), emits result(output {type 'playback', playback {}}), then emits a failure.",
+      "expect": {
+        "terminalCount": 1,
+        "eventsAfterTerminal": 0,
+        "terminal": {
+          "outcome": "completed",
+          "output": {
+            "type": "playback",
+            "playback": {}
+          }
+        },
+        "provenance": {
+          "attempts": [["p1", "succeeded"]]
+        }
+      }
+    },
+    {
+      "id": "cancel_never_triggers_fallback_before_commit",
+      "category": "non_text_outputs",
+      "description": "Cancelling a playback attempt that has not committed ends the run; it never hands the text to the next provider.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` waits for cancellation without committing; `p2_healthy` is registered as the fallback. The consumer cancels as soon as the attempt has started.",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "cancelled",
+          "absentOutput": true
+        },
+        "providerCallCounts": {
+          "p1": 1,
+          "p2_healthy": 0
+        },
+        "provenance": {
+          "attempts": [["p1", "cancelled"]],
+          "committedAttempts": []
+        }
+      }
+    },
+    {
+      "id": "output_mismatch_is_a_provider_fault",
+      "category": "non_text_outputs",
+      "description": "A provider that answers a playback request with something else -- here, streamed text -- has failed the attempt; nothing was committed, so the run falls back.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1_wrong` emits delta 'Hallo'; `p2_healthy` calls commit(), then emits result(output {type 'playback', playback {}}).",
+      "expect": {
+        "eventTypes": ["terminal"],
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "completed",
+          "output": {
+            "type": "playback",
+            "playback": {}
+          }
+        },
+        "providerCallCounts": {
+          "p1_wrong": 1,
+          "p2_healthy": 1
+        },
+        "provenance": {
+          "providerId": "p2_healthy",
+          "attempts": [
+            ["p1_wrong", "failed"],
+            ["p2_healthy", "succeeded"]
+          ],
+          "committedAttempts": ["p2_healthy"]
+        }
+      }
+    },
+    {
+      "id": "late_commit_from_abandoned_attempt_is_refused",
+      "category": "non_text_outputs",
+      "description": "A commit() call from an attempt the run has already left -- a provider callback firing after it failed and the engine fell back -- is refused, so the abandoned provider never starts audio and never commits the attempt that replaced it.",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1_abandoned` keeps its context's commit, then throws a CapabilityMismatch without committing. `p2_next` calls the commit `p1_abandoned` kept (recorded as p1_abandoned's commit result), then throws a CapabilityMismatch without committing. `p3_healthy` calls commit(), then emits result(output {type 'playback', playback {}}). A telemetry sink is installed on the host.",
+      "expect": {
+        "terminalCount": 1,
+        "terminal": {
+          "outcome": "completed",
+          "output": {
+            "type": "playback",
+            "playback": {}
+          }
+        },
+        "providerCallCounts": {
+          "p1_abandoned": 1,
+          "p2_next": 1,
+          "p3_healthy": 1
+        },
+        "commitResults": {
+          "p1_abandoned": [false],
+          "p3_healthy": [true]
+        },
+        "telemetryTypes": [
+          "route_decided",
+          "stream_attempt_started",
+          "stream_attempt_failed",
+          "stream_attempt_started",
+          "stream_attempt_failed",
+          "stream_attempt_started",
+          "stream_attempt_succeeded",
+          "stream_completed"
+        ],
+        "provenance": {
+          "providerId": "p3_healthy",
+          "attempts": [
+            ["p1_abandoned", "failed"],
+            ["p2_next", "failed"],
+            ["p3_healthy", "succeeded"]
+          ],
+          "committedAttempts": ["p3_healthy"]
+        }
+      }
     }
   ]
 }

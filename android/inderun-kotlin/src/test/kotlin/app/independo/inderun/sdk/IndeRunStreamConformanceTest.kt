@@ -2,8 +2,12 @@ package app.independo.inderun.sdk
 
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Outcome
+import app.independo.inderun.contracts.PlaybackOutput
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.StreamEvent
+import app.independo.inderun.contracts.TaskKind
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TelemetryEvent
 import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.IndeRunException
@@ -12,7 +16,6 @@ import app.independo.inderun.core.ProviderStreamEvent
 import app.independo.inderun.core.createCapabilityMismatch
 import app.independo.inderun.core.createRateLimited
 import app.independo.inderun.core.createUnavailable
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -107,6 +110,7 @@ private class Observation(
     val handleStartedAt: Double? = null,
     val wallClockRange: LongRange? = null,
     val secondIterationEventCount: Int? = null,
+    val commitResults: Map<String, List<Boolean>> = emptyMap(),
 )
 
 /**
@@ -137,6 +141,24 @@ private fun telemetryTypeValue(value: TelemetryEventType): String = when (value)
 private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
 
 private fun JSONObject.optStringOrNull(key: String): String? = if (has(key) && !isNull(key)) getString(key) else null
+
+/**
+ * Reads the catalog's expected `output` into the generated [TaskOutput], so it is compared by
+ * full equality: a field the engine sets and the catalog does not name is a mismatch. Only the
+ * playback outputs the catalog uses are spelled out; anything else fails loudly.
+ */
+private fun taskOutputFrom(json: JSONObject): TaskOutput {
+    val type = TaskOutputType.fromRawValue(json.getString("type"))
+    check(type == TaskOutputType.PLAYBACK && json.keys().asSequence().toSet() == setOf("type", "playback")) {
+        "Unsupported output in the conformance catalog: $json"
+    }
+    val playback = json.getJSONObject("playback")
+    check(playback.keys().asSequence().all { it == "durationMs" }) { "Unsupported playback output: $playback" }
+    return TaskOutput(
+        type = type,
+        playback = PlaybackOutput(durationMs = if (playback.has("durationMs")) playback.getDouble("durationMs") else null),
+    )
+}
 
 @Suppress("CyclomaticComplexMethod", "LongMethod")
 private fun check(label: String, expected: JSONObject, observed: Observation): List<String> {
@@ -200,6 +222,13 @@ private fun check(label: String, expected: JSONObject, observed: Observation): L
             if (wanted.optBoolean("absentUsage")) {
                 require(payload.usage == null) { "usage must be absent" }
             }
+            if (wanted.optBoolean("absentPartialText")) {
+                require(payload.partialText == null) { "partialText must be absent" }
+            }
+            if (wanted.optBoolean("absentOutput")) {
+                require(payload.output == null) { "output must be absent" }
+            }
+            wanted.optJSONObject("output")?.let { same("output", taskOutputFrom(it), payload.output) }
         }
     }
 
@@ -232,6 +261,13 @@ private fun check(label: String, expected: JSONObject, observed: Observation): L
                     "provenance.attempts",
                     (0 until attempts.length()).map { attempts.getJSONArray(it).strings() },
                     provenance.attempts.map { listOf(it.providerId, it.outcome.rawValue) },
+                )
+            }
+            wanted.optJSONArray("committedAttempts")?.let {
+                same(
+                    "provenance.committedAttempts",
+                    it.strings(),
+                    provenance.attempts.filter { attempt -> attempt.committed == true }.map { attempt -> attempt.providerId },
                 )
             }
         }
@@ -332,6 +368,17 @@ private fun check(label: String, expected: JSONObject, observed: Observation): L
 
     if (expected.optBoolean("noReplayOnSecondIteration")) {
         same("secondIterationEventCount", 0, observed.secondIterationEventCount)
+    }
+
+    expected.optJSONObject("commitResults")?.let { wanted ->
+        for (providerId in wanted.keys()) {
+            val results = wanted.getJSONArray(providerId)
+            same(
+                "$providerId commit() results",
+                (0 until results.length()).map { results.getBoolean(it) },
+                observed.commitResults[providerId],
+            )
+        }
     }
 
     return failures
@@ -585,12 +632,10 @@ private val handlers: Map<String, suspend () -> Observation> = mapOf(
         // The flow is cold, so the attempt only begins once collection does. The
         // provider signals that it has been entered, which is what separates this
         // case from cancel-before-the-first-attempt rather than a timing guess.
-        val entered = CompletableDeferred<Unit>()
         val failing = FakeStreamProvider(
             "p1",
             listOf(Step.WaitForCancellation),
             throwAfterScript = createUnavailable("boom before any content"),
-            entered = entered,
         )
         val fallback = FakeStreamProvider("p2", listOf(Step.Emit(ProviderStreamEvent.Done("never"))))
         val registry = ProviderRegistry().apply {
@@ -601,7 +646,7 @@ private val handlers: Map<String, suspend () -> Observation> = mapOf(
         coroutineScope {
             val events = mutableListOf<StreamEvent>()
             val collector = launch { run.events.collect { events += it } }
-            entered.await()
+            failing.started.await()
             run.cancel("mid-attempt")
             collector.join()
             Observation(
@@ -886,4 +931,192 @@ private val handlers: Map<String, suspend () -> Observation> = mapOf(
         }
         Observation(events = first, secondIterationEventCount = second)
     },
+
+    // --- non_text_outputs ---------------------------------------------------
+
+    "playback_commit_then_completed_with_output" to {
+        val provider = FakeStreamProvider(
+            "p1",
+            listOf(
+                Step.Commit,
+                Step.Emit(
+                    ProviderStreamEvent.Result(
+                        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(durationMs = 1200.0)),
+                    ),
+                ),
+            ),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val registry = ProviderRegistry().apply { register(provider) }
+        Observation(
+            events = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest()).events.toList(),
+            commitResults = mapOf("p1" to provider.commitResults),
+        )
+    },
+
+    "playback_pre_commit_failure_falls_back" to {
+        val failing = FakeStreamProvider(
+            "p1_failing",
+            throwImmediately = createCapabilityMismatch("voice unavailable"),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val healthy = FakeStreamProvider("p2_healthy", playedThenResult, task = TaskKind.TEXT_TO_SPEECH)
+        val registry = ProviderRegistry().apply {
+            register(failing)
+            register(healthy)
+        }
+        Observation(
+            events = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest()).events.toList(),
+            providerCallCounts = mapOf("p1_failing" to failing.callCount, "p2_healthy" to healthy.callCount),
+        )
+    },
+
+    "playback_post_commit_failure_never_falls_back" to {
+        val provider = FakeStreamProvider(
+            "p1",
+            listOf(Step.Commit),
+            throwAfterScript = createUnavailable("audio device lost"),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val fallback = FakeStreamProvider("p2_healthy", playedThenResult, task = TaskKind.TEXT_TO_SPEECH)
+        val registry = ProviderRegistry().apply {
+            register(provider)
+            register(fallback)
+        }
+        Observation(
+            events = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest()).events.toList(),
+            providerCallCounts = mapOf("p2_healthy" to fallback.callCount),
+        )
+    },
+
+    "playback_cancel_carries_output_and_is_idempotent" to {
+        val provider = FakeStreamProvider(
+            "p1",
+            listOf(Step.Commit, Step.WaitForCancellation),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val registry = ProviderRegistry().apply { register(provider) }
+        val run = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest())
+        coroutineScope {
+            val events = mutableListOf<StreamEvent>()
+            val collector = launch { run.events.collect { events += it } }
+            provider.committed.await()
+            run.cancel("stop")
+            run.cancel("again")
+            collector.join()
+            Observation(events = events, providerInterrupted = provider.wasInterrupted)
+        }
+    },
+
+    "commit_after_cancel_is_refused" to {
+        val provider = FakeStreamProvider(
+            "p1",
+            listOf(Step.WaitForCancellation, Step.Commit),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val registry = ProviderRegistry().apply { register(provider) }
+        val run = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest())
+        coroutineScope {
+            val events = mutableListOf<StreamEvent>()
+            val collector = launch { run.events.collect { events += it } }
+            provider.started.await()
+            run.cancel()
+            collector.join()
+            provider.committed.await()
+            Observation(events = events, commitResults = mapOf("p1" to provider.commitResults))
+        }
+    },
+
+    "completion_error_race_yields_first_terminal" to {
+        val registry = ProviderRegistry().apply {
+            register(
+                FakeStreamProvider(
+                    "p1",
+                    playedThenResult + Step.Emit(ProviderStreamEvent.Failure(createUnavailable("late failure"))),
+                    task = TaskKind.TEXT_TO_SPEECH,
+                ),
+            )
+        }
+        Observation(
+            events = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest()).events.toList(),
+        )
+    },
+
+    "cancel_never_triggers_fallback_before_commit" to {
+        val provider = FakeStreamProvider("p1", listOf(Step.WaitForCancellation), task = TaskKind.TEXT_TO_SPEECH)
+        val fallback = FakeStreamProvider("p2_healthy", playedThenResult, task = TaskKind.TEXT_TO_SPEECH)
+        val registry = ProviderRegistry().apply {
+            register(provider)
+            register(fallback)
+        }
+        val run = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest())
+        coroutineScope {
+            val events = mutableListOf<StreamEvent>()
+            val collector = launch { run.events.collect { events += it } }
+            provider.started.await()
+            run.cancel()
+            collector.join()
+            Observation(
+                events = events,
+                providerCallCounts = mapOf("p1" to provider.callCount, "p2_healthy" to fallback.callCount),
+            )
+        }
+    },
+
+    "output_mismatch_is_a_provider_fault" to {
+        val wrong = FakeStreamProvider(
+            "p1_wrong",
+            listOf(Step.Emit(ProviderStreamEvent.Delta("Hallo"))),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val healthy = FakeStreamProvider("p2_healthy", playedThenResult, task = TaskKind.TEXT_TO_SPEECH)
+        val registry = ProviderRegistry().apply {
+            register(wrong)
+            register(healthy)
+        }
+        Observation(
+            events = IndeRun(registry, conformanceHostServices()).stream(speechConformanceRequest()).events.toList(),
+            providerCallCounts = mapOf("p1_wrong" to wrong.callCount, "p2_healthy" to healthy.callCount),
+        )
+    },
+
+    "late_commit_from_abandoned_attempt_is_refused" to {
+        val abandoned = FakeStreamProvider(
+            "p1_abandoned",
+            throwImmediately = createCapabilityMismatch("voice unavailable"),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val next = FakeStreamProvider(
+            "p2_next",
+            listOf(Step.CallKeptCommit(abandoned)),
+            throwAfterScript = createCapabilityMismatch("voice unavailable"),
+            task = TaskKind.TEXT_TO_SPEECH,
+        )
+        val healthy = FakeStreamProvider("p3_healthy", playedThenResult, task = TaskKind.TEXT_TO_SPEECH)
+        val registry = ProviderRegistry().apply {
+            register(abandoned)
+            register(next)
+            register(healthy)
+        }
+        val telemetry = RecordingTelemetryService()
+        Observation(
+            events = IndeRun(registry, conformanceHostServices(), telemetry).stream(speechConformanceRequest()).events.toList(),
+            telemetry = telemetry.events,
+            providerCallCounts = mapOf(
+                "p1_abandoned" to abandoned.callCount,
+                "p2_next" to next.callCount,
+                "p3_healthy" to healthy.callCount,
+            ),
+            commitResults = mapOf(
+                "p1_abandoned" to abandoned.commitResults,
+                "p3_healthy" to healthy.commitResults,
+            ),
+        )
+    },
+)
+
+/** Commits, then hands over a playback output with nothing else known about it. */
+private val playedThenResult: List<Step> = listOf(
+    Step.Commit,
+    Step.Emit(ProviderStreamEvent.Result(TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput()))),
 )

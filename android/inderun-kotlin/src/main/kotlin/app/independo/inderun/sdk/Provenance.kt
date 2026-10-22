@@ -57,9 +57,22 @@ internal class ProvenanceRecorder(modelProfile: String?) {
         }
     }
 
-    /** Records how one provider attempt ended. */
-    fun attempted(providerId: String, outcome: AttemptOutcome, errorClass: IndeRunErrorClass? = null) {
-        attempts += ExecutionProvenanceAttempt(errorClass = errorClass, outcome = outcome, providerId = providerId)
+    /**
+     * Records how one provider attempt ended, and whether the run had committed to it (first
+     * content delivered, first possible audible effect, or an artifact handed over).
+     */
+    fun attempted(
+        providerId: String,
+        outcome: AttemptOutcome,
+        errorClass: IndeRunErrorClass? = null,
+        committed: Boolean = false,
+    ) {
+        attempts += ExecutionProvenanceAttempt(
+            committed = if (committed) true else null,
+            errorClass = errorClass,
+            outcome = outcome,
+            providerId = providerId,
+        )
     }
 
     /**

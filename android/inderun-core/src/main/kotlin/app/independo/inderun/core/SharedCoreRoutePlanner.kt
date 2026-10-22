@@ -20,8 +20,6 @@ import app.independo.inderun.contracts.RoutePlannerInput
 import app.independo.inderun.contracts.RoutePlannerInputConstraints
 import app.independo.inderun.contracts.RoutePlannerInputPreferences
 import app.independo.inderun.contracts.RoutePlannerInputTask
-import app.independo.inderun.contracts.TaskInputKind
-import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.VoiceGender
 import org.json.JSONArray
@@ -161,14 +159,12 @@ internal fun buildSharedPlannerInput(
 }
 
 /**
- * Projects the request's task onto the requirements the planner can check. A text request
- * carries text input; the speech requirements arrive with the speech request shape (#245).
- * Mirrors `plannerTask` in the Web SDK's route planner.
+ * Projects the request's task onto the requirements the planner can check, through the kind's
+ * task profile. A kind without a profile carries the kind alone, which the planner matches
+ * against declarations and nothing else. Mirrors `plannerTask` in the Web SDK's route planner.
  */
-private fun plannerTask(request: TaskRequest): SharedPlannerTask = SharedPlannerTask(
-    kind = request.task.kind.rawValue,
-    inputs = if (request.task.kind == TaskKind.TEXT_TO_TEXT) listOf(TaskInputKind.Text) else null,
-)
+private fun plannerTask(request: TaskRequest): SharedPlannerTask = taskProfileFor(request.task.kind)?.plannerTask(request)
+    ?: SharedPlannerTask(kind = request.task.kind.rawValue)
 
 /**
  * Folds the "declares streaming but does not implement it" check into the

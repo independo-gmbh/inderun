@@ -24,7 +24,7 @@ IndeRun exposes three public layers and keeps one internal layer.
 | Layer | Who it is for | What it contains | Stability |
 | --- | --- | --- | --- |
 | **Primary** | Application developers | `generateText()` / `streamText()`, model profile names, the compact `execution` policy | Public; the default path in documentation |
-| **Advanced** | Applications that need full control | `IndeRun.run()` / `stream()` / `checkCapabilities()`, `TaskRequest`, `TaskResult`, `StreamEvent`, `StreamTerminalOutcome`, `IndeRunError`, `ExecutionProvenance` | Public; the canonical execution contract |
+| **Advanced** | Applications that need full control | `IndeRun.run()` / `stream()` / `checkCapabilities()` / `readArtifact()` / `disposeArtifact()`, `TaskRequest`, `TaskResult`, `TaskOutput`, `MediaArtifact`, `StreamEvent`, `StreamTerminalOutcome`, `IndeRunError`, `ExecutionProvenance` | Public; the canonical execution contract |
 | **Provider authoring** | Provider and host integrators | `ProviderAdapter` and its streaming variant, `ProviderDescriptor`, dynamic capabilities, `HostServices` and its services, `ProviderRegistry` | Public; changes are called out in release notes |
 | **Internal** | The engine itself | `Router`, the route planner bindings (`WasmRoutePlanner`, `SharedRoutePlanner`, `SharedCoreRoutePlanner`), planner input and plan types, `EventGate` | No compatibility promise; not exported on Web |
 
@@ -126,7 +126,10 @@ Nothing about the layering assumes chat-completion semantics.
 [ADR 016](./decisions/016-modality-extensible-task-contracts.md) fixes how the canonical contract grows for
 `text_to_speech`: task, modalities, interaction mode, output delivery and execution policy are separate axes; each
 task owns one payload object in an otherwise shared envelope; and the change stays additive within schema version
-1.0.
+1.0. The advanced layer's `TaskResult` and terminal outcome carry a task-generic `TaskOutput` (`text`, `playback` or
+`artifact`); the primary text API reads its text and keeps returning a non-optional string. An artifact output is
+a reference, and its bytes are read through `readArtifact()` and released with `disposeArtifact()` on the same
+`IndeRunApi` ([ADR 017](./decisions/017-media-artifacts.md)), so a bridge carries ids, never media.
 
 ## Package Entry Points
 

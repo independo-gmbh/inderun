@@ -4,7 +4,6 @@ import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.Method
-import app.independo.inderun.contracts.Output
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderPrivacy
@@ -13,6 +12,8 @@ import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamingStyle
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
@@ -287,7 +288,7 @@ class OpenAIProvider(
         val totalMs = context.hostServices.clock.elapsedRealtimeMillis().toDouble() - startTimeMs
         return TaskResult(
             finishReason = finishReason(json),
-            output = Output(text = outputText),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = outputText),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(

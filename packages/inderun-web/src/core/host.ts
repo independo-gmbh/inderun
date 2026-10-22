@@ -1,5 +1,6 @@
 export type {
   AbortSignalLike,
+  ArtifactDestinationService,
   ClockService,
   ConnectivityService,
   DeviceConstraintsService,

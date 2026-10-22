@@ -56,7 +56,7 @@ internal class AndroidDemoRuntime(
         return try {
             val result = makeIndeRun(settings).run(request)
             DemoExecutionOutcome.Success(
-                outputText = result.output.text,
+                outputText = result.output.text.orEmpty(),
                 metadata = AttemptMetadata(
                     runId = result.runId,
                     providerUsed = result.telemetry.providerUsed,

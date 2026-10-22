@@ -176,7 +176,9 @@ export async function generateText(
 ): Promise<GeneratedText> {
   const taskResult = await inderun.run(toTaskRequest(options));
   return {
-    text: taskResult.output.text,
+    // A text run always produces text output; the generated type is optional only because
+    // TaskOutput also describes playback and artifacts (ADR 016).
+    text: taskResult.output.text ?? "",
     finishReason: taskResult.finishReason,
     ...(taskResult.usage !== undefined ? { usage: taskResult.usage } : {}),
     runId: taskResult.runId,
@@ -245,7 +247,7 @@ function settle(outcome: StreamTerminalOutcome): StreamedText {
   switch (outcome.outcome) {
     case "completed":
       return {
-        text: outcome.finalText ?? "",
+        text: outcome.finalText ?? outcome.output?.text ?? "",
         ...(outcome.finishReason !== undefined ? { finishReason: outcome.finishReason } : {}),
         ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
         runId: outcome.runId,
@@ -254,7 +256,7 @@ function settle(outcome: StreamTerminalOutcome): StreamedText {
       };
     case "cancelled":
       return {
-        text: outcome.partialText ?? "",
+        text: outcome.partialText ?? outcome.output?.text ?? "",
         finishReason: "cancelled",
         runId: outcome.runId,
         ...provenance,

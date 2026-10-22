@@ -1,4 +1,9 @@
-import type { HttpRequest, HttpResponse, TelemetryEvent } from "./generated/index.js";
+import type {
+  HttpRequest,
+  HttpResponse,
+  MediaArtifact,
+  TelemetryEvent
+} from "./generated/index.js";
 
 /**
  * Service to inspect and monitor network connectivity status.
@@ -169,6 +174,25 @@ export interface TelemetryService {
 }
 
 /**
+ * Resolves the opaque `delivery.destinationRef` of an artifact request to a place the
+ * application chose -- a file it will hand to a player, a cache it manages -- and writes the
+ * finished artifact there (ADR 017). A request names a reference, never a path, so a request
+ * that came from a webview cannot address arbitrary storage.
+ */
+export interface ArtifactDestinationService {
+  /**
+   * Whether `destinationRef` names a destination this host can write the requested media to.
+   * Called before routing; `false` refuses the request.
+   */
+  accepts(destinationRef: string, mediaTypes: readonly string[] | undefined): Promise<boolean>;
+  /**
+   * Writes the finished artifact's bytes to the destination. A failure fails the run: it is
+   * committed by then, so it never falls back.
+   */
+  write(destinationRef: string, artifact: MediaArtifact, bytes: Uint8Array): Promise<void>;
+}
+
+/**
  * Registry of platform-specific host services utilized by the Engine Core.
  * Evaluates execution capabilities and manages OS-level boundaries.
  */
@@ -202,4 +226,9 @@ export interface HostServices {
    * Telemetry service to monitor execution steps, latency, and success rates.
    */
   telemetry?: TelemetryService;
+  /**
+   * Application destinations for artifact requests that carry `delivery.destinationRef`.
+   * Absent means the host has none, and such a request is refused before routing.
+   */
+  artifactDestinations?: ArtifactDestinationService;
 }

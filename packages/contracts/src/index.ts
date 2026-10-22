@@ -17,10 +17,12 @@ export type * from "./generated/index.js";
 
 /** The JSON Schemas those models were generated from, for runtime use. */
 export {
+  artifactReadRequestSchema,
   executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
+  mediaArtifactSchema,
   modelPackageSchema,
   providerCapabilitySnapshotSchema,
   providerDescriptorSchema,
@@ -30,6 +32,7 @@ export {
   streamEventSchema,
   streamRunSchema,
   streamTerminalOutcomeSchema,
+  taskOutputSchema,
   taskRequestSchema,
   taskResultSchema,
   telemetryEventSchema
@@ -40,10 +43,12 @@ export {
  * boolean type guard.
  */
 export {
+  getArtifactReadRequestValidationIssues,
   getExecutionProvenanceValidationIssues,
   getHttpRequestValidationIssues,
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
+  getMediaArtifactValidationIssues,
   getModelPackageValidationIssues,
   getProviderCapabilitySnapshotValidationIssues,
   getProviderDescriptorValidationIssues,
@@ -53,6 +58,7 @@ export {
   getStreamEventValidationIssues,
   getStreamRunHandleValidationIssues,
   getStreamTerminalOutcomeValidationIssues,
+  getTaskOutputValidationIssues,
   getTaskRequestValidationIssues,
   getTaskResultValidationIssues,
   getTelemetryEventValidationIssues,
@@ -60,6 +66,7 @@ export {
   validateHttpRequest,
   validateHttpResponse,
   validateIndeRunError,
+  validateMediaArtifact,
   validateModelPackage,
   validateProviderCapabilitySnapshot,
   validateProviderDescriptor,
@@ -69,9 +76,11 @@ export {
   validateStreamEvent,
   validateStreamRunHandle,
   validateStreamTerminalOutcome,
+  validateTaskOutput,
   validateTaskRequest,
   validateTaskResult,
   validateTelemetryEvent,
+  validateArtifactReadRequest,
   type ValidationIssue
 } from "./validators.js";
 /**
@@ -82,14 +91,19 @@ export type {
   CancelSemantics,
   FinishReason,
   IndeRunErrorClass,
+  ArtifactTaskOutput,
   ModelPackageFormat,
   ModelSourceType,
+  PlaybackTaskOutput,
   ProviderTransport,
   ProviderType,
   SchemaVersion,
   SharedRoutePlan,
   SharedRoutePlannerInput,
+  SpeechTaskRequest,
   TaskKind,
+  TextTaskOutput,
+  TextTaskRequest,
   RoutingConstraints,
   RoutingPreferences
 } from "./types.js";
@@ -101,6 +115,7 @@ export type {
  */
 export type {
   AbortSignalLike,
+  ArtifactDestinationService,
   ConnectivityService,
   ThermalState,
   DeviceConstraintsService,

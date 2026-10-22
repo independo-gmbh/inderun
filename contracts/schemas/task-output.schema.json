@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/task-output.schema.json",
+  "title": "TaskOutput",
+  "description": "The normalized output of a run, shared by TaskResult and the completed and cancelled stream terminal outcomes (ADR 016). 'type' describes the content representation, not the task: 'text' carries inline text, 'playback' reports a managed, audible effect that has no retrievable bytes, and 'artifact' references retrievable media (ADR 017). A playback output is never an artifact, and an artifact output never implies that anything was played.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["type"],
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "text" } } },
+      "then": { "required": ["text"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "playback" } } },
+      "then": { "required": ["playback"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "artifact" } } },
+      "then": { "required": ["artifact"] }
+    }
+  ],
+  "properties": {
+    "type": {
+      "title": "TaskOutputType",
+      "description": "The content representation: 'text', 'playback' or 'artifact'.",
+      "enum": ["text", "playback", "artifact"]
+    },
+    "text": {
+      "description": "The text the run produced. Required when type is 'text'.",
+      "type": "string"
+    },
+    "playback": {
+      "title": "PlaybackOutput",
+      "description": "Completion of managed playback. Required when type is 'playback'. Carries no media.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "durationMs": {
+          "description": "How long audible playback lasted, in milliseconds. For a cancelled run, how long it played before it was stopped.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "artifact": {
+      "description": "The retrievable media the run produced. Required when type is 'artifact'.",
+      "$ref": "media-artifact.schema.json"
+    },
+    "speech": {
+      "title": "SpeechOutput",
+      "description": "The locale and voice traits a text-to-speech run actually used, so an unmet preference is visible without being an error.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["locale"],
+      "properties": {
+        "locale": {
+          "description": "BCP 47 tag of the locale that was spoken.",
+          "type": "string",
+          "minLength": 1
+        },
+        "voice": {
+          "title": "SpeechOutputVoice",
+          "description": "Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "gender": {
+              "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+            }
+          }
+        }
+      }
+    }
+  }
+}

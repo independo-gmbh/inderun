@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.annotation.RequiresPermission
 import app.independo.inderun.contracts.HttpRequest
 import app.independo.inderun.contracts.HttpResponse
+import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.TelemetryEvent
 import kotlinx.coroutines.flow.Flow
 
@@ -111,6 +112,26 @@ interface TelemetryService {
 }
 
 /**
+ * Resolves the opaque `delivery.destinationRef` of an artifact request to a place the application
+ * chose -- a file it will hand to a player, a cache it manages -- and writes the finished artifact
+ * there (ADR 017). A request names a reference, never a path, so a request that came from a webview
+ * cannot address arbitrary storage.
+ */
+interface ArtifactDestinationService {
+    /**
+     * Whether [destinationRef] names a destination this host can write the requested media to.
+     * Called before routing; `false` refuses the request.
+     */
+    suspend fun accepts(destinationRef: String, mediaTypes: List<String>?): Boolean
+
+    /**
+     * Writes the finished artifact's [bytes] to the destination. A failure fails the run: it is
+     * committed by then, so it never falls back.
+     */
+    suspend fun write(destinationRef: String, artifact: MediaArtifact, bytes: ByteArray)
+}
+
+/**
  * A factory for creating the default implementation of [HostServices].
  */
 object HostServicesFactory {
@@ -146,4 +167,9 @@ data class HostServices(
      */
     val streamingHttpClient: HttpStreamingClientService? = null,
     val telemetry: TelemetryService? = null,
+    /**
+     * Application destinations for artifact requests that carry `delivery.destinationRef`.
+     * Absent means the host has none, and such a request is refused before routing.
+     */
+    val artifactDestinations: ArtifactDestinationService? = null,
 )

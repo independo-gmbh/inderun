@@ -129,6 +129,13 @@ export type ExecutionProvenance = {
 
 export type ExecutionProvenanceAttempt = {
     /**
+     * Whether the run committed to this provider during the attempt: its first content was
+     * delivered, it signalled the first possible audible effect, or it handed over an artifact.
+     * After commit a failure ends the run instead of falling back. Absent means the attempt did
+     * not commit.
+     */
+    committed?: boolean;
+    /**
      * Normalized error class of a failed attempt.
      */
     errorClass?: ErrorClass;

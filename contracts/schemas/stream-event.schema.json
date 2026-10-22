@@ -112,12 +112,14 @@
             {
               "type": "object",
               "additionalProperties": true,
-              "required": ["schemaVersion", "runId", "outcome", "finalText"],
+              "required": ["schemaVersion", "runId", "outcome"],
+              "anyOf": [{ "required": ["finalText"] }, { "required": ["output"] }],
               "properties": {
                 "schemaVersion": { "const": "1.0" },
                 "runId": { "type": "string", "minLength": 1 },
                 "outcome": { "const": "completed" },
                 "finalText": { "type": "string" },
+                "output": { "$ref": "task-output.schema.json" },
                 "finishReason": { "enum": ["stop", "length", "cancelled", "error"] },
                 "usage": {
                   "type": "object",
@@ -151,6 +153,7 @@
                 "schemaVersion": { "const": "1.0" },
                 "runId": { "type": "string", "minLength": 1 },
                 "outcome": { "const": "error" },
+                "partialText": { "type": "string" },
                 "error": {
                   "type": "object",
                   "additionalProperties": true,
@@ -188,12 +191,13 @@
             {
               "type": "object",
               "additionalProperties": true,
-              "required": ["schemaVersion", "runId", "outcome", "partialText"],
+              "required": ["schemaVersion", "runId", "outcome"],
               "properties": {
                 "schemaVersion": { "const": "1.0" },
                 "runId": { "type": "string", "minLength": 1 },
                 "outcome": { "const": "cancelled" },
                 "partialText": { "type": "string" },
+                "output": { "$ref": "task-output.schema.json" },
                 "reason": { "type": "string" },
                 "provenance": {
                   "description": "Normalized execution provenance: which target ran, its declared locality, the configured and reported model, and how fallback and routing played out. See execution-provenance.schema.json.",

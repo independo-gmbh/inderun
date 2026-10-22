@@ -258,7 +258,7 @@ final class DemoViewModel: ObservableObject {
             let taskResult = try await inderun.run(request: request)
 
             result = ResultState(
-                outputText: taskResult.output.text,
+                outputText: taskResult.output.text ?? "",
                 metadata: AttemptMetadata(
                     runId: taskResult.runId,
                     providerUsed: taskResult.telemetry.providerUsed,

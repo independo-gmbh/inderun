@@ -95,6 +95,19 @@ public protocol TelemetryService: Sendable {
     func emit(event: TelemetryEvent)
 }
 
+/// Resolves the opaque `delivery.destinationRef` of an artifact request to a place the
+/// application chose -- a file it will hand to a player, a cache it manages -- and writes the
+/// finished artifact there (ADR 017). A request names a reference, never a path, so a request
+/// that came from a webview cannot address arbitrary storage.
+public protocol ArtifactDestinationService: Sendable {
+    /// Whether `destinationRef` names a destination this host can write the requested media to.
+    /// Called before routing; `false` refuses the request.
+    func accepts(destinationRef: String, mediaTypes: [String]?) async -> Bool
+    /// Writes the finished artifact's bytes to the destination. A failure fails the run: it is
+    /// committed by then, so it never falls back.
+    func write(destinationRef: String, artifact: MediaArtifact, bytes: Data) async throws
+}
+
 // MARK: - HostServices Container
 public struct HostServices: Sendable {
     public let connectivity: ConnectivityService
@@ -106,6 +119,9 @@ public struct HostServices: Sendable {
     /// hosts that cannot stream a response body.
     public let streamingHttpClient: HttpStreamingClientService?
     public let telemetry: TelemetryService?
+    /// Application destinations for artifact requests that carry `delivery.destinationRef`.
+    /// Absent means the host has none, and such a request is refused before routing.
+    public let artifactDestinations: ArtifactDestinationService?
 
     public init(
         connectivity: ConnectivityService,
@@ -114,7 +130,8 @@ public struct HostServices: Sendable {
         clock: ClockService? = nil,
         httpClient: HttpClientService? = nil,
         streamingHttpClient: HttpStreamingClientService? = nil,
-        telemetry: TelemetryService? = nil
+        telemetry: TelemetryService? = nil,
+        artifactDestinations: ArtifactDestinationService? = nil
     ) {
         self.connectivity = connectivity
         self.deviceConstraints = deviceConstraints
@@ -123,5 +140,6 @@ public struct HostServices: Sendable {
         self.httpClient = httpClient
         self.streamingHttpClient = streamingHttpClient
         self.telemetry = telemetry
+        self.artifactDestinations = artifactDestinations
     }
 }

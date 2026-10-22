@@ -11,6 +11,8 @@ import {
   getProviderCapabilitySnapshotValidationIssues,
   getStreamEventValidationIssues,
   getStreamRunHandleValidationIssues,
+  getStreamTerminalOutcomeValidationIssues,
+  getTaskOutputValidationIssues,
   getTaskRequestValidationIssues,
   getTelemetryEventValidationIssues,
   validateExecutionProvenance,
@@ -132,6 +134,116 @@ describe("TaskRequest validation", () => {
         generation: { maxOutputTokens: 128 }
       })
     ).toBe(true);
+  });
+});
+
+describe("TaskRequest per-task requirements (ADR 016)", () => {
+  const speech = {
+    schemaVersion: "1.0",
+    task: { kind: "text_to_speech" },
+    speech: { text: "Hallo", locale: "de-AT" },
+    delivery: { mode: "playback" }
+  };
+
+  it("accepts a text_to_speech request with speech and delivery", () => {
+    expect(getTaskRequestValidationIssues(speech)).toEqual([]);
+  });
+
+  it("requires speech and delivery for text_to_speech", () => {
+    const issues = getTaskRequestValidationIssues({
+      schemaVersion: "1.0",
+      task: { kind: "text_to_speech" }
+    });
+    expect(issues.filter((issue) => issue.keyword === "required").map((i) => i.message)).toEqual(
+      expect.arrayContaining([
+        "must have required property 'speech'",
+        "must have required property 'delivery'"
+      ])
+    );
+  });
+
+  it.each([
+    ["prompt", { prompt: "Hello" }],
+    ["messages", { messages: [{ role: "user", content: "Hello" }] }],
+    ["generation", { generation: { temperature: 0.2 } }]
+  ])("forbids %s on a text_to_speech request", (_name, extra) => {
+    expect(validateTaskRequest({ ...speech, ...extra })).toBe(false);
+  });
+
+  it.each([
+    ["speech", { speech: { text: "Hallo", locale: "de-AT" } }],
+    ["delivery", { delivery: { mode: "playback" } }]
+  ])("forbids %s on a text_to_text request", (_name, extra) => {
+    expect(
+      validateTaskRequest({
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "Hello",
+        ...extra
+      })
+    ).toBe(false);
+  });
+
+  it("rejects inline delivery for text_to_speech", () => {
+    expect(validateTaskRequest({ ...speech, delivery: { mode: "inline" } })).toBe(false);
+  });
+
+  it("accepts mediaTypes only with artifact delivery", () => {
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "artifact", mediaTypes: ["audio/wav"] } })
+    ).toBe(true);
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "playback", mediaTypes: ["audio/wav"] } })
+    ).toBe(false);
+  });
+
+  it("accepts a destinationRef only with artifact delivery", () => {
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "artifact", destinationRef: "dest_1" } })
+    ).toBe(true);
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "playback", destinationRef: "dest_1" } })
+    ).toBe(false);
+  });
+
+  it("requires a trait on a required voice but not on a preferred one", () => {
+    const withVoice = (voice: object) => ({ ...speech, speech: { ...speech.speech, voice } });
+    expect(validateTaskRequest(withVoice({ requirement: "required" }))).toBe(false);
+    expect(validateTaskRequest(withVoice({ requirement: "required", gender: "female" }))).toBe(
+      true
+    );
+    expect(validateTaskRequest(withVoice({ requirement: "preferred" }))).toBe(true);
+  });
+
+  it("rejects an unknown task kind at /task/kind", () => {
+    const issues = getTaskRequestValidationIssues({
+      schemaVersion: "1.0",
+      task: { kind: "text_to_video" },
+      prompt: "A cat"
+    });
+    expect(issues.map((issue) => issue.path)).toContain("/task/kind");
+  });
+});
+
+describe("TaskOutput validation", () => {
+  it.each([
+    ["text", { type: "text" }],
+    ["playback", { type: "playback" }],
+    ["artifact", { type: "artifact" }]
+  ])("requires the %s payload for its type", (_name, output) => {
+    expect(getTaskOutputValidationIssues(output).map((issue) => issue.keyword)).toContain(
+      "required"
+    );
+  });
+
+  it("accepts a playback output with the speech actually used", () => {
+    expect(
+      getTaskOutputValidationIssues({
+        type: "playback",
+        playback: { durationMs: 1200 },
+        speech: { locale: "de-DE", voice: { gender: "female" } }
+      })
+    ).toEqual([]);
   });
 });
 
@@ -558,7 +670,7 @@ describe("StreamTerminalOutcome validation", () => {
     ).toBe(true);
   });
 
-  it("rejects a completed outcome missing finalText", () => {
+  it("rejects a completed outcome missing both finalText and output", () => {
     expect(
       validateStreamTerminalOutcome({
         schemaVersion: "1.0",
@@ -579,14 +691,82 @@ describe("StreamTerminalOutcome validation", () => {
     ).toBe(false);
   });
 
-  it("rejects a cancelled outcome missing the required partialText field", () => {
+  it("accepts a cancelled outcome carrying neither partialText nor output", () => {
+    // An artifact run cancelled before handoff produced nothing to report.
     expect(
       validateStreamTerminalOutcome({
         schemaVersion: "1.0",
         runId: "run_123",
         outcome: "cancelled"
       })
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      "completed",
+      {
+        output: {
+          type: "artifact",
+          artifact: {
+            id: "art_1",
+            mediaType: "audio/wav",
+            owner: "engine",
+            lifetime: "until_disposed",
+            byteLength: 10
+          }
+        }
+      }
+    ],
+    ["cancelled", { output: { type: "playback", playback: { durationMs: 640 } } }]
+  ])(
+    "accepts a %s outcome that carries a non-text output in both terminal copies",
+    (outcome, payload) => {
+      const terminal = { schemaVersion: "1.0", runId: "run_123", outcome, ...payload };
+      expect(getStreamTerminalOutcomeValidationIssues(terminal)).toEqual([]);
+      expect(
+        getStreamEventValidationIssues({
+          schemaVersion: "1.0",
+          runId: "run_123",
+          sequence: 3,
+          timestamp: 1,
+          type: "terminal",
+          payload: terminal
+        })
+      ).toEqual([]);
+    }
+  );
+
+  it("rejects a terminal output whose type lacks its payload in both copies", () => {
+    const terminal = {
+      schemaVersion: "1.0",
+      runId: "run_123",
+      outcome: "completed",
+      output: { type: "playback" }
+    };
+    expect(validateStreamTerminalOutcome(terminal)).toBe(false);
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 0,
+        timestamp: 1,
+        type: "terminal",
+        payload: terminal
+      })
     ).toBe(false);
+  });
+
+  it("accepts the partialText an error outcome carries after commit", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "error",
+        partialText: "Hel",
+        error: { schemaVersion: "1.0", errorClass: "Unavailable", message: "Provider failed" }
+      })
+    ).toBe(true);
   });
 
   it("rejects an unrecognized outcome value", () => {

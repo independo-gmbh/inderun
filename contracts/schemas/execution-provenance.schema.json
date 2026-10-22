@@ -70,6 +70,10 @@
             "description": "'succeeded' (produced the result or was committed to and completed), 'failed', or 'cancelled'.",
             "enum": ["succeeded", "failed", "cancelled"]
           },
+          "committed": {
+            "description": "Whether the run committed to this provider during the attempt: its first content was delivered, it signalled the first possible audible effect, or it handed over an artifact. After commit a failure ends the run instead of falling back. Absent means the attempt did not commit.",
+            "type": "boolean"
+          },
           "errorClass": {
             "description": "Normalized error class of a failed attempt.",
             "enum": [

@@ -1,8 +1,12 @@
 import {
+  type ArtifactReadRequest,
+  getArtifactReadRequestValidationIssues,
   getTaskRequestValidationIssues,
+  type MediaArtifact,
   type StreamEvent,
   type StreamRunHandle,
   type StreamTerminalOutcome,
+  type TaskOutput,
   type TaskRequest,
   type TaskResult
 } from "@independo/inderun-contracts";
@@ -27,6 +31,18 @@ import {
   validateModelProfiles
 } from "./model-profiles.js";
 import { ProvenanceRecorder } from "./provenance.js";
+import {
+  checkOutput,
+  type OutputDelivery,
+  recheckBoundVoice,
+  taskProfileFor
+} from "./task-profiles.js";
+import {
+  type ArtifactChunk,
+  type ArtifactLimits,
+  ArtifactStore,
+  type AttemptArtifacts
+} from "./artifacts.js";
 
 /**
  * @deprecated Renamed to `StreamRun`, which is the name the generated
@@ -49,6 +65,11 @@ export interface IndeRunOptions {
    * `"auto"` is built in and cannot be redefined. See `docs/architecture/api-layering.md`.
    */
   modelProfiles?: ModelProfiles;
+  /**
+   * Size limits of the engine's in-memory artifact store (ADR 017). Defaults: 16 MiB per
+   * artifact, 64 MiB in total, 1 MiB per `readArtifact` call.
+   */
+  artifacts?: ArtifactLimits;
 }
 
 /**
@@ -58,6 +79,7 @@ export interface IndeRunOptions {
  */
 export class IndeRun implements IndeRunApi {
   private router: Router;
+  private readonly artifacts: ArtifactStore;
   private telemetryService: TelemetryService;
   private modelProfiles: ModelProfiles;
 
@@ -78,6 +100,7 @@ export class IndeRun implements IndeRunApi {
       options.telemetryService || this.hostServices.telemetry || new NoOpTelemetryService();
     this.modelProfiles = options.modelProfiles ?? {};
     validateModelProfiles(this.modelProfiles);
+    this.artifacts = new ArtifactStore(options.artifacts);
   }
 
   /**
@@ -87,6 +110,12 @@ export class IndeRun implements IndeRunApi {
    */
   private validateRequest(request: TaskRequest, runId: string): ResolvedModelProfile {
     const validationIssues = getTaskRequestValidationIssues(request);
+    if (validationIssues.length === 0 && taskProfileFor(request.task.kind) === undefined) {
+      validationIssues.push({
+        path: "/task/kind",
+        message: `task kind "${request.task.kind}" is not supported by this engine`
+      });
+    }
     if (validationIssues.length === 0) {
       const resolved = resolveModelProfile(this.modelProfiles, request.modelProfile);
       if (resolved.known) {
@@ -190,10 +219,13 @@ export class IndeRun implements IndeRunApi {
 
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
     const provenance = new ProvenanceRecorder(request.modelProfile ?? AUTO_MODEL_PROFILE);
+    // The provider a failed run had committed to, which the failure is attributed to.
+    let committedProvider: ProviderAdapter | undefined;
 
     try {
       // 1. Validate request payload using schema contracts and resolve its model profile
       const modelProfile = this.validateRequest(request, runId);
+      await this.checkDestination(request, runId);
 
       // 2. Select the route based on constraints, model profile, and host capabilities
       const routeSelection = await this.router.selectRoute(
@@ -204,21 +236,50 @@ export class IndeRun implements IndeRunApi {
       );
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
       provenance.routed(routeSelection.routePlan);
+      const delivery = taskProfileFor(request.task.kind)!.delivery(request);
 
       this.emitRouteDecided(runId, request, routeSelection, providers.length);
 
-      // 3. Execute the run task using the planned provider chain
+      // 3. Execute the run task using the planned provider chain. An attempt that committed
+      // (see RunContext.commit) ends the chain: its failure is the run's failure.
       const attemptedProviderIds: string[] = [];
       let lastError: unknown;
       for (const [index, provider] of providers.entries()) {
         const providerId = provider.describe().id;
+        const voice = routeSelection.candidates[index]?.voice;
         attemptedProviderIds.push(providerId);
+        let committed = false;
+        // Closed when the attempt ends: a provider callback that fires after the run moved
+        // on must not be told it may start, say, audible playback.
+        let attemptOpen = true;
+        const commit = () => {
+          if (!attemptOpen) return false;
+          committed = true;
+          return true;
+        };
+        const attemptArtifacts = this.artifacts.attempt(commit);
+        let keptArtifactId: string | undefined;
 
         try {
+          const refusal = recheckBoundVoice(request, providerId, voice);
+          if (refusal !== undefined) throw refusal;
+
           const result = await provider.run(request, {
             runId,
-            hostServices: this.hostServices
+            hostServices: this.hostServices,
+            ...(voice !== undefined ? { voice } : {}),
+            commit,
+            artifacts: attemptArtifacts
           });
+          result.output = this.normalizeOutput(
+            request,
+            delivery,
+            result.output,
+            providerId,
+            attemptArtifacts
+          );
+          result.output = await this.deliverToDestination(request, result.output, providerId);
+          keptArtifactId = engineOwnedArtifactId(result.output);
 
           const endTime = this.now();
           const totalMs = endTime - startTime;
@@ -229,7 +290,7 @@ export class IndeRun implements IndeRunApi {
             providerUsed: providerId,
             totalMs
           };
-          provenance.attempted(providerId, "succeeded");
+          provenance.attempted(providerId, "succeeded", undefined, committed);
           result.provenance = provenance.build(provider.describe(), result.telemetry.reportedModel);
 
           this.safeEmit({
@@ -255,8 +316,15 @@ export class IndeRun implements IndeRunApi {
               routePlan: routeSelection.routePlan
             }
           });
-          provenance.attempted(providerId, "failed", attemptError.errorClass);
+          provenance.attempted(providerId, "failed", attemptError.errorClass, committed);
           lastError = attemptError;
+          if (committed) {
+            committedProvider = provider;
+            break;
+          }
+        } finally {
+          attemptOpen = false;
+          attemptArtifacts.release(keptArtifactId);
         }
       }
 
@@ -285,8 +353,9 @@ export class IndeRun implements IndeRunApi {
       });
       // A routing refusal throws before any attempt; its rejections travel on the details.
       provenance.routingFailed(normalized.details);
-      // No attempt produced the result, so the outcome is attributed to no provider.
-      const exception = normalized.withProvenance(provenance.build());
+      // No attempt produced the result, so the outcome is attributed to no provider -- unless
+      // the run had committed to one, which then owns the failure.
+      const exception = normalized.withProvenance(provenance.build(committedProvider?.describe()));
       const endTime = this.now();
       const totalMs =
         typeof (exception as { details?: { totalMs?: number } }).details?.totalMs === "number"
@@ -336,6 +405,7 @@ export class IndeRun implements IndeRunApi {
     let modelProfile: ResolvedModelProfile;
     try {
       modelProfile = this.validateRequest(request, runId);
+      await this.checkDestination(request, runId);
     } catch (error) {
       throw toIndeRunException(error, { runId }).withProvenance(provenance.build());
     }
@@ -384,24 +454,40 @@ export class IndeRun implements IndeRunApi {
       providerId: providers[0]!.describe().id
     };
 
+    const delivery = taskProfileFor(request.task.kind)!.delivery(request);
+    const textRun = delivery === "inline";
+    const artifacts = this.artifacts;
+    const normalizeOutput = this.normalizeOutput.bind(this);
+    const deliverToDestination = this.deliverToDestination.bind(this);
+
     async function* run(): AsyncGenerator<StreamEvent> {
       const attemptedProviderIds: string[] = [];
+      // Set once, by whichever comes first in an attempt: the provider's commit(), its first
+      // admitted content event, or its result handoff. After it no other provider is tried.
       let committed = false;
+      // Whether the committed attempt was managed playback that may have been heard.
+      let playbackCommitted = false;
 
       const cancelledOutcome = (
         partialText: string,
-        cancelledProvider?: ProviderAdapter
+        cancelledProvider?: ProviderAdapter,
+        delivered?: TaskOutput
       ): StreamTerminalOutcome => {
         const reason =
           typeof controller.signal.reason === "string" ? controller.signal.reason : undefined;
         if (cancelledProvider !== undefined) {
-          provenance.attempted(cancelledProvider.describe().id, "cancelled");
+          provenance.attempted(cancelledProvider.describe().id, "cancelled", undefined, committed);
         }
         return {
           outcome: "cancelled",
           runId,
           schemaVersion: "1.0",
-          partialText,
+          // A text run reports what it delivered; committed playback reports that it played; an
+          // artifact already written to its destination is reported, since the application
+          // owns those bytes now. An uncommitted non-text run produced nothing to report.
+          ...(textRun ? { partialText } : {}),
+          ...(playbackCommitted ? { output: { type: "playback" as const, playback: {} } } : {}),
+          ...(delivered !== undefined ? { output: delivered } : {}),
           ...(reason !== undefined ? { reason } : {}),
           provenance: provenance.build(cancelledProvider?.describe())
         };
@@ -413,6 +499,7 @@ export class IndeRun implements IndeRunApi {
         }
 
         const providerId = provider.describe().id;
+        const voice = routeSelection.candidates[index]?.voice;
         attemptedProviderIds.push(providerId);
         safeEmit({
           type: "stream_attempt_started",
@@ -421,12 +508,41 @@ export class IndeRun implements IndeRunApi {
           payload: { providerId, fallbackOccurred: index > 0 }
         });
 
+        const markCommitted = () => {
+          if (committed) return;
+          committed = true;
+          playbackCommitted = delivery === "playback";
+          safeEmit({
+            type: "stream_attempt_succeeded",
+            runId,
+            timestamp: now(),
+            payload: { providerId, attemptedProviderIds }
+          });
+        };
+
+        // Closed when the attempt ends. A provider callback that fires after the run fell back
+        // must neither start audio nor commit the attempt that replaced this one.
+        let attemptOpen = true;
+        const commit = () => {
+          if (!attemptOpen || controller.signal.aborted || gate.isTerminated()) return false;
+          markCommitted();
+          return true;
+        };
+        const attemptArtifacts = artifacts.attempt(commit);
+        let keptArtifactId: string | undefined;
+
         let partialText = "";
         try {
+          const refusal = recheckBoundVoice(request, providerId, voice);
+          if (refusal !== undefined) throw refusal;
+
           const iterable = (provider as Required<Pick<ProviderAdapter, "stream">>).stream(request, {
             runId,
             hostServices: hostServices,
-            signal: controller.signal
+            signal: controller.signal,
+            ...(voice !== undefined ? { voice } : {}),
+            commit,
+            artifacts: attemptArtifacts
           });
 
           let terminatedInLoop = false;
@@ -440,16 +556,12 @@ export class IndeRun implements IndeRunApi {
             }
 
             if (ev.kind === "delta" || ev.kind === "snapshot") {
-              partialText = ev.kind === "delta" ? partialText + ev.text : ev.text;
-              if (!committed) {
-                committed = true;
-                safeEmit({
-                  type: "stream_attempt_succeeded",
-                  runId,
-                  timestamp: now(),
-                  payload: { providerId, attemptedProviderIds }
-                });
+              // Content events are text-only (ADR 016 §5).
+              if (!textRun) {
+                throw checkOutput(request, delivery, { type: "text", text: "" }, providerId)!;
               }
+              partialText = ev.kind === "delta" ? partialText + ev.text : ev.text;
+              markCommitted();
               const streamEvent = gate.admit({
                 timestamp: now(),
                 type: ev.kind === "delta" ? "content_delta" : "content_snapshot",
@@ -459,16 +571,49 @@ export class IndeRun implements IndeRunApi {
               continue;
             }
 
-            // ev.kind === "done"
-            provenance.attempted(providerId, "succeeded");
+            // ev.kind === "done" (text) or "result" (any task): the run's final output.
+            const output = normalizeOutput(
+              request,
+              delivery,
+              ev.kind === "done" ? { type: "text" as const, text: ev.finalText } : ev.output,
+              providerId,
+              attemptArtifacts
+            );
+            markCommitted();
+            const delivered = await deliverToDestination(request, output, providerId);
+            // A cancel that landed during the destination write did not interrupt it, but the
+            // run still ends cancelled. Bytes already at the destination are the application's,
+            // so the outcome reports them; anything else the usual cancel path below releases.
+            if (controller.signal.aborted) {
+              if (delivered.artifact?.owner !== "application") break;
+              const terminal = gate.terminate(
+                cancelledOutcome(partialText, provider, delivered),
+                now()
+              );
+              safeEmit({
+                type: "stream_cancelled",
+                runId,
+                timestamp: now(),
+                payload: { providerId, attemptedProviderIds }
+              });
+              terminatedInLoop = true;
+              if (terminal) yield terminal;
+              return;
+            }
+            keptArtifactId = engineOwnedArtifactId(delivered);
+            provenance.attempted(providerId, "succeeded", undefined, committed);
             const outcome: StreamTerminalOutcome = {
               outcome: "completed",
               runId,
               schemaVersion: "1.0",
-              finalText: ev.finalText,
+              ...(ev.kind === "done"
+                ? { finalText: ev.finalText }
+                : output.type === "text"
+                  ? { finalText: output.text!, output }
+                  : { output }),
               telemetry: { providerUsed: providerId, totalMs: now() - startTime },
               ...(ev.finishReason !== undefined ? { finishReason: ev.finishReason } : {}),
-              ...(ev.usage !== undefined ? { usage: ev.usage } : {}),
+              ...(ev.kind === "done" && ev.usage !== undefined ? { usage: ev.usage } : {}),
               provenance: provenance.build(provider.describe(), ev.reportedModel)
             };
             const terminal = gate.terminate(outcome, now());
@@ -488,6 +633,7 @@ export class IndeRun implements IndeRunApi {
           }
 
           if (controller.signal.aborted) {
+            attemptArtifacts.release();
             const terminal = gate.terminate(cancelledOutcome(partialText, provider), now());
             safeEmit({
               type: "stream_cancelled",
@@ -499,10 +645,11 @@ export class IndeRun implements IndeRunApi {
             return;
           }
 
-          // Provider's iterable ended without a terminal "done"/"error" event.
+          // Provider's iterable ended without a terminal "done"/"result"/"error" event.
           throw new Error(`Provider '${providerId}' stream ended without a terminal event.`);
         } catch (err) {
           if (controller.signal.aborted) {
+            attemptArtifacts.release();
             const terminal = gate.terminate(cancelledOutcome(partialText, provider), now());
             safeEmit({
               type: "stream_cancelled",
@@ -519,7 +666,7 @@ export class IndeRun implements IndeRunApi {
             runId,
             details: { attemptedProviderIds }
           });
-          provenance.attempted(providerId, "failed", exception.errorClass);
+          provenance.attempted(providerId, "failed", exception.errorClass, committed);
 
           if (!committed) {
             safeEmit({
@@ -536,12 +683,13 @@ export class IndeRun implements IndeRunApi {
           }
 
           // Committed: the failure belongs to this provider, not to the chain.
+          attemptArtifacts.release();
           const outcome: StreamTerminalOutcome = {
             outcome: "error",
             runId,
             schemaVersion: "1.0",
             error: exception.toContractError(),
-            partialText,
+            ...(textRun ? { partialText } : {}),
             provenance: provenance.build(provider.describe())
           };
           const terminal = gate.terminate(outcome, now());
@@ -558,6 +706,9 @@ export class IndeRun implements IndeRunApi {
           });
           if (terminal) yield terminal;
           return;
+        } finally {
+          attemptOpen = false;
+          attemptArtifacts.release(keptArtifactId);
         }
       }
 
@@ -583,7 +734,7 @@ export class IndeRun implements IndeRunApi {
         runId,
         schemaVersion: "1.0",
         error: exception.toContractError(),
-        partialText: "",
+        ...(textRun ? { partialText: "" } : {}),
         provenance: provenance.build()
       };
       const terminal = gate.terminate(outcome, now());
@@ -607,6 +758,104 @@ export class IndeRun implements IndeRunApi {
    * Reports each registered provider's static descriptor and current dynamic capability check,
    * without executing a task. Useful for UI that shows live provider availability before a run.
    */
+  async readArtifact(request: ArtifactReadRequest): Promise<ArtifactChunk> {
+    const validationIssues = getArtifactReadRequestValidationIssues(request);
+    if (validationIssues.length > 0) {
+      const message = `Validation failed for ArtifactReadRequest: ${validationIssues
+        .map((i) => `${i.path} - ${i.message}`)
+        .join("; ")}`;
+      throw createInternal(message, { details: { validationIssues } });
+    }
+    return this.artifacts.read(request);
+  }
+
+  async disposeArtifact(artifact: MediaArtifact): Promise<void> {
+    if (artifact.owner === "engine") {
+      this.artifacts.dispose(artifact.id);
+    }
+  }
+
+  /**
+   * Refuses, before routing, an artifact request whose `destinationRef` this host cannot
+   * write to: there is no point running a provider whose result has nowhere to go.
+   */
+  private async checkDestination(request: TaskRequest, runId: string): Promise<void> {
+    const destinationRef = request.delivery?.destinationRef;
+    if (destinationRef === undefined) return;
+    const destinations = this.hostServices.artifactDestinations;
+    if (destinations === undefined) {
+      throw createCapabilityMismatch("This host has no application artifact destinations.", {
+        runId,
+        details: { code: "artifact_destination_unsupported" }
+      });
+    }
+    if (!(await destinations.accepts(destinationRef, request.delivery?.mediaTypes))) {
+      throw createCapabilityMismatch("The host refused the requested artifact destination.", {
+        runId,
+        details: { code: "artifact_destination_refused" }
+      });
+    }
+  }
+
+  /**
+   * Writes a finished artifact to the request's application destination, if it names one,
+   * and drops the engine's copy: the result's artifact is then application-owned. The run
+   * has committed by now, so a failed write is the run's failure, never a fallback.
+   */
+  private async deliverToDestination(
+    request: TaskRequest,
+    output: TaskOutput,
+    providerId: string
+  ): Promise<TaskOutput> {
+    const destinationRef = request.delivery?.destinationRef;
+    const artifact = output.artifact;
+    if (destinationRef === undefined || artifact === undefined) return output;
+    try {
+      await this.hostServices.artifactDestinations!.write(
+        destinationRef,
+        artifact,
+        this.artifacts.bytes(artifact.id)!
+      );
+    } catch {
+      // The host's error stays out of the run's error: it may name the destination.
+      this.artifacts.dispose(artifact.id);
+      throw createInternal("Writing the artifact to its application destination failed.", {
+        providerId,
+        details: { code: "artifact_destination_write_failed" }
+      });
+    }
+    this.artifacts.dispose(artifact.id);
+    return { ...output, artifact: { ...artifact, owner: "application", destinationRef } };
+  }
+
+  /**
+   * Checks that an artifact in a provider's output is one this attempt produced, swaps in the
+   * reference the store holds, and only then checks the output against the requested delivery:
+   * the artifact's media type, size and ownership are the engine's record rather than the
+   * provider's claim.
+   */
+  private normalizeOutput(
+    request: TaskRequest,
+    delivery: OutputDelivery,
+    output: TaskOutput | undefined,
+    providerId: string,
+    attemptArtifacts: AttemptArtifacts
+  ): TaskOutput {
+    let resolved = output;
+    if (output?.artifact !== undefined) {
+      if (!attemptArtifacts.owns(output.artifact.id)) {
+        throw createInternal(
+          `Provider '${providerId}' returned an artifact it did not hand over in this attempt.`,
+          { providerId, details: { code: "output_mismatch" } }
+        );
+      }
+      resolved = { ...output, artifact: this.artifacts.reference(output.artifact.id)! };
+    }
+    const mismatch = checkOutput(request, delivery, resolved, providerId);
+    if (mismatch !== undefined) throw mismatch;
+    return resolved!;
+  }
+
   async checkCapabilities(): Promise<ProviderCapabilitySnapshot[]> {
     return Promise.all(
       this.registry.list().map(async (provider) => ({
@@ -616,4 +865,9 @@ export class IndeRun implements IndeRunApi {
       }))
     );
   }
+}
+
+/** The id of an artifact output the engine still holds, which an attempt must keep. */
+function engineOwnedArtifactId(output: TaskOutput): string | undefined {
+  return output.artifact?.owner === "engine" ? output.artifact.id : undefined;
 }

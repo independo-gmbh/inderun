@@ -62,13 +62,60 @@ the request's privacy policy. The generated Swift `Candidate` memberwise initial
 requests now reach the planner with `inputs: ["text"]`, so a provider that declares a `text_to_text` capability
 without text input is rejected with `input_not_supported`.
 
+Provider contexts (`RunContext`, `ProviderStreamContext`) gain an optional `voice`: the voice the plan bound this
+provider to for a speech request, and a `commit()` a provider calls immediately before an external effect such as
+audible playback. Text providers can ignore both. The provider stream event vocabulary gains `result`, which ends a
+stream with a non-text output; text providers keep `done`. On Swift and Kotlin an exhaustive `switch` / `when` over
+`ProviderStreamEvent` must handle it, and a hand-built context must supply a commit handler.
+
 The planner no longer writes `null` for an absent optional in its output (`selectedProviderId`, `failureCode`): the key
 is omitted, which is what the route-plan schema always described.
+
+### Task-generic requests and results
+
+The request, result and terminal contracts admit `text_to_speech` next to `text_to_text`
+([ADR 016](architecture/decisions/016-modality-extensible-task-contracts.md)). The JSON of a text request, result or
+stream is unchanged; the generated types are not, because one type now describes every task.
+
+| 0.4 (generated type)                                   | 0.5                                                          |
+| ------------------------------------------------------ | ------------------------------------------------------------ |
+| `Output` / `OutputType` (Swift, Kotlin)                | `TaskOutput` / `TaskOutputType`                              |
+| `Kind` (Swift)                                         | `TaskKind`                                                   |
+| `TaskResult.output.text: String`                       | `String?` — set whenever `output.type` is `text`             |
+| terminal `finalText` / `partialText` (TS)              | optional — a non-text run carries `output` instead           |
+| `TaskKind` / `TaskOutputType` cases                    | gain `text_to_speech` / `playback`, `artifact`               |
+
+- **Primary text API: nothing to change.** `generateText` / `streamText` still return a non-optional string.
+- **Web.** Read `result.output.text ?? ""` where you read the generated result directly. New narrowed aliases in
+  `@independo/inderun-contracts` (`TextTaskRequest`, `SpeechTaskRequest`, `TextTaskOutput`, `PlaybackTaskOutput`,
+  `ArtifactTaskOutput`) restate the per-task requirements the generated types cannot carry, and
+  `validateTaskOutput` / `validateMediaArtifact` are new.
+- **Swift.** Build an output with `TaskOutput(text:)`, `TaskOutput(playback:speech:)` or
+  `TaskOutput(artifact:speech:)`. `TaskRequest(...)` gains `speech:` and `delivery:` parameters with `nil` defaults.
+  An exhaustive `switch` over `TaskKind` or `TaskOutputType` must handle the new cases.
+- **Kotlin.** Construct `TaskOutput(type = TaskOutputType.TEXT, text = …)`; `TaskOutput.type` has no default because
+  it is meaningful for every task. An exhaustive `when` must handle `TaskKind.TEXT_TO_SPEECH` and the new
+  `TaskOutputType` entries.
+- **Provider authors.** A text provider returns the same result as before with the renamed type.
+
+### Media artifacts and two new `IndeRunApi` operations
+
+`IndeRunApi` gains `readArtifact(request)` and `disposeArtifact(artifact)`
+([ADR 017](architecture/decisions/017-media-artifacts.md)). Anything that implements the interface — a bridge, a test
+fake — must add both. A run with `artifact` delivery returns a `MediaArtifact` reference; read its bytes in ranges
+with `readArtifact({ artifactId, offset?, maxBytes? })`, which returns an `ArtifactChunk` (`Uint8Array` / `Data` /
+`ByteArray`), and dispose it when done — artifacts outlive their run. The engine options gain artifact store limits
+(`artifacts` on Web, an `artifactLimits` parameter on Swift and Kotlin). Provider contexts gain an `artifacts` sink
+for providers that produce media. A request may name an application destination with `delivery.destinationRef`
+(artifact delivery only); it needs the new optional host service (`artifactDestinations` on Web `HostServices`, the
+matching protocol / interface on Swift and Kotlin), and a host without one refuses the request before routing.
 
 ### Capacitor
 
 The bridge can drop its own copy of the snapshot type and import `ProviderCapabilitySnapshot` and
-`validateProviderCapabilitySnapshot` from `@independo/inderun-contracts`.
+`validateProviderCapabilitySnapshot` from `@independo/inderun-contracts`. It must implement `readArtifact` and
+`disposeArtifact` by forwarding to the native engine; only the artifact id crosses the bridge, and each read is bounded
+by the engine's maximum read size.
 
 ## 0.3 → 0.4
 

@@ -282,7 +282,7 @@ private func settle(_ terminal: StreamEvent, runId: String) throws -> StreamedTe
     switch payload?.outcome {
     case .some(.completed):
         return StreamedText(
-            text: payload?.finalText ?? "",
+            text: payload?.finalText ?? payload?.output?.text ?? "",
             finishReason: payload?.finishReason,
             usage: usage,
             runId: runId,
@@ -290,7 +290,7 @@ private func settle(_ terminal: StreamEvent, runId: String) throws -> StreamedTe
         )
     case .some(.cancelled):
         return StreamedText(
-            text: payload?.partialText ?? "",
+            text: payload?.partialText ?? payload?.output?.text ?? "",
             finishReason: .cancelled,
             usage: nil,
             runId: runId,
@@ -377,7 +377,9 @@ public extension IndeRunApi {
     func generateText(_ options: TextGenerationOptions) async throws -> GeneratedText {
         let result = try await run(request: options.taskRequest())
         return GeneratedText(
-            text: result.output.text,
+            // A text run always produces text; `TaskOutput.text` is optional only because the
+            // same type describes playback and artifacts (ADR 016).
+            text: result.output.text ?? "",
             finishReason: result.finishReason,
             usage: result.usage,
             runId: result.runId,

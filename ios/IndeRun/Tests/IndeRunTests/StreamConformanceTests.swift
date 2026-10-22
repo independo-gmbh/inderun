@@ -39,6 +39,10 @@ final class StreamConformanceTests: XCTestCase {
         var usage: [String: Int]?
         var absentFinishReason: Bool?
         var absentUsage: Bool?
+        var absentPartialText: Bool?
+        var absentOutput: Bool?
+        /// Compared by deep equality of the encoded JSON.
+        var output: TaskOutput?
     }
 
     private struct ProvenanceExpectation: Decodable {
@@ -49,6 +53,7 @@ final class StreamConformanceTests: XCTestCase {
         var attemptCount: Int?
         var fallbackOccurred: Bool?
         var attempts: [[String]]?
+        var committedAttempts: [String]?
     }
 
     private struct RejectedProviderExpectation: Decodable {
@@ -84,6 +89,7 @@ final class StreamConformanceTests: XCTestCase {
         var telemetryStableMessageEvents: [String]?
         var noReplayOnSecondIteration: Bool?
         var provenance: ProvenanceExpectation?
+        var commitResults: [String: [Bool]]?
     }
 
     private static func repositoryRoot() -> URL {
@@ -136,6 +142,7 @@ final class StreamConformanceTests: XCTestCase {
         var handleStartedAt: Double?
         var wallClockRange: ClosedRange<Int64>?
         var secondIterationEventCount: Int?
+        var commitResults: [String: [Bool]] = [:]
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
@@ -179,6 +186,9 @@ final class StreamConformanceTests: XCTestCase {
             check(label: label, provenance: provenance, events: events)
         }
 
+        for (providerId, results) in expected.commitResults ?? [:] {
+            XCTAssertEqual(observed.commitResults[providerId], results, "\(label): \(providerId) commit() results")
+        }
         for (providerId, count) in expected.providerCallCounts ?? [:] {
             XCTAssertEqual(
                 observed.providerCallCounts[providerId],
@@ -243,6 +253,13 @@ final class StreamConformanceTests: XCTestCase {
                 "\(label): provenance.attempts"
             )
         }
+        if let committedAttempts = expected.committedAttempts {
+            XCTAssertEqual(
+                provenance.attempts.filter { $0.committed == true }.map(\.providerId),
+                committedAttempts,
+                "\(label): provenance.committedAttempts"
+            )
+        }
     }
 
     private func check(label: String, terminal: TerminalExpectation, events: [StreamEvent]) {
@@ -279,6 +296,21 @@ final class StreamConformanceTests: XCTestCase {
         if terminal.absentUsage == true {
             XCTAssertNil(payload.usage, "\(label): usage must be absent")
         }
+        if terminal.absentPartialText == true {
+            XCTAssertNil(payload.partialText, "\(label): partialText must be absent")
+        }
+        if terminal.absentOutput == true {
+            XCTAssertNil(payload.output, "\(label): output must be absent")
+        }
+        if let output = terminal.output {
+            XCTAssertEqual(json(payload.output), json(output), "\(label): output")
+        }
+    }
+
+    /// `value` as a JSON object, so two outputs compare by what they encode to.
+    private func json(_ value: TaskOutput?) -> NSDictionary? {
+        guard let value, let data = try? JSONEncoder().encode(value) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? NSDictionary
     }
 
     private func check(label: String, rejection: RejectionExpectation, observed: Observation) {
@@ -411,8 +443,14 @@ final class StreamConformanceTests: XCTestCase {
 
     private typealias Handler = () async throws -> Observation
 
-    // swiftlint:disable:next function_body_length
     private var handlers: [String: Handler] {
+        textHandlers.merging(nonTextOutputHandlers) { _, _ in
+            preconditionFailure("a catalog case id has two handlers")
+        }
+    }
+
+    // swiftlint:disable:next function_body_length
+    private var textHandlers: [String: Handler] {
         [
             "deltas_then_completed": { [self] in
                 let registry = ProviderRegistry()
@@ -866,6 +904,207 @@ final class StreamConformanceTests: XCTestCase {
                 // never replayed -- see the `$divergence` note on this catalog case.
                 let second = try await drain(run)
                 return Observation(events: first, secondIterationEventCount: second.count)
+            }
+        ]
+    }
+}
+
+// MARK: - non_text_outputs
+
+/// The catalog cases that stream a `text_to_speech` request (speech 'Hallo' in de-AT, played
+/// back on the device) and exercise the explicit commit rule.
+extension StreamConformanceTests {
+    private static let playbackOutput = TaskOutput(playback: PlaybackOutput(durationMs: nil))
+
+    // swiftlint:disable:next function_body_length
+    private var nonTextOutputHandlers: [String: Handler] {
+        [
+            "playback_commit_then_completed_with_output": { [self] in
+                let provider = MockStreamProvider(
+                    id: "p1",
+                    script: [.commit, .init(.result(output: TaskOutput(playback: PlaybackOutput(durationMs: 1200))))],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(provider)
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                let events = try await drain(try await engine.stream(request: makeSpeechRequest()))
+                return Observation(events: events, commitResults: ["p1": provider.commitResults])
+            },
+
+            "playback_pre_commit_failure_falls_back": { [self] in
+                let failing = MockStreamProvider(
+                    id: "p1_failing",
+                    throwImmediately: createCapabilityMismatch(message: "voice unavailable"),
+                    task: .textToSpeech
+                )
+                let healthy = MockStreamProvider(
+                    id: "p2_healthy",
+                    script: [.commit, .init(.result(output: Self.playbackOutput))],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(failing)
+                try registry.register(healthy)
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                let events = try await drain(try await engine.stream(request: makeSpeechRequest()))
+                return Observation(
+                    events: events,
+                    providerCallCounts: ["p1_failing": failing.callCount, "p2_healthy": healthy.callCount]
+                )
+            },
+
+            "playback_post_commit_failure_never_falls_back": { [self] in
+                let provider = MockStreamProvider(
+                    id: "p1",
+                    script: [.commit],
+                    throwAfterScript: createUnavailable(message: "audio device lost"),
+                    task: .textToSpeech
+                )
+                let fallback = MockStreamProvider(
+                    id: "p2_healthy",
+                    script: [.commit, .init(.result(output: Self.playbackOutput))],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(provider)
+                try registry.register(fallback)
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                let events = try await drain(try await engine.stream(request: makeSpeechRequest()))
+                return Observation(events: events, providerCallCounts: ["p2_healthy": fallback.callCount])
+            },
+
+            "playback_cancel_carries_output_and_is_idempotent": { [self] in
+                let provider = MockStreamProvider(
+                    id: "p1",
+                    script: [.commit, .waitForCancellation],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(provider)
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                let run = try await engine.stream(request: makeSpeechRequest())
+                let collector = Task { try await drain(run) }
+                await provider.waitUntilCommitted()
+                run.cancel(reason: "stop")
+                run.cancel(reason: "again")
+                return Observation(events: try await collector.value, providerInterrupted: provider.wasInterrupted)
+            },
+
+            "commit_after_cancel_is_refused": { [self] in
+                let provider = MockStreamProvider(
+                    id: "p1",
+                    script: [.waitForCancellation, .commit],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(provider)
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                let run = try await engine.stream(request: makeSpeechRequest())
+                let collector = Task { try await drain(run) }
+                await provider.waitUntilEntered()
+                run.cancel()
+                let events = try await collector.value
+                await provider.waitUntilCommitted()
+                return Observation(events: events, commitResults: ["p1": provider.commitResults])
+            },
+
+            "completion_error_race_yields_first_terminal": { [self] in
+                let registry = ProviderRegistry()
+                try registry.register(MockStreamProvider(
+                    id: "p1",
+                    script: [
+                        .commit,
+                        .init(.result(output: Self.playbackOutput)),
+                        .init(.failure(error: createUnavailable(message: "late failure")))
+                    ],
+                    task: .textToSpeech
+                ))
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                return Observation(events: try await drain(try await engine.stream(request: makeSpeechRequest())))
+            },
+
+            "cancel_never_triggers_fallback_before_commit": { [self] in
+                let provider = MockStreamProvider(id: "p1", script: [.waitForCancellation], task: .textToSpeech)
+                let fallback = MockStreamProvider(
+                    id: "p2_healthy",
+                    script: [.commit, .init(.result(output: Self.playbackOutput))],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(provider)
+                try registry.register(fallback)
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                let run = try await engine.stream(request: makeSpeechRequest())
+                let collector = Task { try await drain(run) }
+                await provider.waitUntilEntered()
+                run.cancel()
+                return Observation(
+                    events: try await collector.value,
+                    providerCallCounts: ["p1": provider.callCount, "p2_healthy": fallback.callCount]
+                )
+            },
+
+            "output_mismatch_is_a_provider_fault": { [self] in
+                let wrong = MockStreamProvider(
+                    id: "p1_wrong",
+                    script: [.init(.delta(text: "Hallo"))],
+                    task: .textToSpeech
+                )
+                let healthy = MockStreamProvider(
+                    id: "p2_healthy",
+                    script: [.commit, .init(.result(output: Self.playbackOutput))],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(wrong)
+                try registry.register(healthy)
+                let engine = IndeRun(registry: registry, hostServices: makeHost())
+                let events = try await drain(try await engine.stream(request: makeSpeechRequest()))
+                return Observation(
+                    events: events,
+                    providerCallCounts: ["p1_wrong": wrong.callCount, "p2_healthy": healthy.callCount]
+                )
+            },
+
+            "late_commit_from_abandoned_attempt_is_refused": { [self] in
+                let abandoned = MockStreamProvider(
+                    id: "p1_abandoned",
+                    throwImmediately: createCapabilityMismatch(message: "voice unavailable"),
+                    task: .textToSpeech,
+                    keepsCommit: true
+                )
+                let next = MockStreamProvider(
+                    id: "p2_next",
+                    script: [.callKeptCommit(of: abandoned)],
+                    throwAfterScript: createCapabilityMismatch(message: "voice unavailable"),
+                    task: .textToSpeech
+                )
+                let healthy = MockStreamProvider(
+                    id: "p3_healthy",
+                    script: [.commit, .init(.result(output: Self.playbackOutput))],
+                    task: .textToSpeech
+                )
+                let registry = ProviderRegistry()
+                try registry.register(abandoned)
+                try registry.register(next)
+                try registry.register(healthy)
+                let telemetry = MockTelemetryService()
+                let engine = IndeRun(registry: registry, hostServices: makeHost(telemetry: telemetry))
+                let events = try await drain(try await engine.stream(request: makeSpeechRequest()))
+                return Observation(
+                    events: events,
+                    telemetry: telemetry.events,
+                    providerCallCounts: [
+                        "p1_abandoned": abandoned.callCount,
+                        "p2_next": next.callCount,
+                        "p3_healthy": healthy.callCount
+                    ],
+                    commitResults: [
+                        "p1_abandoned": abandoned.commitResults,
+                        "p3_healthy": healthy.commitResults
+                    ]
+                )
             }
         ]
     }

@@ -115,6 +115,36 @@ must accept `"stream": true` and emit `text/event-stream` with the Responses eve
 Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
 SDK and documented once, in [Streaming (Mode 2)](../../docs/streaming.md).
 
+## Media artifacts
+
+A run with `artifact` delivery returns a `MediaArtifact` reference; read the bytes with
+`readArtifact(request:)` and release them with `disposeArtifact(artifact:)`
+([ADR 017](../../docs/architecture/decisions/017-media-artifacts.md)):
+
+```swift
+let result = try await indeRun.run(request: request)
+guard let artifact = result.output.artifact else { return }
+var audio = Data()
+var offset = 0
+while true {
+    let chunk = try await indeRun.readArtifact(
+        request: ArtifactReadRequest(artifactId: artifact.id, maxBytes: nil, offset: offset)
+    )
+    audio.append(chunk.bytes)
+    offset += chunk.bytes.count
+    if chunk.done { break }
+}
+await indeRun.disposeArtifact(artifact: artifact)
+```
+
+`AppleSpeechArtifactSampleTests` proves the path with real speech: a test-scoped provider renders
+text with `AVSpeechSynthesizer.write(_:toBufferCallback:)` and hands it over as `audio/wav` —
+a canonical 44-byte RIFF/WAVE header followed by mono, 16-bit signed little-endian PCM at the
+sample rate of the synthesizer's first buffer (float buffers are clamped and scaled). The artifact
+reports `byteLength` and `durationMs` (samples ÷ sample rate). The test skips when the host has no
+`en-US` voice or the synthesizer delivers no audio within 10 seconds. It is a sample of the
+transport, not the Apple system speech provider, which is tracked separately (#247).
+
 ## Credentials
 
 `authContextRef` names a slot in secure platform storage, so the secret never enters a

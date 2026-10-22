@@ -81,7 +81,11 @@ function fakeApi(script: { result?: TaskResult; events?: StreamEvent[] }): IndeR
     },
     async checkCapabilities() {
       return [];
-    }
+    },
+    async readArtifact() {
+      throw new Error("the text facade never reads artifacts");
+    },
+    async disposeArtifact() {}
   };
 }
 
@@ -329,3 +333,34 @@ function localProvider(id: string): ProviderAdapter {
     })
   };
 }
+
+const forwardCompat = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../contracts/fixtures/streaming/forward-compat-events.json"
+    ),
+    "utf8"
+  )
+) as {
+  cases: {
+    id: string;
+    events: StreamEvent[];
+    expect: { textIncrements: string[]; text: string; fullStreamTypes: string[] };
+  }[];
+};
+
+describe("streamText (shared forward-compatibility vectors)", () => {
+  for (const vector of forwardCompat.cases) {
+    it(vector.id, async () => {
+      const api = fakeApi({ events: vector.events });
+      const stream = await streamText(api, { prompt: "Hello" });
+
+      expect(await collect(stream.textStream)).toEqual(vector.expect.textIncrements);
+      expect((await collect(stream.fullStream)).map((e) => e.type)).toEqual(
+        vector.expect.fullStreamTypes
+      );
+      expect((await stream.result).text).toBe(vector.expect.text);
+    });
+  }
+});

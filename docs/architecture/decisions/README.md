@@ -11,9 +11,10 @@ surfaces, the capability-oriented canonical contract, and execution provenance. 
 in [architecture.md](../architecture.md), [providers.md](../providers.md) and [api-layering.md](../api-layering.md).
 New ADRs continue the numbering here.
 
-| ADR                                                | Title                              | Status   |
-| -------------------------------------------------- | ---------------------------------- | -------- |
-| [016](./016-modality-extensible-task-contracts.md) | Modality-extensible task contracts | Accepted |
+| ADR                                                | Title                                  | Status   |
+| -------------------------------------------------- | -------------------------------------- | -------- |
+| [016](./016-modality-extensible-task-contracts.md) | Modality-extensible task contracts     | Accepted |
+| [017](./017-media-artifacts.md)                    | Media artifact transport and lifecycle | Accepted |
 
 ## Template
 

@@ -250,7 +250,8 @@ public enum DefaultHostServices {
         clock: ClockService = SystemClockService(),
         httpClient: HttpClientService = URLSessionHttpClientService(),
         streamingHttpClient: HttpStreamingClientService = URLSessionStreamingHttpClientService(),
-        telemetry: TelemetryService? = nil
+        telemetry: TelemetryService? = nil,
+        artifactDestinations: ArtifactDestinationService? = nil
     ) -> HostServices {
         HostServices(
             connectivity: connectivity,
@@ -259,7 +260,8 @@ public enum DefaultHostServices {
             clock: clock,
             httpClient: httpClient,
             streamingHttpClient: streamingHttpClient,
-            telemetry: telemetry
+            telemetry: telemetry,
+            artifactDestinations: artifactDestinations
         )
     }
 }

@@ -1,8 +1,10 @@
 package app.independo.inderun.core
 
 import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
+import app.independo.inderun.contracts.TaskOutput
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResultUsage
 import kotlinx.coroutines.flow.Flow
@@ -81,7 +83,40 @@ data class ProviderStreamContext(
      * cancellation guarantee regardless of what the provider does.
      */
     val cancellation: StreamCancellationToken,
-)
+    /**
+     * The voice the route plan bound this provider to for a speech task; see
+     * [RunContext.voice]. The engine has re-checked it against the request's privacy policy
+     * immediately before the attempt.
+     */
+    val voice: ProviderVoice? = null,
+    /**
+     * Where the provider writes retrievable media for an `artifact` request; see
+     * [RunContext.artifacts]. Handing an artifact over commits the run.
+     */
+    val artifacts: ArtifactSink = ArtifactSink.standalone(),
+    /**
+     * What [commit] does. The engine supplies it; a context built outside an engine -- a
+     * provider's own unit test -- always commits.
+     */
+    private val commitHandler: () -> Boolean = { true },
+) {
+    /**
+     * Commits the run to this provider. Call it immediately before the attempt's first
+     * externally observable effect -- for managed playback, no later than the first moment
+     * sound may reach the user. After commit, a failure ends the run with a terminal error
+     * instead of falling back to another provider, because a second provider would repeat
+     * what the user may already have heard.
+     *
+     * Returns `false` when the run can no longer commit (it was cancelled or has already
+     * ended) and when this attempt is over, e.g. a late callback after the engine fell back to
+     * another provider; the provider must then not start the effect and should end the attempt.
+     * Idempotent: calling it again after a successful commit returns `true`.
+     *
+     * Text streams need not call it: they commit implicitly on their first content event,
+     * and every stream commits at the latest when it hands over its result.
+     */
+    fun commit(): Boolean = commitHandler()
+}
 
 /**
  * A raw, provider-shaped streaming event.
@@ -109,6 +144,18 @@ sealed interface ProviderStreamEvent {
         val reportedModel: String? = null,
     ) : ProviderStreamEvent
 
+    /**
+     * The run's normalized output, for tasks whose output is not streamed text (playback
+     * completion, a media artifact). Ends the stream like [Done]; handing it over commits the
+     * run if the provider has not already called [ProviderStreamContext.commit]. Text
+     * providers keep using [Done].
+     */
+    data class Result(
+        val output: TaskOutput,
+        val finishReason: FinishReason? = null,
+        val reportedModel: String? = null,
+    ) : ProviderStreamEvent
+
     /** Terminal failure. Handled identically to the flow throwing. */
     data class Failure(val error: Throwable) : ProviderStreamEvent
 }
@@ -124,8 +171,9 @@ sealed interface ProviderStreamEvent {
 interface StreamingProviderAdapter : ProviderAdapter {
     /**
      * Executes a Mode 2 (streaming) task. The returned flow must end with a
-     * [ProviderStreamEvent.Done] or [ProviderStreamEvent.Failure] event, or by
-     * throwing; ending without one is treated as a provider fault.
+     * [ProviderStreamEvent.Done], [ProviderStreamEvent.Result] or
+     * [ProviderStreamEvent.Failure] event, or by throwing; ending without one is
+     * treated as a provider fault.
      */
     fun stream(request: TaskRequest, context: ProviderStreamContext): Flow<ProviderStreamEvent>
 }

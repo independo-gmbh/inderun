@@ -4,6 +4,7 @@ import type {
   TaskRequest
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
+import { taskProfileFor } from "./task-profiles.js";
 import type {
   ProviderAdapter,
   ProviderDescriptor,
@@ -204,14 +205,12 @@ export function buildSharedPlannerInput(
 }
 
 /**
- * Projects the request's task onto the requirements the planner can check. A text
- * request carries text input; the speech requirements arrive with the speech request
- * shape (#245).
+ * Projects the request's task onto the requirements the planner can check, through the
+ * kind's task profile. A kind without a profile carries the kind alone, which the planner
+ * matches against declarations and nothing else.
  */
 function plannerTask(request: TaskRequest): SharedPlannerInput["task"] {
-  return request.task.kind === "text_to_text"
-    ? { kind: request.task.kind, inputs: ["text"] }
-    : { kind: request.task.kind };
+  return taskProfileFor(request.task.kind)?.plannerTask(request) ?? { kind: request.task.kind };
 }
 
 /**

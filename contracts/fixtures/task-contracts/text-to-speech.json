@@ -1,7 +1,7 @@
 {
-  "$comment": "ADR 016 example 2: text_to_speech with managed playback and with a retrievable audio artifact. status 'proposed' means the shapes are decided but the 1.0 schemas do not accept them yet: the request schema change lands with #245, the artifact reference with #244. Until then packages/contracts/src/task-contract-fixtures.test.ts asserts every request here is rejected at /task/kind, which is also how an older consumer treats an unknown task. When #245 lands this file flips to 'current' and the same test validates it. The artifact object is a placeholder until #244 fixes its shape. The planner object is the projection onto route-planner-input's task (#243).",
+  "$comment": "ADR 016 example 2: text_to_speech with managed playback and with a retrievable audio artifact (ADR 017). status 'current': every request, result and terminal here validates against the committed 1.0 schemas (packages/contracts/src/task-contract-fixtures.test.ts). The planner object is the projection onto route-planner-input's task (#243) that every SDK must produce for the request. 'invalidRequests' are requests the schema's per-kind rules reject; every SDK's request validation must reject each one too (the Web engine validates against the schema, Swift and Kotlin restate the rules in their task profiles).",
   "task": "text_to_speech",
-  "status": "proposed",
+  "status": "current",
   "cases": [
     {
       "id": "playback_run",
@@ -83,7 +83,14 @@
         "runId": "run_tts_3",
         "output": {
           "type": "artifact",
-          "artifact": { "mediaType": "audio/wav", "ref": "placeholder-until-244" },
+          "artifact": {
+            "id": "art_5b1f0c2e",
+            "mediaType": "audio/wav",
+            "owner": "engine",
+            "lifetime": "until_disposed",
+            "byteLength": 94508,
+            "durationMs": 2140
+          },
           "speech": { "locale": "en-GB" }
         },
         "finishReason": "stop",
@@ -94,6 +101,45 @@
         "inputs": ["text"],
         "delivery": { "mode": "artifact", "mediaTypes": ["audio/wav", "audio/mpeg"] },
         "locale": { "tag": "en-GB", "match": "exact" }
+      }
+    }
+  ],
+  "invalidRequests": [
+    {
+      "id": "destination_ref_with_playback",
+      "description": "destinationRef is only valid with artifact delivery.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Hallo",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "playback",
+          "destinationRef": "dest_greeting"
+        }
+      }
+    },
+    {
+      "id": "empty_destination_ref",
+      "description": "destinationRef must not be empty.",
+      "request": {
+        "schemaVersion": "1.0",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Hallo",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "artifact",
+          "mediaTypes": ["audio/wav"],
+          "destinationRef": ""
+        }
       }
     }
   ]

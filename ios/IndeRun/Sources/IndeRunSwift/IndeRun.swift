@@ -8,21 +8,46 @@ public final class IndeRun: IndeRunApi {
     private let telemetryService: (any TelemetryService)?
     private let router: Router
     private let modelProfiles: ModelProfiles
+    /// The engine's in-memory media artifact store (ADR 017). Artifacts outlive the run that
+    /// produced them and live until disposed or until this instance is released.
+    private let artifacts: ArtifactStore
 
-    /// - Parameter modelProfiles: Named model profiles requests can route within
-    ///   (`TaskRequest.modelProfile`). Defaults to none, so every request routes
-    ///   within the built-in `auto` profile.
+    /// - Parameters:
+    ///   - modelProfiles: Named model profiles requests can route within
+    ///     (`TaskRequest.modelProfile`). Defaults to none, so every request routes
+    ///     within the built-in `auto` profile.
+    ///   - artifactLimits: Size limits of the engine's in-memory artifact store (ADR 017).
+    ///     Defaults: 16 MiB per artifact, 64 MiB in total, 1 MiB per `readArtifact` call.
     public init(
         registry: ProviderRegistry,
         hostServices: HostServices,
         telemetryService: (any TelemetryService)? = nil,
-        modelProfiles: ModelProfiles = .none
+        modelProfiles: ModelProfiles = .none,
+        artifactLimits: ArtifactLimits = ArtifactLimits()
     ) {
         self.registry = registry
         self.hostServices = hostServices
         self.telemetryService = telemetryService ?? hostServices.telemetry
         self.router = Router(registry: registry)
         self.modelProfiles = modelProfiles
+        self.artifacts = ArtifactStore(limits: artifactLimits)
+    }
+
+    /// Routes through `router` instead of one planning with the shared core, so tests can
+    /// inject a plan the shared planner would never produce.
+    init(
+        registry: ProviderRegistry,
+        hostServices: HostServices,
+        router: Router,
+        modelProfiles: ModelProfiles = .none,
+        artifactLimits: ArtifactLimits = ArtifactLimits()
+    ) {
+        self.registry = registry
+        self.hostServices = hostServices
+        self.telemetryService = hostServices.telemetry
+        self.router = router
+        self.modelProfiles = modelProfiles
+        self.artifacts = ArtifactStore(limits: artifactLimits)
     }
 
     /// The planner input for the request's model profile; `nil` means `auto`.
@@ -61,33 +86,19 @@ public final class IndeRun: IndeRunApi {
 
     /// Structural request validation shared by `run` and `stream`; returns one
     /// human-readable issue per violation, empty when the request is well-formed.
+    /// The per-kind rules live in the kind's task profile.
     private func validate(request: TaskRequest) -> [String] {
         var validationIssues: [String] = []
         if request.schemaVersion.rawValue != "1.0" {
             validationIssues.append("schemaVersion must be '1.0'")
         }
-        if request.task.kind.rawValue != "text_to_text" {
-            validationIssues.append("task.kind must be 'text_to_text'")
-        }
-
-        let hasPrompt = !(request.prompt ?? "").isEmpty
-        let hasMessages = !(request.messages ?? []).isEmpty
-
         if let requestId = request.requestId, requestId.isEmpty {
             validationIssues.append("requestId must be non-empty when provided.")
-        }
-        if let prompt = request.prompt, prompt.isEmpty {
-            validationIssues.append("prompt must be non-empty when provided.")
         }
         if let authContextRef = request.authContextRef, authContextRef.isEmpty {
             validationIssues.append("authContextRef must be non-empty when provided.")
         }
-        if let messages = request.messages, messages.contains(where: { $0.content.isEmpty }) {
-            validationIssues.append("messages[].content must be non-empty.")
-        }
-        if !hasPrompt && !hasMessages {
-            validationIssues.append("Either prompt or messages must be provided and non-empty.")
-        }
+        validationIssues += TaskProfiles.profile(for: request.task.kind).validate(request)
         if case .unknown = modelProfiles.resolve(request.modelProfile) {
             validationIssues.append(
                 "modelProfile '\(request.modelProfile ?? "")' is not a configured model profile."
@@ -104,7 +115,15 @@ public final class IndeRun: IndeRunApi {
     /// 2. **Routing**: A provider is selected based on request constraints and host capabilities.
     /// 3. **Execution**: The task is executed via the optimal provider adapter.
     /// 4. **Telemetry**: Results are enriched with timing and metadata.
-    /// 
+    ///
+    /// A provider failure falls back to the next planned provider unless the attempt had
+    /// committed (`RunContext.commit()`, for managed playback no later than its first possible
+    /// audible effect); a committed attempt's failure is the run's failure. Text providers
+    /// never commit, so text fallback is unchanged. An output that does not match the
+    /// request's delivery fails the attempt as `Internal` with details code `output_mismatch`,
+    /// as does an artifact the attempt did not hand over through `RunContext.artifacts`.
+    /// Artifacts an attempt finished and the run does not return are disposed (ADR 017).
+    ///
     /// - Parameter request: The standard request payload including prompt, constraints, preferences, and task description.
     /// - Returns: A normalized `TaskResult` containing generated text and execution telemetry.
     public func run(request: TaskRequest) async throws -> TaskResult {
@@ -112,6 +131,8 @@ public final class IndeRun: IndeRunApi {
 
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
         var provenance = ProvenanceRecorder(modelProfile: request.modelProfile)
+        // The provider a failed run had committed to, which the failure is attributed to.
+        var committedProvider: (any ProviderAdapter)?
 
         do {
             // 1. Structural request validation
@@ -124,6 +145,7 @@ public final class IndeRun: IndeRunApi {
                     details: ["validationIssues": JSONAny(validationIssues.joined(separator: ", "))]
                 )
             }
+            try await checkDestination(request: request, runId: runId)
 
             // 2. Select route
             let routeSelection = try await router.selectRoute(
@@ -131,8 +153,10 @@ public final class IndeRun: IndeRunApi {
                 hostServices: hostServices,
                 modelProfile: plannerModelProfile(for: request)
             )
-            let providers = [routeSelection.provider] + routeSelection.fallbackProviders
+            let candidates = routeSelection.candidates
+            let providers = candidates.map(\.provider)
             provenance.routed(routeSelection.routePlan)
+            let delivery = TaskProfiles.profile(for: request.task.kind).delivery(request)
 
             let routeTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
             safeEmit(TelemetryEvent(
@@ -150,17 +174,50 @@ public final class IndeRun: IndeRunApi {
                 ]
             ))
 
-            // 3. Execute
+            // 3. Execute the planned provider chain. An attempt that committed (see
+            // RunContext.commit) ends the chain: its failure is the run's failure.
             var attemptedIds: [String] = []
-            for (index, provider) in providers.enumerated() {
+            for (index, candidate) in candidates.enumerated() {
+                let provider = candidate.provider
                 let providerId = provider.describe().id
                 attemptedIds.append(providerId)
+                let latch = CommitLatch()
+                let commit: @Sendable () -> Bool = { latch.commit(unless: { Task.isCancelled }).granted }
+                let attemptArtifacts = artifacts.attempt(commit: commit)
+                // Whatever the attempt finished and did not return is discarded on every exit,
+                // and a commit() arriving after the attempt ended is refused.
+                var keptArtifactId: String?
+                defer {
+                    _ = latch.close()
+                    attemptArtifacts.release(keeping: keptArtifactId)
+                }
 
                 do {
+                    if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
+                        throw refusal
+                    }
+
                     var result = try await provider.run(
                         request: request,
-                        context: RunContext(runId: runId, hostServices: hostServices)
+                        context: RunContext(
+                            runId: runId,
+                            hostServices: hostServices,
+                            voice: candidate.voice,
+                            artifacts: attemptArtifacts,
+                            commit: commit
+                        )
                     )
+                    result.output = try normalizeOutput(
+                        request: request,
+                        delivery: delivery,
+                        output: result.output,
+                        providerId: providerId,
+                        attemptArtifacts: attemptArtifacts
+                    )
+                    result.output = try await deliverToDestination(
+                        request: request, output: result.output, providerId: providerId
+                    )
+                    keptArtifactId = engineOwnedArtifactId(result.output)
 
                     let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
                     let totalMs = Double(endTime - startTime)
@@ -168,7 +225,7 @@ public final class IndeRun: IndeRunApi {
                     result.runId = runId
                     result.telemetry.providerUsed = providerId
                     result.telemetry.totalMs = totalMs
-                    provenance.attempted(providerId, .succeeded)
+                    provenance.attempted(providerId, .succeeded, committed: latch.isCommitted)
                     result.provenance = provenance.build(
                         attributedTo: provider.describe(),
                         reportedModel: result.telemetry.reportedModel
@@ -190,6 +247,9 @@ public final class IndeRun: IndeRunApi {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    // Closing first settles the commit state: a provider callback racing this
+                    // failure either committed before it or is refused.
+                    let committed = latch.close()
                     let attemptError = toIndeRunException(
                         error,
                         fallbackRunId: runId,
@@ -200,7 +260,13 @@ public final class IndeRun: IndeRunApi {
                             "routePlanSummary": JSONAny(routeSelection.routePlan.explanation.summary)
                         ]
                     )
-                    provenance.attempted(providerId, .failed, errorClass: attemptError.errorClass)
+                    provenance.attempted(
+                        providerId, .failed, errorClass: attemptError.errorClass, committed: committed
+                    )
+                    if committed {
+                        committedProvider = provider
+                        throw attemptError
+                    }
                     if index == providers.count - 1 {
                         throw attemptError
                     }
@@ -219,9 +285,10 @@ public final class IndeRun: IndeRunApi {
                 fallbackDetails: ["totalMs": JSONAny(totalMs) ]
             )
             // A routing refusal throws before any attempt; its rejections travel on the
-            // details. No attempt produced a result, so the outcome is attributed to no one.
+            // details. No attempt produced a result, so the outcome is attributed to no one --
+            // unless the run had committed to a provider, which then owns the failure.
             provenance.routingFailed(normalized.details)
-            let exception = normalized.withProvenance(provenance.build())
+            let exception = normalized.withProvenance(provenance.build(attributedTo: committedProvider?.describe()))
 
             safeEmit(TelemetryEvent(
                 type: "attempt_failed",
@@ -257,10 +324,11 @@ public final class IndeRun: IndeRunApi {
     /// completion — arrives as the single terminal `StreamEvent` in `events`.
     ///
     /// Fallback is narrower than Mode 1's: a provider failure is only
-    /// fallback-eligible before the first content event has been delivered. Once
-    /// one has, the run is committed to that provider and a later failure becomes
-    /// a terminal error, never a silent provider swap. Cancellation forecloses
-    /// both at any commit state.
+    /// fallback-eligible before the run commits to that provider -- its first
+    /// content event, its explicit `commit()` (managed playback, before the first
+    /// possible audible effect), or its result handoff, whichever comes first. Once
+    /// committed, a later failure becomes a terminal error, never a silent provider
+    /// swap. Cancellation forecloses both at any commit state.
     ///
     /// The run starts as soon as this method returns, rather than on first
     /// iteration of `events`; the handle's `startedAt` says so.
@@ -281,6 +349,11 @@ public final class IndeRun: IndeRunApi {
                 details: ["validationIssues": JSONAny(validationIssues.joined(separator: ", "))]
             ).withProvenance(provenance.build())
         }
+        do {
+            try await checkDestination(request: request, runId: runId)
+        } catch {
+            throw toIndeRunException(error, fallbackRunId: runId).withProvenance(provenance.build())
+        }
 
         let routeSelection: RouteSelection
         do {
@@ -295,7 +368,8 @@ public final class IndeRun: IndeRunApi {
             provenance.routingFailed(exception.details)
             throw exception.withProvenance(provenance.build())
         }
-        let providers = [routeSelection.provider] + routeSelection.fallbackProviders
+        let candidates = routeSelection.candidates
+        let providers = candidates.map(\.provider)
 
         safeEmit(TelemetryEvent(
             type: "route_decided",
@@ -351,7 +425,7 @@ public final class IndeRun: IndeRunApi {
                 request: request,
                 runId: runId,
                 startTime: startTime,
-                providers: providers,
+                candidates: candidates,
                 routePlan: routeSelection.routePlan,
                 gate: gate,
                 cancellation: cancellation,
@@ -370,26 +444,45 @@ public final class IndeRun: IndeRunApi {
         request: TaskRequest,
         runId: String,
         startTime: Int64,
-        providers: [any ProviderAdapter],
+        candidates: [RouteCandidate],
         routePlan: RoutePlan,
         gate: EventGate,
         cancellation: StreamCancellationToken,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async {
-        func now() -> Int64 { hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000) }
+        @Sendable func now() -> Int64 { hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000) }
         func elapsed() -> Double { Double(now() - startTime) }
 
         var provenance = ProvenanceRecorder(modelProfile: request.modelProfile)
         provenance.routed(routePlan)
 
-        /// `provider` is the one running when cancellation landed, if any; the outcome
-        /// is attributed to it.
-        func emitCancelled(partialText: String, provider: (any ProviderAdapter)?, attempted: [String]) {
+        let delivery = TaskProfiles.profile(for: request.task.kind).delivery(request)
+        let textRun = delivery == .inline
+
+        /// `provider` is the one running when cancellation landed, if any, and `committed`
+        /// whether its attempt had committed; the outcome is attributed to it. A text run
+        /// reports what it delivered; committed playback reports that it played; an
+        /// uncommitted non-text run produced nothing to report.
+        ///
+        /// `delivered` is an artifact already written to its application destination: those
+        /// bytes are the application's now, so the outcome reports them.
+        func emitCancelled(
+            partialText: String,
+            provider: (any ProviderAdapter)?,
+            committed: Bool,
+            attempted: [String],
+            delivered: TaskOutput? = nil
+        ) {
             let providerId = provider?.describe().id
-            if let providerId { provenance.attempted(providerId, .cancelled) }
+            if let providerId { provenance.attempted(providerId, .cancelled, committed: committed) }
             let outcome = StreamTerminalOutcome.cancelled(
                 runId: runId,
-                partialText: partialText,
+                partialText: textRun ? partialText : nil,
+                output: delivered ?? (
+                    committed && delivery == .playback
+                        ? TaskOutput(playback: PlaybackOutput(durationMs: nil))
+                        : nil
+                ),
                 reason: cancellation.reason,
                 provenance: provenance.build(attributedTo: provider?.describe())
             )
@@ -403,13 +496,19 @@ public final class IndeRun: IndeRunApi {
         }
 
         var attemptedProviderIds: [String] = []
-        var committed = false
 
-        for (index, provider) in providers.enumerated() {
+        for (index, candidate) in candidates.enumerated() {
             if cancellation.isCancelled { break }
 
+            let provider = candidate.provider
             let providerId = provider.describe().id
             attemptedProviderIds.append(providerId)
+            // Set once, by whichever comes first in this attempt: the provider's commit(), its
+            // first admitted content event, or its result handoff. After it no other provider
+            // is tried. Shared with the provider's context, which may call commit() from its
+            // own task, and closed when the attempt ends, so a commit() arriving after the run
+            // moved on is refused rather than committing the attempt that replaced this one.
+            let latch = CommitLatch()
             safeEmit(TelemetryEvent(
                 type: "stream_attempt_started",
                 runId: runId,
@@ -426,7 +525,7 @@ public final class IndeRun: IndeRunApi {
                     providerId: providerId
                 )
                 provenance.attempted(providerId, .failed, errorClass: exception.errorClass)
-                if !committed {
+                if !latch.isCommitted {
                     safeEmit(TelemetryEvent(
                         type: "stream_attempt_failed",
                         runId: runId,
@@ -440,7 +539,7 @@ public final class IndeRun: IndeRunApi {
                     continue
                 }
                 emitFailure(
-                    exception: exception, partialText: "", providerId: providerId,
+                    exception: exception, partialText: textRun ? "" : nil, providerId: providerId,
                     attempted: attemptedProviderIds, runId: runId, gate: gate,
                     continuation: continuation, timestamp: now(),
                     provenance: provenance.build(attributedTo: provider.describe())
@@ -448,16 +547,51 @@ public final class IndeRun: IndeRunApi {
                 return
             }
 
+            // Emits `stream_attempt_succeeded` exactly once, from whichever commit came first.
+            let attemptedSoFar = attemptedProviderIds
+            let markCommitted: @Sendable (_ refused: () -> Bool) -> Bool = { refused in
+                let (granted, first) = latch.commit(unless: refused)
+                if first {
+                    self.safeEmit(TelemetryEvent(
+                        type: "stream_attempt_succeeded",
+                        runId: runId,
+                        timestamp: now(),
+                        payload: [
+                            "providerId": JSONAny(providerId),
+                            "attemptedProviderIds": JSONAny(attemptedSoFar)
+                        ]
+                    ))
+                }
+                return granted
+            }
+
+            let commit: @Sendable () -> Bool = { markCommitted { cancellation.isCancelled || gate.isTerminated } }
+            let attemptArtifacts = artifacts.attempt(commit: commit)
+            // Whatever the attempt finished and did not return is discarded on every exit; the
+            // cancelled and committed-failure paths release earlier, before their terminal.
+            var keptArtifactId: String?
+            defer {
+                _ = latch.close()
+                attemptArtifacts.release(keeping: keptArtifactId)
+            }
+
             var partialText = ""
             do {
+                if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
+                    throw refusal
+                }
+
                 let context = ProviderStreamContext(
                     runId: runId,
                     hostServices: hostServices,
-                    cancellation: cancellation
+                    cancellation: cancellation,
+                    voice: candidate.voice,
+                    artifacts: attemptArtifacts,
+                    commit: commit
                 )
 
                 var terminatedInLoop = false
-                for try await event in streaming.stream(request: request, context: context) {
+                providerEvents: for try await event in streaming.stream(request: request, context: context) {
                     if cancellation.isCancelled { break }
 
                     switch event {
@@ -465,23 +599,18 @@ public final class IndeRun: IndeRunApi {
                         throw error
 
                     case let .delta(text), let .snapshot(text):
+                        // Content events are text-only (ADR 016 §5).
+                        if !textRun, let mismatch = checkOutput(
+                            request: request, delivery: delivery, output: TaskOutput(text: ""), providerId: providerId
+                        ) {
+                            throw mismatch
+                        }
                         if case .delta = event {
                             partialText += text
                         } else {
                             partialText = text
                         }
-                        if !committed {
-                            committed = true
-                            safeEmit(TelemetryEvent(
-                                type: "stream_attempt_succeeded",
-                                runId: runId,
-                                timestamp: now(),
-                                payload: [
-                                    "providerId": JSONAny(providerId),
-                                    "attemptedProviderIds": JSONAny(attemptedProviderIds)
-                                ]
-                            ))
-                        }
+                        _ = markCommitted { false }
                         var type = "content_snapshot"
                         if case .delta = event { type = "content_delta" }
                         if let admitted = gate.admit(
@@ -490,20 +619,51 @@ public final class IndeRun: IndeRunApi {
                             continuation.yield(admitted)
                         }
 
-                    case let .done(finalText, finishReason, usage, reportedModel):
-                        provenance.attempted(providerId, .succeeded)
+                    case .done, .result:
+                        // The run's final output: text from `.done`, any task's from `.result`.
+                        var completion = Self.completion(of: event)
+                        completion.output = try normalizeOutput(
+                            request: request,
+                            delivery: delivery,
+                            output: completion.output,
+                            providerId: providerId,
+                            attemptArtifacts: attemptArtifacts
+                        )
+                        _ = markCommitted { false }
+                        // No destination write starts after a cancel. One already running is
+                        // not interrupted, but the run still ends cancelled: bytes already at the
+                        // destination are the application's, so the outcome reports them, and
+                        // anything the engine still holds is released.
+                        if cancellation.isCancelled { break providerEvents }
+                        completion.output = try await deliverToDestination(
+                            request: request, output: completion.output, providerId: providerId
+                        )
+                        if cancellation.isCancelled {
+                            guard completion.output.artifact?.owner == .application else { break providerEvents }
+                            emitCancelled(
+                                partialText: partialText,
+                                provider: provider,
+                                committed: latch.isCommitted,
+                                attempted: attemptedProviderIds,
+                                delivered: completion.output
+                            )
+                            return
+                        }
+                        keptArtifactId = engineOwnedArtifactId(completion.output)
+                        provenance.attempted(providerId, .succeeded, committed: true)
                         let outcome = StreamTerminalOutcome.completed(
                             runId: runId,
-                            finalText: finalText,
-                            finishReason: finishReason,
-                            usage: usage,
+                            finalText: completion.finalText,
+                            output: completion.reportsOutput ? completion.output : nil,
+                            finishReason: completion.finishReason,
+                            usage: completion.usage,
                             telemetry: StreamTerminalOutcomeTelemetry(
                                 providerUsed: providerId,
                                 totalMs: elapsed()
                             ),
                             provenance: provenance.build(
                                 attributedTo: provider.describe(),
-                                reportedModel: reportedModel
+                                reportedModel: completion.reportedModel
                             )
                         )
                         let terminal = gate.terminate(outcome: outcome, timestamp: Double(now()))
@@ -525,9 +685,11 @@ public final class IndeRun: IndeRunApi {
                 }
 
                 if cancellation.isCancelled {
+                    attemptArtifacts.release()
                     emitCancelled(
                         partialText: partialText,
                         provider: provider,
+                        committed: latch.isCommitted,
                         attempted: attemptedProviderIds
                     )
                     return
@@ -540,21 +702,28 @@ public final class IndeRun: IndeRunApi {
                 )
             } catch {
                 if cancellation.isCancelled {
+                    attemptArtifacts.release()
                     emitCancelled(
                         partialText: partialText,
                         provider: provider,
+                        committed: latch.isCommitted,
                         attempted: attemptedProviderIds
                     )
                     return
                 }
 
+                // Closing first settles the commit state: a provider callback racing this
+                // failure either committed before it or is refused.
+                let committed = latch.close()
                 let exception = toIndeRunException(
                     error,
                     fallbackRunId: runId,
                     fallbackProviderId: providerId,
                     fallbackDetails: ["attemptedProviderIds": JSONAny(attemptedProviderIds)]
                 )
-                provenance.attempted(providerId, .failed, errorClass: exception.errorClass)
+                provenance.attempted(
+                    providerId, .failed, errorClass: exception.errorClass, committed: committed
+                )
 
                 if !committed {
                     safeEmit(TelemetryEvent(
@@ -571,8 +740,9 @@ public final class IndeRun: IndeRunApi {
                 }
 
                 // Committed: the failure belongs to this provider, not to the chain.
+                attemptArtifacts.release()
                 emitFailure(
-                    exception: exception, partialText: partialText, providerId: providerId,
+                    exception: exception, partialText: textRun ? partialText : nil, providerId: providerId,
                     attempted: attemptedProviderIds, runId: runId, gate: gate,
                     continuation: continuation, timestamp: now(),
                     provenance: provenance.build(attributedTo: provider.describe())
@@ -584,7 +754,7 @@ public final class IndeRun: IndeRunApi {
         // Every provider failed pre-commit, or cancellation landed before any
         // attempt started.
         if cancellation.isCancelled {
-            emitCancelled(partialText: "", provider: nil, attempted: attemptedProviderIds)
+            emitCancelled(partialText: "", provider: nil, committed: false, attempted: attemptedProviderIds)
             return
         }
 
@@ -594,7 +764,7 @@ public final class IndeRun: IndeRunApi {
             details: ["attemptedProviderIds": JSONAny(attemptedProviderIds)]
         )
         emitFailure(
-            exception: exception, partialText: "", providerId: nil,
+            exception: exception, partialText: textRun ? "" : nil, providerId: nil,
             attempted: attemptedProviderIds, runId: runId, gate: gate,
             continuation: continuation, timestamp: now(),
             provenance: provenance.build()
@@ -604,7 +774,7 @@ public final class IndeRun: IndeRunApi {
     // swiftlint:disable:next function_parameter_count
     private func emitFailure(
         exception: IndeRunException,
-        partialText: String,
+        partialText: String?,
         providerId: String?,
         attempted: [String],
         runId: String,
@@ -630,6 +800,148 @@ public final class IndeRun: IndeRunApi {
         if let terminal { continuation.yield(terminal) }
     }
 
+    /// What a terminal `.done` or `.result` event completes the run with. `reportsOutput`
+    /// is false for `.done`, whose outcome keeps carrying only `finalText` as it always has.
+    private struct Completion {
+        var output: TaskOutput
+        let finalText: String?
+        let reportsOutput: Bool
+        let finishReason: FinishReason?
+        let usage: TaskResultUsage?
+        let reportedModel: String?
+    }
+
+    private static func completion(of event: ProviderStreamEvent) -> Completion {
+        switch event {
+        case let .done(finalText, finishReason, usage, reportedModel):
+            return Completion(
+                output: TaskOutput(text: finalText), finalText: finalText, reportsOutput: false,
+                finishReason: finishReason, usage: usage, reportedModel: reportedModel
+            )
+        case let .result(output, finishReason, reportedModel):
+            return Completion(
+                output: output, finalText: output.type == .text ? output.text : nil, reportsOutput: true,
+                finishReason: finishReason, usage: nil, reportedModel: reportedModel
+            )
+        case .delta, .snapshot, .failure:
+            preconditionFailure("completion(of:) is only called for .done and .result")
+        }
+    }
+
+    /// Checks that an artifact in a provider's output is one this attempt produced, swaps in the
+    /// reference the store holds, and only then checks the output against the requested
+    /// delivery: the artifact's media type, size and ownership are the engine's record rather
+    /// than the provider's claim.
+    private func normalizeOutput(
+        request: TaskRequest,
+        delivery: OutputDelivery,
+        output: TaskOutput,
+        providerId: String,
+        attemptArtifacts: AttemptArtifacts
+    ) throws -> TaskOutput {
+        var resolved = output
+        if let artifact = output.artifact {
+            guard attemptArtifacts.owns(artifactId: artifact.id),
+                  let reference = artifacts.reference(artifactId: artifact.id) else {
+                throw createInternal(
+                    message: "Provider '\(providerId)' returned an artifact it did not hand over in this attempt.",
+                    providerId: providerId,
+                    details: ["code": JSONAny("output_mismatch")]
+                )
+            }
+            resolved.artifact = reference
+        }
+        if let mismatch = checkOutput(request: request, delivery: delivery, output: resolved, providerId: providerId) {
+            throw mismatch
+        }
+        return resolved
+    }
+
+    /// Refuses, before routing, an artifact request whose `destinationRef` this host cannot
+    /// write to: there is no point running a provider whose result has nowhere to go.
+    private func checkDestination(request: TaskRequest, runId: String) async throws {
+        guard let destinationRef = request.delivery?.destinationRef else { return }
+        guard let destinations = hostServices.artifactDestinations else {
+            throw createCapabilityMismatch(
+                message: "This host has no application artifact destinations.",
+                runId: runId,
+                details: ["code": JSONAny("artifact_destination_unsupported")]
+            )
+        }
+        if !(await destinations.accepts(destinationRef: destinationRef, mediaTypes: request.delivery?.mediaTypes)) {
+            throw createCapabilityMismatch(
+                message: "The host refused the requested artifact destination.",
+                runId: runId,
+                details: ["code": JSONAny("artifact_destination_refused")]
+            )
+        }
+    }
+
+    /// Writes a finished artifact to the request's application destination, if it names one,
+    /// and drops the engine's copy: the result's artifact is then application-owned. The run
+    /// has committed by now, so a failed write is the run's failure, never a fallback.
+    private func deliverToDestination(
+        request: TaskRequest,
+        output: TaskOutput,
+        providerId: String
+    ) async throws -> TaskOutput {
+        guard let destinationRef = request.delivery?.destinationRef,
+              let artifact = output.artifact else { return output }
+        // Both hold here: `checkDestination` refused the request otherwise, and
+        // `normalizeOutput` only returns an artifact the store still holds.
+        guard let destinations = hostServices.artifactDestinations,
+              let bytes = artifacts.bytes(artifactId: artifact.id) else {
+            throw createInternal(
+                message: "The artifact to write to its application destination is no longer held.",
+                providerId: providerId,
+                details: ["code": JSONAny("artifact_destination_write_failed")]
+            )
+        }
+        do {
+            try await destinations.write(destinationRef: destinationRef, artifact: artifact, bytes: bytes)
+        } catch {
+            // The host's error stays out of the run's error: it may name the destination.
+            artifacts.dispose(artifactId: artifact.id)
+            throw createInternal(
+                message: "Writing the artifact to its application destination failed.",
+                providerId: providerId,
+                details: ["code": JSONAny("artifact_destination_write_failed")]
+            )
+        }
+        artifacts.dispose(artifactId: artifact.id)
+        var delivered = output
+        delivered.artifact?.owner = .application
+        delivered.artifact?.destinationRef = destinationRef
+        return delivered
+    }
+
+    /// Reads a byte range of an engine-owned media artifact (ADR 017). See
+    /// `IndeRunApi.readArtifact`.
+    public func readArtifact(request: ArtifactReadRequest) async throws -> ArtifactChunk {
+        var issues: [(path: String, message: String)] = []
+        if request.artifactId.isEmpty {
+            issues.append((path: "/artifactId", message: "artifactId must be non-empty."))
+        }
+        if let offset = request.offset, offset < 0 {
+            issues.append((path: "/offset", message: "offset must be >= 0."))
+        }
+        if let maxBytes = request.maxBytes, maxBytes < 1 {
+            issues.append((path: "/maxBytes", message: "maxBytes must be >= 1."))
+        }
+        if !issues.isEmpty {
+            throw artifactReadValidationFailure(issues)
+        }
+        return try artifacts.read(request)
+    }
+
+    /// Releases an engine-owned artifact's bytes. Idempotent; an application-owned artifact
+    /// holds nothing in the engine, so disposing one does nothing.
+    public func disposeArtifact(artifact: MediaArtifact) async {
+        if artifact.owner == .engine {
+            artifacts.dispose(artifactId: artifact.id)
+        }
+    }
+
     /// Reports each registered provider's static descriptor and current dynamic capability check,
     /// without executing a task. Useful for UI that shows live provider availability before a run.
     public func checkCapabilities() async -> [ProviderCapabilitySnapshot] {
@@ -646,5 +958,46 @@ public final class IndeRun: IndeRunApi {
             )
         }
         return snapshots
+    }
+}
+
+/// The id of an artifact output the engine still holds, which an attempt must keep.
+private func engineOwnedArtifactId(_ output: TaskOutput) -> String? {
+    output.artifact?.owner == .engine ? output.artifact?.id : nil
+}
+
+/// Records the moment a run committed to one attempt's provider (see `RunContext.commit()`).
+/// Locked, because a provider may call `commit()` from a task of its own while the engine
+/// reads the state from the task driving the run.
+private final class CommitLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var committed = false
+    private var closed = false
+
+    var isCommitted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return committed
+    }
+
+    /// Commits unless `refused()` says the run can no longer commit. `granted` is what
+    /// `commit()` returns to the provider; `first` is true only for the call that committed.
+    func commit(unless refused: () -> Bool) -> (granted: Bool, first: Bool) {
+        if refused() { return (false, false) }
+        lock.lock()
+        defer { lock.unlock() }
+        if closed { return (false, false) }
+        if committed { return (true, false) }
+        committed = true
+        return (true, true)
+    }
+
+    /// Ends the attempt: every later `commit()` is refused. Returns whether the attempt had
+    /// committed, read under the same lock, so no commit can land between the two.
+    func close() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        closed = true
+        return committed
     }
 }

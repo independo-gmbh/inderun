@@ -178,7 +178,7 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
 
         return TaskResult(
             runId: context.runId,
-            output: Output(text: output.text),
+            output: TaskOutput(text: output.text),
             finishReason: output.finishReason ?? .stop,
             usage: output.usage,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)

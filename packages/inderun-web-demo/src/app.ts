@@ -839,7 +839,7 @@ function renderOutputPanel(state: AppState): string {
       return `
         <div class="result success">
           <p class="result-label">Generated text</p>
-          <pre>${escapeHtml(state.result.output.text)}</pre>
+          <pre>${escapeHtml(state.result.output.text ?? "")}</pre>
         </div>
       `;
     case "error":

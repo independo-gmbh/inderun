@@ -6,7 +6,12 @@ This directory contains the canonical JSON Schema sources for serializable IndeR
 and bridge layers. Run `pnpm generate` to regenerate language-specific artifacts.
 
 This includes both the public Mode-1 request/result/error contracts and the shared route-planner boundary contracts
-used by the Rust route-planning core (`route-planner-input.schema.json` and `route-plan.schema.json`).
+used by the Rust route-planning core (`route-planner-input.schema.json` and `route-plan.schema.json`). The request and
+result are task-generic ([ADR 016](../docs/architecture/decisions/016-modality-extensible-task-contracts.md)):
+`task-request.schema.json` admits `text_to_text` and `text_to_speech`, and the result's `output` is a
+`task-output.schema.json` (`TaskOutput`) whose `type` is `text`, `playback` or `artifact`. An artifact output
+references a `media-artifact.schema.json` (`MediaArtifact`): an engine-issued id plus metadata, never bytes
+([ADR 017](../docs/architecture/decisions/017-media-artifacts.md)).
 
 It also includes provider-family bootstrap contracts such as `model-package.schema.json` (the
 provider-neutral `ModelPackage` used by local-model provider families; see
@@ -45,7 +50,15 @@ declaring them on the generated `IndeRunApi`.
 (managed playback and a retrievable artifact), and a contract-only image-to-text case. Each file's `status` says
 what the committed schemas must do with it — `current` cases must validate, `proposed` and `contract_only` cases
 must be rejected at `/task/kind` until the schema change that admits them lands —
-and `packages/contracts/src/task-contract-fixtures.test.ts` enforces that.
+and `packages/contracts/src/task-contract-fixtures.test.ts` enforces that. Text and text-to-speech are `current`;
+image-to-text stays a contract-only vector. A file's `invalidRequests` are requests the schema's per-kind rules
+reject; the Swift and Kotlin task profiles restate those rules by hand, and their fixture tests hold each profile to
+rejecting every one. `fixtures/artifacts/media-artifacts.json` holds valid and invalid
+`MediaArtifact` references, an image among them to keep the reference media-neutral.
+`fixtures/execution/artifact-lifecycle.json` is a scenario catalog like `engine-conformance.json`, for the
+engine-owned artifact store: ranged reads, disposal, the size limits, and the artifacts the engine discards on its
+own. Each SDK registers one handler per case id behind the same kind of guard test.
+`artifact-read-request.schema.json` (`ArtifactReadRequest`) is the input of `IndeRunApi.readArtifact`.
 
 `fixtures/routing/planner-conformance.json` holds the shared route-planner vectors: complete `RoutePlannerInput`s and
 the exact `RoutePlan` each must produce, messages included. The planner is one Rust crate, so these check the
@@ -58,6 +71,10 @@ The repo-level generator lives at `contracts/scripts/generate-contracts.mjs`. It
 `@independo/inderun-contracts`, Swift models for `IndeRunContracts`, Kotlin models under the
 `app.independo.inderun.contracts` package, and Rust types for the shared route-planner core
 (`rust/inderun-route-core/src/generated/contracts.rs`, generated from the route-planner-only subset of the schemas).
+
+`task-output.schema.json` (`TaskOutput`) and the `media-artifact.schema.json` it references are shared the same way:
+`TaskResult.output` and the `completed` and `cancelled` branches of both terminal-outcome copies point at one
+`TaskOutput`, so each language has one output type rather than three.
 
 `execution-provenance.schema.json` (`ExecutionProvenance`) was the first shape shared by `$ref` rather than
 duplicated by value. It is carried on six payloads — `TaskResult`, `IndeRunError`, every `StreamTerminalOutcome`

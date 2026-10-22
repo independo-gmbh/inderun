@@ -1,5 +1,5 @@
 {
-  "$comment": "ADR 016 example 3: a non-text input, kept as a contract-only test vector. It checks that the envelope admits a task whose input is not text without a universal text field: the image travels in its own payload object, the instruction reuses prompt, and the result reuses output.type 'text' because output.type describes the content representation, not the task. status 'contract_only' means no issue plans to implement it; the request is expected to be rejected at /task/kind. The image object is a placeholder until #244 fixes the artifact reference shape.",
+  "$comment": "ADR 016 example 3: a non-text input, kept as a contract-only test vector. It checks that the envelope admits a task whose input is not text without a universal text field: the image travels in its own payload object, the instruction reuses prompt, and the result reuses output.type 'text' because output.type describes the content representation, not the task. status 'contract_only' means no issue plans to implement it; the request is expected to be rejected at /task/kind. The image object is a placeholder: ADR 017 defines references for media a run produces, not for media an application supplies as input, which a task like this would have to decide.",
   "task": "image_to_text",
   "status": "contract_only",
   "cases": [
@@ -9,7 +9,7 @@
       "request": {
         "schemaVersion": "1.0",
         "task": { "kind": "image_to_text" },
-        "image": { "mediaType": "image/jpeg", "ref": "placeholder-until-244" },
+        "image": { "mediaType": "image/jpeg", "ref": "placeholder-input-reference" },
         "prompt": "Describe what is on this sign."
       },
       "result": {

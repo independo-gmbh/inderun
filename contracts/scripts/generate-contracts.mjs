@@ -129,6 +129,25 @@ const schemas = [
     nativeRoot: false
   },
   {
+    input: "artifact-read-request.schema.json",
+    typeOutput: "artifact-read-request.ts",
+    constName: "artifactReadRequestSchema"
+  },
+  {
+    input: "task-output.schema.json",
+    typeOutput: "task-output.ts",
+    constName: "taskOutputSchema",
+    // Reached through `$ref` from TaskResult and both terminal outcome copies.
+    nativeRoot: false
+  },
+  {
+    input: "media-artifact.schema.json",
+    typeOutput: "media-artifact.ts",
+    constName: "mediaArtifactSchema",
+    // Reached through `$ref` from TaskOutput.
+    nativeRoot: false
+  },
+  {
     input: "execution-provenance.schema.json",
     typeOutput: "execution-provenance.ts",
     constName: "executionProvenanceSchema",
@@ -385,11 +404,10 @@ function normalizeKotlinContractsSource(source, wireValues) {
     ["data class HTTPRequest (", "data class HttpRequest ("],
     ["data class HTTPResponse (", "data class HttpResponse ("],
     ["val role: Role", "val role: MessageRole"],
-    ["val kind: Kind", "val kind: TaskKind = TaskKind.TEXT_TO_TEXT"],
+    ["val kind: TaskKind\n", "val kind: TaskKind = TaskKind.TEXT_TO_TEXT\n"],
     ["val level: Level? = null", "val level: TelemetryLevel? = null"],
     ["val errorClass: ErrorClass? = null", "val errorClass: IndeRunErrorClass? = null"],
-    ["val errorClass: ErrorClass,", "val errorClass: IndeRunErrorClass,"],
-    ["val type: OutputType", "val type: OutputType = OutputType.TEXT"]
+    ["val errorClass: ErrorClass,", "val errorClass: IndeRunErrorClass,"]
   ]);
 
   output = normalizeKotlinMessageClass(output);

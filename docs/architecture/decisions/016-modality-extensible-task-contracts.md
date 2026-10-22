@@ -4,7 +4,8 @@
 
 Accepted. Recorded for Milestone 5 (issue #242) before any schema, engine or provider change. The request, result and
 stream schema changes it describes land with #245; the per-task provider capabilities with #243; media artifacts with
-#244; the speech application API with #246.
+#244 ([ADR 017](./017-media-artifacts.md)); the speech application API with #246. The result's output shape lives in
+`task-output.schema.json`, shared by the result and the terminal outcomes.
 
 ## Context
 

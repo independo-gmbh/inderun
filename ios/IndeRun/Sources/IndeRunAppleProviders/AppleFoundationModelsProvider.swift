@@ -160,7 +160,7 @@ public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Send
 
             return TaskResult(
                 runId: context.runId,
-                output: Output(text: outputText),
+                output: TaskOutput(text: outputText),
                 finishReason: .stop,
                 telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
             )

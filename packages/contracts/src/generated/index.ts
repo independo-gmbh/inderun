@@ -15,5 +15,8 @@ export type { StreamTerminalOutcome } from "./stream-terminal-outcome.js";
 export type { ProviderCapabilitySnapshot } from "./provider-capability-snapshot.js";
 export type { ProviderDescriptor } from "./provider-descriptor.js";
 export type { ProviderDynamicCapabilities } from "./provider-dynamic-capabilities.js";
+export type { ArtifactReadRequest } from "./artifact-read-request.js";
+export type { TaskOutput } from "./task-output.js";
+export type { MediaArtifact } from "./media-artifact.js";
 export type { ExecutionProvenance } from "./execution-provenance.js";
 export * from "./schemas.js";

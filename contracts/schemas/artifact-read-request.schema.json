@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/artifact-read-request.schema.json",
+  "title": "ArtifactReadRequest",
+  "description": "A ranged read of an engine-owned media artifact through IndeRunApi.readArtifact (ADR 017). Reads are repeatable until the artifact is disposed; each returns at most the engine's configured maximum read size, which bounds what one call -- and one bridge message -- carries.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["artifactId"],
+  "properties": {
+    "artifactId": {
+      "description": "MediaArtifact.id of the artifact to read.",
+      "type": "string",
+      "minLength": 1
+    },
+    "offset": {
+      "description": "Byte offset to read from. Absent means 0. An offset equal to the artifact's size returns an empty, final chunk; a larger one is rejected.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "maxBytes": {
+      "description": "Most bytes to return. Absent, or larger than the engine's maximum read size, means that maximum.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

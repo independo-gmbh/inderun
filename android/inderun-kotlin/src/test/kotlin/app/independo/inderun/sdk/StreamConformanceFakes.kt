@@ -2,14 +2,23 @@ package app.independo.inderun.sdk
 
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
-import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.OutputDelivery
+import app.independo.inderun.contracts.OutputDeliveryRequest
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTaskCapability
+import app.independo.inderun.contracts.ProviderTaskInteraction
+import app.independo.inderun.contracts.ProviderTaskOutput
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.SpeechInput
+import app.independo.inderun.contracts.TaskInputKind
+import app.independo.inderun.contracts.TaskKind
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
@@ -65,6 +74,18 @@ internal fun conformanceRequest(
     constraints = privacy?.let { TaskRequestConstraints(privacy = it) },
 )
 
+/**
+ * The request the `non_text_outputs` conformance cases stream: speech 'Hallo' in de-AT, played
+ * back on the device.
+ */
+internal fun speechConformanceRequest(delivery: OutputDeliveryRequest = OutputDeliveryRequest(mode = OutputDelivery.Playback)) = TaskRequest(
+    schemaVersion = SchemaVersion.V1_0,
+    task = TaskRequestTask(TaskKind.TEXT_TO_SPEECH),
+    speech = SpeechInput(text = "Hallo", locale = "de-AT"),
+    delivery = delivery,
+    constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
+)
+
 internal class RecordingTelemetryService : TelemetryService {
     val events = mutableListOf<TelemetryEvent>()
 
@@ -82,6 +103,19 @@ internal sealed interface Step {
      * it matches the Web and Swift fakes.
      */
     data object WaitForCancellation : Step
+
+    /**
+     * Calls `context.commit()` and records what it returned. A commit step directly after
+     * [WaitForCancellation] runs once the cancellation has been observed, which is how a
+     * provider that asks to commit too late is modelled.
+     */
+    data object Commit : Step
+
+    /**
+     * Calls the commit [provider] kept from its own, earlier attempt -- a late callback from an
+     * attempt the run has already left -- and records the result as that provider's.
+     */
+    data class CallKeptCommit(val provider: FakeStreamProvider) : Step
 }
 
 internal class FakeStreamProvider(
@@ -92,9 +126,15 @@ internal class FakeStreamProvider(
     private val type: ProviderType = ProviderType.Local,
     private val streamingAvailable: Boolean? = null,
     private val streamingUnavailableReason: String? = null,
-    /** Completed once the flow is actually collected, so a test can cancel mid-attempt without racing. */
-    private val entered: CompletableDeferred<Unit>? = null,
+    /**
+     * The task the fake declares. [TaskKind.TEXT_TO_SPEECH] adds a speech capability with
+     * playback delivery, so the planner routes speech requests to it.
+     */
+    private val task: TaskKind = TaskKind.TEXT_TO_TEXT,
 ) : StreamingProviderAdapter {
+    @Volatile
+    private var keptContext: ProviderStreamContext? = null
+
     var callCount: Int = 0
         private set
 
@@ -102,7 +142,30 @@ internal class FakeStreamProvider(
     var wasInterrupted: Boolean = false
         private set
 
-    override fun describe(): ProviderDescriptor = streamDescriptor(id, streaming = true, type = type)
+    private val commits = mutableListOf<Boolean>()
+
+    /** What each `context.commit()` call returned, in call order. */
+    val commitResults: List<Boolean>
+        get() = synchronized(commits) { commits.toList() }
+
+    /** Completed once the flow is actually collected, so a test can cancel mid-attempt without racing. */
+    val started = CompletableDeferred<Unit>()
+
+    /** Completed when the provider has called `context.commit()` for the first time. */
+    val committed = CompletableDeferred<Unit>()
+
+    override fun describe(): ProviderDescriptor = streamDescriptor(id, streaming = true, type = type, task = task)
+
+    /** Calls the `context.commit()` of this provider's latest attempt and records the result. */
+    fun callKeptCommit() {
+        keptContext?.let { commit(it) }
+    }
+
+    private fun commit(context: ProviderStreamContext) {
+        val result = context.commit()
+        synchronized(commits) { commits += result }
+        committed.complete(Unit)
+    }
 
     override suspend fun capabilities(host: HostServices) = ProviderDynamicCapabilities(
         available = true,
@@ -113,26 +176,32 @@ internal class FakeStreamProvider(
     override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
         schemaVersion = SchemaVersion.V1_0,
         runId = context.runId,
-        output = Output(text = "unused"),
+        output = TaskOutput(type = TaskOutputType.TEXT, text = "unused"),
         finishReason = FinishReason.STOP,
         telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
     )
 
     override fun stream(request: TaskRequest, context: ProviderStreamContext): Flow<ProviderStreamEvent> {
         callCount += 1
+        keptContext = context
         return flow {
-            entered?.complete(Unit)
+            started.complete(Unit)
             throwImmediately?.let { throw it }
-            for (step in script) {
+            for ((index, step) in script.withIndex()) {
                 when (step) {
                     is Step.WaitForCancellation -> {
                         try {
                             awaitCancellation()
                         } catch (cancellation: CancellationException) {
                             wasInterrupted = true
+                            script.drop(index + 1).filterIsInstance<Step.Commit>().forEach { commit(context) }
                             throw cancellation
                         }
                     }
+
+                    is Step.Commit -> commit(context)
+
+                    is Step.CallKeptCommit -> step.provider.callKeptCommit()
 
                     is Step.Emit -> {
                         if (step.delayMs > 0) delay(step.delayMs)
@@ -166,7 +235,7 @@ internal class FakeRunOnlyProvider(
         return TaskResult(
             schemaVersion = SchemaVersion.V1_0,
             runId = context.runId,
-            output = Output(text = "ran"),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = "ran"),
             finishReason = FinishReason.STOP,
             telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
         )
@@ -177,6 +246,7 @@ internal fun streamDescriptor(
     id: String,
     streaming: Boolean,
     type: ProviderType = ProviderType.Local,
+    task: TaskKind = TaskKind.TEXT_TO_TEXT,
 ) = ProviderDescriptor(
     id = id,
     type = type,
@@ -191,5 +261,19 @@ internal fun streamDescriptor(
         multimodal = false,
     ),
     cancel = CancelSemantics.Soft,
-    tasks = listOf("text_to_text"),
+    tasks = listOf(task.rawValue),
+    taskCapabilities = if (task == TaskKind.TEXT_TO_SPEECH) {
+        listOf(
+            ProviderTaskCapability(
+                kind = task.rawValue,
+                inputs = listOf(TaskInputKind.Text),
+                interaction = ProviderTaskInteraction(run = true, stream = streaming),
+                cancel = CancelSemantics.Soft,
+                outputs = listOf(ProviderTaskOutput(delivery = OutputDelivery.Playback)),
+                locales = listOf("de-AT"),
+            ),
+        )
+    } else {
+        null
+    },
 )

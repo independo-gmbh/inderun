@@ -46,6 +46,12 @@ private final class FakeApi: IndeRunApi, @unchecked Sendable {
     }
 
     func checkCapabilities() async -> [ProviderCapabilitySnapshot] { [] }
+
+    func readArtifact(request: ArtifactReadRequest) async throws -> ArtifactChunk {
+        throw createInternal(message: "the text facade never reads artifacts")
+    }
+
+    func disposeArtifact(artifact: MediaArtifact) async {}
 }
 
 final class TextGenerationTests: XCTestCase {
@@ -154,7 +160,7 @@ final class TextGenerationTests: XCTestCase {
     func testGenerateTextRunsTheCanonicalRequestAndSummarizesTheResult() async throws {
         let taskResult = TaskResult(
             runId: "run_1",
-            output: Output(text: "Hello"),
+            output: TaskOutput(text: "Hello"),
             finishReason: .stop,
             usage: TaskResultUsage(inputTokens: nil, outputTokens: nil, totalTokens: 3),
             telemetry: TaskResultTelemetry(providerUsed: "p1", totalMs: 5)
@@ -210,7 +216,7 @@ final class TextGenerationTests: XCTestCase {
     private func provenance(_ outcome: AttemptOutcome) -> ExecutionProvenance {
         ExecutionProvenance(
             attemptCount: 1,
-            attempts: [ExecutionProvenanceAttempt(errorClass: nil, outcome: outcome, providerId: "p1")],
+            attempts: [ExecutionProvenanceAttempt(committed: nil, errorClass: nil, outcome: outcome, providerId: "p1")],
             configuredModel: nil,
             fallbackOccurred: false,
             locality: .onDevice,
@@ -368,6 +374,50 @@ final class TextGenerationTests: XCTestCase {
             _ = try await reader.value
             XCTFail("Expected the cancelled reader to stop waiting")
         } catch is CancellationError {}
+    }
+
+    // MARK: - Shared forward-compatibility vectors
+
+    private struct ForwardCompatFixture: Decodable {
+        let cases: [ForwardCompatVector]
+    }
+
+    private struct ForwardCompatVector: Decodable {
+        struct Expectation: Decodable {
+            let textIncrements: [String]
+            let text: String
+            let fullStreamTypes: [String]
+        }
+
+        let id: String
+        let events: [StreamEvent]
+        let expect: Expectation
+    }
+
+    /// `StreamEvent.type` is an open set: an event type this revision does not know -- with or
+    /// without a payload -- decodes, passes through `fullStream`, and is ignored by the text view.
+    func testStreamTextMatchesTheSharedForwardCompatibilityVectors() async throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("contracts/fixtures/streaming/forward-compat-events.json")
+        let fixture = try JSONDecoder().decode(ForwardCompatFixture.self, from: Data(contentsOf: url))
+        XCTAssertFalse(fixture.cases.isEmpty)
+
+        for vector in fixture.cases {
+            let stream = try await FakeApi(events: vector.events).streamText(TextGenerationOptions(.prompt("Hello")))
+
+            let text = try await collect(stream.textStream)
+            let full = try await collect(stream.fullStream)
+            let result = try await stream.result()
+
+            XCTAssertEqual(text, vector.expect.textIncrements, vector.id)
+            XCTAssertEqual(full.map(\.type), vector.expect.fullStreamTypes, vector.id)
+            XCTAssertEqual(result.text, vector.expect.text, vector.id)
+        }
     }
 
     func testStreamTextRejectsBeforeThereIsARunExactlyAsStreamDoes() async throws {
