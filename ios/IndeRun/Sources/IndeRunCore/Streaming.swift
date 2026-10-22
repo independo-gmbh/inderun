@@ -83,11 +83,23 @@ public struct ProviderStreamContext: Sendable {
     /// providers may ignore it. The engine enforces the caller-visible
     /// cancellation guarantee regardless of what the provider does.
     public let cancellation: StreamCancellationToken
+    /// The voice the route plan bound this provider to for a speech task: provider-neutral
+    /// traits the provider must honour when it picks the voice that speaks. `nil` for tasks
+    /// without a voice and for providers that do not list their voices, which then choose
+    /// under the same rule (ADR 016 §4). The engine has re-checked it against the request's
+    /// privacy policy immediately before the attempt.
+    public let voice: ProviderVoice?
 
-    public init(runId: String, hostServices: HostServices, cancellation: StreamCancellationToken) {
+    public init(
+        runId: String,
+        hostServices: HostServices,
+        cancellation: StreamCancellationToken,
+        voice: ProviderVoice? = nil
+    ) {
         self.runId = runId
         self.hostServices = hostServices
         self.cancellation = cancellation
+        self.voice = voice
     }
 }
 

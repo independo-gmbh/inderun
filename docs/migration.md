@@ -62,6 +62,9 @@ the request's privacy policy. The generated Swift `Candidate` memberwise initial
 requests now reach the planner with `inputs: ["text"]`, so a provider that declares a `text_to_text` capability
 without text input is rejected with `input_not_supported`.
 
+Provider contexts (`RunContext`, `ProviderStreamContext`) gain an optional `voice`: the voice the plan bound this
+provider to for a speech request. Text providers can ignore it.
+
 The planner no longer writes `null` for an absent optional in its output (`selectedProviderId`, `failureCode`): the key
 is omitted, which is what the route-plan schema always described.
 

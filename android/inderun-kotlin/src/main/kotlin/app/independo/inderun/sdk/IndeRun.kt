@@ -14,7 +14,6 @@ import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.StreamTerminalOutcomeError
 import app.independo.inderun.contracts.StreamTerminalOutcomeTelemetry
 import app.independo.inderun.contracts.StreamTerminalOutcomeUsage
-import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TelemetryEvent
@@ -28,6 +27,7 @@ import app.independo.inderun.core.ProviderAdapter
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
+import app.independo.inderun.core.RouteCandidate
 import app.independo.inderun.core.Router
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.StreamCancellationToken
@@ -41,6 +41,8 @@ import app.independo.inderun.core.createCapabilityMismatch
 import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.createUnavailable
 import app.independo.inderun.core.errorOutcome
+import app.independo.inderun.core.recheckBoundVoice
+import app.independo.inderun.core.taskProfileFor
 import app.independo.inderun.core.toIndeRunException
 import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
 import app.independo.inderun.sdk.generated.IndeRunApi
@@ -126,12 +128,17 @@ class IndeRun(
 
             for ((index, provider) in providers.withIndex()) {
                 val providerId = provider.describe().id
+                val voice = routeSelection.candidates.getOrNull(index)?.voice
                 attemptedProviderIds += providerId
 
                 try {
+                    // A refusal fails this attempt before it starts, so it falls back like any
+                    // other pre-commit provider failure.
+                    recheckBoundVoice(request, providerId, voice)?.let { throw it }
+
                     val result = provider.run(
                         request = request,
-                        context = RunContext(runId = runId, hostServices = hostServices),
+                        context = RunContext(runId = runId, hostServices = hostServices, voice = voice),
                     )
 
                     val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
@@ -338,7 +345,7 @@ class IndeRun(
                 request = request,
                 runId = runId,
                 startTime = startElapsedMs,
-                providers = providers,
+                candidates = routeSelection.candidates,
                 routePlan = routeSelection.routePlan,
                 gate = gate,
                 cancellation = cancellation,
@@ -361,7 +368,7 @@ class IndeRun(
         request: TaskRequest,
         runId: String,
         startTime: Double,
-        providers: List<ProviderAdapter>,
+        candidates: List<RouteCandidate>,
         routePlan: RoutePlan,
         gate: EventGate,
         cancellation: StreamCancellationToken,
@@ -444,9 +451,10 @@ class IndeRun(
         val attemptedProviderIds = mutableListOf<String>()
         var committed = false
 
-        for ((index, provider) in providers.withIndex()) {
+        for ((index, candidate) in candidates.withIndex()) {
             if (cancellation.isCancelled) break
 
+            val provider = candidate.provider
             val providerId = provider.describe().id
             attemptedProviderIds += providerId
             safeEmit(
@@ -461,6 +469,10 @@ class IndeRun(
             var partialText = ""
             var terminated = false
             try {
+                // A refusal fails this attempt before it starts, so it falls back like any
+                // other pre-commit provider failure.
+                recheckBoundVoice(request, providerId, candidate.voice)?.let { throw it }
+
                 val streaming = provider as? StreamingProviderAdapter
                     // Same class of fault as the empty-chain guard: the planner
                     // only routes a stream to providers that implement it.
@@ -474,6 +486,7 @@ class IndeRun(
                     runId = runId,
                     hostServices = hostServices,
                     cancellation = cancellation,
+                    voice = candidate.voice,
                 )
 
                 val providerEvents = Channel<ProviderStreamEvent>(Channel.BUFFERED)
@@ -669,27 +682,19 @@ class IndeRun(
         if (request.schemaVersion != SchemaVersion.V1_0) {
             validationIssues += "schemaVersion must be '1.0'"
         }
-        if (request.task.kind != TaskKind.TEXT_TO_TEXT) {
-            validationIssues += "task.kind must be 'text_to_text'"
-        }
-
-        val hasPrompt = !request.prompt.isNullOrBlank()
-        val hasMessages = !request.messages.isNullOrEmpty()
-
         if (request.requestId != null && request.requestId!!.isBlank()) {
             validationIssues += "requestId must be non-empty when provided."
-        }
-        if (request.prompt != null && request.prompt!!.isBlank()) {
-            validationIssues += "prompt must be non-empty when provided."
         }
         if (request.authContextRef != null && request.authContextRef!!.isBlank()) {
             validationIssues += "authContextRef must be non-empty when provided."
         }
-        if (request.messages?.any { it.content.isBlank() } == true) {
-            validationIssues += "messages[].content must be non-empty."
-        }
-        if (!hasPrompt && !hasMessages) {
-            validationIssues += "Either prompt or messages must be provided and non-empty."
+        // The per-kind payload rules live in the task profile, the one place the engine
+        // branches on the kind.
+        val profile = taskProfileFor(request.task.kind)
+        if (profile == null) {
+            validationIssues += "task kind '${request.task.kind.rawValue}' is not supported by this engine"
+        } else {
+            validationIssues += profile.validate(request)
         }
         if (modelProfiles.resolve(request.modelProfile) == ModelProfiles.Resolution.Unknown) {
             validationIssues += "modelProfile '${request.modelProfile}' is not a configured model profile."

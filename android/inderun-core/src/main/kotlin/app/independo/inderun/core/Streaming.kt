@@ -1,6 +1,7 @@
 package app.independo.inderun.core
 
 import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.TaskRequest
@@ -81,6 +82,12 @@ data class ProviderStreamContext(
      * cancellation guarantee regardless of what the provider does.
      */
     val cancellation: StreamCancellationToken,
+    /**
+     * The voice the route plan bound this provider to for a speech task; see
+     * [RunContext.voice]. The engine has re-checked it against the request's privacy policy
+     * immediately before the attempt.
+     */
+    val voice: ProviderVoice? = null,
 )
 
 /**

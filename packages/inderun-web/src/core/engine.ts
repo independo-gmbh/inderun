@@ -27,6 +27,7 @@ import {
   validateModelProfiles
 } from "./model-profiles.js";
 import { ProvenanceRecorder } from "./provenance.js";
+import { recheckBoundVoice, taskProfileFor } from "./task-profiles.js";
 
 /**
  * @deprecated Renamed to `StreamRun`, which is the name the generated
@@ -87,11 +88,10 @@ export class IndeRun implements IndeRunApi {
    */
   private validateRequest(request: TaskRequest, runId: string): ResolvedModelProfile {
     const validationIssues = getTaskRequestValidationIssues(request);
-    if (validationIssues.length === 0 && request.task.kind !== "text_to_text") {
-      // The contracts admit text_to_speech (ADR 016), but this engine cannot execute it yet.
+    if (validationIssues.length === 0 && taskProfileFor(request.task.kind) === undefined) {
       validationIssues.push({
         path: "/task/kind",
-        message: `task kind "${request.task.kind}" is not supported by this engine yet`
+        message: `task kind "${request.task.kind}" is not supported by this engine`
       });
     }
     if (validationIssues.length === 0) {
@@ -219,12 +219,17 @@ export class IndeRun implements IndeRunApi {
       let lastError: unknown;
       for (const [index, provider] of providers.entries()) {
         const providerId = provider.describe().id;
+        const voice = routeSelection.candidates[index]?.voice;
         attemptedProviderIds.push(providerId);
 
         try {
+          const refusal = recheckBoundVoice(request, providerId, voice);
+          if (refusal !== undefined) throw refusal;
+
           const result = await provider.run(request, {
             runId,
-            hostServices: this.hostServices
+            hostServices: this.hostServices,
+            ...(voice !== undefined ? { voice } : {})
           });
 
           const endTime = this.now();
@@ -420,6 +425,7 @@ export class IndeRun implements IndeRunApi {
         }
 
         const providerId = provider.describe().id;
+        const voice = routeSelection.candidates[index]?.voice;
         attemptedProviderIds.push(providerId);
         safeEmit({
           type: "stream_attempt_started",
@@ -430,10 +436,14 @@ export class IndeRun implements IndeRunApi {
 
         let partialText = "";
         try {
+          const refusal = recheckBoundVoice(request, providerId, voice);
+          if (refusal !== undefined) throw refusal;
+
           const iterable = (provider as Required<Pick<ProviderAdapter, "stream">>).stream(request, {
             runId,
             hostServices: hostServices,
-            signal: controller.signal
+            signal: controller.signal,
+            ...(voice !== undefined ? { voice } : {})
           });
 
           let terminatedInLoop = false;

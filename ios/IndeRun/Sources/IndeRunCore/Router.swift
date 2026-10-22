@@ -1,20 +1,41 @@
 import Foundation
 import IndeRunContracts
 
+/// One provider in the planned chain, with the voice the plan bound it to (speech only).
+public struct RouteCandidate: Sendable {
+    public let provider: any ProviderAdapter
+    /// The voice this provider must use, chosen by the planner within the request's
+    /// privacy policy. `nil` when the task has no voice or the provider does not list
+    /// its voices.
+    public let voice: ProviderVoice?
+
+    public init(provider: any ProviderAdapter, voice: ProviderVoice? = nil) {
+        self.provider = provider
+        self.voice = voice
+    }
+}
+
 public struct RouteSelection: Sendable {
     public let provider: any ProviderAdapter
     public let fallbackProviders: [any ProviderAdapter]
+    /// The whole chain in attempt order (`provider` first), each with its bound voice.
+    public let candidates: [RouteCandidate]
     public let routePlan: RoutePlan
     public let explanation: String
 
+    /// `candidates` defaults to the chain without bound voices, so a selection built
+    /// before voices existed keeps its meaning.
     public init(
         provider: any ProviderAdapter,
         fallbackProviders: [any ProviderAdapter],
+        candidates: [RouteCandidate]? = nil,
         routePlan: RoutePlan,
         explanation: String
     ) {
         self.provider = provider
         self.fallbackProviders = fallbackProviders
+        self.candidates = candidates
+            ?? ([provider] + fallbackProviders).map { RouteCandidate(provider: $0) }
         self.routePlan = routePlan
         self.explanation = explanation
     }
@@ -112,18 +133,24 @@ public final class Router: Sendable {
         snapshots: [ProviderSnapshot],
         routePlan: RoutePlan
     ) throws -> RouteSelection {
-        let orderedSnapshots = routePlan.candidates.compactMap { candidate in
-            snapshots.first(where: { $0.descriptor.id == candidate.providerId })
+        let planned: [(id: String, candidate: RouteCandidate)] = routePlan.candidates.compactMap { candidate in
+            snapshots.first(where: { $0.descriptor.id == candidate.providerId }).map { snapshot in
+                (snapshot.descriptor.id, RouteCandidate(provider: snapshot.provider, voice: candidate.voice))
+            }
         }
 
-        guard let selectedId = routePlan.selectedProviderId ?? orderedSnapshots.first?.descriptor.id,
+        guard let selectedId = routePlan.selectedProviderId ?? planned.first?.id,
               let selected = snapshots.first(where: { $0.descriptor.id == selectedId }) else {
             throw createInternal(message: "Route plan selected a provider that is no longer registered.")
         }
 
+        let primary = planned.first { $0.id == selectedId }?.candidate ?? RouteCandidate(provider: selected.provider)
+        let fallbacks = planned.filter { $0.id != selectedId }.map(\.candidate)
+
         return RouteSelection(
-            provider: selected.provider,
-            fallbackProviders: orderedSnapshots.filter { $0.descriptor.id != selectedId }.map { $0.provider },
+            provider: primary.provider,
+            fallbackProviders: fallbacks.map(\.provider),
+            candidates: [primary] + fallbacks,
             routePlan: routePlan,
             explanation: routePlan.explanation.summary
         )
@@ -197,17 +224,12 @@ private func buildSharedPlannerInput(
     )
 }
 
-/// Projects the request's task onto the requirements the planner can check. A text
-/// request carries text input; the speech requirements arrive with the speech request
-/// shape (#245). Mirrors `plannerTask` in the Web SDK's route planner.
+/// Projects the request's task onto the requirements the planner can check, through the
+/// kind's task profile. Mirrors `plannerTask` in the Web SDK's route planner, whose
+/// fallback for a kind without a profile has no Swift counterpart: such a kind does not
+/// decode into `TaskKind`.
 private func plannerTask(for request: TaskRequest) -> SharedPlannerTask {
-    SharedPlannerTask(
-        delivery: nil,
-        inputs: request.task.kind == .textToText ? [.text] : nil,
-        kind: request.task.kind.rawValue,
-        locale: nil,
-        voice: nil
-    )
+    TaskProfiles.profile(for: request.task.kind).plannerTask(request)
 }
 
 /// Folds the "declares streaming but does not implement it" check into the

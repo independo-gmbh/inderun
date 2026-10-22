@@ -1,6 +1,7 @@
 import type {
   ProviderDescriptor,
   ProviderDynamicCapabilities,
+  SharedRoutePlan,
   StreamEvent,
   StreamRunHandle,
   TaskRequest,
@@ -34,6 +35,14 @@ export interface RunContext {
    * resolve authContextRef through secure storage and dispatch HTTP requests.
    */
   hostServices: HostServices;
+  /**
+   * The voice the route plan bound this provider to for a speech task: provider-neutral
+   * traits the provider must honour when it picks the voice that speaks. Absent for tasks
+   * without a voice and for providers that do not list their voices, which then choose
+   * under the same rule (ADR 016 §4). The engine has re-checked it against the request's
+   * privacy policy immediately before the attempt.
+   */
+  voice?: NonNullable<SharedRoutePlan["candidates"][number]["voice"]>;
 }
 
 /**

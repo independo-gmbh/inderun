@@ -25,6 +25,21 @@ public final class IndeRun: IndeRunApi {
         self.modelProfiles = modelProfiles
     }
 
+    /// Routes through `router` instead of one planning with the shared core, so tests can
+    /// inject a plan the shared planner would never produce.
+    init(
+        registry: ProviderRegistry,
+        hostServices: HostServices,
+        router: Router,
+        modelProfiles: ModelProfiles = .none
+    ) {
+        self.registry = registry
+        self.hostServices = hostServices
+        self.telemetryService = hostServices.telemetry
+        self.router = router
+        self.modelProfiles = modelProfiles
+    }
+
     /// The planner input for the request's model profile; `nil` means `auto`.
     /// An unknown name never reaches here: `validate(request:)` rejects it first.
     private func plannerModelProfile(for request: TaskRequest) -> ModelProfile? {
@@ -61,33 +76,19 @@ public final class IndeRun: IndeRunApi {
 
     /// Structural request validation shared by `run` and `stream`; returns one
     /// human-readable issue per violation, empty when the request is well-formed.
+    /// The per-kind rules live in the kind's task profile.
     private func validate(request: TaskRequest) -> [String] {
         var validationIssues: [String] = []
         if request.schemaVersion.rawValue != "1.0" {
             validationIssues.append("schemaVersion must be '1.0'")
         }
-        if request.task.kind.rawValue != "text_to_text" {
-            validationIssues.append("task.kind must be 'text_to_text'")
-        }
-
-        let hasPrompt = !(request.prompt ?? "").isEmpty
-        let hasMessages = !(request.messages ?? []).isEmpty
-
         if let requestId = request.requestId, requestId.isEmpty {
             validationIssues.append("requestId must be non-empty when provided.")
-        }
-        if let prompt = request.prompt, prompt.isEmpty {
-            validationIssues.append("prompt must be non-empty when provided.")
         }
         if let authContextRef = request.authContextRef, authContextRef.isEmpty {
             validationIssues.append("authContextRef must be non-empty when provided.")
         }
-        if let messages = request.messages, messages.contains(where: { $0.content.isEmpty }) {
-            validationIssues.append("messages[].content must be non-empty.")
-        }
-        if !hasPrompt && !hasMessages {
-            validationIssues.append("Either prompt or messages must be provided and non-empty.")
-        }
+        validationIssues += TaskProfiles.profile(for: request.task.kind).validate(request)
         if case .unknown = modelProfiles.resolve(request.modelProfile) {
             validationIssues.append(
                 "modelProfile '\(request.modelProfile ?? "")' is not a configured model profile."
@@ -131,7 +132,8 @@ public final class IndeRun: IndeRunApi {
                 hostServices: hostServices,
                 modelProfile: plannerModelProfile(for: request)
             )
-            let providers = [routeSelection.provider] + routeSelection.fallbackProviders
+            let candidates = routeSelection.candidates
+            let providers = candidates.map(\.provider)
             provenance.routed(routeSelection.routePlan)
 
             let routeTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
@@ -152,14 +154,19 @@ public final class IndeRun: IndeRunApi {
 
             // 3. Execute
             var attemptedIds: [String] = []
-            for (index, provider) in providers.enumerated() {
+            for (index, candidate) in candidates.enumerated() {
+                let provider = candidate.provider
                 let providerId = provider.describe().id
                 attemptedIds.append(providerId)
 
                 do {
+                    if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
+                        throw refusal
+                    }
+
                     var result = try await provider.run(
                         request: request,
-                        context: RunContext(runId: runId, hostServices: hostServices)
+                        context: RunContext(runId: runId, hostServices: hostServices, voice: candidate.voice)
                     )
 
                     let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
@@ -295,7 +302,8 @@ public final class IndeRun: IndeRunApi {
             provenance.routingFailed(exception.details)
             throw exception.withProvenance(provenance.build())
         }
-        let providers = [routeSelection.provider] + routeSelection.fallbackProviders
+        let candidates = routeSelection.candidates
+        let providers = candidates.map(\.provider)
 
         safeEmit(TelemetryEvent(
             type: "route_decided",
@@ -351,7 +359,7 @@ public final class IndeRun: IndeRunApi {
                 request: request,
                 runId: runId,
                 startTime: startTime,
-                providers: providers,
+                candidates: candidates,
                 routePlan: routeSelection.routePlan,
                 gate: gate,
                 cancellation: cancellation,
@@ -370,7 +378,7 @@ public final class IndeRun: IndeRunApi {
         request: TaskRequest,
         runId: String,
         startTime: Int64,
-        providers: [any ProviderAdapter],
+        candidates: [RouteCandidate],
         routePlan: RoutePlan,
         gate: EventGate,
         cancellation: StreamCancellationToken,
@@ -405,9 +413,10 @@ public final class IndeRun: IndeRunApi {
         var attemptedProviderIds: [String] = []
         var committed = false
 
-        for (index, provider) in providers.enumerated() {
+        for (index, candidate) in candidates.enumerated() {
             if cancellation.isCancelled { break }
 
+            let provider = candidate.provider
             let providerId = provider.describe().id
             attemptedProviderIds.append(providerId)
             safeEmit(TelemetryEvent(
@@ -450,10 +459,15 @@ public final class IndeRun: IndeRunApi {
 
             var partialText = ""
             do {
+                if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
+                    throw refusal
+                }
+
                 let context = ProviderStreamContext(
                     runId: runId,
                     hostServices: hostServices,
-                    cancellation: cancellation
+                    cancellation: cancellation,
+                    voice: candidate.voice
                 )
 
                 var terminatedInLoop = false
