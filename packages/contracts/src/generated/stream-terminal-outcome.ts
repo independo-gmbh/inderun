@@ -14,9 +14,9 @@
  * must stay structurally identical. Note on additionalProperties: per this repo's
  * forward-compatible convention every branch permits unknown extra fields, so mutual
  * exclusivity is enforced via the required 'outcome' discriminator plus each branch's own
- * required peer field being present (finalText or output / error / partialText or output),
- * not by forbidding a payload from also carrying an unrelated stray field from another
- * branch's vocabulary.
+ * required peer field being present (finalText or output / error), and for 'cancelled' by
+ * the discriminator alone, not by forbidding a payload from also carrying an unrelated
+ * stray field from another branch's vocabulary.
  */
 export type StreamTerminalOutcome = {
     /**
@@ -49,8 +49,10 @@ export type StreamTerminalOutcome = {
      * for every non-text run; a text run may set it alongside finalText. See
      * task-output.schema.json.
      *
-     * The normalized output of a cancelled non-text run up to the cancellation point, e.g. how
-     * long playback lasted before it was stopped. See task-output.schema.json.
+     * What a cancelled non-text run had already produced: a playback run that committed (audio
+     * may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
+     * artifact run cancelled before its artifact was handed over, whose partial media the
+     * engine discards. See task-output.schema.json.
      */
     output?: TaskOutput;
     /**
@@ -91,9 +93,9 @@ export type StreamTerminalOutcome = {
      * committing to its provider. Absent when nothing was delivered.
      *
      * Whatever cumulative text a text run had already delivered via
-     * content_delta/content_snapshot StreamEvents before the cancellation point. May be empty
-     * if cancellation occurred before any content was produced. A non-text run carries output
-     * instead.
+     * content_delta/content_snapshot StreamEvents before the cancellation point. Always set for
+     * a text run, and empty if cancellation occurred before any content was produced. A
+     * non-text run never sets it.
      */
     partialText?: string;
     /**
@@ -295,8 +297,10 @@ export type Outcome = "completed" | "error" | "cancelled";
  * output is never an artifact, and an artifact output never implies that anything was
  * played.
  *
- * The normalized output of a cancelled non-text run up to the cancellation point, e.g. how
- * long playback lasted before it was stopped. See task-output.schema.json.
+ * What a cancelled non-text run had already produced: a playback run that committed (audio
+ * may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
+ * artifact run cancelled before its artifact was handed over, whose partial media the
+ * engine discards. See task-output.schema.json.
  */
 export type TaskOutput = {
     /**

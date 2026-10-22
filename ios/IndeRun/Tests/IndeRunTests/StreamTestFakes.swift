@@ -16,20 +16,36 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         /// Blocks until the run has actually been cancelled and then ends without
         /// emitting, so tests that cancel mid-stream do not race a fixed delay.
         let waitsForCancellation: Bool
+        /// Calls `context.commit()` and records what it returned.
+        let commits: Bool
+        /// Calls the commit this provider kept from its own, earlier attempt -- a late callback
+        /// from an attempt the run has already left -- and records the result as its own.
+        let callsKeptCommitOf: MockStreamProvider?
 
         init(_ event: ProviderStreamEvent, delayMs: UInt64 = 0) {
             self.event = event
             self.delayMs = delayMs
             self.waitsForCancellation = false
+            self.commits = false
+            self.callsKeptCommitOf = nil
         }
 
-        private init() {
+        private init(waitsForCancellation: Bool, commits: Bool, callsKeptCommitOf: MockStreamProvider? = nil) {
             self.event = nil
             self.delayMs = 0
-            self.waitsForCancellation = true
+            self.waitsForCancellation = waitsForCancellation
+            self.commits = commits
+            self.callsKeptCommitOf = callsKeptCommitOf
         }
 
-        static let waitForCancellation = Step()
+        static func callKeptCommit(of provider: MockStreamProvider) -> Step {
+            Step(waitsForCancellation: false, commits: false, callsKeptCommitOf: provider)
+        }
+
+        static let waitForCancellation = Step(waitsForCancellation: true, commits: false)
+        /// A commit step directly after `waitForCancellation` runs once the cancellation has
+        /// been observed, which is how a provider that asks to commit too late is modelled.
+        static let commit = Step(waitsForCancellation: false, commits: true)
     }
 
     let id: String
@@ -40,10 +56,16 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
     let type: ProviderType
     let streamingAvailable: Bool?
     let streamingUnavailableReason: String?
+    let task: TaskKind
+    /// Keeps each attempt's context for `callKeptCommit()`. Off by default: the context's
+    /// commit retains the engine, which `testStillTerminatesWhenTheEngineIsReleased` must see go.
+    let keepsCommit: Bool
     private let lock = NSLock()
     private var attempts = 0
     private var entered = false
     private var interrupted = false
+    private var recordedCommitResults: [Bool] = []
+    private var keptContext: ProviderStreamContext?
 
     init(
         id: String,
@@ -53,7 +75,9 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         declaresStreaming: Bool = true,
         type: ProviderType = .local,
         streamingAvailable: Bool? = nil,
-        streamingUnavailableReason: String? = nil
+        streamingUnavailableReason: String? = nil,
+        task: TaskKind = .textToText,
+        keepsCommit: Bool = false
     ) {
         self.id = id
         self.script = script
@@ -63,6 +87,8 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         self.type = type
         self.streamingAvailable = streamingAvailable
         self.streamingUnavailableReason = streamingUnavailableReason
+        self.task = task
+        self.keepsCommit = keepsCommit
     }
 
     var callCount: Int {
@@ -77,6 +103,13 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return interrupted
+    }
+
+    /// What each `context.commit()` call returned, in call order.
+    var commitResults: [Bool] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedCommitResults
     }
 
     private var hasEntered: Bool {
@@ -96,6 +129,16 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         }
     }
 
+    /// Waits until this provider has called `context.commit()` for the first time.
+    /// Bounded, so a broken path fails rather than hangs.
+    func waitUntilCommitted() async {
+        for _ in 0 ..< 500 where commitResults.isEmpty {
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+    }
+
+    /// A `text_to_speech` fake adds a speech capability with playback delivery in de-AT, so
+    /// the planner routes speech requests to it.
     func describe() -> ProviderDescriptor {
         ProviderDescriptor(
             id: id,
@@ -111,7 +154,19 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
                 multimodal: false
             ),
             cancel: .soft,
-            tasks: ["text_to_text"]
+            tasks: [task.rawValue],
+            taskCapabilities: task == .textToSpeech
+                ? [
+                    ProviderTaskCapability(
+                        kind: task.rawValue,
+                        inputs: [.text],
+                        interaction: ProviderTaskInteraction(run: true, stream: declaresStreaming),
+                        cancel: .soft,
+                        outputs: [ProviderTaskOutput(delivery: .playback)],
+                        locales: ["de-AT"]
+                    )
+                ]
+                : nil
         )
     }
 
@@ -132,12 +187,21 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
         )
     }
 
+    /// Calls the `context.commit()` of this provider's latest attempt and records the result.
+    func callKeptCommit() {
+        lock.lock()
+        let context = keptContext
+        lock.unlock()
+        if let context { recordCommit(context.commit()) }
+    }
+
     func stream(
         request: TaskRequest,
         context: ProviderStreamContext
     ) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
         lock.lock()
         attempts += 1
+        if keepsCommit { keptContext = context }
         lock.unlock()
 
         return AsyncThrowingStream { continuation in
@@ -147,7 +211,7 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
                     continuation.finish(throwing: throwImmediately)
                     return
                 }
-                for step in script {
+                for (index, step) in script.enumerated() {
                     if step.waitsForCancellation {
                         // Bounded so a broken cancellation path fails the test
                         // instead of hanging it; the loop exits the moment
@@ -156,8 +220,19 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
                             try? await Task.sleep(nanoseconds: 2_000_000)
                         }
                         self.markInterrupted()
+                        for late in script[(index + 1)...] where late.commits {
+                            self.recordCommit(context.commit())
+                        }
                         continuation.finish()
                         return
+                    }
+                    if step.commits {
+                        self.recordCommit(context.commit())
+                        continue
+                    }
+                    if let other = step.callsKeptCommitOf {
+                        other.callKeptCommit()
+                        continue
                     }
                     if step.delayMs > 0 {
                         try? await Task.sleep(nanoseconds: step.delayMs * 1_000_000)
@@ -189,6 +264,12 @@ final class MockStreamProvider: StreamingProviderAdapter, @unchecked Sendable {
     private func markInterrupted() {
         lock.lock()
         interrupted = true
+        lock.unlock()
+    }
+
+    private func recordCommit(_ result: Bool) {
+        lock.lock()
+        recordedCommitResults.append(result)
         lock.unlock()
     }
 }
@@ -235,3 +316,13 @@ final class DeclaredOnlyStreamProvider: ProviderAdapter, @unchecked Sendable {
     }
 }
 
+/// The request the `non_text_outputs` conformance cases stream: speech 'Hallo' in de-AT,
+/// played back on the device.
+func makeSpeechRequest(delivery: OutputDeliveryRequest = OutputDeliveryRequest(mediaTypes: nil, mode: .playback)) -> TaskRequest {
+    TaskRequest(
+        task: TaskDescriptor(kind: .textToSpeech),
+        constraints: TaskRequestConstraints(privacy: .localRequired),
+        speech: SpeechInput(locale: "de-AT", localeMatch: nil, text: "Hallo", voice: nil),
+        delivery: delivery
+    )
+}

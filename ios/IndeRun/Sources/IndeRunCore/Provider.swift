@@ -16,11 +16,38 @@ public struct RunContext: Sendable {
     /// under the same rule (ADR 016 §4). The engine has re-checked it against the request's
     /// privacy policy immediately before the attempt.
     public let voice: ProviderVoice?
+    private let commitHandler: @Sendable () -> Bool
 
-    public init(runId: String, hostServices: HostServices, voice: ProviderVoice? = nil) {
+    /// - Parameter commit: What ``commit()`` does. The engine supplies its own; a context
+    ///   built elsewhere (e.g. to call a provider directly) commits unless the calling task
+    ///   is cancelled, which is the engine's rule for `run()`.
+    public init(
+        runId: String,
+        hostServices: HostServices,
+        voice: ProviderVoice? = nil,
+        commit: @escaping @Sendable () -> Bool = { !Task.isCancelled }
+    ) {
         self.runId = runId
         self.hostServices = hostServices
         self.voice = voice
+        self.commitHandler = commit
+    }
+
+    /// Commits the run to this provider. Call it immediately before the attempt's first
+    /// externally observable effect -- for managed playback, no later than the first moment
+    /// sound may reach the user. After commit, a failure ends the run instead of falling back
+    /// to another provider, because a second provider would repeat what the user may already
+    /// have heard.
+    ///
+    /// Returns `false` when the run can no longer commit (the calling task was cancelled)
+    /// and when this attempt is over, e.g. a late callback after the engine fell back to
+    /// another provider; the provider must then not start the effect and should end the
+    /// attempt. Idempotent: calling it again after a successful commit returns `true`.
+    ///
+    /// Providers whose output is only delivered at the end (text from `run()`) need not call
+    /// it.
+    public func commit() -> Bool {
+        commitHandler()
     }
 }
 

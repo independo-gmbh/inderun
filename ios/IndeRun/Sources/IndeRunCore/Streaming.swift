@@ -89,17 +89,39 @@ public struct ProviderStreamContext: Sendable {
     /// under the same rule (ADR 016 §4). The engine has re-checked it against the request's
     /// privacy policy immediately before the attempt.
     public let voice: ProviderVoice?
+    private let commitHandler: @Sendable () -> Bool
 
+    /// - Parameter commit: What ``commit()`` does. The engine supplies its own; when `nil`,
+    ///   the context commits unless `cancellation` has fired.
     public init(
         runId: String,
         hostServices: HostServices,
         cancellation: StreamCancellationToken,
-        voice: ProviderVoice? = nil
+        voice: ProviderVoice? = nil,
+        commit: (@Sendable () -> Bool)? = nil
     ) {
         self.runId = runId
         self.hostServices = hostServices
         self.cancellation = cancellation
         self.voice = voice
+        self.commitHandler = commit ?? { !cancellation.isCancelled }
+    }
+
+    /// Commits the run to this provider. Call it immediately before the attempt's first
+    /// externally observable effect -- for managed playback, no later than the first moment
+    /// sound may reach the user. After commit, a failure ends the run instead of falling back
+    /// to another provider, because a second provider would repeat what the user may already
+    /// have heard.
+    ///
+    /// Returns `false` when the run can no longer commit (it was cancelled or has already
+    /// ended) and when this attempt is over, e.g. a late callback after the engine fell back
+    /// to another provider; the provider must then not start the effect and should end the
+    /// attempt.
+    /// Idempotent: calling it again after a successful commit returns `true`.
+    ///
+    /// Text streams commit implicitly on their first content event and need not call it.
+    public func commit() -> Bool {
+        commitHandler()
     }
 }
 
@@ -122,6 +144,11 @@ public enum ProviderStreamEvent: Sendable {
         usage: TaskResultUsage? = nil,
         reportedModel: String? = nil
     )
+    /// Terminal success carrying the run's normalized output, for tasks whose output is not
+    /// streamed text (playback completion, a media artifact). Ends the stream like `.done`;
+    /// handing it over commits the run if the provider has not already called
+    /// ``ProviderStreamContext/commit()``. Text providers keep emitting `.done`.
+    case result(output: TaskOutput, finishReason: FinishReason? = nil, reportedModel: String? = nil)
     /// Terminal failure. Handled identically to the stream throwing.
     case failure(error: Error)
 }
@@ -134,8 +161,8 @@ public enum ProviderStreamEvent: Sendable {
 /// `typeof provider.stream === "function"` test.
 public protocol StreamingProviderAdapter: ProviderAdapter {
     /// Executes a Mode 2 (streaming) task. The returned sequence must end with a
-    /// `.done` or `.failure` event, or by throwing; ending without one is treated
-    /// as a provider fault.
+    /// `.done`, `.result` or `.failure` event, or by throwing; ending without one is
+    /// treated as a provider fault.
     func stream(request: TaskRequest, context: ProviderStreamContext)
         -> AsyncThrowingStream<ProviderStreamEvent, Error>
 }

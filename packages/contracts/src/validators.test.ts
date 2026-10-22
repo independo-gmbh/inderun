@@ -682,14 +682,15 @@ describe("StreamTerminalOutcome validation", () => {
     ).toBe(false);
   });
 
-  it("rejects a cancelled outcome missing both partialText and output", () => {
+  it("accepts a cancelled outcome carrying neither partialText nor output", () => {
+    // An artifact run cancelled before handoff produced nothing to report.
     expect(
       validateStreamTerminalOutcome({
         schemaVersion: "1.0",
         runId: "run_123",
         outcome: "cancelled"
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it.each([

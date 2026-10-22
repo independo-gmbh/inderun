@@ -63,7 +63,10 @@ requests now reach the planner with `inputs: ["text"]`, so a provider that decla
 without text input is rejected with `input_not_supported`.
 
 Provider contexts (`RunContext`, `ProviderStreamContext`) gain an optional `voice`: the voice the plan bound this
-provider to for a speech request. Text providers can ignore it.
+provider to for a speech request, and a `commit()` a provider calls immediately before an external effect such as
+audible playback. Text providers can ignore both. The provider stream event vocabulary gains `result`, which ends a
+stream with a non-text output; text providers keep `done`. On Swift and Kotlin an exhaustive `switch` / `when` over
+`ProviderStreamEvent` must handle it, and a hand-built context must supply a commit handler.
 
 The planner no longer writes `null` for an absent optional in its output (`selectedProviderId`, `failureCode`): the key
 is omitted, which is what the route-plan schema always described.

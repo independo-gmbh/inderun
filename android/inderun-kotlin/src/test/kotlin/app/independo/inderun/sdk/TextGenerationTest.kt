@@ -11,6 +11,7 @@ import app.independo.inderun.contracts.Locality
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OptimizeFor
+import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
@@ -100,17 +101,17 @@ private class FakeApi(
 class TextGenerationTest {
     // --- shared facade vectors ---------------------------------------------------------------
 
-    private fun fixtureCases(): List<JSONObject> {
+    private fun fixtureCases(path: String = "contracts/fixtures/facade/text-generation.json"): List<JSONObject> {
         var directory: File? = File("").absoluteFile
         while (directory != null) {
-            val candidate = File(directory, "contracts/fixtures/facade/text-generation.json")
+            val candidate = File(directory, path)
             if (candidate.exists()) {
                 val cases = JSONObject(candidate.readText()).getJSONArray("cases")
                 return (0 until cases.length()).map { cases.getJSONObject(it) }
             }
             directory = directory.parentFile
         }
-        error("Could not locate contracts/fixtures/facade/text-generation.json")
+        error("Could not locate $path")
     }
 
     private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
@@ -486,5 +487,46 @@ class TextGenerationTest {
         assertEquals(deltas, stream.textStream.toList())
         assertEquals(deltas.size + 1, stream.fullStream.toList().size)
         assertEquals(deltas.joinToString(""), stream.result.await().text)
+    }
+
+    // --- shared forward-compatibility vectors ------------------------------------------------
+
+    private fun eventFrom(json: JSONObject) = StreamEvent(
+        payload = json.optJSONObject("payload")?.let(::payloadFrom),
+        runId = json.getString("runId"),
+        schemaVersion = SchemaVersion.fromRawValue(json.getString("schemaVersion"))!!,
+        sequence = json.getLong("sequence"),
+        timestamp = json.getDouble("timestamp"),
+        type = json.getString("type"),
+    )
+
+    /**
+     * Decodes the payload fields the facade reads. Anything else -- including fields only an
+     * unknown event type carries -- is dropped, as a decoder that ignores unknown fields would.
+     */
+    private fun payloadFrom(json: JSONObject) = Payload(
+        text = json.stringOrNull("text"),
+        finalText = json.stringOrNull("finalText"),
+        partialText = json.stringOrNull("partialText"),
+        outcome = json.stringOrNull("outcome")?.let { Outcome.fromRawValue(it)!! },
+        runId = json.stringOrNull("runId"),
+        schemaVersion = json.stringOrNull("schemaVersion")?.let { SchemaVersion.fromRawValue(it)!! },
+    )
+
+    @Test
+    fun streamTextPassesUnknownEventTypesThroughTheSharedForwardCompatibilityVectors() = runTest {
+        val cases = fixtureCases("contracts/fixtures/streaming/forward-compat-events.json")
+        assertTrue(cases.isNotEmpty())
+        for (vector in cases) {
+            val id = vector.getString("id")
+            val events = vector.getJSONArray("events").let { array -> (0 until array.length()).map { eventFrom(array.getJSONObject(it)) } }
+            val expected = vector.getJSONObject("expect")
+
+            val stream = FakeApi(events = events).streamText(TextGenerationOptions(prompt = "Hello"), backgroundScope)
+
+            assertEquals(id, expected.getJSONArray("textIncrements").strings(), stream.textStream.toList())
+            assertEquals(id, expected.getJSONArray("fullStreamTypes").strings(), stream.fullStream.toList().map { it.type })
+            assertEquals(id, expected.getString("text"), stream.result.await().text)
+        }
     }
 }

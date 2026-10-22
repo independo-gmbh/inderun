@@ -23,6 +23,21 @@ export function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest
   };
 }
 
+/**
+ * The request the `non_text_outputs` conformance cases stream: speech 'Hallo' in de-AT,
+ * played back on the device.
+ */
+export function createSpeechRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
+  return {
+    schemaVersion: "1.0",
+    task: { kind: "text_to_speech" },
+    speech: { text: "Hallo", locale: "de-AT" },
+    delivery: { mode: "playback" },
+    constraints: { privacy: "local_required" },
+    ...overrides
+  };
+}
+
 export function createMockHostServices(options: { online?: boolean } = {}): HostServices {
   let timeVal = 1000;
   const online = options.online ?? true;
@@ -96,7 +111,18 @@ export type ScriptStep =
    * its own cancellation. Preferred over a timed delay: it removes the race, and
    * it is the same idiom the Swift and Kotlin fakes use.
    */
-  | { waitForCancellation: true };
+  | { waitForCancellation: true }
+  /**
+   * Calls `ctx.commit()` and records what it returned. A commit step directly after
+   * `waitForCancellation` runs once the cancellation has been observed, which is how a
+   * provider that asks to commit too late is modelled.
+   */
+  | { commit: true }
+  /**
+   * Calls the commit `provider` kept from its own, earlier attempt -- a late callback from
+   * an attempt the run has already left -- and records the result as that provider's.
+   */
+  | { callKeptCommitOf: FakeStreamProvider };
 
 export interface FakeStreamProviderOptions {
   cancel?: "hard" | "soft" | "none";
@@ -111,23 +137,51 @@ export interface FakeStreamProviderOptions {
   /** Dynamic capability snapshot: a provider that declares streaming but cannot stream here. */
   streamingAvailable?: boolean;
   streamingUnavailableReason?: string;
+  /**
+   * The task the fake declares. `text_to_speech` adds a speech capability with playback
+   * delivery, so the planner routes speech requests to it.
+   */
+  task?: "text_to_text" | "text_to_speech";
 }
 
 export interface FakeStreamProvider extends ProviderAdapter {
   callCount: () => number;
   wasInterrupted: () => boolean;
+  /** What each `ctx.commit()` call returned, in call order. */
+  commitResults: () => boolean[];
+  /** Resolves when the provider has called `ctx.commit()` for the first time. */
+  committed: Promise<void>;
+  /** Resolves when `stream()` has been entered for the first time. */
+  started: Promise<void>;
+  /** Calls the `ctx.commit` of this provider's latest attempt and records what it returned. */
+  callKeptCommit: () => void;
 }
 
 export function createFakeStreamProvider(
   id: string,
   opts: FakeStreamProviderOptions
 ): FakeStreamProvider {
-  const state = { callCount: 0, interrupted: false };
+  const state = { callCount: 0, interrupted: false, commitResults: [] as boolean[] };
   const declaresStreaming = opts.declaresStreaming ?? true;
+  const task = opts.task ?? "text_to_text";
+  let markCommitted = () => {};
+  let markStarted = () => {};
+  const committed = new Promise<void>((resolve) => (markCommitted = resolve));
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  const commit = (ctx: ProviderStreamContext) => {
+    const result = ctx.commit();
+    state.commitResults.push(result);
+    markCommitted();
+  };
+  let keptContext: ProviderStreamContext | undefined;
 
   const provider: FakeStreamProvider = {
     callCount: () => state.callCount,
     wasInterrupted: () => state.interrupted,
+    commitResults: () => [...state.commitResults],
+    committed,
+    started,
+    callKeptCommit: () => commit(keptContext!),
     describe() {
       return {
         id,
@@ -143,7 +197,21 @@ export function createFakeStreamProvider(
           multimodal: false
         },
         cancel: opts.cancel ?? "soft",
-        tasks: ["text_to_text"]
+        tasks: [task],
+        ...(task === "text_to_speech"
+          ? {
+              taskCapabilities: [
+                {
+                  kind: "text_to_speech",
+                  inputs: ["text" as const],
+                  interaction: { run: true, stream: declaresStreaming },
+                  cancel: opts.cancel ?? "soft",
+                  outputs: [{ delivery: "playback" as const }],
+                  locales: ["de-AT"]
+                }
+              ]
+            }
+          : {})
       };
     },
     async capabilities() {
@@ -172,14 +240,27 @@ export function createFakeStreamProvider(
       ctx: ProviderStreamContext
     ): AsyncGenerator<ProviderStreamEvent> {
       state.callCount++;
+      keptContext = ctx;
+      markStarted();
       if (opts.throwImmediately !== undefined) {
         throw opts.throwImmediately;
       }
-      for (const step of opts.script) {
+      for (const [index, step] of opts.script.entries()) {
         if ("waitForCancellation" in step) {
           await awaitAbort(ctx.signal);
           state.interrupted = true;
+          for (const late of opts.script.slice(index + 1)) {
+            if ("commit" in late) commit(ctx);
+          }
           return;
+        }
+        if ("commit" in step) {
+          commit(ctx);
+          continue;
+        }
+        if ("callKeptCommitOf" in step) {
+          step.callKeptCommitOf.callKeptCommit();
+          continue;
         }
         await delay(step.delayMs ?? 0, ctx.signal);
         if (ctx.signal.aborted) {

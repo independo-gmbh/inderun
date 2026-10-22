@@ -6,6 +6,8 @@ import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.OutputDelivery
+import app.independo.inderun.contracts.PlaybackOutput
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.RoutePlan
 import app.independo.inderun.contracts.SchemaVersion
@@ -14,6 +16,8 @@ import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.StreamTerminalOutcomeError
 import app.independo.inderun.contracts.StreamTerminalOutcomeTelemetry
 import app.independo.inderun.contracts.StreamTerminalOutcomeUsage
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TelemetryEvent
@@ -35,6 +39,7 @@ import app.independo.inderun.core.StreamRun
 import app.independo.inderun.core.StreamingProviderAdapter
 import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.core.cancelledOutcome
+import app.independo.inderun.core.checkOutput
 import app.independo.inderun.core.completedOutcome
 import app.independo.inderun.core.contentPayload
 import app.independo.inderun.core.createCapabilityMismatch
@@ -47,6 +52,7 @@ import app.independo.inderun.core.toIndeRunException
 import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
 import app.independo.inderun.sdk.generated.IndeRunApi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -88,7 +94,9 @@ class IndeRun(
     /**
      * Orchestrates a [TaskRequest]: validates it, selects a provider chain via
      * routing, executes with deterministic fallback, emits telemetry, and
-     * returns the normalized [TaskResult].
+     * returns the normalized [TaskResult]. An attempt that committed (see
+     * [RunContext.commit]) ends the chain: its failure is the run's failure,
+     * attributed to that provider.
      *
      * @throws app.independo.inderun.core.IndeRunException on validation, routing, or provider failure.
      */
@@ -96,6 +104,8 @@ class IndeRun(
         val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
         val provenance = ProvenanceRecorder(request.modelProfile)
+        // The provider a failed run had committed to, which the failure is attributed to.
+        var committedProvider: ProviderAdapter? = null
 
         try {
             validateRequest(request, runId)
@@ -108,6 +118,9 @@ class IndeRun(
             val providers = listOf(routeSelection.provider) + routeSelection.fallbackProviders
             val attemptedProviderIds = mutableListOf<String>()
             provenance.routed(routeSelection.routePlan)
+            val delivery = taskProfileFor(request.task.kind)!!.delivery(request)
+            // commit() refuses once the calling coroutine is no longer active.
+            val caller = currentCoroutineContext()[Job]
 
             safeEmit(
                 TelemetryEvent(
@@ -126,10 +139,15 @@ class IndeRun(
                 ),
             )
 
+            // An attempt that committed (see RunContext.commit) ends the chain: its failure is
+            // the run's failure.
             for ((index, provider) in providers.withIndex()) {
                 val providerId = provider.describe().id
                 val voice = routeSelection.candidates.getOrNull(index)?.voice
                 attemptedProviderIds += providerId
+                // Closed when the attempt ends, so a commit() from a provider callback that fires
+                // after the run moved on is refused.
+                val latch = CommitLatch()
 
                 try {
                     // A refusal fails this attempt before it starts, so it falls back like any
@@ -138,11 +156,15 @@ class IndeRun(
 
                     val result = provider.run(
                         request = request,
-                        context = RunContext(runId = runId, hostServices = hostServices, voice = voice),
+                        context = RunContext(runId = runId, hostServices = hostServices, voice = voice) {
+                            val (granted, _) = latch.commit { caller?.isActive == false }
+                            granted
+                        },
                     )
+                    checkOutput(request, delivery, result.output, providerId)?.let { throw it }
 
                     val totalMs = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
-                    provenance.attempted(providerId, AttemptOutcome.Succeeded)
+                    provenance.attempted(providerId, AttemptOutcome.Succeeded, committed = latch.isCommitted)
 
                     safeEmit(
                         TelemetryEvent(
@@ -169,6 +191,9 @@ class IndeRun(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
+                    // Closing first settles the commit state: a provider callback racing this
+                    // failure either committed before it or is refused.
+                    val committed = latch.close()
                     val attemptError = toIndeRunException(
                         error,
                         fallbackRunId = runId,
@@ -179,8 +204,14 @@ class IndeRun(
                             "routePlan" to routeSelection.routePlan,
                         ),
                     )
-                    provenance.attempted(providerId, AttemptOutcome.Failed, attemptError.errorClass)
+                    provenance.attempted(providerId, AttemptOutcome.Failed, attemptError.errorClass, committed)
+                    if (committed) {
+                        committedProvider = provider
+                        throw attemptError
+                    }
                     if (index == providers.lastIndex) throw attemptError
+                } finally {
+                    latch.close()
                 }
             }
 
@@ -203,9 +234,10 @@ class IndeRun(
                 ),
             )
             // A routing refusal throws before any attempt; its rejections travel on the details.
-            // No attempt produced a result, so the outcome is attributed to no provider.
+            // No attempt produced a result, so the outcome is attributed to no provider -- unless
+            // the run had committed to one, which then owns the failure.
             provenance.routingFailed(normalized.details)
-            val exception = normalized.withProvenance(provenance.build())
+            val exception = normalized.withProvenance(provenance.build(committedProvider?.describe()))
 
             safeEmit(
                 TelemetryEvent(
@@ -262,10 +294,12 @@ class IndeRun(
      * completion — arrives as the single terminal event in [StreamRun.events].
      *
      * Fallback is narrower than Mode 1's: a provider failure is only
-     * fallback-eligible before the first content event has been delivered. Once
-     * one has, the run is committed to that provider and a later failure becomes
-     * a terminal error, never a silent provider swap. Cancellation forecloses
-     * both at any commit state.
+     * fallback-eligible before the run commits to that provider -- its first
+     * content event, its explicit [ProviderStreamContext.commit] (managed
+     * playback, before the first possible audible effect), or its result
+     * handoff, whichever comes first. Once committed, a later failure becomes a
+     * terminal error, never a silent provider swap. Cancellation forecloses both
+     * at any commit state.
      *
      * The returned flow is cold — the run starts on first collection — and
      * single-use: collecting it twice throws rather than silently re-running the
@@ -377,18 +411,28 @@ class IndeRun(
         fun elapsed(): Double = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
 
         val provenance = ProvenanceRecorder(request.modelProfile).apply { routed(routePlan) }
+        val delivery = taskProfileFor(request.task.kind)!!.delivery(request)
+        val textRun = delivery == OutputDelivery.Inline
 
-        // `provider` is the one running when cancellation landed, if any; the outcome is
-        // attributed to it.
-        suspend fun emitCancelled(partialText: String, provider: ProviderAdapter?, attempted: List<String>) {
+        // `provider` is the one running when cancellation landed, if any, and `committed` whether
+        // its attempt had committed; the outcome is attributed to it.
+        suspend fun emitCancelled(partialText: String, provider: ProviderAdapter?, committed: Boolean, attempted: List<String>) {
             val providerId = provider?.describe()?.id
-            providerId?.let { provenance.attempted(it, AttemptOutcome.Cancelled) }
+            providerId?.let { provenance.attempted(it, AttemptOutcome.Cancelled, committed = committed) }
             val terminal = gate.terminate(
                 cancelledOutcome(
                     runId = runId,
-                    partialText = partialText,
+                    // A text run reports what it delivered; committed playback reports that it
+                    // played. An uncommitted non-text run produced nothing to report.
+                    partialText = partialText.takeIf { textRun },
                     reason = cancellation.reason,
                     provenance = provenance.build(provider?.describe()),
+                    // Committed playback may have been heard.
+                    output = if (committed && delivery == OutputDelivery.Playback) {
+                        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput())
+                    } else {
+                        null
+                    },
                 ),
                 now(),
             )
@@ -427,7 +471,7 @@ class IndeRun(
                         retryAfterMs = contractError.retryAfterMs,
                         schemaVersion = contractError.schemaVersion,
                     ),
-                    partialText = partialText,
+                    partialText = partialText.takeIf { textRun },
                     provenance = outcomeProvenance,
                 ),
                 now(),
@@ -449,7 +493,6 @@ class IndeRun(
         }
 
         val attemptedProviderIds = mutableListOf<String>()
-        var committed = false
 
         for ((index, candidate) in candidates.withIndex()) {
             if (cancellation.isCancelled) break
@@ -465,6 +508,31 @@ class IndeRun(
                     payload = mapOf("providerId" to providerId, "fallbackOccurred" to (index > 0)),
                 ),
             )
+
+            // Set once, by whichever comes first in this attempt: the provider's commit(), its
+            // first admitted content event, or its result handoff. After it no other provider is
+            // tried. Locked because a provider may call commit() from a thread of its own, and
+            // closed when the attempt ends, so a commit() arriving after the run moved on is
+            // refused rather than committing the attempt that replaced this one.
+            val latch = CommitLatch()
+
+            // Emits `stream_attempt_succeeded` exactly once, from whichever commit came first.
+            fun markCommitted(refused: () -> Boolean = { false }): Boolean {
+                val (granted, first) = latch.commit(refused)
+                if (!first) return granted
+                safeEmit(
+                    TelemetryEvent(
+                        type = TelemetryEventType.StreamAttemptSucceeded,
+                        runId = runId,
+                        timestamp = now(),
+                        payload = mapOf(
+                            "providerId" to providerId,
+                            "attemptedProviderIds" to attemptedProviderIds.toList(),
+                        ),
+                    ),
+                )
+                return granted
+            }
 
             var partialText = ""
             var terminated = false
@@ -487,7 +555,9 @@ class IndeRun(
                     hostServices = hostServices,
                     cancellation = cancellation,
                     voice = candidate.voice,
-                )
+                ) {
+                    markCommitted { cancellation.isCancelled || gate.isTerminated }
+                }
 
                 val providerEvents = Channel<ProviderStreamEvent>(Channel.BUFFERED)
                 val producer = launch {
@@ -516,33 +586,34 @@ class IndeRun(
                                     is ProviderStreamEvent.Snapshot -> event.text
                                     else -> ""
                                 }
-                                partialText = if (event is ProviderStreamEvent.Delta) partialText + text else text
-                                if (!committed) {
-                                    committed = true
-                                    safeEmit(
-                                        TelemetryEvent(
-                                            type = TelemetryEventType.StreamAttemptSucceeded,
-                                            runId = runId,
-                                            timestamp = now(),
-                                            payload = mapOf(
-                                                "providerId" to providerId,
-                                                "attemptedProviderIds" to attemptedProviderIds.toList(),
-                                            ),
-                                        ),
+                                // Content events are text-only (ADR 016 §5).
+                                if (!textRun) {
+                                    throw checkNotNull(
+                                        checkOutput(request, delivery, TaskOutput(type = TaskOutputType.TEXT, text = ""), providerId),
                                     )
                                 }
+                                partialText = if (event is ProviderStreamEvent.Delta) partialText + text else text
+                                markCommitted()
                                 val type = if (event is ProviderStreamEvent.Delta) "content_delta" else "content_snapshot"
                                 gate.admit(now(), type, contentPayload(text))?.let { send(it) }
                             }
 
-                            is ProviderStreamEvent.Done -> {
-                                provenance.attempted(providerId, AttemptOutcome.Succeeded)
+                            // Done (text) or Result (any task): the run's final output.
+                            is ProviderStreamEvent.Done, is ProviderStreamEvent.Result -> {
+                                val done = event as? ProviderStreamEvent.Done
+                                val result = event as? ProviderStreamEvent.Result
+                                val output = result?.output ?: TaskOutput(type = TaskOutputType.TEXT, text = done?.finalText)
+                                checkOutput(request, delivery, output, providerId)?.let { throw it }
+                                markCommitted()
+                                provenance.attempted(providerId, AttemptOutcome.Succeeded, committed = latch.isCommitted)
                                 val terminal = gate.terminate(
                                     completedOutcome(
                                         runId = runId,
-                                        finalText = event.finalText,
-                                        finishReason = event.finishReason,
-                                        usage = event.usage?.let {
+                                        // A Done carries text only; a Result carries its output,
+                                        // and its text too when the output is text.
+                                        finalText = done?.finalText ?: output.text.takeIf { output.type == TaskOutputType.TEXT },
+                                        finishReason = done?.finishReason ?: result?.finishReason,
+                                        usage = done?.usage?.let {
                                             StreamTerminalOutcomeUsage(
                                                 inputTokens = it.inputTokens,
                                                 outputTokens = it.outputTokens,
@@ -553,7 +624,11 @@ class IndeRun(
                                             providerUsed = providerId,
                                             totalMs = elapsed(),
                                         ),
-                                        provenance = provenance.build(provider.describe(), event.reportedModel),
+                                        provenance = provenance.build(
+                                            provider.describe(),
+                                            done?.reportedModel ?: result?.reportedModel,
+                                        ),
+                                        output = result?.output,
                                     ),
                                     now(),
                                 )
@@ -582,7 +657,7 @@ class IndeRun(
                 if (terminated) return
 
                 if (cancellation.isCancelled) {
-                    emitCancelled(partialText, provider, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
                     return
                 }
 
@@ -597,13 +672,13 @@ class IndeRun(
                 // outcome it is owed; only cancellation of the collector itself
                 // propagates.
                 if (cancellation.isCancelled && currentCoroutineContext().isActive) {
-                    emitCancelled(partialText, provider, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
                     return
                 }
                 throw error
             } catch (error: Throwable) {
                 if (cancellation.isCancelled) {
-                    emitCancelled(partialText, provider, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
                     return
                 }
 
@@ -613,7 +688,10 @@ class IndeRun(
                     fallbackProviderId = providerId,
                     fallbackDetails = mapOf("attemptedProviderIds" to attemptedProviderIds.toList()),
                 )
-                provenance.attempted(providerId, AttemptOutcome.Failed, exception.errorClass)
+                // Closing first settles the commit state: a provider callback racing this failure
+                // either committed before it or is refused.
+                val committed = latch.close()
+                provenance.attempted(providerId, AttemptOutcome.Failed, exception.errorClass, committed)
 
                 if (!committed) {
                     safeEmit(
@@ -640,13 +718,15 @@ class IndeRun(
                     provenance.build(provider.describe()),
                 )
                 return
+            } finally {
+                latch.close()
             }
         }
 
         // Every provider failed pre-commit, or cancellation landed before any
         // attempt started.
         if (cancellation.isCancelled) {
-            emitCancelled("", null, attemptedProviderIds.toList())
+            emitCancelled("", null, false, attemptedProviderIds.toList())
             return
         }
 
@@ -731,5 +811,45 @@ class IndeRun(
             val providerRegistry = registry ?: AndroidProviderRegistryFactory.makeDefaultRegistry(appContext)
             return IndeRun(providerRegistry, services, modelProfiles = modelProfiles)
         }
+    }
+}
+
+/**
+ * Records the moment a run committed to one attempt's provider (see [RunContext.commit]).
+ * Locked, because a provider may call `commit()` from a thread of its own while the engine reads
+ * the state from the coroutine driving the run.
+ */
+private class CommitLatch {
+    private var committed = false
+    private var closed = false
+
+    val isCommitted: Boolean
+        get() = synchronized(this) { committed }
+
+    /**
+     * Commits unless [refused] says the run can no longer commit. The first value is what
+     * `commit()` returns to the provider; the second is true only for the call that committed.
+     */
+    fun commit(refused: () -> Boolean): Pair<Boolean, Boolean> {
+        if (refused()) return false to false
+        return synchronized(this) {
+            when {
+                closed -> false to false
+                committed -> true to false
+                else -> {
+                    committed = true
+                    true to true
+                }
+            }
+        }
+    }
+
+    /**
+     * Ends the attempt: every later `commit()` is refused. Returns whether the attempt had
+     * committed, read under the same lock, so no commit can land between the two.
+     */
+    fun close(): Boolean = synchronized(this) {
+        closed = true
+        committed
     }
 }

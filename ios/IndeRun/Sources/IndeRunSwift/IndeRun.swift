@@ -105,7 +105,13 @@ public final class IndeRun: IndeRunApi {
     /// 2. **Routing**: A provider is selected based on request constraints and host capabilities.
     /// 3. **Execution**: The task is executed via the optimal provider adapter.
     /// 4. **Telemetry**: Results are enriched with timing and metadata.
-    /// 
+    ///
+    /// A provider failure falls back to the next planned provider unless the attempt had
+    /// committed (`RunContext.commit()`, for managed playback no later than its first possible
+    /// audible effect); a committed attempt's failure is the run's failure. Text providers
+    /// never commit, so text fallback is unchanged. An output that does not match the
+    /// request's delivery fails the attempt as `Internal` with details code `output_mismatch`.
+    ///
     /// - Parameter request: The standard request payload including prompt, constraints, preferences, and task description.
     /// - Returns: A normalized `TaskResult` containing generated text and execution telemetry.
     public func run(request: TaskRequest) async throws -> TaskResult {
@@ -113,6 +119,8 @@ public final class IndeRun: IndeRunApi {
 
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
         var provenance = ProvenanceRecorder(modelProfile: request.modelProfile)
+        // The provider a failed run had committed to, which the failure is attributed to.
+        var committedProvider: (any ProviderAdapter)?
 
         do {
             // 1. Structural request validation
@@ -135,6 +143,7 @@ public final class IndeRun: IndeRunApi {
             let candidates = routeSelection.candidates
             let providers = candidates.map(\.provider)
             provenance.routed(routeSelection.routePlan)
+            let delivery = TaskProfiles.profile(for: request.task.kind).delivery(request)
 
             let routeTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
             safeEmit(TelemetryEvent(
@@ -152,12 +161,16 @@ public final class IndeRun: IndeRunApi {
                 ]
             ))
 
-            // 3. Execute
+            // 3. Execute the planned provider chain. An attempt that committed (see
+            // RunContext.commit) ends the chain: its failure is the run's failure.
             var attemptedIds: [String] = []
             for (index, candidate) in candidates.enumerated() {
                 let provider = candidate.provider
                 let providerId = provider.describe().id
                 attemptedIds.append(providerId)
+                let latch = CommitLatch()
+                // A commit() arriving after the attempt ended is refused.
+                defer { _ = latch.close() }
 
                 do {
                     if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
@@ -166,8 +179,18 @@ public final class IndeRun: IndeRunApi {
 
                     var result = try await provider.run(
                         request: request,
-                        context: RunContext(runId: runId, hostServices: hostServices, voice: candidate.voice)
+                        context: RunContext(
+                            runId: runId,
+                            hostServices: hostServices,
+                            voice: candidate.voice,
+                            commit: { latch.commit(unless: { Task.isCancelled }).granted }
+                        )
                     )
+                    if let mismatch = checkOutput(
+                        request: request, delivery: delivery, output: result.output, providerId: providerId
+                    ) {
+                        throw mismatch
+                    }
 
                     let endTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
                     let totalMs = Double(endTime - startTime)
@@ -175,7 +198,7 @@ public final class IndeRun: IndeRunApi {
                     result.runId = runId
                     result.telemetry.providerUsed = providerId
                     result.telemetry.totalMs = totalMs
-                    provenance.attempted(providerId, .succeeded)
+                    provenance.attempted(providerId, .succeeded, committed: latch.isCommitted)
                     result.provenance = provenance.build(
                         attributedTo: provider.describe(),
                         reportedModel: result.telemetry.reportedModel
@@ -197,6 +220,9 @@ public final class IndeRun: IndeRunApi {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    // Closing first settles the commit state: a provider callback racing this
+                    // failure either committed before it or is refused.
+                    let committed = latch.close()
                     let attemptError = toIndeRunException(
                         error,
                         fallbackRunId: runId,
@@ -207,7 +233,13 @@ public final class IndeRun: IndeRunApi {
                             "routePlanSummary": JSONAny(routeSelection.routePlan.explanation.summary)
                         ]
                     )
-                    provenance.attempted(providerId, .failed, errorClass: attemptError.errorClass)
+                    provenance.attempted(
+                        providerId, .failed, errorClass: attemptError.errorClass, committed: committed
+                    )
+                    if committed {
+                        committedProvider = provider
+                        throw attemptError
+                    }
                     if index == providers.count - 1 {
                         throw attemptError
                     }
@@ -226,9 +258,10 @@ public final class IndeRun: IndeRunApi {
                 fallbackDetails: ["totalMs": JSONAny(totalMs) ]
             )
             // A routing refusal throws before any attempt; its rejections travel on the
-            // details. No attempt produced a result, so the outcome is attributed to no one.
+            // details. No attempt produced a result, so the outcome is attributed to no one --
+            // unless the run had committed to a provider, which then owns the failure.
             provenance.routingFailed(normalized.details)
-            let exception = normalized.withProvenance(provenance.build())
+            let exception = normalized.withProvenance(provenance.build(attributedTo: committedProvider?.describe()))
 
             safeEmit(TelemetryEvent(
                 type: "attempt_failed",
@@ -264,10 +297,11 @@ public final class IndeRun: IndeRunApi {
     /// completion — arrives as the single terminal `StreamEvent` in `events`.
     ///
     /// Fallback is narrower than Mode 1's: a provider failure is only
-    /// fallback-eligible before the first content event has been delivered. Once
-    /// one has, the run is committed to that provider and a later failure becomes
-    /// a terminal error, never a silent provider swap. Cancellation forecloses
-    /// both at any commit state.
+    /// fallback-eligible before the run commits to that provider -- its first
+    /// content event, its explicit `commit()` (managed playback, before the first
+    /// possible audible effect), or its result handoff, whichever comes first. Once
+    /// committed, a later failure becomes a terminal error, never a silent provider
+    /// swap. Cancellation forecloses both at any commit state.
     ///
     /// The run starts as soon as this method returns, rather than on first
     /// iteration of `events`; the handle's `startedAt` says so.
@@ -384,20 +418,30 @@ public final class IndeRun: IndeRunApi {
         cancellation: StreamCancellationToken,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async {
-        func now() -> Int64 { hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000) }
+        @Sendable func now() -> Int64 { hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000) }
         func elapsed() -> Double { Double(now() - startTime) }
 
         var provenance = ProvenanceRecorder(modelProfile: request.modelProfile)
         provenance.routed(routePlan)
 
-        /// `provider` is the one running when cancellation landed, if any; the outcome
-        /// is attributed to it.
-        func emitCancelled(partialText: String, provider: (any ProviderAdapter)?, attempted: [String]) {
+        let delivery = TaskProfiles.profile(for: request.task.kind).delivery(request)
+        let textRun = delivery == .inline
+
+        /// `provider` is the one running when cancellation landed, if any, and `committed`
+        /// whether its attempt had committed; the outcome is attributed to it. A text run
+        /// reports what it delivered; committed playback reports that it played; an
+        /// uncommitted non-text run produced nothing to report.
+        func emitCancelled(
+            partialText: String, provider: (any ProviderAdapter)?, committed: Bool, attempted: [String]
+        ) {
             let providerId = provider?.describe().id
-            if let providerId { provenance.attempted(providerId, .cancelled) }
+            if let providerId { provenance.attempted(providerId, .cancelled, committed: committed) }
             let outcome = StreamTerminalOutcome.cancelled(
                 runId: runId,
-                partialText: partialText,
+                partialText: textRun ? partialText : nil,
+                output: committed && delivery == .playback
+                    ? TaskOutput(playback: PlaybackOutput(durationMs: nil))
+                    : nil,
                 reason: cancellation.reason,
                 provenance: provenance.build(attributedTo: provider?.describe())
             )
@@ -411,7 +455,6 @@ public final class IndeRun: IndeRunApi {
         }
 
         var attemptedProviderIds: [String] = []
-        var committed = false
 
         for (index, candidate) in candidates.enumerated() {
             if cancellation.isCancelled { break }
@@ -419,6 +462,12 @@ public final class IndeRun: IndeRunApi {
             let provider = candidate.provider
             let providerId = provider.describe().id
             attemptedProviderIds.append(providerId)
+            // Set once, by whichever comes first in this attempt: the provider's commit(), its
+            // first admitted content event, or its result handoff. After it no other provider
+            // is tried. Shared with the provider's context, which may call commit() from its
+            // own task, and closed when the attempt ends, so a commit() arriving after the run
+            // moved on is refused rather than committing the attempt that replaced this one.
+            let latch = CommitLatch()
             safeEmit(TelemetryEvent(
                 type: "stream_attempt_started",
                 runId: runId,
@@ -435,7 +484,7 @@ public final class IndeRun: IndeRunApi {
                     providerId: providerId
                 )
                 provenance.attempted(providerId, .failed, errorClass: exception.errorClass)
-                if !committed {
+                if !latch.isCommitted {
                     safeEmit(TelemetryEvent(
                         type: "stream_attempt_failed",
                         runId: runId,
@@ -449,13 +498,34 @@ public final class IndeRun: IndeRunApi {
                     continue
                 }
                 emitFailure(
-                    exception: exception, partialText: "", providerId: providerId,
+                    exception: exception, partialText: textRun ? "" : nil, providerId: providerId,
                     attempted: attemptedProviderIds, runId: runId, gate: gate,
                     continuation: continuation, timestamp: now(),
                     provenance: provenance.build(attributedTo: provider.describe())
                 )
                 return
             }
+
+            // Emits `stream_attempt_succeeded` exactly once, from whichever commit came first.
+            let attemptedSoFar = attemptedProviderIds
+            let markCommitted: @Sendable (_ refused: () -> Bool) -> Bool = { refused in
+                let (granted, first) = latch.commit(unless: refused)
+                if first {
+                    self.safeEmit(TelemetryEvent(
+                        type: "stream_attempt_succeeded",
+                        runId: runId,
+                        timestamp: now(),
+                        payload: [
+                            "providerId": JSONAny(providerId),
+                            "attemptedProviderIds": JSONAny(attemptedSoFar)
+                        ]
+                    ))
+                }
+                return granted
+            }
+
+            // A commit() arriving after the attempt ended is refused.
+            defer { _ = latch.close() }
 
             var partialText = ""
             do {
@@ -467,7 +537,8 @@ public final class IndeRun: IndeRunApi {
                     runId: runId,
                     hostServices: hostServices,
                     cancellation: cancellation,
-                    voice: candidate.voice
+                    voice: candidate.voice,
+                    commit: { markCommitted { cancellation.isCancelled || gate.isTerminated } }
                 )
 
                 var terminatedInLoop = false
@@ -479,23 +550,18 @@ public final class IndeRun: IndeRunApi {
                         throw error
 
                     case let .delta(text), let .snapshot(text):
+                        // Content events are text-only (ADR 016 §5).
+                        if !textRun, let mismatch = checkOutput(
+                            request: request, delivery: delivery, output: TaskOutput(text: ""), providerId: providerId
+                        ) {
+                            throw mismatch
+                        }
                         if case .delta = event {
                             partialText += text
                         } else {
                             partialText = text
                         }
-                        if !committed {
-                            committed = true
-                            safeEmit(TelemetryEvent(
-                                type: "stream_attempt_succeeded",
-                                runId: runId,
-                                timestamp: now(),
-                                payload: [
-                                    "providerId": JSONAny(providerId),
-                                    "attemptedProviderIds": JSONAny(attemptedProviderIds)
-                                ]
-                            ))
-                        }
+                        _ = markCommitted { false }
                         var type = "content_snapshot"
                         if case .delta = event { type = "content_delta" }
                         if let admitted = gate.admit(
@@ -504,20 +570,29 @@ public final class IndeRun: IndeRunApi {
                             continuation.yield(admitted)
                         }
 
-                    case let .done(finalText, finishReason, usage, reportedModel):
-                        provenance.attempted(providerId, .succeeded)
+                    case .done, .result:
+                        // The run's final output: text from `.done`, any task's from `.result`.
+                        let completion = Self.completion(of: event)
+                        if let mismatch = checkOutput(
+                            request: request, delivery: delivery, output: completion.output, providerId: providerId
+                        ) {
+                            throw mismatch
+                        }
+                        _ = markCommitted { false }
+                        provenance.attempted(providerId, .succeeded, committed: true)
                         let outcome = StreamTerminalOutcome.completed(
                             runId: runId,
-                            finalText: finalText,
-                            finishReason: finishReason,
-                            usage: usage,
+                            finalText: completion.finalText,
+                            output: completion.reportsOutput ? completion.output : nil,
+                            finishReason: completion.finishReason,
+                            usage: completion.usage,
                             telemetry: StreamTerminalOutcomeTelemetry(
                                 providerUsed: providerId,
                                 totalMs: elapsed()
                             ),
                             provenance: provenance.build(
                                 attributedTo: provider.describe(),
-                                reportedModel: reportedModel
+                                reportedModel: completion.reportedModel
                             )
                         )
                         let terminal = gate.terminate(outcome: outcome, timestamp: Double(now()))
@@ -542,6 +617,7 @@ public final class IndeRun: IndeRunApi {
                     emitCancelled(
                         partialText: partialText,
                         provider: provider,
+                        committed: latch.isCommitted,
                         attempted: attemptedProviderIds
                     )
                     return
@@ -557,18 +633,24 @@ public final class IndeRun: IndeRunApi {
                     emitCancelled(
                         partialText: partialText,
                         provider: provider,
+                        committed: latch.isCommitted,
                         attempted: attemptedProviderIds
                     )
                     return
                 }
 
+                // Closing first settles the commit state: a provider callback racing this
+                // failure either committed before it or is refused.
+                let committed = latch.close()
                 let exception = toIndeRunException(
                     error,
                     fallbackRunId: runId,
                     fallbackProviderId: providerId,
                     fallbackDetails: ["attemptedProviderIds": JSONAny(attemptedProviderIds)]
                 )
-                provenance.attempted(providerId, .failed, errorClass: exception.errorClass)
+                provenance.attempted(
+                    providerId, .failed, errorClass: exception.errorClass, committed: committed
+                )
 
                 if !committed {
                     safeEmit(TelemetryEvent(
@@ -586,7 +668,7 @@ public final class IndeRun: IndeRunApi {
 
                 // Committed: the failure belongs to this provider, not to the chain.
                 emitFailure(
-                    exception: exception, partialText: partialText, providerId: providerId,
+                    exception: exception, partialText: textRun ? partialText : nil, providerId: providerId,
                     attempted: attemptedProviderIds, runId: runId, gate: gate,
                     continuation: continuation, timestamp: now(),
                     provenance: provenance.build(attributedTo: provider.describe())
@@ -598,7 +680,7 @@ public final class IndeRun: IndeRunApi {
         // Every provider failed pre-commit, or cancellation landed before any
         // attempt started.
         if cancellation.isCancelled {
-            emitCancelled(partialText: "", provider: nil, attempted: attemptedProviderIds)
+            emitCancelled(partialText: "", provider: nil, committed: false, attempted: attemptedProviderIds)
             return
         }
 
@@ -608,7 +690,7 @@ public final class IndeRun: IndeRunApi {
             details: ["attemptedProviderIds": JSONAny(attemptedProviderIds)]
         )
         emitFailure(
-            exception: exception, partialText: "", providerId: nil,
+            exception: exception, partialText: textRun ? "" : nil, providerId: nil,
             attempted: attemptedProviderIds, runId: runId, gate: gate,
             continuation: continuation, timestamp: now(),
             provenance: provenance.build()
@@ -618,7 +700,7 @@ public final class IndeRun: IndeRunApi {
     // swiftlint:disable:next function_parameter_count
     private func emitFailure(
         exception: IndeRunException,
-        partialText: String,
+        partialText: String?,
         providerId: String?,
         attempted: [String],
         runId: String,
@@ -644,6 +726,34 @@ public final class IndeRun: IndeRunApi {
         if let terminal { continuation.yield(terminal) }
     }
 
+    /// What a terminal `.done` or `.result` event completes the run with. `reportsOutput`
+    /// is false for `.done`, whose outcome keeps carrying only `finalText` as it always has.
+    private struct Completion {
+        let output: TaskOutput
+        let finalText: String?
+        let reportsOutput: Bool
+        let finishReason: FinishReason?
+        let usage: TaskResultUsage?
+        let reportedModel: String?
+    }
+
+    private static func completion(of event: ProviderStreamEvent) -> Completion {
+        switch event {
+        case let .done(finalText, finishReason, usage, reportedModel):
+            return Completion(
+                output: TaskOutput(text: finalText), finalText: finalText, reportsOutput: false,
+                finishReason: finishReason, usage: usage, reportedModel: reportedModel
+            )
+        case let .result(output, finishReason, reportedModel):
+            return Completion(
+                output: output, finalText: output.type == .text ? output.text : nil, reportsOutput: true,
+                finishReason: finishReason, usage: nil, reportedModel: reportedModel
+            )
+        case .delta, .snapshot, .failure:
+            preconditionFailure("completion(of:) is only called for .done and .result")
+        }
+    }
+
     /// Reports each registered provider's static descriptor and current dynamic capability check,
     /// without executing a task. Useful for UI that shows live provider availability before a run.
     public func checkCapabilities() async -> [ProviderCapabilitySnapshot] {
@@ -660,5 +770,41 @@ public final class IndeRun: IndeRunApi {
             )
         }
         return snapshots
+    }
+}
+
+/// Records the moment a run committed to one attempt's provider (see `RunContext.commit()`).
+/// Locked, because a provider may call `commit()` from a task of its own while the engine
+/// reads the state from the task driving the run.
+private final class CommitLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var committed = false
+    private var closed = false
+
+    var isCommitted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return committed
+    }
+
+    /// Commits unless `refused()` says the run can no longer commit. `granted` is what
+    /// `commit()` returns to the provider; `first` is true only for the call that committed.
+    func commit(unless refused: () -> Bool) -> (granted: Bool, first: Bool) {
+        if refused() { return (false, false) }
+        lock.lock()
+        defer { lock.unlock() }
+        if closed { return (false, false) }
+        if committed { return (true, false) }
+        committed = true
+        return (true, true)
+    }
+
+    /// Ends the attempt: every later `commit()` is refused. Returns whether the attempt had
+    /// committed, read under the same lock, so no commit can land between the two.
+    func close() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        closed = true
+        return committed
     }
 }

@@ -27,7 +27,7 @@ import {
   validateModelProfiles
 } from "./model-profiles.js";
 import { ProvenanceRecorder } from "./provenance.js";
-import { recheckBoundVoice, taskProfileFor } from "./task-profiles.js";
+import { checkOutput, recheckBoundVoice, taskProfileFor } from "./task-profiles.js";
 
 /**
  * @deprecated Renamed to `StreamRun`, which is the name the generated
@@ -197,6 +197,8 @@ export class IndeRun implements IndeRunApi {
 
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
     const provenance = new ProvenanceRecorder(request.modelProfile ?? AUTO_MODEL_PROFILE);
+    // The provider a failed run had committed to, which the failure is attributed to.
+    let committedProvider: ProviderAdapter | undefined;
 
     try {
       // 1. Validate request payload using schema contracts and resolve its model profile
@@ -211,16 +213,22 @@ export class IndeRun implements IndeRunApi {
       );
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
       provenance.routed(routeSelection.routePlan);
+      const delivery = taskProfileFor(request.task.kind)!.delivery(request);
 
       this.emitRouteDecided(runId, request, routeSelection, providers.length);
 
-      // 3. Execute the run task using the planned provider chain
+      // 3. Execute the run task using the planned provider chain. An attempt that committed
+      // (see RunContext.commit) ends the chain: its failure is the run's failure.
       const attemptedProviderIds: string[] = [];
       let lastError: unknown;
       for (const [index, provider] of providers.entries()) {
         const providerId = provider.describe().id;
         const voice = routeSelection.candidates[index]?.voice;
         attemptedProviderIds.push(providerId);
+        let committed = false;
+        // Closed when the attempt ends: a provider callback that fires after the run moved
+        // on must not be told it may start, say, audible playback.
+        let attemptOpen = true;
 
         try {
           const refusal = recheckBoundVoice(request, providerId, voice);
@@ -229,8 +237,15 @@ export class IndeRun implements IndeRunApi {
           const result = await provider.run(request, {
             runId,
             hostServices: this.hostServices,
-            ...(voice !== undefined ? { voice } : {})
+            ...(voice !== undefined ? { voice } : {}),
+            commit: () => {
+              if (!attemptOpen) return false;
+              committed = true;
+              return true;
+            }
           });
+          const mismatch = checkOutput(request, delivery, result.output, providerId);
+          if (mismatch !== undefined) throw mismatch;
 
           const endTime = this.now();
           const totalMs = endTime - startTime;
@@ -241,7 +256,7 @@ export class IndeRun implements IndeRunApi {
             providerUsed: providerId,
             totalMs
           };
-          provenance.attempted(providerId, "succeeded");
+          provenance.attempted(providerId, "succeeded", undefined, committed);
           result.provenance = provenance.build(provider.describe(), result.telemetry.reportedModel);
 
           this.safeEmit({
@@ -267,8 +282,14 @@ export class IndeRun implements IndeRunApi {
               routePlan: routeSelection.routePlan
             }
           });
-          provenance.attempted(providerId, "failed", attemptError.errorClass);
+          provenance.attempted(providerId, "failed", attemptError.errorClass, committed);
           lastError = attemptError;
+          if (committed) {
+            committedProvider = provider;
+            break;
+          }
+        } finally {
+          attemptOpen = false;
         }
       }
 
@@ -297,8 +318,9 @@ export class IndeRun implements IndeRunApi {
       });
       // A routing refusal throws before any attempt; its rejections travel on the details.
       provenance.routingFailed(normalized.details);
-      // No attempt produced the result, so the outcome is attributed to no provider.
-      const exception = normalized.withProvenance(provenance.build());
+      // No attempt produced the result, so the outcome is attributed to no provider -- unless
+      // the run had committed to one, which then owns the failure.
+      const exception = normalized.withProvenance(provenance.build(committedProvider?.describe()));
       const endTime = this.now();
       const totalMs =
         typeof (exception as { details?: { totalMs?: number } }).details?.totalMs === "number"
@@ -396,9 +418,16 @@ export class IndeRun implements IndeRunApi {
       providerId: providers[0]!.describe().id
     };
 
+    const delivery = taskProfileFor(request.task.kind)!.delivery(request);
+    const textRun = delivery === "inline";
+
     async function* run(): AsyncGenerator<StreamEvent> {
       const attemptedProviderIds: string[] = [];
+      // Set once, by whichever comes first in an attempt: the provider's commit(), its first
+      // admitted content event, or its result handoff. After it no other provider is tried.
       let committed = false;
+      // Whether the committed attempt was managed playback that may have been heard.
+      let playbackCommitted = false;
 
       const cancelledOutcome = (
         partialText: string,
@@ -407,13 +436,16 @@ export class IndeRun implements IndeRunApi {
         const reason =
           typeof controller.signal.reason === "string" ? controller.signal.reason : undefined;
         if (cancelledProvider !== undefined) {
-          provenance.attempted(cancelledProvider.describe().id, "cancelled");
+          provenance.attempted(cancelledProvider.describe().id, "cancelled", undefined, committed);
         }
         return {
           outcome: "cancelled",
           runId,
           schemaVersion: "1.0",
-          partialText,
+          // A text run reports what it delivered; committed playback reports that it played.
+          // An uncommitted non-text run produced nothing to report.
+          ...(textRun ? { partialText } : {}),
+          ...(playbackCommitted ? { output: { type: "playback" as const, playback: {} } } : {}),
           ...(reason !== undefined ? { reason } : {}),
           provenance: provenance.build(cancelledProvider?.describe())
         };
@@ -434,6 +466,21 @@ export class IndeRun implements IndeRunApi {
           payload: { providerId, fallbackOccurred: index > 0 }
         });
 
+        const markCommitted = () => {
+          if (committed) return;
+          committed = true;
+          playbackCommitted = delivery === "playback";
+          safeEmit({
+            type: "stream_attempt_succeeded",
+            runId,
+            timestamp: now(),
+            payload: { providerId, attemptedProviderIds }
+          });
+        };
+
+        // Closed when the attempt ends. A provider callback that fires after the run fell back
+        // must neither start audio nor commit the attempt that replaced this one.
+        let attemptOpen = true;
         let partialText = "";
         try {
           const refusal = recheckBoundVoice(request, providerId, voice);
@@ -443,7 +490,12 @@ export class IndeRun implements IndeRunApi {
             runId,
             hostServices: hostServices,
             signal: controller.signal,
-            ...(voice !== undefined ? { voice } : {})
+            ...(voice !== undefined ? { voice } : {}),
+            commit: () => {
+              if (!attemptOpen || controller.signal.aborted || gate.isTerminated()) return false;
+              markCommitted();
+              return true;
+            }
           });
 
           let terminatedInLoop = false;
@@ -457,16 +509,12 @@ export class IndeRun implements IndeRunApi {
             }
 
             if (ev.kind === "delta" || ev.kind === "snapshot") {
-              partialText = ev.kind === "delta" ? partialText + ev.text : ev.text;
-              if (!committed) {
-                committed = true;
-                safeEmit({
-                  type: "stream_attempt_succeeded",
-                  runId,
-                  timestamp: now(),
-                  payload: { providerId, attemptedProviderIds }
-                });
+              // Content events are text-only (ADR 016 §5).
+              if (!textRun) {
+                throw checkOutput(request, delivery, { type: "text", text: "" }, providerId)!;
               }
+              partialText = ev.kind === "delta" ? partialText + ev.text : ev.text;
+              markCommitted();
               const streamEvent = gate.admit({
                 timestamp: now(),
                 type: ev.kind === "delta" ? "content_delta" : "content_snapshot",
@@ -476,16 +524,25 @@ export class IndeRun implements IndeRunApi {
               continue;
             }
 
-            // ev.kind === "done"
-            provenance.attempted(providerId, "succeeded");
+            // ev.kind === "done" (text) or "result" (any task): the run's final output.
+            const output =
+              ev.kind === "done" ? { type: "text" as const, text: ev.finalText } : ev.output;
+            const mismatch = checkOutput(request, delivery, output, providerId);
+            if (mismatch !== undefined) throw mismatch;
+            markCommitted();
+            provenance.attempted(providerId, "succeeded", undefined, committed);
             const outcome: StreamTerminalOutcome = {
               outcome: "completed",
               runId,
               schemaVersion: "1.0",
-              finalText: ev.finalText,
+              ...(ev.kind === "done"
+                ? { finalText: ev.finalText }
+                : output.type === "text"
+                  ? { finalText: output.text!, output }
+                  : { output }),
               telemetry: { providerUsed: providerId, totalMs: now() - startTime },
               ...(ev.finishReason !== undefined ? { finishReason: ev.finishReason } : {}),
-              ...(ev.usage !== undefined ? { usage: ev.usage } : {}),
+              ...(ev.kind === "done" && ev.usage !== undefined ? { usage: ev.usage } : {}),
               provenance: provenance.build(provider.describe(), ev.reportedModel)
             };
             const terminal = gate.terminate(outcome, now());
@@ -516,7 +573,7 @@ export class IndeRun implements IndeRunApi {
             return;
           }
 
-          // Provider's iterable ended without a terminal "done"/"error" event.
+          // Provider's iterable ended without a terminal "done"/"result"/"error" event.
           throw new Error(`Provider '${providerId}' stream ended without a terminal event.`);
         } catch (err) {
           if (controller.signal.aborted) {
@@ -536,7 +593,7 @@ export class IndeRun implements IndeRunApi {
             runId,
             details: { attemptedProviderIds }
           });
-          provenance.attempted(providerId, "failed", exception.errorClass);
+          provenance.attempted(providerId, "failed", exception.errorClass, committed);
 
           if (!committed) {
             safeEmit({
@@ -558,7 +615,7 @@ export class IndeRun implements IndeRunApi {
             runId,
             schemaVersion: "1.0",
             error: exception.toContractError(),
-            partialText,
+            ...(textRun ? { partialText } : {}),
             provenance: provenance.build(provider.describe())
           };
           const terminal = gate.terminate(outcome, now());
@@ -575,6 +632,8 @@ export class IndeRun implements IndeRunApi {
           });
           if (terminal) yield terminal;
           return;
+        } finally {
+          attemptOpen = false;
         }
       }
 
@@ -600,7 +659,7 @@ export class IndeRun implements IndeRunApi {
         runId,
         schemaVersion: "1.0",
         error: exception.toContractError(),
-        partialText: "",
+        ...(textRun ? { partialText: "" } : {}),
         provenance: provenance.build()
       };
       const terminal = gate.terminate(outcome, now());

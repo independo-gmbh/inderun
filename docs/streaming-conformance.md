@@ -19,7 +19,7 @@ more convincing than it is:
 ## The shared conformance catalog
 
 [`contracts/fixtures/streaming/engine-conformance.json`](../contracts/fixtures/streaming/engine-conformance.json)
-holds 33 scenarios every engine must satisfy identically. Each SDK registers one handler per case
+holds 42 scenarios every engine must satisfy identically. Each SDK registers one handler per case
 id, and a guard test fails when the handler ids and the catalog ids are not **equal** — so a
 scenario covered on one platform and not another is a red build, not something a reviewer has to
 notice.
@@ -41,7 +41,7 @@ timing in JSON would make the fixture own behaviour that belongs to the engines.
 
 What the catalog is therefore *for* is the expectation, and the guard is what makes it binding.
 
-### What the 33 cases cover
+### What the 42 cases cover
 
 - **success_and_ordering** (5) — delta ordering with gap-free `sequence` numbering; a snapshot
   replacing rather than appending; `finishReason` and `usage` surfaced when the provider reports
@@ -63,6 +63,13 @@ What the catalog is therefore *for* is the expectation, and the guard is what ma
   carries neither the caller's reason text nor the model output; that a failure's telemetry carries
   the stable per-class message rather than the upstream's raw text.
 - **lifecycle** (1) — that a second consumer never replays a finished run.
+- **non_text_outputs** (9) — a text-to-speech playback run: an explicit commit followed by a
+  `playback` output and no content events; fallback when playback fails before committing and never
+  after; a cancelled committed run carrying its `playback` output, with a second cancel changing
+  nothing; a provider asking to commit after cancellation being refused, and so is a late commit from an
+  attempt the run already fell back from; a failure reported after the
+  result not changing the outcome; cancellation before commit not reaching the next provider; and
+  streamed text answering a playback request counting as a provider fault.
 
 Six of these cases also pin the terminal's `provenance` — direct success, fallback before commit, a
 committed failure, the whole chain failing, cancellation mid-run, and cancellation before any attempt —

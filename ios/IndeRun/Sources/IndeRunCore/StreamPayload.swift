@@ -69,9 +69,12 @@ extension Payload {
 
 extension StreamTerminalOutcome {
     /// The `completed` outcome: the provider delivered every event it was going to.
+    /// A text run carries `finalText`; a run that ended with a normalized output carries
+    /// `output`, and also `finalText` when that output is text.
     public static func completed( // swiftlint:disable:this function_parameter_count
         runId: String,
-        finalText: String,
+        finalText: String?,
+        output: TaskOutput? = nil,
         finishReason: FinishReason?,
         usage: TaskResultUsage?,
         telemetry: StreamTerminalOutcomeTelemetry,
@@ -81,7 +84,7 @@ extension StreamTerminalOutcome {
             finalText: finalText,
             finishReason: finishReason,
             outcome: .completed,
-            output: nil,
+            output: output,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
@@ -100,10 +103,11 @@ extension StreamTerminalOutcome {
     }
 
     /// The `error` outcome: validation, routing, or every attempted provider failing.
+    /// `partialText` is set for a text run only.
     public static func failed(
         runId: String,
         error: IndeRunError,
-        partialText: String,
+        partialText: String?,
         provenance: ExecutionProvenance
     ) -> StreamTerminalOutcome {
         StreamTerminalOutcome(
@@ -131,10 +135,13 @@ extension StreamTerminalOutcome {
         )
     }
 
-    /// The `cancelled` outcome, carrying whatever content was delivered first.
+    /// The `cancelled` outcome, carrying whatever content was delivered first: `partialText`
+    /// for a text run, `output` for a non-text run that had already produced something
+    /// (committed playback), neither for a non-text run that had not.
     public static func cancelled(
         runId: String,
-        partialText: String,
+        partialText: String?,
+        output: TaskOutput? = nil,
         reason: String?,
         provenance: ExecutionProvenance
     ) -> StreamTerminalOutcome {
@@ -142,7 +149,7 @@ extension StreamTerminalOutcome {
             finalText: nil,
             finishReason: nil,
             outcome: .cancelled,
-            output: nil,
+            output: output,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,

@@ -85,7 +85,7 @@ private final class SpeechProvider: StreamingProviderAdapter, @unchecked Sendabl
         -> AsyncThrowingStream<ProviderStreamEvent, Error> {
         log.record(context.voice)
         return AsyncThrowingStream { continuation in
-            continuation.yield(.done(finalText: ""))
+            continuation.yield(.result(output: TaskOutput(playback: PlaybackOutput(durationMs: nil))))
             continuation.finish()
         }
     }

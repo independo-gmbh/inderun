@@ -160,3 +160,46 @@ package func recheckBoundVoice(
         details: ["code": JSONAny("privacy_recheck_failed")]
     )
 }
+
+/// Checks a provider's output against the delivery the request asked for: inline text for
+/// `inline`, a playback completion for `playback`, a media artifact for `artifact` whose
+/// media type is one the request accepts. A provider never substitutes one for another
+/// (ADR 016 §4), so a mismatch is a provider fault, not a result.
+///
+/// - Returns: The exception to fail the attempt with, or `nil` when the output matches.
+package func checkOutput(
+    request: TaskRequest,
+    delivery: OutputDelivery,
+    output: TaskOutput?,
+    providerId: String
+) -> IndeRunException? {
+    let matches: Bool
+    switch (delivery, output?.type) {
+    case (.inline, .text?):
+        matches = output?.text != nil
+    case (.playback, .playback?):
+        matches = output?.playback != nil
+    case (.artifact, .artifact?):
+        matches = output?.artifact.map { acceptsMediaType(request: request, $0.mediaType) } ?? false
+    default:
+        matches = false
+    }
+    if matches { return nil }
+    let returned = output.map { "a '\($0.type.rawValue)' output" } ?? "no output"
+    return createInternal(
+        message: "Provider '\(providerId)' returned \(returned) for a '\(delivery.rawValue)' request.",
+        providerId: providerId,
+        details: ["code": JSONAny("output_mismatch")]
+    )
+}
+
+/// Whether `mediaType` (parameters ignored, case-insensitive) is one the request accepts.
+private func acceptsMediaType(request: TaskRequest, _ mediaType: String) -> Bool {
+    guard let accepted = request.delivery?.mediaTypes else { return true }
+    func base(_ type: String) -> String {
+        (type.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+    }
+    return accepted.contains { base($0) == base(mediaType) }
+}

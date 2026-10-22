@@ -88,7 +88,10 @@ export type Constraints = {
      */
     privacy?: Privacy;
     /**
-     * Optional routing timeout budget in milliseconds.
+     * Optional timeout budget in milliseconds, passed to the planner and to providers. It
+     * bounds the time until the run commits to a provider -- its first content, its first
+     * possible audible effect, or its artifact handoff -- not the duration of audio it plays.
+     * The engines add no timers of their own.
      */
     timeoutMs?: number;
     [property: string]: unknown;

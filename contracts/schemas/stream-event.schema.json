@@ -192,7 +192,6 @@
               "type": "object",
               "additionalProperties": true,
               "required": ["schemaVersion", "runId", "outcome"],
-              "anyOf": [{ "required": ["partialText"] }, { "required": ["output"] }],
               "properties": {
                 "schemaVersion": { "const": "1.0" },
                 "runId": { "type": "string", "minLength": 1 },

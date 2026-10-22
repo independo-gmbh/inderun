@@ -42,15 +42,17 @@ struct ProvenanceRecorder {
         }
     }
 
-    /// Records how one provider attempt ended.
+    /// Records how one provider attempt ended, and whether the run had committed to it
+    /// (first content delivered, first possible audible effect, or an artifact handed over).
     mutating func attempted(
         _ providerId: String,
         _ outcome: AttemptOutcome,
-        errorClass: IndeRunErrorClass? = nil
+        errorClass: IndeRunErrorClass? = nil,
+        committed: Bool = false
     ) {
         attempts.append(
             ExecutionProvenanceAttempt(
-                committed: nil, errorClass: errorClass, outcome: outcome, providerId: providerId
+                committed: committed ? true : nil, errorClass: errorClass, outcome: outcome, providerId: providerId
             )
         )
     }

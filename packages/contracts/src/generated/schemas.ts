@@ -334,7 +334,7 @@ export const taskRequestSchema = {
           ]
         },
         "timeoutMs": {
-          "description": "Optional routing timeout budget in milliseconds.",
+          "description": "Optional timeout budget in milliseconds, passed to the planner and to providers. It bounds the time until the run commits to a provider -- its first content, its first possible audible effect, or its artifact handoff -- not the duration of audio it plays. The engines add no timers of their own.",
           "type": "integer",
           "minimum": 1
         }
@@ -1653,18 +1653,6 @@ export const streamEventSchema = {
                 "runId",
                 "outcome"
               ],
-              "anyOf": [
-                {
-                  "required": [
-                    "partialText"
-                  ]
-                },
-                {
-                  "required": [
-                    "output"
-                  ]
-                }
-              ],
               "properties": {
                 "schemaVersion": {
                   "const": "1.0"
@@ -1752,7 +1740,7 @@ export const streamTerminalOutcomeSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.inderun.dev/1.0/stream-terminal-outcome.schema.json",
   "title": "StreamTerminalOutcome",
-  "description": "How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal outcome is a fixed architectural guarantee, not something new outcome kinds get added to; the payload of each branch may grow additively). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback'). This shape is also embedded by value as the payload of the terminal StreamEvent (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a completion future/promise a stream handle resolves independently of consuming the full event sequence; the two copies must stay structurally identical. Note on additionalProperties: per this repo's forward-compatible convention every branch permits unknown extra fields, so mutual exclusivity is enforced via the required 'outcome' discriminator plus each branch's own required peer field being present (finalText or output / error / partialText or output), not by forbidding a payload from also carrying an unrelated stray field from another branch's vocabulary.",
+  "description": "How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal outcome is a fixed architectural guarantee, not something new outcome kinds get added to; the payload of each branch may grow additively). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback'). This shape is also embedded by value as the payload of the terminal StreamEvent (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a completion future/promise a stream handle resolves independently of consuming the full event sequence; the two copies must stay structurally identical. Note on additionalProperties: per this repo's forward-compatible convention every branch permits unknown extra fields, so mutual exclusivity is enforced via the required 'outcome' discriminator plus each branch's own required peer field being present (finalText or output / error), and for 'cancelled' by the discriminator alone, not by forbidding a payload from also carrying an unrelated stray field from another branch's vocabulary.",
   "oneOf": [
     {
       "type": "object",
@@ -1951,18 +1939,6 @@ export const streamTerminalOutcomeSchema = {
         "runId",
         "outcome"
       ],
-      "anyOf": [
-        {
-          "required": [
-            "partialText"
-          ]
-        },
-        {
-          "required": [
-            "output"
-          ]
-        }
-      ],
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this outcome payload.",
@@ -1978,11 +1954,11 @@ export const streamTerminalOutcomeSchema = {
           "const": "cancelled"
         },
         "partialText": {
-          "description": "Whatever cumulative text a text run had already delivered via content_delta/content_snapshot StreamEvents before the cancellation point. May be empty if cancellation occurred before any content was produced. A non-text run carries output instead.",
+          "description": "Whatever cumulative text a text run had already delivered via content_delta/content_snapshot StreamEvents before the cancellation point. Always set for a text run, and empty if cancellation occurred before any content was produced. A non-text run never sets it.",
           "type": "string"
         },
         "output": {
-          "description": "The normalized output of a cancelled non-text run up to the cancellation point, e.g. how long playback lasted before it was stopped. See task-output.schema.json.",
+          "description": "What a cancelled non-text run had already produced: a playback run that committed (audio may have been heard) carries a playback output. Absent when nothing was produced, e.g. an artifact run cancelled before its artifact was handed over, whose partial media the engine discards. See task-output.schema.json.",
           "$ref": "task-output.schema.json"
         },
         "reason": {

@@ -18,6 +18,7 @@ Every provider should define:
 - whether those modes and its cancellation behavior are actually available on the current host, when the runtime can take them away from a provider that otherwise declares them
 - its cancellation behavior
 - normalized error and telemetry behavior
+- when it commits: a provider whose output has an external effect before it returns (managed playback) calls `commit()` on its context no later than that effect, and must not start it when `commit()` returns `false`; one that only hands over a result at the end commits by doing so
 - the model its backend reports for a run, when the backend names one (`TaskResult.telemetry.reportedModel` for `run`, the `done` stream event for `stream`); the engine carries it into [execution provenance](./architecture.md#execution-provenance) and never infers it
 
 The static descriptor, the dynamic capability check and the pair `checkCapabilities()` returns are schema-backed contracts (`ProviderDescriptor`, `ProviderDynamicCapabilities` and `ProviderCapabilitySnapshot` in `contracts/schemas/provider-*.schema.json`). Every SDK uses the generated types, the route planner reads the same two shapes through `$ref`, and bridges can import them instead of mirroring them. In the dynamic check, an absent `streamingAvailable` or `cancellationAvailable` means "inherit the static declaration"; it is a distinct state from `false` and is never encoded as `null`.

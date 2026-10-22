@@ -1066,7 +1066,7 @@ final class IndeRunTests: XCTestCase {
             case let .done(text, reason, _, _):
                 finalText = text
                 finishReason = reason
-            case .delta, .failure:
+            case .delta, .result, .failure:
                 XCTFail("Apple streaming must emit snapshots, not \(event)")
             }
         }
@@ -1193,7 +1193,7 @@ final class IndeRunTests: XCTestCase {
                 runtime.releaseStreamGate()
             case .done:
                 sawDone = true
-            case .delta, .failure:
+            case .delta, .result, .failure:
                 XCTFail("Unexpected event \(event)")
             }
         }

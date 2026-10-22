@@ -1,9 +1,10 @@
 import type {
   SharedRoutePlan,
   SharedRoutePlannerInput,
+  TaskOutput,
   TaskRequest
 } from "@independo/inderun-contracts";
-import { createCapabilityMismatch, type IndeRunException } from "./errors.js";
+import { createCapabilityMismatch, createInternal, type IndeRunException } from "./errors.js";
 
 /** How a task's result reaches the application: `inline`, `playback` or `artifact`. */
 export type OutputDelivery = NonNullable<TaskRequest["delivery"]>["mode"];
@@ -94,4 +95,41 @@ export function recheckBoundVoice(
     `Provider '${providerId}' was bound to a voice that sends data off the device, which privacy=local_required forbids.`,
     { providerId, details: { code: "privacy_recheck_failed" } }
   );
+}
+
+/**
+ * Checks a provider's output against the delivery the request asked for: inline text for
+ * `inline`, a playback completion for `playback`, a media artifact for `artifact` whose
+ * media type is one the request accepts. A provider never substitutes one for another
+ * (ADR 016 §4), so a mismatch is a provider fault, not a result.
+ *
+ * @returns The exception to fail the attempt with, or `undefined` when the output matches.
+ */
+export function checkOutput(
+  request: TaskRequest,
+  delivery: OutputDelivery,
+  output: TaskOutput | undefined,
+  providerId: string
+): IndeRunException | undefined {
+  const expected = { inline: "text", playback: "playback", artifact: "artifact" }[delivery];
+  const matches =
+    output?.type === expected &&
+    (expected === "text"
+      ? typeof output.text === "string"
+      : expected === "playback"
+        ? output.playback !== undefined
+        : output.artifact !== undefined && acceptsMediaType(request, output.artifact.mediaType));
+  if (matches) return undefined;
+  return createInternal(
+    `Provider '${providerId}' returned ${output === undefined ? "no output" : `a '${output.type}' output`} for a '${delivery}' request.`,
+    { providerId, details: { code: "output_mismatch" } }
+  );
+}
+
+/** Whether `mediaType` (parameters ignored, case-insensitive) is one the request accepts. */
+function acceptsMediaType(request: TaskRequest, mediaType: string): boolean {
+  const accepted = request.delivery?.mediaTypes;
+  if (accepted === undefined) return true;
+  const base = (type: string) => type.split(";")[0]!.trim().toLowerCase();
+  return accepted.some((type) => base(type) === base(mediaType));
 }

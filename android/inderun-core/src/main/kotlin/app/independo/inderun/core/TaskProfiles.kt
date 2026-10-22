@@ -10,6 +10,8 @@ import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.RoutePlannerInputTask
 import app.independo.inderun.contracts.TaskInputKind
 import app.independo.inderun.contracts.TaskKind
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.VoiceRequirement
 
@@ -149,4 +151,36 @@ fun recheckBoundVoice(request: TaskRequest, providerId: String, voice: ProviderV
         providerId = providerId,
         details = mapOf("code" to "privacy_recheck_failed"),
     )
+}
+
+/**
+ * Checks a provider's output against the delivery the request asked for: inline text for
+ * [OutputDelivery.Inline], a playback completion for [OutputDelivery.Playback], a media artifact
+ * for [OutputDelivery.Artifact] whose media type is one the request accepts. A provider never
+ * substitutes one for another (ADR 016 §4), so a mismatch is a provider fault, not a result.
+ *
+ * @return The exception to fail the attempt with, or null when the output matches.
+ */
+fun checkOutput(request: TaskRequest, delivery: OutputDelivery, output: TaskOutput?, providerId: String): IndeRunException? {
+    val matches = when (delivery) {
+        OutputDelivery.Inline -> output?.type == TaskOutputType.TEXT && output.text != null
+        OutputDelivery.Playback -> output?.type == TaskOutputType.PLAYBACK && output.playback != null
+        OutputDelivery.Artifact ->
+            output?.type == TaskOutputType.ARTIFACT &&
+                output.artifact?.let { acceptsMediaType(request, it.mediaType) } == true
+    }
+    if (matches) return null
+    val produced = if (output == null) "no output" else "a '${output.type.rawValue}' output"
+    return createInternal(
+        message = "Provider '$providerId' returned $produced for a '${delivery.rawValue}' request.",
+        providerId = providerId,
+        details = mapOf("code" to "output_mismatch"),
+    )
+}
+
+/** Whether [mediaType] (parameters ignored, case-insensitive) is one the request accepts. */
+private fun acceptsMediaType(request: TaskRequest, mediaType: String): Boolean {
+    val accepted = request.delivery?.mediaTypes ?: return true
+    fun base(type: String) = type.substringBefore(';').trim().lowercase()
+    return accepted.any { base(it) == base(mediaType) }
 }

@@ -18,6 +18,7 @@ import {
   createMockHostServices,
   createRequest,
   createRunOnlyProvider,
+  createSpeechRequest,
   createWallClockHostServices,
   delay,
   drain
@@ -58,6 +59,9 @@ interface Expectations {
     usage?: Record<string, number>;
     absentFinishReason?: boolean;
     absentUsage?: boolean;
+    absentPartialText?: boolean;
+    absentOutput?: boolean;
+    output?: Record<string, unknown>;
   };
   rejectsWith?: {
     errorClass?: string;
@@ -84,7 +88,9 @@ interface Expectations {
     attemptCount?: number;
     fallbackOccurred?: boolean;
     attempts?: [string, string][];
+    committedAttempts?: string[];
   };
+  commitResults?: Record<string, boolean[]>;
 }
 
 interface ConformanceCase {
@@ -112,6 +118,7 @@ interface Observation {
   handleStartedAt?: number;
   wallClockRange?: [number, number];
   secondIterationEventCount?: number;
+  commitResults?: Record<string, boolean[]>;
 }
 
 function terminalPayload(events: StreamEvent[]): Record<string, unknown> {
@@ -148,7 +155,16 @@ function assertCase(expected: Expectations, observed: Observation): void {
 
   if (expected.terminal !== undefined) {
     const payload = terminalPayload(events);
-    const { absentFinishReason, absentUsage, errorClass, usage, ...direct } = expected.terminal;
+    const {
+      absentFinishReason,
+      absentUsage,
+      absentPartialText,
+      absentOutput,
+      output,
+      errorClass,
+      usage,
+      ...direct
+    } = expected.terminal;
     if (Object.keys(direct).length > 0) {
       expect(payload).toMatchObject(direct);
     }
@@ -166,12 +182,21 @@ function assertCase(expected: Expectations, observed: Observation): void {
     if (absentUsage === true) {
       expect(payload).not.toHaveProperty("usage");
     }
+    if (absentPartialText === true) {
+      expect(payload).not.toHaveProperty("partialText");
+    }
+    if (absentOutput === true) {
+      expect(payload).not.toHaveProperty("output");
+    }
+    if (output !== undefined) {
+      expect(payload["output"]).toEqual(output);
+    }
   }
 
   if (expected.provenance !== undefined) {
     const provenance = terminalPayload(events)["provenance"] as Record<string, unknown> | undefined;
     expect(provenance, "expected terminal provenance").toBeDefined();
-    const { absentProviderId, attempts, ...direct } = expected.provenance;
+    const { absentProviderId, attempts, committedAttempts, ...direct } = expected.provenance;
     expect(provenance).toMatchObject(direct);
     if (absentProviderId === true) {
       expect(provenance).not.toHaveProperty("providerId");
@@ -182,6 +207,17 @@ function assertCase(expected: Expectations, observed: Observation): void {
       ).map((attempt) => [attempt.providerId, attempt.outcome]);
       expect(observedAttempts).toEqual(attempts);
     }
+    if (committedAttempts !== undefined) {
+      const observedCommitted = (
+        provenance!["attempts"] as { providerId: string; committed?: boolean }[]
+      )
+        .filter((attempt) => attempt.committed === true)
+        .map((attempt) => attempt.providerId);
+      expect(observedCommitted).toEqual(committedAttempts);
+    }
+  }
+  for (const [providerId, results] of Object.entries(expected.commitResults ?? {})) {
+    expect(observed.commitResults?.[providerId], `${providerId} commit() results`).toEqual(results);
   }
 
   if (expected.rejectsWith !== undefined) {
@@ -787,8 +823,195 @@ const handlers: Record<string, Handler> = {
     // replayed -- see the `$divergence` note on this case in the catalog.
     const second = await drain(events);
     return { events: first, secondIterationEventCount: second.length };
+  },
+
+  // --- non_text_outputs ---------------------------------------------------
+
+  async playback_commit_then_completed_with_output() {
+    const registry = new ProviderRegistry();
+    const provider = createFakeStreamProvider("p1", {
+      task: "text_to_speech",
+      script: [
+        { commit: true },
+        { event: { kind: "result", output: { type: "playback", playback: { durationMs: 1200 } } } }
+      ]
+    });
+    registry.register(provider);
+    const engine = new IndeRun(registry, createMockHostServices());
+    const events = await drain((await engine.stream(createSpeechRequest())).events);
+    return { events, commitResults: { p1: provider.commitResults() } };
+  },
+
+  async playback_pre_commit_failure_falls_back() {
+    const registry = new ProviderRegistry();
+    const failing = createFakeStreamProvider("p1_failing", {
+      task: "text_to_speech",
+      script: [],
+      throwImmediately: createCapabilityMismatch("voice unavailable")
+    });
+    const healthy = createFakeStreamProvider("p2_healthy", {
+      task: "text_to_speech",
+      script: [{ commit: true }, { event: { kind: "result", output: playbackOutput } }]
+    });
+    registry.register(failing);
+    registry.register(healthy);
+    const engine = new IndeRun(registry, createMockHostServices());
+    const events = await drain((await engine.stream(createSpeechRequest())).events);
+    return {
+      events,
+      providerCallCounts: { p1_failing: failing.callCount(), p2_healthy: healthy.callCount() }
+    };
+  },
+
+  async playback_post_commit_failure_never_falls_back() {
+    const registry = new ProviderRegistry();
+    const provider = createFakeStreamProvider("p1", {
+      task: "text_to_speech",
+      script: [{ commit: true }],
+      throwAfter: createUnavailable("audio device lost")
+    });
+    const fallback = createFakeStreamProvider("p2_healthy", {
+      task: "text_to_speech",
+      script: [{ commit: true }, { event: { kind: "result", output: playbackOutput } }]
+    });
+    registry.register(provider);
+    registry.register(fallback);
+    const engine = new IndeRun(registry, createMockHostServices());
+    const events = await drain((await engine.stream(createSpeechRequest())).events);
+    return { events, providerCallCounts: { p2_healthy: fallback.callCount() } };
+  },
+
+  async playback_cancel_carries_output_and_is_idempotent() {
+    const registry = new ProviderRegistry();
+    const provider = createFakeStreamProvider("p1", {
+      task: "text_to_speech",
+      script: [{ commit: true }, { waitForCancellation: true }]
+    });
+    registry.register(provider);
+    const engine = new IndeRun(registry, createMockHostServices());
+    const { events, cancel } = await engine.stream(createSpeechRequest());
+    const collector = drain(events);
+    await provider.committed;
+    cancel("stop");
+    cancel("again");
+    return { events: await collector, providerInterrupted: provider.wasInterrupted() };
+  },
+
+  async commit_after_cancel_is_refused() {
+    const registry = new ProviderRegistry();
+    const provider = createFakeStreamProvider("p1", {
+      task: "text_to_speech",
+      script: [{ waitForCancellation: true }, { commit: true }]
+    });
+    registry.register(provider);
+    const engine = new IndeRun(registry, createMockHostServices());
+    const { events, cancel } = await engine.stream(createSpeechRequest());
+    const collector = drain(events);
+    await provider.started;
+    cancel();
+    const received = await collector;
+    await provider.committed;
+    return { events: received, commitResults: { p1: provider.commitResults() } };
+  },
+
+  async completion_error_race_yields_first_terminal() {
+    const registry = new ProviderRegistry();
+    registry.register(
+      createFakeStreamProvider("p1", {
+        task: "text_to_speech",
+        script: [
+          { commit: true },
+          { event: { kind: "result", output: playbackOutput } },
+          { event: { kind: "error", error: createUnavailable("late failure") } }
+        ]
+      })
+    );
+    const engine = new IndeRun(registry, createMockHostServices());
+    return { events: await drain((await engine.stream(createSpeechRequest())).events) };
+  },
+
+  async cancel_never_triggers_fallback_before_commit() {
+    const registry = new ProviderRegistry();
+    const provider = createFakeStreamProvider("p1", {
+      task: "text_to_speech",
+      script: [{ waitForCancellation: true }]
+    });
+    const fallback = createFakeStreamProvider("p2_healthy", {
+      task: "text_to_speech",
+      script: [{ commit: true }, { event: { kind: "result", output: playbackOutput } }]
+    });
+    registry.register(provider);
+    registry.register(fallback);
+    const engine = new IndeRun(registry, createMockHostServices());
+    const { events, cancel } = await engine.stream(createSpeechRequest());
+    const collector = drain(events);
+    await provider.started;
+    cancel();
+    return {
+      events: await collector,
+      providerCallCounts: { p1: provider.callCount(), p2_healthy: fallback.callCount() }
+    };
+  },
+
+  async output_mismatch_is_a_provider_fault() {
+    const registry = new ProviderRegistry();
+    const wrong = createFakeStreamProvider("p1_wrong", {
+      task: "text_to_speech",
+      script: [{ event: { kind: "delta", text: "Hallo" } }]
+    });
+    const healthy = createFakeStreamProvider("p2_healthy", {
+      task: "text_to_speech",
+      script: [{ commit: true }, { event: { kind: "result", output: playbackOutput } }]
+    });
+    registry.register(wrong);
+    registry.register(healthy);
+    const engine = new IndeRun(registry, createMockHostServices());
+    const events = await drain((await engine.stream(createSpeechRequest())).events);
+    return {
+      events,
+      providerCallCounts: { p1_wrong: wrong.callCount(), p2_healthy: healthy.callCount() }
+    };
+  },
+
+  async late_commit_from_abandoned_attempt_is_refused() {
+    const registry = new ProviderRegistry();
+    const abandoned = createFakeStreamProvider("p1_abandoned", {
+      task: "text_to_speech",
+      script: [],
+      throwImmediately: createCapabilityMismatch("voice unavailable")
+    });
+    const next = createFakeStreamProvider("p2_next", {
+      task: "text_to_speech",
+      script: [{ callKeptCommitOf: abandoned }],
+      throwAfter: createCapabilityMismatch("voice unavailable")
+    });
+    const healthy = createFakeStreamProvider("p3_healthy", {
+      task: "text_to_speech",
+      script: [{ commit: true }, { event: { kind: "result", output: playbackOutput } }]
+    });
+    registry.register(abandoned);
+    registry.register(next);
+    registry.register(healthy);
+    const telemetry = new MockTelemetryService();
+    const engine = new IndeRun(registry, createMockHostServices(), { telemetryService: telemetry });
+    const events = await drain((await engine.stream(createSpeechRequest())).events);
+    return {
+      events,
+      telemetry,
+      providerCallCounts: {
+        p1_abandoned: abandoned.callCount(),
+        p2_next: next.callCount(),
+        p3_healthy: healthy.callCount()
+      },
+      commitResults: {
+        p1_abandoned: abandoned.commitResults(),
+        p3_healthy: healthy.commitResults()
+      }
+    };
   }
 };
+
+const playbackOutput = { type: "playback", playback: {} } as const;
 
 async function captureRejection(start: () => Promise<unknown>): Promise<Observation> {
   try {

@@ -21,7 +21,28 @@ data class RunContext(
      * privacy policy immediately before the attempt.
      */
     val voice: ProviderVoice? = null,
-)
+    /**
+     * What [commit] does. The engine supplies it; a context built outside an engine -- a
+     * provider's own unit test -- always commits.
+     */
+    private val commitHandler: () -> Boolean = { true },
+) {
+    /**
+     * Commits the run to this provider. Call it immediately before the attempt's first
+     * externally observable effect -- for managed playback, no later than the first moment
+     * sound may reach the user. After commit, a failure ends the run instead of falling back
+     * to another provider, because a second provider would repeat what the user may already
+     * have heard.
+     *
+     * Returns `false` when the run can no longer commit (the calling coroutine is no longer
+     * active) and when this attempt is over, e.g. a late callback after the engine fell back to
+     * another provider; the provider must then not start the effect and should end the attempt.
+     * Idempotent: calling it again after a successful commit returns `true`.
+     *
+     * Providers whose output is only delivered at the end (text from `run()`) need not call it.
+     */
+    fun commit(): Boolean = commitHandler()
+}
 
 interface ProviderAdapter {
     fun describe(): ProviderDescriptor

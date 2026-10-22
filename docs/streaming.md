@@ -5,7 +5,7 @@ back three things — a handle identifying the run, the run's event sequence, an
 the guarantees below hold identically on every SDK.
 
 This is the contract. [streaming-conformance.md](streaming-conformance.md) is how it is proven:
-33 shared scenarios every engine must satisfy, plus what is only checkable on a real device.
+41 shared scenarios every engine must satisfy, plus what is only checkable on a real device.
 
 ---
 
@@ -32,7 +32,7 @@ An event's `type` says what it is; `payload` is shaped per type.
 
 | `type` | Payload | What a consumer does with it |
 | --- | --- | --- |
-| `content_delta` | `{ text }` | **Append** to the run's text so far |
+| `content_delta` | `{ text }` | **Append** to the run's text so far (text runs only) |
 | `content_snapshot` | `{ text }` | **Replace** the run's text so far — an empty one **retracts** what was already delivered |
 | `terminal` | a [terminal outcome](#terminal-outcomes) | Exactly one per run, always last |
 | `lifecycle` | `{ phase: "provider_selected" \| "started" }` | Diagnostics only — see below |
@@ -69,12 +69,17 @@ Three, mutually exclusive, and unlike `type` this set is **closed** — it will 
 
 | `outcome` | Carries | Means |
 | --- | --- | --- |
-| `completed` | `finalText`, `telemetry`, `provenance`, optional `finishReason` and `usage` | The run finished |
-| `error` | `error` (an `IndeRunError`, same `errorClass` taxonomy as `run()`), `provenance` | The run failed after starting |
-| `cancelled` | `partialText`, `provenance`, optional `reason` | The run was cancelled |
+| `completed` | `finalText` (text) or `output` (any task), `telemetry`, `provenance`, optional `finishReason` and `usage` | The run finished |
+| `error` | `error` (an `IndeRunError`, same `errorClass` taxonomy as `run()`), `provenance`, `partialText` for text | The run failed after starting |
+| `cancelled` | `partialText` (text) or `output` (committed playback), `provenance`, optional `reason` | The run was cancelled |
 
-`finalText` and `partialText` are the run's cumulative text, so a consumer that only wants the
-result can ignore every content event and read the terminal. `provenance` says how the run played
+`finalText` and `partialText` are a text run's cumulative text, so a consumer that only wants the
+result can ignore every content event and read the terminal. A non-text run streams no content
+events: it ends with the same `output` that `run()` returns — a playback completion or a media
+artifact reference ([ADR 016](architecture/decisions/016-modality-extensible-task-contracts.md)). A
+cancelled playback run that had committed carries a `playback` output, because sound may already have
+been heard; one cancelled before it committed, like an artifact run cancelled before its artifact was
+handed over, carries neither field. `provenance` says how the run played
 out: the target it is attributed to and that target's declared locality, the configured and reported
 model, every attempt and how it ended (so `fallbackOccurred` is a reported fact rather than something
 to infer by comparing `handle.providerId` with `telemetry.providerUsed`), and why the planner rejected
@@ -110,7 +115,8 @@ a caller learns *why* each provider was refused, on every platform.
 
 - `cancel()` is **idempotent**. Calling it twice, concurrently, or after the terminal is a no-op.
 - It produces **exactly one `cancelled` terminal**, carrying whatever text had already been
-  delivered — including when nothing had been delivered yet.
+  delivered — including when nothing had been delivered yet. Cancelling managed playback stops the
+  audio.
 - It **forecloses fallback**. Once cancellation is observed, no further provider from the planned
   chain is attempted.
 - A provider's declared cancellation behavior (`hard` / `soft` / `none`) changes only how promptly
@@ -122,10 +128,13 @@ cancellation from the consumer.
 
 ## Fallback
 
-Streaming fallback is **narrower than Mode 1's**: a provider failure is fallback-eligible only
-*before* the first content event has been admitted for the run. Once one has, the run is committed
-to that provider and a later failure becomes a terminal `error` — never a silent provider swap,
-since splicing partial text from two providers would be undetectable to the caller.
+A provider failure is fallback-eligible only *before* the run **commits** to that provider. A run
+commits on the first of: its first admitted content event (text), the provider's explicit commit
+(managed playback, no later than the first moment sound may reach the user), or the provider handing
+over its result. After that, a failure becomes a terminal `error` — never a silent provider swap,
+since splicing partial text from two providers would be undetectable to the caller, and a second
+provider would speak text the user may already have heard. The terminal's `provenance` marks the
+committed attempt with `committed: true`.
 
 The candidate chain comes from the planner rather than from a filter applied afterwards, so every
 fallback candidate is mode- and constraint-compatible by construction. A `local_required` stream can

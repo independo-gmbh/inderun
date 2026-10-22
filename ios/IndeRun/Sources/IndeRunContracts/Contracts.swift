@@ -162,7 +162,10 @@ public struct TaskRequestConstraints: Codable, Sendable {
     public var cloud: Cloud?
     /// Privacy requirement or preference for execution placement.
     public var privacy: Privacy?
-    /// Optional routing timeout budget in milliseconds.
+    /// Optional timeout budget in milliseconds, passed to the planner and to providers. It
+    /// bounds the time until the run commits to a provider -- its first content, its first
+    /// possible audible effect, or its artifact handoff -- not the duration of audio it plays.
+    /// The engines add no timers of their own.
     public var timeoutMs: Int?
 
     public enum CodingKeys: String, CodingKey {
@@ -913,8 +916,10 @@ public enum FinishReason: String, Codable, Sendable {
 /// for every non-text run; a text run may set it alongside finalText. See
 /// task-output.schema.json.
 ///
-/// The normalized output of a cancelled non-text run up to the cancellation point, e.g. how
-/// long playback lasted before it was stopped. See task-output.schema.json.
+/// What a cancelled non-text run had already produced: a playback run that committed (audio
+/// may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
+/// artifact run cancelled before its artifact was handed over, whose partial media the
+/// engine discards. See task-output.schema.json.
 // MARK: - TaskOutput
 public struct TaskOutput: Codable, Sendable {
     /// The retrievable media the run produced. Required when type is 'artifact'.
@@ -4869,9 +4874,9 @@ public extension PayloadUsage {
 /// must stay structurally identical. Note on additionalProperties: per this repo's
 /// forward-compatible convention every branch permits unknown extra fields, so mutual
 /// exclusivity is enforced via the required 'outcome' discriminator plus each branch's own
-/// required peer field being present (finalText or output / error / partialText or output),
-/// not by forbidding a payload from also carrying an unrelated stray field from another
-/// branch's vocabulary.
+/// required peer field being present (finalText or output / error), and for 'cancelled' by
+/// the discriminator alone, not by forbidding a payload from also carrying an unrelated
+/// stray field from another branch's vocabulary.
 // MARK: - StreamTerminalOutcome
 public struct StreamTerminalOutcome: Codable, Sendable {
     /// The full, cumulative text produced by a text run. Equivalent in role to
@@ -4897,8 +4902,10 @@ public struct StreamTerminalOutcome: Codable, Sendable {
     /// for every non-text run; a text run may set it alongside finalText. See
     /// task-output.schema.json.
     ///
-    /// The normalized output of a cancelled non-text run up to the cancellation point, e.g. how
-    /// long playback lasted before it was stopped. See task-output.schema.json.
+    /// What a cancelled non-text run had already produced: a playback run that committed (audio
+    /// may have been heard) carries a playback output. Absent when nothing was produced, e.g. an
+    /// artifact run cancelled before its artifact was handed over, whose partial media the
+    /// engine discards. See task-output.schema.json.
     public var output: TaskOutput?
     /// Normalized execution provenance: which target ran, its declared locality, the configured
     /// and reported model, and how fallback and routing played out. See
@@ -4925,9 +4932,9 @@ public struct StreamTerminalOutcome: Codable, Sendable {
     /// committing to its provider. Absent when nothing was delivered.
     ///
     /// Whatever cumulative text a text run had already delivered via
-    /// content_delta/content_snapshot StreamEvents before the cancellation point. May be empty
-    /// if cancellation occurred before any content was produced. A non-text run carries output
-    /// instead.
+    /// content_delta/content_snapshot StreamEvents before the cancellation point. Always set for
+    /// a text run, and empty if cancellation occurred before any content was produced. A
+    /// non-text run never sets it.
     public var partialText: String?
     /// Optional human-readable reason the run was cancelled (e.g. caller-initiated abort). Not a
     /// machine-taxonomy field; use errorClass on the 'error' outcome branch for failure
