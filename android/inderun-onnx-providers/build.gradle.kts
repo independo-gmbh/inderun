@@ -50,7 +50,7 @@ dependencies {
     // (LoadedSession, runOnnxSession), and this module publishes no `Flow` of its own.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.0")
-    implementation("ai.djl.huggingface:tokenizers:0.38.0")
+    implementation("ai.djl.huggingface:tokenizers:0.39.0")
     implementation("ai.djl.android:tokenizer-native:0.33.0")
     implementation("org.json:json:20260814")
 
