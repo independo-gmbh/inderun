@@ -36,6 +36,7 @@ jobs:
             swift:
               - 'ios/**'
               - 'Package.swift'
+              - 'Package.resolved'
               - 'rust/**'
               - 'Cargo.toml'
               - 'Cargo.lock'

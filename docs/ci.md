@@ -15,7 +15,7 @@ truth for exact steps. This table describes only what each one covers.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
 - `Maven Publish` (`maven-publish.yml`): on a published GitHub release — prereleases included — publishes the Android library modules to Maven Central. The version comes from the tag (passed as `-PinderunVersion`), not from `android/gradle.properties`, because semantic-release only commits the version bump on stable releases. Prereleases are published because the Capacitor bridge consumes these artifacts from Maven Central and would otherwise have no `-dev.N` line to develop against, unlike npm and SwiftPM. `workflow_dispatch` takes optional `ref` and `version` inputs for a manual re-run.
-- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21, Node, the Rust toolchain, and the Android SDK/NDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below).
+- `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21, Node, the Rust toolchain, and the Android SDK/NDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below). `workflow_dispatch` starts a run on demand.
 
 ## Code Scanning
 
@@ -53,7 +53,16 @@ analysis. `dev` is not PR-gated by CodeQL; it relies on the weekly `schedule` ru
 (`cron: "27 3 * * 1"`), which scans the repository's default branch (`dev`). This
 trades slightly staler dev coverage (up to a week) for not running five CodeQL matrix
 jobs on every dev-targeted PR. Because of this, `dev` branch protection must **not**
-require the `Analyze (*)` contexts — see Branch Protection below.
+require the `Analyze (*)` contexts — see Branch Protection below. A change to
+`codeql.yml` itself is therefore not exercised by a PR into `dev`; after merging one, start
+a run with `gh workflow run codeql.yml --ref dev` rather than waiting for the schedule.
+
+**SwiftPM dependencies are filtered out of the Swift results.** `paths-ignore` does not
+apply to Swift: the extractor follows the compiler, so every file `swift build` compiles is
+analyzed, including the checkouts under `.build/`. The Swift job therefore analyzes without
+uploading, drops results located under `.build/` from the SARIF with `jq`, and uploads the
+rest under the same category. Findings in dependencies are not reported anywhere as a
+result; Dependabot's `swift` updates are what keep those dependencies current.
 
 ## Branch Protection
 
@@ -349,4 +358,4 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   cannot statically resolve into a bundled chunk — and critically, `@vite-ignore` also suppresses
   Rollup's "cannot be statically analyzed" warning, so a build-time `onwarn` hook cannot catch
   this class of regression; checking the actual emitted output is the only reliable gate.
-- Dependabot is configured for GitHub Actions, npm, Cargo, Gradle, and Swift Package Manager in the repository.
+- Dependabot is configured for GitHub Actions, npm, Cargo, Gradle, and Swift Package Manager in the repository. The Swift entry's `directory` is `/`, where `Package.swift` lives, not `ios/IndeRun`, where the sources live.
