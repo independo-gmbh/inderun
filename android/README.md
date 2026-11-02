@@ -11,7 +11,9 @@ Android workspace for the IndeRun SDK, host services, provider adapters, and dem
 - `inderun-openai-providers` - OpenAI-compatible cloud provider
 - `inderun-onnx-providers` - ONNX Runtime provider for developer-supplied local models
   (`local.onnx.genai.android`)
-- `inderun-demo-app` - demo app for reviewing the Mode 1 and Mode 2 flows
+- `inderun-system-speech-providers` - system text-to-speech through `android.speech.tts.TextToSpeech`
+  (`android_system_speech`), registered explicitly
+- `inderun-demo-app` - demo app for reviewing the Mode 1, Mode 2 and speech flows
 - `inderun-consumer-smoke` - not published; compiles the README quick start against a single
   `implementation(project(":inderun-kotlin"))` so a missing `api(...)` edge fails here rather
   than in a consumer's app

@@ -8,6 +8,7 @@ System speech adapters put a platform's own text-to-speech behind the canonical 
 | Platform | Provider id | Where | Playback | Artifact |
 | --- | --- | --- | --- | --- |
 | iOS/macOS | `apple_system_speech` | `IndeRunAppleProviders` | Yes | `audio/wav` |
+| Android | `android_system_speech` | `inderun-system-speech-providers` | Yes | `audio/wav` |
 
 ## What every member does
 
@@ -30,6 +31,10 @@ A system API is not automatically offline. Each member states what it can actual
 - **Apple.** `AVSpeechSynthesisVoice` exposes no network flag. The provider lists installed voices and declares
   `dataLeavesDevice: false` on that basis. [The verification record](../verification/system-speech.md) holds the
   airplane-mode evidence for the claim.
+- **Android.** Each voice reports `Voice.isNetworkConnectionRequired`, so `local_required` binds an on-device voice or
+  refuses. Voices that are not installed are dropped, and network voices are dropped while offline. An engine that lists
+  no voices gives nothing to check, so a `local_required` request is refused before commit with
+  `details.code: "voice_locality_unknown"`; other requests let the engine choose for the locale.
 
 ## Platform limits
 
@@ -38,5 +43,10 @@ A system API is not automatically offline. Each member states what it can actual
   session interruption ends a playing utterance as `Unavailable` with `details.code: "speech_interrupted"`,
   because the synthesizer may never resume it. Provider implementation detail lives in code comments in
   [`IndeRunAppleProviders`](../../ios/IndeRun/Sources/IndeRunAppleProviders).
+- **Android.** `Voice` exposes no gender, so a required gender ends in `voice_not_available` and a preferred one stays
+  unmet. Capabilities differ per installed engine and voice. `synthesizeToFile` promises a file, not a format, so a
+  non-WAV result is refused before commit. The engine's queue and voice selection are shared, so playback and synthesis
+  take turns; on Apple synthesis runs alongside playback. Detail lives in code comments in
+  [`inderun-system-speech-providers`](../../android/inderun-system-speech-providers).
 
 Quality, latency and device results belong in the [verification record](../verification/system-speech.md), not here.

@@ -33,3 +33,26 @@ audible with Silent mode on.
 5. Speak while a call or timer interrupts; confirm the outcome is `failed` with `speech_interrupted` and nothing resumes.
 6. Background the app during speech and return; record what happens.
 7. Turn on VoiceOver and speak; record how the two overlap.
+
+## Android (`android_system_speech`)
+
+Recorded 2026-11-02 on the `rk_api36` emulator (Android 16, Google APIs, headless) with the system's Google TTS engine,
+driving `android/inderun-demo-app`. Each run used `local_required`, the demo's default, except the artifact.
+
+| Check | Result |
+| --- | --- |
+| `en-US` playback through `speak()` | Finished: `stop`, `android_system_speech`, locality `on_device` |
+| `de-DE` and `de-AT` playback | Refused by routing with `CapabilityMismatch`: this image has no installed German voice that satisfies `local_required`. Nothing played |
+| `en-US` long utterance, Stop after 3 s | Ended `cancelled` with one outcome; no failure logged |
+| `generateSpeech`, `en-US` | `audio/wav`, RIFF header, 98,868 bytes, 2,058.8 ms, read back, then disposed. `cache/inderun-speech` empty afterwards |
+
+The run observed callbacks, outcomes and bytes. Nobody listened: the emulator was headless, so this says nothing about
+what reached a speaker.
+
+**Pending, on a physical Android device, with a listener:**
+
+1. Install a German voice. Run `inderun-demo-app`; speak `de-AT` and `de-DE` and note which voice and region spoke.
+2. With a network-only voice as the only match, speak under the demo's `local_required` and confirm a refusal.
+3. Press **Stop speaking** mid-utterance; note the stop latency and confirm the speech does not restart.
+4. Turn on airplane mode and confirm network voices are not chosen.
+5. Repeat one playback and one **Synthesize** with a second TTS engine, if one is available, and record what differs.

@@ -35,6 +35,12 @@ class MainActivity : ComponentActivity() {
                     onRunClick = demoViewModel::runPrompt,
                     onStreamClick = demoViewModel::streamPrompt,
                     onCancelStreamClick = demoViewModel::cancelStream,
+                    onSpeechTextChange = demoViewModel::updateSpeechText,
+                    onSpeechLocaleChange = demoViewModel::updateSpeechLocale,
+                    onSpeechVoiceChange = demoViewModel::updateSpeechVoice,
+                    onSpeakClick = demoViewModel::speak,
+                    onStopSpeakingClick = demoViewModel::stopSpeaking,
+                    onSynthesizeClick = demoViewModel::synthesizeSpeech,
                 )
             }
         }

@@ -29,6 +29,8 @@ outlives the collectors.
 ## Speech
 
 ```kotlin
+// Speech is opt-in: registry.register(AndroidSystemSpeechProvider(context)),
+// from `inderun-system-speech-providers`.
 val voices = indeRun.listVoices(locale = "de-AT")
 
 val playback = indeRun.speak(SpeakOptions("Der Bus kommt.", locale = "de-AT"), lifecycleScope)
