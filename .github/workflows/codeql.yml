@@ -7,6 +7,7 @@ on:
     branches: [main]
   schedule:
     - cron: "27 3 * * 1" # weekly full scan, matching prior default-setup cadence
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -129,6 +130,9 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           # .build/ holds SwiftPM checkouts (e.g. swift-huggingface) -- vendored
           # dependency source we don't control, not our code to fix findings in.
+          # paths-ignore does not apply to Swift: its extractor follows the compiler
+          # into every file `swift build` compiles, so the Swift results are filtered
+          # after analysis instead (see "Drop SwiftPM dependency findings").
           config: |
             paths-ignore:
               - '.build/**'
@@ -164,3 +168,20 @@ jobs:
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: "/language:${{ matrix.language }}"
+          upload: ${{ matrix.language == 'swift' && 'failure-only' || 'always' }}
+          output: sarif-results
+
+      # Keep this category equal to the analyze step's: alerts close only when a later
+      # analysis in the same category stops reporting them.
+      - name: Drop SwiftPM dependency findings
+        if: matrix.language == 'swift'
+        run: |
+          jq '.runs[].results |= map(select(.locations[0].physicalLocation.artifactLocation.uri // "" | startswith(".build/") | not))' \
+            sarif-results/swift.sarif > swift-filtered.sarif
+
+      - name: Upload filtered results
+        if: matrix.language == 'swift'
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: swift-filtered.sarif
+          category: "/language:swift"

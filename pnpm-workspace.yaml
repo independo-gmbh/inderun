@@ -20,6 +20,16 @@ overrides:
   # advisories. Pulled in by semantic-release via conventional-changelog-writer,
   # which accepts ^4.7.7.
   handlebars@<4.7.10: ">=4.7.10"
+  # GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm, GHSA-9fm3-97px-rjf6,
+  # GHSA-xjj6-f33q-929c, GHSA-4w7w-5xrc-9h26: undici. Pulled in by semantic-release
+  # via @actions/http-client (^6) and @semantic-release/github (^7). Caret ranges
+  # keep each parent on its declared major; a ">=" range would resolve to 8.x.
+  undici@<6.29.1: ^6.29.1
+  "undici@>=7.0.0 <7.30.1": ^7.30.1
+  # GHSA-xhq7-xmqj-769h, GHSA-w74x-v6f9-j3xg, GHSA-333x-w4r6-6crp,
+  # GHSA-wjr9-j795-jxcr: fast-uri. Pulled in via ajv, which accepts ^3.0.1, so
+  # the caret range keeps it off 4.x.
+  fast-uri@<3.1.9: ^3.1.9
 allowBuilds:
   esbuild: true
   # Node-only extras pulled in by @huggingface/transformers. The demo runs the ONNX provider in the
@@ -29,7 +39,6 @@ allowBuilds:
   sharp: false
 minimumReleaseAgeExclude:
   - adm-zip@0.6.0 || 0.6.1
-  - fast-uri@3.1.3 || 3.1.4 || 3.1.5 || 3.1.8
   - sharp@0.35.0
   - js-yaml@4.3.1
   - moment@2.31.0

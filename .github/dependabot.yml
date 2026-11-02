@@ -74,7 +74,7 @@ updates:
           - patch
 
   - package-ecosystem: swift
-    directory: /ios/IndeRun
+    directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
