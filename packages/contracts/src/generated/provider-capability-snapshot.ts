@@ -84,6 +84,12 @@ export type ProviderTaskAvailability = {
      */
     locales?: string[];
     /**
+     * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+     * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+     * even when the provider-level available is false.
+     */
+    readiness?: ProviderReadiness;
+    /**
      * Why the task is unavailable, when available is false.
      */
     reason?: string;
@@ -96,27 +102,56 @@ export type ProviderTaskAvailability = {
      */
     streamingUnavailableReason?: string;
     /**
-     * Voices available for this task right now. Absent means the provider cannot enumerate
-     * them; a request that requires a voice then never routes to it.
+     * Every voice available for this task right now, one entry per voice. Absent means the
+     * provider cannot enumerate them; a request that requires a voice then never routes to it.
      */
     voices?: ProviderVoice[];
     [property: string]: unknown;
 }
 
 /**
- * Provider-neutral traits of one available voice. Carries no provider voice identifier.
+ * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+ * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+ * even when the provider-level available is false.
+ *
+ * How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it
+ * runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has
+ * run. 'preparing': it is being prepared now and cannot run yet.
+ *
+ * How ready the voice is to speak. Absent means 'ready'.
+ */
+export type ProviderReadiness = "ready" | "cold" | "not_prepared" | "preparing";
+
+/**
+ * One available voice: its provider-neutral traits, and an id and name for an application
+ * that lets someone choose it.
  */
 export type ProviderVoice = {
     gender?: VoiceGender;
+    /**
+     * Identifies this voice within its provider, for use as speech.voice.id with
+     * speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
+     * and meaningful nowhere else. Absent when the provider cannot address single voices.
+     */
+    id?: string;
     /**
      * BCP 47 locale the voice speaks.
      */
     locale: string;
     /**
+     * Label for showing the voice to a person, as the platform reports it. Not unique and not
+     * localized; never compare it.
+     */
+    name?: string;
+    /**
      * Whether using the voice sends data off the device. Absent inherits the task's privacy
      * posture.
      */
     networkRequired?: boolean;
+    /**
+     * How ready the voice is to speak. Absent means 'ready'.
+     */
+    readiness?: ProviderReadiness;
     [property: string]: unknown;
 }
 
@@ -344,6 +379,10 @@ export type TaskInputKind = "text" | "image" | "audio";
  * Interaction modes the provider supports for this task.
  */
 export type ProviderTaskInteraction = {
+    /**
+     * Whether the provider implements prepare() for this task (ADR 019). Absent means false.
+     */
+    prepare?: boolean;
     /**
      * Whether the provider supports Mode 1 run for this task.
      */

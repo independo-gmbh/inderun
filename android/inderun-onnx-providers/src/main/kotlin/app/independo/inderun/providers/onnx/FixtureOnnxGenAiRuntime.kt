@@ -8,6 +8,8 @@ import kotlinx.coroutines.delay
 data class FixtureOnnxRuntimeOptions(
     /** Availability snapshot returned by `prepare`. Defaults to `{ available: true }`. */
     val availability: AndroidOnnxRuntimeAvailability = AndroidOnnxRuntimeAvailability(available = true),
+    /** Result of loading, returned by `prepare`. Null uses [availability]. */
+    val loadResult: AndroidOnnxRuntimeAvailability? = null,
     /** Text or full output produced by `generate`. Defaults to a deterministic echo. */
     val respond: ((AndroidOnnxGenerationInput) -> AndroidOnnxGenerationOutput)? = null,
     /** Error thrown by `generate` instead of producing output. */
@@ -30,7 +32,9 @@ fun createFixtureOnnxRuntime(options: FixtureOnnxRuntimeOptions = FixtureOnnxRun
 private class FixtureOnnxGenAiRuntime(
     private val options: FixtureOnnxRuntimeOptions,
 ) : AndroidOnnxGenAiRuntime {
-    override suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability = options.availability
+    override suspend fun availability(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability = options.availability
+
+    override suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability = options.loadResult ?: options.availability
 
     override suspend fun generate(input: AndroidOnnxGenerationInput): AndroidOnnxGenerationOutput {
         options.delayMs?.let { delay(it) }

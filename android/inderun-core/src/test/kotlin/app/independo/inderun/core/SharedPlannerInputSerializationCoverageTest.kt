@@ -15,6 +15,7 @@ import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderLimits
 import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderSupports
 import app.independo.inderun.contracts.ProviderTaskAvailability
 import app.independo.inderun.contracts.ProviderTaskCapability
@@ -77,7 +78,12 @@ class SharedPlannerInputSerializationCoverageTest {
             inputs = listOf(TaskInputKind.Text),
             delivery = DeliveryRequirement(mode = OutputDelivery.Artifact, mediaTypes = listOf("audio/wav")),
             locale = LocaleRequirement(tag = "de-AT", match = LocaleMatch.Language),
-            voice = VoiceRequirement(gender = VoiceGender.Female, requirement = RequirementLevel.Required),
+            voice = VoiceRequirement(
+                gender = VoiceGender.Female,
+                id = "anna",
+                providerId = "provider",
+                requirement = RequirementLevel.Required,
+            ),
         ),
         interactionMode = InteractionMode.Stream,
         constraints = RoutePlannerInputConstraints(
@@ -110,7 +116,7 @@ class SharedPlannerInputSerializationCoverageTest {
                         ProviderTaskCapability(
                             kind = "text_to_speech",
                             inputs = listOf(TaskInputKind.Text),
-                            interaction = ProviderTaskInteraction(run = true, stream = false),
+                            interaction = ProviderTaskInteraction(prepare = true, run = true, stream = false),
                             cancel = CancelSemantics.Hard,
                             outputs = listOf(
                                 ProviderTaskOutput(delivery = OutputDelivery.Artifact, mediaTypes = listOf("audio/wav")),
@@ -135,6 +141,7 @@ class SharedPlannerInputSerializationCoverageTest {
                     cancellationAvailable = false,
                     taskCapabilities = listOf(
                         ProviderTaskAvailability(
+                            readiness = ProviderReadiness.Cold,
                             kind = "text_to_speech",
                             available = false,
                             reason = "task reason",
@@ -143,7 +150,7 @@ class SharedPlannerInputSerializationCoverageTest {
                             cancellationAvailable = false,
                             locales = listOf("de-DE"),
                             voices = listOf(
-                                ProviderVoice(locale = "de-DE", gender = VoiceGender.Female, networkRequired = false),
+                                ProviderVoice(id = "anna", name = "Anna", locale = "de-DE", gender = VoiceGender.Female, networkRequired = false, readiness = ProviderReadiness.Cold),
                             ),
                         ),
                     ),

@@ -5,14 +5,21 @@ import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.ModelPackage
+import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTaskAvailability
+import app.independo.inderun.contracts.ProviderTaskCapability
+import app.independo.inderun.contracts.ProviderTaskInteraction
+import app.independo.inderun.contracts.ProviderTaskOutput
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.SourceType
+import app.independo.inderun.contracts.TaskInputKind
 import app.independo.inderun.contracts.TaskOutput
 import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
@@ -20,7 +27,9 @@ import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderAdapter
+import app.independo.inderun.core.PreparableProviderAdapter
+import app.independo.inderun.core.PreparationProgress
+import app.independo.inderun.core.ProviderPrepareContext
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.createCapabilityMismatch
 import app.independo.inderun.core.createInternal
@@ -29,6 +38,8 @@ import app.independo.inderun.core.createUnavailable
 import app.independo.inderun.core.toIndeRunException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
 
 private const val TEXT_TO_TEXT = "text_to_text"
@@ -59,7 +70,12 @@ class AndroidOnnxRuntimeProvider(
     private val runtime: AndroidOnnxGenAiRuntime,
     private val id: String = DEFAULT_ID,
     private val timeoutMs: Long? = null,
-) : ProviderAdapter {
+) : PreparableProviderAdapter {
+    @Volatile
+    private var loaded = false
+
+    @Volatile
+    private var loadFailure: String? = null
 
     /** Convenience constructor wiring the default ORT-Mobile-backed runtime. */
     constructor(
@@ -90,6 +106,15 @@ class AndroidOnnxRuntimeProvider(
         ),
         cancel = CancelSemantics.Soft,
         tasks = declaredTasks(modelPackage),
+        taskCapabilities = listOf(
+            ProviderTaskCapability(
+                kind = TEXT_TO_TEXT,
+                inputs = listOf(TaskInputKind.Text),
+                interaction = ProviderTaskInteraction(prepare = true, run = true, stream = false),
+                cancel = CancelSemantics.Soft,
+                outputs = listOf(ProviderTaskOutput(delivery = OutputDelivery.Inline)),
+            ),
+        ).takeIf { TEXT_TO_TEXT in declaredTasks(modelPackage) },
         privacy = ProviderPrivacy(dataLeavesDevice = false),
     )
 
@@ -136,8 +161,41 @@ class AndroidOnnxRuntimeProvider(
             )
         }
 
-        val availability = runtime.prepare(modelPackage)
-        return ProviderDynamicCapabilities(available = availability.available, reason = availability.reason)
+        val availability = runtime.availability(modelPackage)
+        if (!availability.available) {
+            return ProviderDynamicCapabilities(available = false, reason = availability.reason)
+        }
+        loadFailure?.let { return ProviderDynamicCapabilities(available = false, reason = it) }
+        return ProviderDynamicCapabilities(
+            available = true,
+            taskCapabilities = if (loaded) {
+                null
+            } else {
+                listOf(ProviderTaskAvailability(kind = TEXT_TO_TEXT, readiness = ProviderReadiness.Cold))
+            },
+        )
+    }
+
+    /** Loads the model ahead of the first run. Nothing here downloads: files are host-managed. */
+    override fun prepare(context: ProviderPrepareContext): Flow<PreparationProgress> = flow {
+        ensureLoaded(context.runId)
+    }
+
+    /**
+     * Loads the model once. A failed load is remembered, so routing stops choosing this provider
+     * instead of every call retrying a load that failed. It refuses before any output, so the run
+     * can still fall back.
+     */
+    private suspend fun ensureLoaded(runId: String) {
+        if (loaded) return
+        val result = runtime.prepare(modelPackage)
+        if (result.available) {
+            loaded = true
+        } else {
+            val reason = result.reason ?: "The model failed to load."
+            loadFailure = reason
+            throw createCapabilityMismatch(message = reason, runId = runId, providerId = id)
+        }
     }
 
     /**
@@ -154,6 +212,8 @@ class AndroidOnnxRuntimeProvider(
                 providerId = id,
             )
         }
+
+        ensureLoaded(context.runId)
 
         val messages = createMessages(request)
         if (messages.isEmpty()) {

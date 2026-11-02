@@ -41,6 +41,13 @@ public struct RouteSelection: Sendable {
     }
 }
 
+/// A provider that can prepare a task, with the voice a run would bind and how ready that is.
+public struct PreparationCandidate: Sendable {
+    public let provider: any PreparableProviderAdapter
+    public let voice: ProviderVoice?
+    public let readiness: ProviderReadiness
+}
+
 public final class Router: Sendable {
     private let registry: ProviderRegistry
     private let planner: any RoutePlanning
@@ -53,6 +60,51 @@ public final class Router: Sendable {
     init(registry: ProviderRegistry, planner: any RoutePlanning) {
         self.registry = registry
         self.planner = planner
+    }
+
+    /// Plans preparation for one task. Unlike `selectRoute` it never throws for an empty plan,
+    /// because a task with nothing to prepare is a normal answer.
+    public func planPreparation(
+        task: RoutePlannerInputTask,
+        privacy: Privacy?,
+        hostServices: HostServices
+    ) async throws -> [PreparationCandidate] {
+        let online = await hostServices.connectivity.isOnline()
+        let snapshots = await collectProviderSnapshots(hostServices: hostServices)
+        let input = SharedPlannerInput(
+            constraints: SharedPlannerConstraints(cloud: nil, networkOnline: online, privacy: privacy),
+            interactionMode: .prepare,
+            modelProfile: nil,
+            preferences: SharedPlannerPreferences(optimizeFor: nil),
+            providers: snapshots.map { snapshot in
+                SharedPlannerProviderInput(
+                    capabilities: streamingAwareCapabilities(for: snapshot),
+                    descriptor: snapshot.descriptor
+                )
+            },
+            task: task
+        )
+
+        let routePlan: SharedPlannerRoutePlan
+        do {
+            routePlan = try planner.planRoute(input: input)
+        } catch let failure as RoutePlannerUnavailable {
+            throw createInternal(
+                message: "Route planner unavailable (\(failure.reason.rawValue)).",
+                details: ["plannerUnavailableReason": JSONAny(failure.reason.rawValue)]
+            )
+        }
+
+        return routePlan.candidates.compactMap { candidate in
+            guard let snapshot = snapshots.first(where: { $0.descriptor.id == candidate.providerId }),
+                  let provider = snapshot.provider as? any PreparableProviderAdapter else { return nil }
+            let entry = snapshot.capabilities.taskCapabilities?.first { $0.kind == task.kind }
+            return PreparationCandidate(
+                provider: provider,
+                voice: candidate.voice,
+                readiness: candidate.voice?.readiness ?? entry?.readiness ?? .ready
+            )
+        }
     }
 
     /// Plans a route for `request`.

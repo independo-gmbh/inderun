@@ -15,6 +15,7 @@ by shared fixtures rather than restated here.
 | Model profiles | Implemented on Web, iOS/macOS, and Android |
 | Execution provenance | Implemented on Web, iOS/macOS, and Android |
 | Primary text API (`generateText` / `streamText`) | Implemented on Web, iOS/macOS, and Android; translation pinned by `contracts/fixtures/facade/text-generation.json` |
+| Primary speech API (`speak` / `generateSpeech` / `listVoices`) | Implemented on Web, iOS/macOS, and Android; translation pinned by `contracts/fixtures/facade/speech.json` |
 | Package surface along these layers | Web: application and provider-authoring entry points (below); Swift and Kotlin: split by module |
 
 ## Layers
@@ -23,7 +24,7 @@ IndeRun exposes three public layers and keeps one internal layer.
 
 | Layer | Who it is for | What it contains | Stability |
 | --- | --- | --- | --- |
-| **Primary** | Application developers | `generateText()` / `streamText()`, model profile names, the compact `execution` policy | Public; the default path in documentation |
+| **Primary** | Application developers | `generateText()` / `streamText()`, `speak()` / `generateSpeech()` / `listVoices()`, model profile names, the compact `execution` policy | Public; the default path in documentation |
 | **Advanced** | Applications that need full control | `IndeRun.run()` / `stream()` / `checkCapabilities()` / `readArtifact()` / `disposeArtifact()`, `TaskRequest`, `TaskResult`, `TaskOutput`, `MediaArtifact`, `StreamEvent`, `StreamTerminalOutcome`, `IndeRunError`, `ExecutionProvenance` | Public; the canonical execution contract |
 | **Provider authoring** | Provider and host integrators | `ProviderAdapter` and its streaming variant, `ProviderDescriptor`, dynamic capabilities, `HostServices` and its services, `ProviderRegistry` | Public; changes are called out in release notes |
 | **Internal** | The engine itself | `Router`, the route planner bindings (`WasmRoutePlanner`, `SharedRoutePlanner`, `SharedCoreRoutePlanner`), planner input and plan types, `EventGate` | No compatibility promise; not exported on Web |
@@ -70,6 +71,37 @@ The `execution` object reuses the canonical enum values (`local_required`, `clou
 than inventing a second vocabulary, so moving a call between the layers never changes what a constraint means.
 Fallback has no separate switch: whether a run may fall back to the cloud is exactly what `privacy` and `cloud`
 already decide.
+
+## Primary Speech API
+
+[ADR 018](./decisions/018-speech-application-api.md) records the decisions; this section is the map.
+
+- `speak(inderun, options)` plays text through the device. It compiles to `stream()` with `playback` delivery and
+  returns a handle with `runId`, `result` and `cancel()`. Stopping is an ending, not an error: `result` resolves with
+  `finishReason: "cancelled"`. The application gets a completion and never any bytes.
+- `generateSpeech(inderun, options)` synthesizes retrievable audio. It compiles to `run()` with `artifact` delivery,
+  has no audible effect, and returns a `MediaArtifact` to read with `readArtifact()` and release with
+  `disposeArtifact()`. It is not cancellable, like `generateText()`.
+- `listVoices(inderun, options)` reads `checkCapabilities()` and returns every voice registered providers offer right
+  now, each with `id`, `name`, traits and `providerId`. Pass an entry as `voice` to speak with it (`asSpeechVoice()` on
+  Swift and Kotlin). An id is opaque and scoped to its provider and device; ADR 018 section 3 sets the fallback rules.
+
+Playback and retrievable audio are separate capabilities. A provider that can only play is refused for
+`generateSpeech()` by routing, and the two are never substituted for one another.
+
+| Facade option | Canonical `TaskRequest` field |
+| --- | --- |
+| `text`, `locale`, `localeMatch`, `voice` | `speech.*` |
+| `mediaTypes`, `destinationRef` (`generateSpeech` only) | `delivery.*` |
+| `model`, `execution`, `authContextRef`, `telemetry`, `requestId` | as in the text API |
+
+## Preparation
+
+`prepare()` makes registered providers ready ahead of a run. It is optional: the first run of a task prepares that task
+once, and leaves `cold` items alone because a cold run warms itself. An explicit early call is what makes a first call
+fast. A provider's download starts only under `autoDownload` at registration or `allowDownload` on the call. Readiness
+reads through `readiness` on `checkCapabilities()` and `listVoices()`. See
+[ADR 019](./decisions/019-prepare-and-readiness.md).
 
 ## Model Profiles
 
@@ -129,18 +161,19 @@ task owns one payload object in an otherwise shared envelope; and the change sta
 1.0. The advanced layer's `TaskResult` and terminal outcome carry a task-generic `TaskOutput` (`text`, `playback` or
 `artifact`); the primary text API reads its text and keeps returning a non-optional string. An artifact output is
 a reference, and its bytes are read through `readArtifact()` and released with `disposeArtifact()` on the same
-`IndeRunApi` ([ADR 017](./decisions/017-media-artifacts.md)), so a bridge carries ids, never media.
+`IndeRunApi` ([ADR 017](./decisions/017-media-artifacts.md)), so a bridge carries ids, never media. The primary layer
+covers speech with the entry points above.
 
 ## Package Entry Points
 
 Each layer has one import surface per SDK, so the layer a symbol belongs to is visible at the import site.
 
 - **Web.** `@independo/inderun-web` is the application entry point: the primary layer (`generateText`, `streamText`,
-  `toTaskRequest`, `createIndeRunWeb`, model profiles) and the advanced layer (`IndeRun`, `IndeRunApi`, the
+  `speak`, `generateSpeech`, `listVoices`, `toTaskRequest`, `toSpeechRequest`, `createIndeRunWeb`, model profiles) and the advanced layer (`IndeRun`, `IndeRunApi`, the
   contract types, `IndeRunException`, `toIndeRunException`, telemetry). `@independo/inderun-web/provider` is the
   provider-authoring entry point: the provider contract types, `ProviderRegistry`, the host-service interfaces and
   their browser implementations, and the `create*` error constructors. Provider adapters keep their own subpaths
-  (`/openai`, `/onnx`, `/system-model`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
+  (`/openai`, `/onnx`, `/system-model`, `/system-speech`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
   because the advanced API returns them. The internal layer is not exported.
 - **Swift and Kotlin** split along module boundaries: `IndeRunSwift` / `inderun-kotlin` carry the primary and
   advanced layers, `IndeRunCore` / `inderun-core` the provider-authoring layer, and the provider modules one family

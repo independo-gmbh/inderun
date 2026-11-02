@@ -89,6 +89,8 @@ private class FakeApi(
         return result!!
     }
 
+    override suspend fun prepare(request: app.independo.inderun.contracts.PrepareRequest): app.independo.inderun.core.StreamRun = error("not scripted")
+
     override suspend fun stream(request: TaskRequest): StreamRun {
         requests += request
         return StreamRun(

@@ -75,7 +75,7 @@ afterEach(() => {
   }
 });
 
-describe("createTransformersJsRuntime prepare", () => {
+describe("createTransformersJsRuntime availability", () => {
   it("reports unavailable when the optional dependency is missing", async () => {
     const runtime = createTransformersJsRuntime({
       load: async () => {
@@ -83,7 +83,7 @@ describe("createTransformersJsRuntime prepare", () => {
       }
     });
 
-    const availability = await runtime.prepare(modelPackage());
+    const availability = await runtime.availability(modelPackage());
 
     expect(availability.available).toBe(false);
     expect(availability.reason).toContain("runtime package unavailable");
@@ -93,7 +93,7 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    const availability = await runtime.prepare(modelPackage({ format: "genai" }));
+    const availability = await runtime.availability(modelPackage({ format: "genai" }));
 
     expect(availability.available).toBe(false);
     expect(availability.reason).toContain("unsupported model format");
@@ -103,7 +103,7 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    const availability = await runtime.prepare(
+    const availability = await runtime.availability(
       modelPackage({ source: { sourceType: "programmatic" } })
     );
 
@@ -115,7 +115,7 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    const availability = await runtime.prepare(
+    const availability = await runtime.availability(
       modelPackage({ source: { sourceType: "registry" } })
     );
 
@@ -127,7 +127,7 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    await expect(runtime.prepare(modelPackage())).resolves.toEqual({ available: true });
+    await expect(runtime.availability(modelPackage())).resolves.toEqual({ available: true });
   });
 });
 

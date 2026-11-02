@@ -129,6 +129,11 @@ const schemas = [
     nativeRoot: false
   },
   {
+    input: "prepare-request.schema.json",
+    typeOutput: "prepare-request.ts",
+    constName: "prepareRequestSchema"
+  },
+  {
     input: "artifact-read-request.schema.json",
     typeOutput: "artifact-read-request.ts",
     constName: "artifactReadRequestSchema"

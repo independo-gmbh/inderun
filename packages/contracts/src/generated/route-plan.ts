@@ -38,10 +38,11 @@ export type Candidate = {
      * The voice this candidate must use if it is attempted, chosen by the planner from the
      * provider's dynamic voice inventory. It is the best voice that satisfies the request's
      * locale, required voice traits and privacy — under local-required privacy always one that
-     * keeps data on the device — ranked by preferred gender, then exact locale region, then
-     * on-device before network. The adapter must use a voice with exactly these traits. Absent
-     * when the request names no locale or voice, or the provider does not list its voices; the
-     * adapter then chooses itself under the same rules.
+     * keeps data on the device — ranked by preferred id, then preferred gender, then exact
+     * locale region, then on-device before network. The adapter must use the voice with this
+     * id, or one with exactly these traits when the voice has no id. Absent when the request
+     * names no locale or voice, or the provider does not list its voices; the adapter then
+     * chooses itself under the same rules.
      */
     voice?: ProviderVoice;
     [property: string]: unknown;
@@ -51,24 +52,41 @@ export type Candidate = {
  * The voice this candidate must use if it is attempted, chosen by the planner from the
  * provider's dynamic voice inventory. It is the best voice that satisfies the request's
  * locale, required voice traits and privacy — under local-required privacy always one that
- * keeps data on the device — ranked by preferred gender, then exact locale region, then
- * on-device before network. The adapter must use a voice with exactly these traits. Absent
- * when the request names no locale or voice, or the provider does not list its voices; the
- * adapter then chooses itself under the same rules.
+ * keeps data on the device — ranked by preferred id, then preferred gender, then exact
+ * locale region, then on-device before network. The adapter must use the voice with this
+ * id, or one with exactly these traits when the voice has no id. Absent when the request
+ * names no locale or voice, or the provider does not list its voices; the adapter then
+ * chooses itself under the same rules.
  *
- * Provider-neutral traits of one available voice. Carries no provider voice identifier.
+ * One available voice: its provider-neutral traits, and an id and name for an application
+ * that lets someone choose it.
  */
 export type ProviderVoice = {
     gender?: VoiceGender;
+    /**
+     * Identifies this voice within its provider, for use as speech.voice.id with
+     * speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
+     * and meaningful nowhere else. Absent when the provider cannot address single voices.
+     */
+    id?: string;
     /**
      * BCP 47 locale the voice speaks.
      */
     locale: string;
     /**
+     * Label for showing the voice to a person, as the platform reports it. Not unique and not
+     * localized; never compare it.
+     */
+    name?: string;
+    /**
      * Whether using the voice sends data off the device. Absent inherits the task's privacy
      * posture.
      */
     networkRequired?: boolean;
+    /**
+     * How ready the voice is to speak. Absent means 'ready'.
+     */
+    readiness?: ProviderReadiness;
     [property: string]: unknown;
 }
 
@@ -76,6 +94,15 @@ export type ProviderVoice = {
  * Perceived gender of a voice, as the platform reports it.
  */
 export type VoiceGender = "female" | "male" | "neutral";
+
+/**
+ * How ready the voice is to speak. Absent means 'ready'.
+ *
+ * How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it
+ * runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has
+ * run. 'preparing': it is being prepared now and cannot run yet.
+ */
+export type ProviderReadiness = "ready" | "cold" | "not_prepared" | "preparing";
 
 /**
  * Human-readable selection or failure explanation suitable for telemetry/debugging.
@@ -106,7 +133,9 @@ export type Reason = {
      * list this provider. 'input_not_supported', 'output_delivery_not_supported',
      * 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
      * provider's task capability lacks an input kind, output delivery, media type, locale or
-     * voice the request requires.
+     * voice the request requires. 'prepare_not_supported' means the task capability declares no
+     * prepare(). 'not_ready' means the provider, task or required voice exists but is not
+     * prepared yet, so prepare() can make it available.
      */
     code:    Code;
     message: string;
@@ -121,6 +150,8 @@ export type Reason = {
  * list this provider. 'input_not_supported', 'output_delivery_not_supported',
  * 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
  * provider's task capability lacks an input kind, output delivery, media type, locale or
- * voice the request requires.
+ * voice the request requires. 'prepare_not_supported' means the task capability declares no
+ * prepare(). 'not_ready' means the provider, task or required voice exists but is not
+ * prepared yet, so prepare() can make it available.
  */
-export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available";
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available" | "prepare_not_supported" | "not_ready";

@@ -43,6 +43,7 @@ dependencies {
     implementation(project(":inderun-mlkit-providers"))
     implementation(project(":inderun-onnx-providers"))
     implementation(project(":inderun-openai-providers"))
+    implementation(project(":inderun-system-speech-providers"))
 
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.foundation:foundation:1.7.8")

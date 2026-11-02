@@ -54,7 +54,20 @@ internal class LoadedSessionBox(private val context: Context) {
         loaded
     }
 
-    private fun load(modelPackage: ModelPackage, cacheKey: String): LoadedSession {
+    /**
+     * Checks what can be checked without loading, cheaply enough for the capability check, which
+     * runs on every request. Bundled files stay unchecked: reaching them means extracting them.
+     */
+    fun check(modelPackage: ModelPackage) {
+        val sourceType = checkedSourceType(modelPackage)
+        val requiredFiles = checkedRequiredFiles(modelPackage)
+        if (sourceType != SourceType.Bundled) {
+            val directory = resolveDirectory(modelPackage, sourceType, sessionCacheKey(modelPackage))
+            checkFilesExist(directory, requiredFiles)
+        }
+    }
+
+    private fun checkedSourceType(modelPackage: ModelPackage): SourceType {
         if (modelPackage.format != Format.Onnx && modelPackage.format != Format.Ort) {
             throw OnnxRuntimeError(
                 kind = OnnxRuntimeErrorKind.CAPABILITY,
@@ -63,13 +76,14 @@ internal class LoadedSessionBox(private val context: Context) {
             )
         }
 
-        val sourceType = modelPackage.source?.sourceType
+        return modelPackage.source?.sourceType
             ?: throw OnnxRuntimeError(
                 kind = OnnxRuntimeErrorKind.CAPABILITY,
                 message = "model source unavailable: no model source was configured.",
             )
+    }
 
-        val directory = resolveDirectory(modelPackage, sourceType, cacheKey)
+    private fun checkedRequiredFiles(modelPackage: ModelPackage): List<String> {
         val requiredFiles = modelPackage.files?.required.orEmpty()
         if (requiredFiles.isEmpty()) {
             throw OnnxRuntimeError(
@@ -77,8 +91,10 @@ internal class LoadedSessionBox(private val context: Context) {
                 message = "model files missing: model package '${modelPackage.id}' declares no required files.",
             )
         }
+        return requiredFiles
+    }
 
-        val graphFile = File(directory, requiredFiles.first())
+    private fun checkFilesExist(directory: File, requiredFiles: List<String>) {
         requiredFiles.forEach { relativePath ->
             val file = File(directory, relativePath)
             if (!file.exists()) {
@@ -88,6 +104,14 @@ internal class LoadedSessionBox(private val context: Context) {
                 )
             }
         }
+    }
+
+    private fun load(modelPackage: ModelPackage, cacheKey: String): LoadedSession {
+        val sourceType = checkedSourceType(modelPackage)
+        val directory = resolveDirectory(modelPackage, sourceType, cacheKey)
+        val requiredFiles = checkedRequiredFiles(modelPackage)
+        val graphFile = File(directory, requiredFiles.first())
+        checkFilesExist(directory, requiredFiles)
         verifyChecksums(directory, modelPackage)
 
         val tokenizerFile = modelPackage.files?.tokenizer?.let { File(directory, it) }

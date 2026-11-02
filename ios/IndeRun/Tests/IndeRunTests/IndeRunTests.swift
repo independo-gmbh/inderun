@@ -163,6 +163,9 @@ final class CapturingRoutePlanner: RoutePlanning, @unchecked Sendable {
 /// Apple Intelligence model readiness.
 final class MockAppleFoundationModelsRuntime: AppleFoundationModelsRuntime, @unchecked Sendable {
     var availabilityValue: AppleFoundationModelsAvailability = .available
+
+    func prewarm() async {}
+
     var responseText = "Apple response"
     var thrownError: Error?
     /// Cumulative snapshots `streamResponse` yields, in order -- Apple's partial
@@ -1537,6 +1540,66 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(descriptor.privacy?.dataLeavesDevice, false)
     }
 
+    func testOnnxAppleCapabilityCheckNeverLoadsTheModelAndReportsItCold() async {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+
+        let capabilities = await provider.capabilities(host: HostServices(connectivity: MockConnectivityService()))
+
+        XCTAssertEqual(runtime.loads, 0)
+        XCTAssertTrue(capabilities.available)
+        XCTAssertEqual(capabilities.taskCapabilities?.first?.readiness, .cold)
+    }
+
+    func testOnnxApplePrepareLoadsOnceAndThenReportsReady() async throws {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let host = HostServices(connectivity: MockConnectivityService())
+        let registry = ProviderRegistry()
+        try registry.register(provider)
+        let inderun = IndeRun(registry: registry, hostServices: host)
+
+        let result = try await inderun.prepare().result()
+        _ = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+
+        XCTAssertEqual(result.items.map(\.status), [.prepared])
+        XCTAssertEqual(runtime.loads, 1)
+        let capabilities = await provider.capabilities(host: host)
+        XCTAssertNil(capabilities.taskCapabilities)
+    }
+
+    func testOnnxAppleRemembersAFailedLoadAndFallsBack() async throws {
+        let runtime = CountingOnnxRuntime(loadResult: OnnxRuntimeAvailability(available: false, reason: "model corrupt"))
+        let broken = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(id: "a_broken", modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let healthy = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(
+                id: "b_healthy",
+                modelPackage: makeOnnxModelPackage(),
+                runtime: createFixtureOnnxRuntime()
+            )
+        )
+        let host = HostServices(connectivity: MockConnectivityService())
+        let registry = ProviderRegistry()
+        try registry.register(broken)
+        try registry.register(healthy)
+        let inderun = IndeRun(registry: registry, hostServices: host)
+
+        let first = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+        _ = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+
+        XCTAssertEqual(first.telemetry.providerUsed, "b_healthy")
+        XCTAssertEqual(runtime.loads, 1)
+        let capabilities = await broken.capabilities(host: host)
+        XCTAssertFalse(capabilities.available)
+        XCTAssertEqual(capabilities.reason, "model corrupt")
+    }
+
     func testOnnxAppleCapabilitiesRejectsMalformedModelPackage() async {
         let modelPackage = ModelPackage(
             files: nil, format: .onnx, id: "", integrity: nil, license: nil, limits: nil,
@@ -2521,5 +2584,32 @@ final class OpenAIRunVectorTests: XCTestCase {
                 XCTFail("Unknown expected kind \(expected.kind) in \(label)")
             }
         }
+    }
+}
+
+/// An ONNX runtime that counts model loads.
+private final class CountingOnnxRuntime: OnnxGenAiRuntime, @unchecked Sendable {
+    private let lock = NSLock()
+    private var loadCount = 0
+    private let loadResult: OnnxRuntimeAvailability
+    private let fixture = createFixtureOnnxRuntime()
+
+    var loads: Int { lock.withLock { loadCount } }
+
+    init(loadResult: OnnxRuntimeAvailability = OnnxRuntimeAvailability(available: true)) {
+        self.loadResult = loadResult
+    }
+
+    func availability(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
+        OnnxRuntimeAvailability(available: true)
+    }
+
+    func prepare(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
+        lock.withLock { loadCount += 1 }
+        return loadResult
+    }
+
+    func generate(_ input: OnnxGenerationInput) async throws -> OnnxGenerationOutput {
+        try await fixture.generate(input)
     }
 }

@@ -15,6 +15,7 @@
  */
 export {
   type AbortSignalLike,
+  type ArtifactDestinationService,
   type ConnectivityService,
   type DeviceConstraintsService,
   type SecureStorageService,
@@ -48,18 +49,23 @@ export {
  * router plans against.
  */
 export {
+  type ArtifactSink,
+  type ArtifactSpec,
+  type ArtifactWriter,
   type ProviderDescriptor,
   type ProviderDynamicCapabilities,
   type ProviderCapabilitySnapshot,
   type RunContext,
   type ProviderAdapter,
+  type PreparableProviderAdapter,
+  type ProviderPrepareContext,
   type ProviderStreamContext,
   type ProviderStreamEvent,
   type StreamRun
 } from "./core/provider.js";
 
 /** Holds the provider adapters a given engine instance can route to. */
-export { ProviderRegistry } from "./core/registry.js";
+export { ProviderRegistry, type ProviderRegistrationOptions } from "./core/registry.js";
 
 /**
  * Constructors for the normalized error taxonomy. A provider maps every failure

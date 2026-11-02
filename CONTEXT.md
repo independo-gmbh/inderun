@@ -38,7 +38,9 @@ three engines (TypeScript, Swift, Kotlin), hosts expose an optional streaming
 HTTP capability, and the OpenAI-compatible provider streams on all three
 platforms. Apple Foundation Models and Android ML Kit GenAI stream on-device; the
 remaining local/platform provider families (ONNX Runtime, web system-model) do not
-stream yet. Mode 3 `openSession()` / realtime sessions remain unimplemented.
+stream yet. Text-to-speech is implemented through `speak()` / `generateSpeech()` / `listVoices()`
+and the system speech providers on all three platforms (ADR 018). Mode 3 `openSession()` /
+realtime sessions remain unimplemented.
 
 Out of scope now:
 
@@ -75,6 +77,9 @@ Any provider integration should explicitly define:
   forward-looking descriptor seam — see §3). A provider that streams opts into the
   streaming adapter type; declaring `supports.streaming` without implementing it is a
   routing-visible mistake, not a harmless one.
+- what needs preparing, if anything: `readiness` in `capabilities`, and `prepare` declared per task
+  through `interaction.prepare`, like streaming. IndeRun stores nothing and starts a platform's own
+  download only under `autoDownload` or `allowDownload` (ADR 019).
 - cancellation behavior (`hard` / `soft` / `none`)
 - mapped error taxonomy and normalized telemetry
 

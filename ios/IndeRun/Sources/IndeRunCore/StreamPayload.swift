@@ -12,6 +12,32 @@ extension Payload {
         Payload(
             text: text,
             phase: nil,
+            fractionCompleted: nil,
+            providerId: nil,
+            task: nil,
+            finalText: nil,
+            finishReason: nil,
+            outcome: nil,
+            output: nil,
+            provenance: nil,
+            runId: nil,
+            schemaVersion: nil,
+            telemetry: nil,
+            usage: nil,
+            error: nil,
+            partialText: nil,
+            reason: nil
+        )
+    }
+
+    /// Payload for a `preparation_progress` event.
+    public static func preparation(providerId: String, task: String, fractionCompleted: Double?) -> Payload {
+        Payload(
+            text: nil,
+            phase: nil,
+            fractionCompleted: fractionCompleted,
+            providerId: providerId,
+            task: task,
             finalText: nil,
             finishReason: nil,
             outcome: nil,
@@ -32,6 +58,9 @@ extension Payload {
         self.init(
             text: nil,
             phase: nil,
+            fractionCompleted: nil,
+            providerId: nil,
+            task: nil,
             finalText: outcome.finalText,
             finishReason: outcome.finishReason,
             outcome: outcome.outcome,

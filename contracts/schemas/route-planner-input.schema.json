@@ -66,11 +66,22 @@
         },
         "voice": {
           "title": "VoiceRequirement",
-          "description": "Voice traits the request asks for. Only a 'required' voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a candidate to, always within the request's privacy policy.",
+          "description": "The voice the request asks for, by providerId and id, or by traits. Only a 'required' voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a candidate to, always within the request's privacy policy, and a preferred id also ranks the provider that can bind it ahead of others.",
           "type": "object",
           "additionalProperties": true,
           "required": ["requirement"],
+          "dependentRequired": { "id": ["providerId"] },
           "properties": {
+            "id": {
+              "description": "A voice id, compared exactly against the voices of providerId and of no other provider.",
+              "type": "string",
+              "minLength": 1
+            },
+            "providerId": {
+              "description": "The provider that id belongs to.",
+              "type": "string",
+              "minLength": 1
+            },
             "gender": {
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             },
@@ -85,7 +96,7 @@
     },
     "interactionMode": {
       "description": "Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs produced before this field existed keep their exact Mode-1 semantics. The mode filters eligible providers; it never changes candidate ordering.",
-      "enum": ["run", "stream"]
+      "enum": ["run", "stream", "prepare"]
     },
     "constraints": {
       "description": "Hard routing constraints evaluated before provider selection.",

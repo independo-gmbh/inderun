@@ -115,6 +115,40 @@ export class Router {
     return this.selectFromSharedPlan(snapshots, outcome.routePlan);
   }
 
+  /**
+   * Plans preparation for one task: which providers can prepare it, each with the voice a run
+   * would bind. Unlike {@link selectRoute} it never throws for an empty plan, because a task with
+   * nothing to prepare is a normal answer.
+   */
+  async planPreparation(
+    task: SharedPlannerInput["task"],
+    privacy: NonNullable<TaskRequest["constraints"]>["privacy"],
+    hostServices: HostServices
+  ): Promise<{ snapshots: ProviderRuntimeSnapshot[]; routePlan: SharedPlannerRoutePlan }> {
+    const online = await hostServices.connectivity.isOnline();
+    const snapshots = await collectProviderRuntimeSnapshots(this.registry.list(), hostServices);
+    // The planner reads the task from `task`; this request only carries the envelope defaults.
+    const planInput = buildSharedPlannerInput(
+      {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: " ",
+        ...(privacy !== undefined ? { constraints: { privacy } } : {})
+      },
+      snapshots,
+      online,
+      "prepare"
+    );
+    const outcome = await this.planner.planRoute({ ...planInput, task });
+    if (!outcome.routePlan) {
+      const reason = outcome.unavailableReason ?? "import_failed";
+      throw createInternal(`Route planner unavailable (${reason}).`, {
+        details: { plannerUnavailableReason: reason }
+      });
+    }
+    return { snapshots, routePlan: outcome.routePlan };
+  }
+
   private selectFromSharedPlan(
     snapshots: ProviderRuntimeSnapshot[],
     routePlan: SharedPlannerRoutePlan

@@ -18,13 +18,17 @@
     {
       "if": { "properties": { "type": { "const": "artifact" } } },
       "then": { "required": ["artifact"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "prepared" } } },
+      "then": { "required": ["preparation"] }
     }
   ],
   "properties": {
     "type": {
       "title": "TaskOutputType",
-      "description": "The content representation: 'text', 'playback' or 'artifact'.",
-      "enum": ["text", "playback", "artifact"]
+      "description": "The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare() run, carries no content, and lists each item in 'preparation'.",
+      "enum": ["text", "playback", "artifact", "prepared"]
     },
     "text": {
       "description": "The text the run produced. Required when type is 'text'.",
@@ -47,9 +51,30 @@
       "description": "The retrievable media the run produced. Required when type is 'artifact'.",
       "$ref": "media-artifact.schema.json"
     },
+    "preparation": {
+      "description": "What a prepare() run did, one item per provider and task. Required when type is 'prepared'. One failed item does not fail the run.",
+      "type": "array",
+      "items": {
+        "title": "PreparationItem",
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["providerId", "task", "status"],
+        "properties": {
+          "providerId": { "description": "The provider this item belongs to.", "type": "string", "minLength": 1 },
+          "task": { "description": "The task kind this item belongs to.", "type": "string", "minLength": 1 },
+          "status": {
+            "title": "PreparationStatus",
+            "description": "'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it needs a download that neither autoDownload nor allowDownload permits. 'failed': see reason.",
+            "enum": ["prepared", "already_ready", "skipped", "failed"]
+          },
+          "reason": { "description": "Why the item was skipped or failed.", "type": "string", "minLength": 1 },
+          "voiceId": { "description": "The voice this item prepared, when one was bound.", "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "speech": {
       "title": "SpeechOutput",
-      "description": "The locale and voice traits a text-to-speech run actually used, so an unmet preference is visible without being an error.",
+      "description": "The locale and voice a text-to-speech run actually used, so an unmet preference is visible without being an error.",
       "type": "object",
       "additionalProperties": true,
       "required": ["locale"],
@@ -61,10 +86,20 @@
         },
         "voice": {
           "title": "SpeechOutputVoice",
-          "description": "Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.",
+          "description": "The voice that spoke, as the catalog lists it.",
           "type": "object",
           "additionalProperties": true,
           "properties": {
+            "id": {
+              "description": "The voice's id, when its provider lists one.",
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "description": "The voice's display label, when its provider lists one.",
+              "type": "string",
+              "minLength": 1
+            },
             "gender": {
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             }

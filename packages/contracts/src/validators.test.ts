@@ -215,6 +215,14 @@ describe("TaskRequest per-task requirements (ADR 016)", () => {
     expect(validateTaskRequest(withVoice({ requirement: "preferred" }))).toBe(true);
   });
 
+  it("accepts a voice id only together with the provider it belongs to", () => {
+    const withVoice = (voice: object) => ({ ...speech, speech: { ...speech.speech, voice } });
+    const handle = { id: "anna", providerId: "apple_system_speech" };
+    expect(validateTaskRequest(withVoice(handle))).toBe(true);
+    expect(validateTaskRequest(withVoice({ ...handle, requirement: "required" }))).toBe(true);
+    expect(validateTaskRequest(withVoice({ id: "anna" }))).toBe(false);
+  });
+
   it("rejects an unknown task kind at /task/kind", () => {
     const issues = getTaskRequestValidationIssues({
       schemaVersion: "1.0",

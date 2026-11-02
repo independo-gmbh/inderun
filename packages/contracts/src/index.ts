@@ -18,6 +18,7 @@ export type * from "./generated/index.js";
 /** The JSON Schemas those models were generated from, for runtime use. */
 export {
   artifactReadRequestSchema,
+  prepareRequestSchema,
   executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
@@ -44,6 +45,7 @@ export {
  */
 export {
   getArtifactReadRequestValidationIssues,
+  getPrepareRequestValidationIssues,
   getExecutionProvenanceValidationIssues,
   getHttpRequestValidationIssues,
   getHttpResponseValidationIssues,
@@ -81,6 +83,7 @@ export {
   validateTaskResult,
   validateTelemetryEvent,
   validateArtifactReadRequest,
+  validatePrepareRequest,
   type ValidationIssue
 } from "./validators.js";
 /**
@@ -95,6 +98,7 @@ export type {
   ModelPackageFormat,
   ModelSourceType,
   PlaybackTaskOutput,
+  ProviderReadiness,
   ProviderTransport,
   ProviderType,
   SchemaVersion,

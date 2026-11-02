@@ -3,14 +3,21 @@ package app.independo.inderun.providers.mlkit
 import android.content.Context
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTaskAvailability
+import app.independo.inderun.contracts.ProviderTaskCapability
+import app.independo.inderun.contracts.ProviderTaskInteraction
+import app.independo.inderun.contracts.ProviderTaskOutput
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamingStyle
+import app.independo.inderun.contracts.TaskInputKind
 import app.independo.inderun.contracts.TaskOutput
 import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
@@ -18,6 +25,9 @@ import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
+import app.independo.inderun.core.PreparableProviderAdapter
+import app.independo.inderun.core.PreparationProgress
+import app.independo.inderun.core.ProviderPrepareContext
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.ProviderStreamContext
 import app.independo.inderun.core.ProviderStreamEvent
@@ -28,6 +38,7 @@ import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.createRateLimited
 import app.independo.inderun.core.createUnavailable
 import app.independo.inderun.core.toIndeRunException
+import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.Candidate
@@ -101,6 +112,15 @@ interface AndroidMlKitGenAiRuntime {
      * would let an implementation declare streaming without providing it, which
      * is a routing-visible mistake rather than a harmless one.
      */
+    /** Loads the model so its first response comes sooner. */
+    suspend fun warmup()
+
+    /**
+     * Starts Gemini Nano's download through AICore and completes when it has finished. Emits the
+     * fraction done when ML Kit reports sizes, otherwise null. Fails on a download failure.
+     */
+    fun download(): Flow<Double?>
+
     fun generateTextStream(prompt: String, options: AndroidMlKitGenAiGenerationOptions): Flow<AndroidMlKitGenAiOutput>
 }
 
@@ -111,7 +131,11 @@ interface AndroidMlKitGenAiRuntime {
 class AndroidMlKitGenAiProvider(
     private val id: String,
     private val runtime: AndroidMlKitGenAiRuntime,
-) : StreamingProviderAdapter {
+) : StreamingProviderAdapter,
+    PreparableProviderAdapter {
+    /** Set once [prepare] warmed the model. A run warms it too, but only this is reported. */
+    @Volatile
+    private var warmed = false
 
     constructor(id: String = DEFAULT_ID) : this(
         id = id,
@@ -139,9 +163,38 @@ class AndroidMlKitGenAiProvider(
         // walks away, so the guarantee is `soft`: the adapter stops relaying, and
         // the engine's Event Gate is what makes the caller-visible promise.
         cancel = CancelSemantics.Soft,
-        tasks = listOf("text_to_text"),
+        tasks = listOf(TEXT_TO_TEXT),
+        taskCapabilities = listOf(
+            ProviderTaskCapability(
+                kind = TEXT_TO_TEXT,
+                inputs = listOf(TaskInputKind.Text),
+                interaction = ProviderTaskInteraction(prepare = true, run = true, stream = true),
+                cancel = CancelSemantics.Soft,
+                outputs = listOf(ProviderTaskOutput(delivery = OutputDelivery.Inline)),
+            ),
+        ),
         privacy = ProviderPrivacy(dataLeavesDevice = false),
     )
+
+    /**
+     * Downloads Gemini Nano when it is missing and permitted, waits when AICore is already
+     * downloading it, then warms it. AICore owns the model; cancelling stops only the waiting.
+     */
+    override fun prepare(context: ProviderPrepareContext): Flow<PreparationProgress> = flow {
+        when (val availability = runtime.availability()) {
+            AndroidMlKitGenAiAvailability.Available -> Unit
+            is AndroidMlKitGenAiAvailability.Unavailable -> throw createUnavailable(
+                availability.reason,
+                context.runId,
+                id,
+            )
+            is AndroidMlKitGenAiAvailability.Downloadable,
+            is AndroidMlKitGenAiAvailability.Downloading,
+            -> runtime.download().collect { fraction -> emit(PreparationProgress(fraction)) }
+        }
+        runtime.warmup()
+        warmed = true
+    }
 
     /**
      * Host services are accepted to satisfy the provider contract; this provider
@@ -156,14 +209,21 @@ class AndroidMlKitGenAiProvider(
      * `streaming_unavailable` rejection and explain less.
      */
     override suspend fun capabilities(host: HostServices): ProviderDynamicCapabilities = when (val availability = runtime.availability()) {
-        AndroidMlKitGenAiAvailability.Available -> ProviderDynamicCapabilities(available = true)
+        AndroidMlKitGenAiAvailability.Available -> ProviderDynamicCapabilities(
+            available = true,
+            taskCapabilities = listOf(
+                ProviderTaskAvailability(kind = TEXT_TO_TEXT, readiness = if (warmed) ProviderReadiness.Ready else ProviderReadiness.Cold),
+            ),
+        )
         is AndroidMlKitGenAiAvailability.Downloadable -> ProviderDynamicCapabilities(
             available = false,
             reason = availability.reason,
+            taskCapabilities = listOf(ProviderTaskAvailability(kind = TEXT_TO_TEXT, readiness = ProviderReadiness.NotPrepared)),
         )
         is AndroidMlKitGenAiAvailability.Downloading -> ProviderDynamicCapabilities(
             available = false,
             reason = availability.reason,
+            taskCapabilities = listOf(ProviderTaskAvailability(kind = TEXT_TO_TEXT, readiness = ProviderReadiness.Preparing)),
         )
         is AndroidMlKitGenAiAvailability.Unavailable -> ProviderDynamicCapabilities(
             available = false,
@@ -459,6 +519,8 @@ class AndroidMlKitGenAiProvider(
     }
 
     companion object {
+        private const val TEXT_TO_TEXT = "text_to_text"
+
         const val DEFAULT_ID = "android_mlkit_genai"
 
         /**
@@ -541,6 +603,26 @@ private class SystemAndroidMlKitGenAiRuntime(
     ): Flow<AndroidMlKitGenAiOutput> = generativeModel
         .generateContentStream(buildRequest(prompt, options))
         .map { response -> response.toOutput() }
+
+    override suspend fun warmup() = generativeModel.warmup()
+
+    override fun download(): Flow<Double?> = flow {
+        var total: Long? = null
+        generativeModel.download().collect { status ->
+            when (status) {
+                is DownloadStatus.DownloadStarted -> {
+                    total = status.bytesToDownload
+                    emit(0.0)
+                }
+                is DownloadStatus.DownloadProgress -> {
+                    val size = total?.takeIf { it > 0 }
+                    emit(size?.let { (status.totalBytesDownloaded.toDouble() / it).coerceIn(0.0, 1.0) })
+                }
+                is DownloadStatus.DownloadCompleted -> emit(1.0)
+                is DownloadStatus.DownloadFailed -> throw status.e
+            }
+        }
+    }
 
     private fun buildRequest(prompt: String, options: AndroidMlKitGenAiGenerationOptions) = generateContentRequest(TextPart(prompt)) {
         temperature = options.temperature?.toFloat()

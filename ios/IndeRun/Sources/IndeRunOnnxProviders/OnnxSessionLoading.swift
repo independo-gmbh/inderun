@@ -111,7 +111,9 @@ actor LoadedSessionBox {
         return parts.joined(separator: "|")
     }
 
-    private static func load(_ modelPackage: ModelPackage) async throws -> LoadedSession {
+    /// Checks that the package's files are where it says, without reading them. Cheap enough for
+    /// the capability check, which runs on every request.
+    static func checkedFiles(_ modelPackage: ModelPackage) throws -> (directory: URL, modelPath: URL) {
         guard modelPackage.format == .onnx || modelPackage.format == .ort else {
             let format = modelPackage.format.rawValue
             throw OnnxRuntimeError(
@@ -151,6 +153,12 @@ actor LoadedSessionBox {
                 message: "tokenizer/config missing: '\(tokenizerFileName)' not found at \(tokenizerPath.path)."
             )
         }
+
+        return (directory, modelPath)
+    }
+
+    private static func load(_ modelPackage: ModelPackage) async throws -> LoadedSession {
+        let (directory, modelPath) = try checkedFiles(modelPackage)
 
         try verifyChecksums(modelPackage, directory: directory)
 

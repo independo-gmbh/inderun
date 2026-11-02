@@ -274,7 +274,7 @@ export type ExecutionProvenanceRouteRejection = {
     [property: string]: unknown;
 }
 
-export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available";
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available" | "prepare_not_supported" | "not_ready";
 
 /**
  * How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
@@ -316,7 +316,12 @@ export type TaskOutput = {
      */
     playback?: PlaybackOutput;
     /**
-     * The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+     * What a prepare() run did, one item per provider and task. Required when type is
+     * 'prepared'. One failed item does not fail the run.
+     */
+    preparation?: PreparationItem[];
+    /**
+     * The locale and voice a text-to-speech run actually used, so an unmet preference is
      * visible without being an error.
      */
     speech?: SpeechOutput;
@@ -325,7 +330,8 @@ export type TaskOutput = {
      */
     text?: string;
     /**
-     * The content representation: 'text', 'playback' or 'artifact'.
+     * The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+     * run, carries no content, and lists each item in 'preparation'.
      */
     type: TaskOutputType;
     [property: string]: unknown;
@@ -400,8 +406,41 @@ export type PlaybackOutput = {
     [property: string]: unknown;
 }
 
+export type PreparationItem = {
+    /**
+     * The provider this item belongs to.
+     */
+    providerId: string;
+    /**
+     * Why the item was skipped or failed.
+     */
+    reason?: string;
+    /**
+     * 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+     * needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+     * reason.
+     */
+    status: PreparationStatus;
+    /**
+     * The task kind this item belongs to.
+     */
+    task: string;
+    /**
+     * The voice this item prepared, when one was bound.
+     */
+    voiceId?: string;
+    [property: string]: unknown;
+}
+
 /**
- * The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+ * 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+ * needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+ * reason.
+ */
+export type PreparationStatus = "prepared" | "already_ready" | "skipped" | "failed";
+
+/**
+ * The locale and voice a text-to-speech run actually used, so an unmet preference is
  * visible without being an error.
  */
 export type SpeechOutput = {
@@ -410,17 +449,25 @@ export type SpeechOutput = {
      */
     locale: string;
     /**
-     * Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+     * The voice that spoke, as the catalog lists it.
      */
     voice?: SpeechOutputVoice;
     [property: string]: unknown;
 }
 
 /**
- * Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+ * The voice that spoke, as the catalog lists it.
  */
 export type SpeechOutputVoice = {
     gender?: VoiceGender;
+    /**
+     * The voice's id, when its provider lists one.
+     */
+    id?: string;
+    /**
+     * The voice's display label, when its provider lists one.
+     */
+    name?: string;
     [property: string]: unknown;
 }
 
@@ -430,9 +477,10 @@ export type SpeechOutputVoice = {
 export type VoiceGender = "female" | "male" | "neutral";
 
 /**
- * The content representation: 'text', 'playback' or 'artifact'.
+ * The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+ * run, carries no content, and lists each item in 'preparation'.
  */
-export type TaskOutputType = "text" | "playback" | "artifact";
+export type TaskOutputType = "text" | "playback" | "artifact" | "prepared";
 
 /**
  * Required metadata providing an overview of the execution result and performance metrics.

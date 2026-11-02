@@ -2,6 +2,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
 import type { ArtifactReadRequest } from "./generated/artifact-read-request.js";
+import type { PrepareRequest } from "./generated/prepare-request.js";
 import type { ExecutionProvenance } from "./generated/execution-provenance.js";
 import type { IndeRunError } from "./generated/inderun-error.js";
 import type { MediaArtifact } from "./generated/media-artifact.js";
@@ -15,6 +16,7 @@ import type { RoutePlan } from "./generated/route-plan.js";
 import type { RoutePlannerInput } from "./generated/route-planner-input.js";
 import {
   artifactReadRequestSchema,
+  prepareRequestSchema,
   executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
@@ -72,6 +74,7 @@ const validateProviderCapabilitySnapshotSchema = ajv.compile(providerCapabilityS
 const validateMediaArtifactSchema = ajv.compile(mediaArtifactSchema);
 const validateTaskOutputSchema = ajv.compile(taskOutputSchema);
 const validateArtifactReadRequestSchema = ajv.compile(artifactReadRequestSchema);
+const validatePrepareRequestSchema = ajv.compile(prepareRequestSchema);
 const validateTaskRequestSchema = ajv.compile(taskRequestSchema);
 const validateTaskResultSchema = ajv.compile(taskResultSchema);
 const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
@@ -99,6 +102,10 @@ export function validateTaskOutput(value: unknown): value is TaskOutput {
 
 export function validateMediaArtifact(value: unknown): value is MediaArtifact {
   return getMediaArtifactValidationIssues(value).length === 0;
+}
+
+export function validatePrepareRequest(value: unknown): value is PrepareRequest {
+  return getPrepareRequestValidationIssues(value).length === 0;
 }
 
 export function validateArtifactReadRequest(value: unknown): value is ArtifactReadRequest {
@@ -184,6 +191,10 @@ export function getTaskOutputValidationIssues(value: unknown): ValidationIssue[]
 
 export function getMediaArtifactValidationIssues(value: unknown): ValidationIssue[] {
   return getValidationIssues(validateMediaArtifactSchema, value);
+}
+
+export function getPrepareRequestValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validatePrepareRequestSchema, value);
 }
 
 export function getArtifactReadRequestValidationIssues(value: unknown): ValidationIssue[] {

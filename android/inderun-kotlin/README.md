@@ -26,6 +26,23 @@ val ending = stream.result.await()
 public as the advanced API. `streamText` reads the run in the scope you pass, so use one that
 outlives the collectors.
 
+## Speech
+
+```kotlin
+// Speech is opt-in: registry.register(AndroidSystemSpeechProvider(context)),
+// from `inderun-system-speech-providers`.
+val voices = indeRun.listVoices(locale = "de-AT")
+
+val playback = indeRun.speak(SpeakOptions("Der Bus kommt.", locale = "de-AT"), lifecycleScope)
+// playback.cancel() stops the audio; result then completes with FinishReason.CANCELLED.
+val ending = playback.result.await()
+```
+
+`speak` compiles to `stream` with playback delivery. `generateSpeech` compiles to `run` with artifact
+delivery and returns an `artifact` to read with `readArtifact` and release with `disposeArtifact`;
+routing refuses it on a provider that can only play. See
+[ADR 018](../../docs/architecture/decisions/018-speech-application-api.md).
+
 `inderun-kotlin` exposes `inderun-contracts`, `inderun-core` and `kotlinx-coroutines-core` as
 `api` dependencies, so its own dependency line is all an app needs to name `TaskRequest`,
 `TaskResult`, the facade's `Flow`s and `Deferred`, and the `Flow<StreamEvent>` from `stream()`.

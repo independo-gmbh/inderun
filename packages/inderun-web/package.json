@@ -62,6 +62,10 @@
     "./system-model": {
       "types": "./dist/system-model.d.ts",
       "default": "./dist/system-model.js"
+    },
+    "./system-speech": {
+      "types": "./dist/system-speech.d.ts",
+      "default": "./dist/system-speech.js"
     }
   },
   "files": [

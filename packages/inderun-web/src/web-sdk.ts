@@ -10,11 +10,15 @@ import {
   OpenAIResponsesProvider,
   type OpenAIProviderOptions
 } from "./providers/openai/provider.js";
-import { ProviderRegistry } from "./core/registry.js";
+import { ProviderRegistry, type ProviderRegistrationOptions } from "./core/registry.js";
 import {
   SystemModelWebProvider,
   type SystemModelProviderOptions
 } from "./providers/system-model/provider.js";
+import {
+  SystemSpeechWebProvider,
+  type SystemSpeechProviderOptions
+} from "./providers/system-speech/provider.js";
 
 /**
  * Configuration for the default Web SDK factory.
@@ -30,13 +34,19 @@ export interface CreateIndeRunWebOptions {
    * Web ONNX Runtime provider configuration registered by the factory, for developer-supplied
    * local models. Registering it is what makes `constraints.privacy = "local_required"` routable.
    */
-  onnx?: OnnxProviderOptions;
+  onnx?: OnnxProviderOptions & ProviderRegistrationOptions;
   /**
    * Web system-model provider configuration registered by the factory, for browser-managed
    * on-device models (for example Chrome's Prompt API). Unlike `onnx`, this provider takes no
    * developer-supplied model: the browser owns model availability, download, and execution.
    */
-  systemModel?: SystemModelProviderOptions;
+  systemModel?: SystemModelProviderOptions & ProviderRegistrationOptions;
+  /**
+   * Browser speech provider configuration registered by the factory, over `speechSynthesis`.
+   * Playback only; pass `{}` for the defaults. Speech is opt-in, because the router probes every
+   * registered provider on every request.
+   */
+  systemSpeech?: SystemSpeechProviderOptions & ProviderRegistrationOptions;
   /**
    * Optional browser host service overrides.
    */
@@ -81,9 +91,9 @@ export type OpenAIFactoryOptions = Omit<OpenAIProviderOptions, "model"> & {
  * @param options - Provider configuration and optional host service overrides.
  */
 export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
-  if (!options.openAI && !options.onnx && !options.systemModel) {
+  if (!options.openAI && !options.onnx && !options.systemModel && !options.systemSpeech) {
     throw new Error(
-      "createIndeRunWeb requires at least one provider configuration (openAI, onnx, and/or systemModel)."
+      "createIndeRunWeb requires at least one provider configuration (openAI, onnx, systemModel, and/or systemSpeech)."
     );
   }
 
@@ -105,7 +115,11 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
   }
 
   if (options.systemModel) {
-    registry.register(new SystemModelWebProvider(options.systemModel));
+    registry.register(new SystemModelWebProvider(options.systemModel), options.systemModel);
+  }
+
+  if (options.systemSpeech) {
+    registry.register(new SystemSpeechWebProvider(options.systemSpeech), options.systemSpeech);
   }
 
   return new IndeRun(registry, createBrowserHostServices(options.hostServices), {

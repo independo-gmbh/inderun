@@ -38,7 +38,7 @@ export const kotlinEnumOverrides = {
     constants: { Cancelled: "CANCELLED", Error: "ERROR", Length: "LENGTH", Stop: "STOP" }
   },
   TaskOutputType: {
-    constants: { Artifact: "ARTIFACT", Playback: "PLAYBACK", Text: "TEXT" }
+    constants: { Artifact: "ARTIFACT", Playback: "PLAYBACK", Prepared: "PREPARED", Text: "TEXT" }
   }
 };
 

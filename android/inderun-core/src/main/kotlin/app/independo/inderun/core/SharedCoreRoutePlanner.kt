@@ -6,10 +6,12 @@ import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.Provider
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderTaskAvailability
 import app.independo.inderun.contracts.ProviderTaskCapability
 import app.independo.inderun.contracts.ProviderVoice
@@ -158,6 +160,26 @@ internal fun buildSharedPlannerInput(
     )
 }
 
+/** The planner input for preparing [task], which has no request and so no envelope to read. */
+internal fun buildPreparationPlannerInput(
+    task: SharedPlannerTask,
+    privacy: Privacy?,
+    online: Boolean,
+    snapshots: List<ProviderSnapshot>,
+): SharedPlannerInput = SharedPlannerInput(
+    interactionMode = InteractionMode.Prepare,
+    modelProfile = null,
+    constraints = SharedPlannerConstraints(privacy = privacy, cloud = null, networkOnline = online),
+    preferences = SharedPlannerPreferences(optimizeFor = null),
+    providers = snapshots.map { snapshot ->
+        SharedPlannerProviderInput(
+            descriptor = snapshot.descriptor,
+            capabilities = streamingAwareCapabilities(snapshot),
+        )
+    },
+    task = task,
+)
+
 /**
  * Projects the request's task onto the requirements the planner can check, through the kind's
  * task profile. A kind without a profile carries the kind alone, which the planner matches
@@ -279,7 +301,8 @@ private fun ProviderTaskCapability.toPlannerJson(): JSONObject = JSONObject()
         "interaction",
         JSONObject()
             .put("run", interaction.run)
-            .put("stream", interaction.stream),
+            .put("stream", interaction.stream)
+            .put("prepare", interaction.prepare),
     )
     .put("cancel", cancel.rawValue)
     .put(
@@ -310,6 +333,7 @@ private fun ProviderTaskAvailability.toPlannerJson(): JSONObject = JSONObject()
     .put("streamingAvailable", streamingAvailable)
     .put("streamingUnavailableReason", streamingUnavailableReason)
     .put("cancellationAvailable", cancellationAvailable)
+    .put("readiness", readiness?.rawValue)
     .put("locales", locales?.let { JSONArray(it) })
     .put(
         "voices",
@@ -317,9 +341,12 @@ private fun ProviderTaskAvailability.toPlannerJson(): JSONObject = JSONObject()
             JSONArray(
                 voices.map { voice ->
                     JSONObject()
+                        .put("id", voice.id)
+                        .put("name", voice.name)
                         .put("locale", voice.locale)
                         .put("gender", voice.gender?.rawValue)
                         .put("networkRequired", voice.networkRequired)
+                        .put("readiness", voice.readiness?.rawValue)
                 },
             )
         },
@@ -348,6 +375,8 @@ private fun SharedPlannerTask.toPlannerJson(): JSONObject = JSONObject()
         "voice",
         voice?.let { voice ->
             JSONObject()
+                .put("id", voice.id)
+                .put("providerId", voice.providerId)
                 .put("gender", voice.gender?.rawValue)
                 .put("requirement", voice.requirement.rawValue)
         },
@@ -397,9 +426,12 @@ private fun JSONArray?.toCandidates(): List<Candidate> {
  * absent rather than fatal, like an unknown reason code.
  */
 private fun JSONObject.toProviderVoice(): ProviderVoice = ProviderVoice(
+    id = optString("id").takeUnless { it.isEmpty() },
+    name = optString("name").takeUnless { it.isEmpty() },
     locale = getString("locale"),
     gender = optString("gender").takeUnless { it.isEmpty() }?.let(VoiceGender::fromRawValue),
     networkRequired = if (has("networkRequired")) getBoolean("networkRequired") else null,
+    readiness = optString("readiness").takeUnless { it.isEmpty() }?.let(ProviderReadiness::fromRawValue),
 )
 
 private fun JSONArray?.toRejectedProviders(): List<SharedPlannerRejectedProvider> {

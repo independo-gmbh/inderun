@@ -39,8 +39,10 @@ A request is described along five axes. Each has one owner and none is inferred 
 | **Output delivery**  | `delivery.mode` on non-text requests                              | `inline` (content in the result, implicit for text), `playback` (a managed, audible effect on the device), `artifact` (retrievable media, #244). |
 | **Execution policy** | `constraints`, `preferences`, `modelProfile`, `authContextRef`    | Unchanged and task-agnostic. A profile may list speech targets as it lists text targets.                                                         |
 
-There is no voice or model registry and no vendor model or voice identifier at the request call site; model profiles
-keep the meaning [api-layering.md](../api-layering.md#model-profiles) gives them.
+There is no voice or model registry and no vendor model identifier at the request call site; model profiles keep the
+meaning [api-layering.md](../api-layering.md#model-profiles) gives them. A voice has one exception, set by
+[ADR 018](./018-speech-application-api.md): an opaque id read from the live catalog at runtime, scoped to its provider,
+and never a literal in source.
 
 ### 2. Request envelope
 

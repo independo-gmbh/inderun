@@ -1,6 +1,6 @@
 import type { TaskRequest } from "@independo/inderun-contracts";
 import { describe, expect, it } from "vitest";
-import { IndeRun, IndeRunException } from "../../index.js";
+import { IndeRun, IndeRunException, prepare } from "../../index.js";
 import { ProviderRegistry, type HostServices, type ProviderAdapter } from "../../provider.js";
 import {
   DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID,
@@ -117,8 +117,46 @@ describe("SystemModelWebProvider descriptor", () => {
       },
       cancel: "soft",
       tasks: ["text_to_text"],
+      taskCapabilities: [
+        {
+          kind: "text_to_text",
+          inputs: ["text"],
+          interaction: { run: true, stream: false },
+          cancel: "soft",
+          outputs: [{ delivery: "inline" }]
+        }
+      ],
       privacy: { dataLeavesDevice: false }
     });
+  });
+
+  it("reports a downloadable model as not yet, and downloads it when allowed", async () => {
+    let kind: "downloadable" | "available" = "downloadable";
+    const runtime = {
+      ...createFixtureSystemModelRuntime(),
+      availability: async () => ({ kind, reason: "the model is downloadable" }),
+      prepare: async (onProgress: (fraction: number) => void) => {
+        onProgress(0.5);
+        kind = "available";
+      }
+    };
+    const provider = new SystemModelWebProvider({ runtime });
+    const registry = new ProviderRegistry();
+    registry.register(provider);
+    const inderun = new IndeRun(registry, createHost());
+
+    await expect(provider.capabilities()).resolves.toMatchObject({
+      available: false,
+      taskCapabilities: [{ readiness: "not_prepared" }]
+    });
+    const progress: unknown[] = [];
+    const { items } = await (
+      await prepare(inderun, { allowDownload: true, onProgress: (step) => progress.push(step) })
+    ).result;
+
+    expect(items).toMatchObject([{ status: "prepared" }]);
+    expect(progress).toMatchObject([{ fractionCompleted: 0.5 }]);
+    await expect(provider.capabilities()).resolves.toMatchObject({ available: true });
   });
 
   it("supports an explicit provider id override", () => {

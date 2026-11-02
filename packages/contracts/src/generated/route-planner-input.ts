@@ -75,7 +75,7 @@ export type Privacy = "local_required" | "local_preferred" | "cloud_allowed" | "
  * produced before this field existed keep their exact Mode-1 semantics. The mode filters
  * eligible providers; it never changes candidate ordering.
  */
-export type InteractionMode = "run" | "stream";
+export type InteractionMode = "run" | "stream" | "prepare";
 
 /**
  * The resolved model profile the request routes within. Absent means the built-in 'auto'
@@ -191,6 +191,12 @@ export type ProviderTaskAvailability = {
      */
     locales?: string[];
     /**
+     * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+     * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+     * even when the provider-level available is false.
+     */
+    readiness?: ProviderReadiness;
+    /**
      * Why the task is unavailable, when available is false.
      */
     reason?: string;
@@ -203,27 +209,56 @@ export type ProviderTaskAvailability = {
      */
     streamingUnavailableReason?: string;
     /**
-     * Voices available for this task right now. Absent means the provider cannot enumerate
-     * them; a request that requires a voice then never routes to it.
+     * Every voice available for this task right now, one entry per voice. Absent means the
+     * provider cannot enumerate them; a request that requires a voice then never routes to it.
      */
     voices?: ProviderVoice[];
     [property: string]: unknown;
 }
 
 /**
- * Provider-neutral traits of one available voice. Carries no provider voice identifier.
+ * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+ * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+ * even when the provider-level available is false.
+ *
+ * How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it
+ * runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has
+ * run. 'preparing': it is being prepared now and cannot run yet.
+ *
+ * How ready the voice is to speak. Absent means 'ready'.
+ */
+export type ProviderReadiness = "ready" | "cold" | "not_prepared" | "preparing";
+
+/**
+ * One available voice: its provider-neutral traits, and an id and name for an application
+ * that lets someone choose it.
  */
 export type ProviderVoice = {
     gender?: VoiceGender;
+    /**
+     * Identifies this voice within its provider, for use as speech.voice.id with
+     * speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
+     * and meaningful nowhere else. Absent when the provider cannot address single voices.
+     */
+    id?: string;
     /**
      * BCP 47 locale the voice speaks.
      */
     locale: string;
     /**
+     * Label for showing the voice to a person, as the platform reports it. Not unique and not
+     * localized; never compare it.
+     */
+    name?: string;
+    /**
      * Whether using the voice sends data off the device. Absent inherits the task's privacy
      * posture.
      */
     networkRequired?: boolean;
+    /**
+     * How ready the voice is to speak. Absent means 'ready'.
+     */
+    readiness?: ProviderReadiness;
     [property: string]: unknown;
 }
 
@@ -452,6 +487,10 @@ export type TaskInputKind = "text" | "image" | "audio";
  */
 export type ProviderTaskInteraction = {
     /**
+     * Whether the provider implements prepare() for this task (ADR 019). Absent means false.
+     */
+    prepare?: boolean;
+    /**
      * Whether the provider supports Mode 1 run for this task.
      */
     run: boolean;
@@ -522,9 +561,10 @@ export type Task = {
      */
     locale?: LocaleRequirement;
     /**
-     * Voice traits the request asks for. Only a 'required' voice can reject a provider; a
-     * 'preferred' one shapes which listed voice the plan binds a candidate to, always within
-     * the request's privacy policy.
+     * The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+     * voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+     * candidate to, always within the request's privacy policy, and a preferred id also ranks
+     * the provider that can bind it ahead of others.
      */
     voice?: VoiceRequirement;
     [property: string]: unknown;
@@ -570,12 +610,21 @@ export type LocaleRequirement = {
 export type LocaleMatch = "exact" | "language";
 
 /**
- * Voice traits the request asks for. Only a 'required' voice can reject a provider; a
- * 'preferred' one shapes which listed voice the plan binds a candidate to, always within
- * the request's privacy policy.
+ * The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+ * voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+ * candidate to, always within the request's privacy policy, and a preferred id also ranks
+ * the provider that can bind it ahead of others.
  */
 export type VoiceRequirement = {
     gender?: VoiceGender;
+    /**
+     * A voice id, compared exactly against the voices of providerId and of no other provider.
+     */
+    id?: string;
+    /**
+     * The provider that id belongs to.
+     */
+    providerId?: string;
     /**
      * 'required' takes part in routing; 'preferred' does not.
      */

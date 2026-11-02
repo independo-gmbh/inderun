@@ -180,6 +180,47 @@ public protocol StreamingProviderAdapter: ProviderAdapter {
 
 // MARK: - Stream run handle
 
+/// What a provider gets for `PreparableProviderAdapter.prepare`: no sink and no commit, because a
+/// preparation produces nothing and makes no sound. Cancelling the consuming task stops it; a
+/// platform download may go on.
+public struct ProviderPrepareContext: Sendable {
+    public let runId: String
+    public let hostServices: HostServices
+    public let task: String
+    /// `nil` lets a speech provider use the device's own language.
+    public let locale: String?
+    /// The voice the plan bound, as for a run.
+    public let voice: ProviderVoice?
+
+    public init(runId: String, hostServices: HostServices, task: String, locale: String? = nil, voice: ProviderVoice? = nil) {
+        self.runId = runId
+        self.hostServices = hostServices
+        self.task = task
+        self.locale = locale
+        self.voice = voice
+    }
+}
+
+/// One step of a preparation, as a fraction from 0 to 1 when the platform reports one.
+public struct PreparationProgress: Sendable {
+    public let fractionCompleted: Double?
+
+    public init(fractionCompleted: Double? = nil) {
+        self.fractionCompleted = fractionCompleted
+    }
+}
+
+/// A provider that can make something ready ahead of a run (ADR 019). Declared per task with
+/// `interaction.prepare`; a provider that declares it must implement this, and reports what needs
+/// doing through `readiness` in `capabilities`.
+///
+/// The engine calls this only when there is work, and only for a download that is permitted, so a
+/// call to it means "go". Finishing the stream means it succeeded; finish it with an error to fail.
+/// Files stay the platform's: IndeRun stores nothing.
+public protocol PreparableProviderAdapter: ProviderAdapter {
+    func prepare(context: ProviderPrepareContext) -> AsyncThrowingStream<PreparationProgress, Error>
+}
+
 /// What `IndeRun.stream()` returns: the run's identity, its canonical event
 /// sequence, and a cancel hook.
 ///

@@ -42,6 +42,9 @@ dependencies {
     // The ML Kit engine streams below need GenAiException to drive the provider's
     // policy-rejection path; :inderun-mlkit-providers keeps ML Kit off its own API.
     testImplementation("com.google.mlkit:genai-common:1.0.0-beta4")
+    // Speech is opt-in, so this is a test dependency only: the provider's engine runs here
+    // because this module is the one wired to the native route core.
+    testImplementation(project(":inderun-system-speech-providers"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.test:core:1.7.0")

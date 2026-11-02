@@ -60,6 +60,10 @@ canonical `TaskRequest`. `run()` and `stream()` stay public as the advanced, tas
 when you build requests programmatically or need the full event sequence. Both layers share one engine, so routing,
 fallback, cancellation, and errors behave identically. See [API layering](docs/architecture/api-layering.md).
 
+`speak()`, `generateSpeech()` and `listVoices()` are the same idea for text-to-speech: `speak()` plays through the device
+and hands back a completion and a `cancel()`, `generateSpeech()` returns retrievable audio where a provider can produce
+it, and `listVoices()` reads the live voice catalog.
+
 ### When to use the advanced API
 
 Start with `generateText()` / `streamText()`. Switch to `TaskRequest` with `run()` / `stream()` when you need
@@ -305,6 +309,10 @@ println("${result.text} (${result.provenance?.locality})")
 The OpenAI-compatible cloud provider is available on every platform, and reaches any Responses-API endpoint —
 including [OpenRouter](docs/openrouter.md). On-device execution additionally requires the capabilities above and is
 selected automatically by routing.
+
+System text-to-speech is opt-in on each platform: `AVSpeechSynthesizer` on iOS and macOS, `TextToSpeech` on Android, and
+`speechSynthesis` on the Web, which can only play. See the
+[system speech family doc](docs/architecture/system-speech-provider-family.md).
 
 ## Credentials & security
 

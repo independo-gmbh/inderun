@@ -199,7 +199,7 @@ export const taskRequestSchema = {
         },
         "voice": {
           "title": "SpeechVoice",
-          "description": "Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to fail; a 'required' one takes part in routing and is never relaxed silently. Carries no provider voice identifier.",
+          "description": "The voice to speak with: one catalog voice by providerId and id, or provider-neutral traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to fail; a 'required' one takes part in routing and is never relaxed silently.",
           "type": "object",
           "additionalProperties": true,
           "if": {
@@ -213,17 +213,41 @@ export const taskRequestSchema = {
             ]
           },
           "then": {
-            "required": [
-              "gender"
+            "anyOf": [
+              {
+                "required": [
+                  "id"
+                ]
+              },
+              {
+                "required": [
+                  "gender"
+                ]
+              }
+            ]
+          },
+          "dependentRequired": {
+            "id": [
+              "providerId"
             ]
           },
           "properties": {
+            "id": {
+              "description": "A voice id read from listVoices(), never written by hand. Opaque, and meaningful only on providerId and the device that listed it, so a stored id can go stale: a 'preferred' one then falls back to the other traits.",
+              "type": "string",
+              "minLength": 1
+            },
+            "providerId": {
+              "description": "The provider that listed id. Required with id, because voice ids share no namespace across providers.",
+              "type": "string",
+              "minLength": 1
+            },
             "gender": {
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             },
             "requirement": {
               "title": "RequirementLevel",
-              "description": "'preferred' (default) or 'required'. A required voice must name at least one trait.",
+              "description": "'preferred' (default) or 'required'. A required voice must name an id or a trait.",
               "enum": [
                 "required",
                 "preferred"
@@ -787,13 +811,28 @@ export const routePlannerInputSchema = {
         },
         "voice": {
           "title": "VoiceRequirement",
-          "description": "Voice traits the request asks for. Only a 'required' voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a candidate to, always within the request's privacy policy.",
+          "description": "The voice the request asks for, by providerId and id, or by traits. Only a 'required' voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a candidate to, always within the request's privacy policy, and a preferred id also ranks the provider that can bind it ahead of others.",
           "type": "object",
           "additionalProperties": true,
           "required": [
             "requirement"
           ],
+          "dependentRequired": {
+            "id": [
+              "providerId"
+            ]
+          },
           "properties": {
+            "id": {
+              "description": "A voice id, compared exactly against the voices of providerId and of no other provider.",
+              "type": "string",
+              "minLength": 1
+            },
+            "providerId": {
+              "description": "The provider that id belongs to.",
+              "type": "string",
+              "minLength": 1
+            },
             "gender": {
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             },
@@ -813,7 +852,8 @@ export const routePlannerInputSchema = {
       "description": "Interaction mode the caller is requesting. Absent means 'run' (Mode 1), so planner inputs produced before this field existed keep their exact Mode-1 semantics. The mode filters eligible providers; it never changes candidate ordering.",
       "enum": [
         "run",
-        "stream"
+        "stream",
+        "prepare"
       ]
     },
     "constraints": {
@@ -957,7 +997,7 @@ export const routePlanSchema = {
             "minimum": 0
           },
           "voice": {
-            "description": "The voice this candidate must use if it is attempted, chosen by the planner from the provider's dynamic voice inventory. It is the best voice that satisfies the request's locale, required voice traits and privacy — under local-required privacy always one that keeps data on the device — ranked by preferred gender, then exact locale region, then on-device before network. The adapter must use a voice with exactly these traits. Absent when the request names no locale or voice, or the provider does not list its voices; the adapter then chooses itself under the same rules.",
+            "description": "The voice this candidate must use if it is attempted, chosen by the planner from the provider's dynamic voice inventory. It is the best voice that satisfies the request's locale, required voice traits and privacy — under local-required privacy always one that keeps data on the device — ranked by preferred id, then preferred gender, then exact locale region, then on-device before network. The adapter must use the voice with this id, or one with exactly these traits when the voice has no id. Absent when the request names no locale or voice, or the provider does not list its voices; the adapter then chooses itself under the same rules.",
             "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voice"
           }
         }
@@ -989,7 +1029,7 @@ export const routePlanSchema = {
               ],
               "properties": {
                 "code": {
-                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider. 'input_not_supported', 'output_delivery_not_supported', 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the provider's task capability lacks an input kind, output delivery, media type, locale or voice the request requires.",
+                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider. 'input_not_supported', 'output_delivery_not_supported', 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the provider's task capability lacks an input kind, output delivery, media type, locale or voice the request requires. 'prepare_not_supported' means the task capability declares no prepare(). 'not_ready' means the provider, task or required voice exists but is not prepared yet, so prepare() can make it available.",
                   "enum": [
                     "task_not_supported",
                     "run_not_supported",
@@ -1004,7 +1044,9 @@ export const routePlanSchema = {
                     "output_delivery_not_supported",
                     "output_format_not_supported",
                     "locale_not_supported",
-                    "voice_not_available"
+                    "voice_not_available",
+                    "prepare_not_supported",
+                    "not_ready"
                   ]
                 },
                 "message": {
@@ -1479,6 +1521,69 @@ export const streamEventSchema = {
           "minLength": 1
         },
         "sequence": {
+          "description": "Zero-based, monotonically increasing event index within this run. The ordering authority; do not rely on delivery/arrival order.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp": {
+          "description": "Wall-clock event timestamp in Unix epoch milliseconds.",
+          "type": "number",
+          "minimum": 0
+        },
+        "type": {
+          "description": "Progress of a prepare() run (ADR 019).",
+          "const": "preparation_progress"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "providerId",
+            "task"
+          ],
+          "properties": {
+            "providerId": {
+              "description": "The provider being prepared.",
+              "type": "string",
+              "minLength": 1
+            },
+            "task": {
+              "description": "The task kind being prepared.",
+              "type": "string",
+              "minLength": 1
+            },
+            "fractionCompleted": {
+              "description": "How much of this item is done, from 0 to 1. Absent when the platform reports no fraction.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "schemaVersion",
+        "runId",
+        "sequence",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "description": "Contract schema version used to interpret this event payload.",
+          "const": "1.0"
+        },
+        "runId": {
+          "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
           "description": "Zero-based, monotonically increasing event index within this run. This is always the highest sequence number for the run: the terminal event.",
           "type": "integer",
           "minimum": 0
@@ -1736,6 +1841,7 @@ export const streamEventSchema = {
               "content_snapshot",
               "lifecycle",
               "diagnostic",
+              "preparation_progress",
               "terminal"
             ]
           }
@@ -2237,6 +2343,10 @@ export const providerDescriptorSchema = {
             "stream": {
               "description": "Whether the provider supports Mode 2 stream for this task.",
               "type": "boolean"
+            },
+            "prepare": {
+              "description": "Whether the provider implements prepare() for this task (ADR 019). Absent means false.",
+              "type": "boolean"
             }
           }
         },
@@ -2388,6 +2498,10 @@ export const providerDynamicCapabilitiesSchema = {
           "description": "Whether cancellation is honored for this task right now. Absent inherits. Never null.",
           "type": "boolean"
         },
+        "readiness": {
+          "description": "How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared' or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides even when the provider-level available is false.",
+          "$ref": "#/$defs/readiness"
+        },
         "locales": {
           "description": "BCP 47 locales available for this task right now. Absent means the provider cannot enumerate them.",
           "type": "array",
@@ -2397,7 +2511,7 @@ export const providerDynamicCapabilitiesSchema = {
           }
         },
         "voices": {
-          "description": "Voices available for this task right now. Absent means the provider cannot enumerate them; a request that requires a voice then never routes to it.",
+          "description": "Every voice available for this task right now, one entry per voice. Absent means the provider cannot enumerate them; a request that requires a voice then never routes to it.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/voice"
@@ -2407,13 +2521,23 @@ export const providerDynamicCapabilitiesSchema = {
     },
     "voice": {
       "title": "ProviderVoice",
-      "description": "Provider-neutral traits of one available voice. Carries no provider voice identifier.",
+      "description": "One available voice: its provider-neutral traits, and an id and name for an application that lets someone choose it.",
       "type": "object",
       "additionalProperties": true,
       "required": [
         "locale"
       ],
       "properties": {
+        "id": {
+          "description": "Identifies this voice within its provider, for use as speech.voice.id with speech.voice.providerId. Opaque: stable on this device while the voice stays installed, and meaningful nowhere else. Absent when the provider cannot address single voices.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Label for showing the voice to a person, as the platform reports it. Not unique and not localized; never compare it.",
+          "type": "string",
+          "minLength": 1
+        },
         "locale": {
           "description": "BCP 47 locale the voice speaks.",
           "type": "string",
@@ -2425,8 +2549,22 @@ export const providerDynamicCapabilitiesSchema = {
         "networkRequired": {
           "description": "Whether using the voice sends data off the device. Absent inherits the task's privacy posture.",
           "type": "boolean"
+        },
+        "readiness": {
+          "description": "How ready the voice is to speak. Absent means 'ready'.",
+          "$ref": "#/$defs/readiness"
         }
       }
+    },
+    "readiness": {
+      "title": "ProviderReadiness",
+      "description": "How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has run. 'preparing': it is being prepared now and cannot run yet.",
+      "enum": [
+        "ready",
+        "cold",
+        "not_prepared",
+        "preparing"
+      ]
     },
     "voiceGender": {
       "title": "VoiceGender",
@@ -2435,6 +2573,82 @@ export const providerDynamicCapabilitiesSchema = {
         "female",
         "male",
         "neutral"
+      ]
+    }
+  }
+} as const;
+
+export const prepareRequestSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/prepare-request.schema.json",
+  "title": "PrepareRequest",
+  "description": "Optional scope for IndeRunApi.prepare (ADR 019). Every field is optional: an empty request covers every registered provider and task. It carries no user content.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "requestId": {
+      "description": "Fixes the run id, for correlation.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tasks": {
+      "description": "Task kinds to prepare. Absent means every task a registered provider can prepare.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "locale": {
+      "description": "BCP 47 tag of the language to prepare. Absent lets a speech provider use the device's own language.",
+      "type": "string",
+      "minLength": 1
+    },
+    "localeMatch": {
+      "title": "LocaleMatch",
+      "description": "How locale compares: 'language' (default) or 'exact'.",
+      "enum": [
+        "exact",
+        "language"
+      ]
+    },
+    "voice": {
+      "title": "PrepareVoice",
+      "description": "A voice to prepare, as for a speech request.",
+      "type": "object",
+      "additionalProperties": true,
+      "dependentRequired": {
+        "id": [
+          "providerId"
+        ]
+      },
+      "properties": {
+        "id": {
+          "description": "A voice id read from listVoices().",
+          "type": "string",
+          "minLength": 1
+        },
+        "providerId": {
+          "description": "The provider that listed id.",
+          "type": "string",
+          "minLength": 1
+        },
+        "gender": {
+          "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+        }
+      }
+    },
+    "allowDownload": {
+      "description": "Lets this call start a platform's own download, whatever autoDownload says at registration. Call it from a user's decision. Absent follows autoDownload.",
+      "type": "boolean"
+    },
+    "privacy": {
+      "description": "The privacy policy of the runs this precedes.",
+      "enum": [
+        "local_required",
+        "local_preferred",
+        "cloud_allowed",
+        "cloud_required"
       ]
     }
   }
@@ -2521,16 +2735,31 @@ export const taskOutputSchema = {
           "artifact"
         ]
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "prepared"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "preparation"
+        ]
+      }
     }
   ],
   "properties": {
     "type": {
       "title": "TaskOutputType",
-      "description": "The content representation: 'text', 'playback' or 'artifact'.",
+      "description": "The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare() run, carries no content, and lists each item in 'preparation'.",
       "enum": [
         "text",
         "playback",
-        "artifact"
+        "artifact",
+        "prepared"
       ]
     },
     "text": {
@@ -2554,9 +2783,55 @@ export const taskOutputSchema = {
       "description": "The retrievable media the run produced. Required when type is 'artifact'.",
       "$ref": "media-artifact.schema.json"
     },
+    "preparation": {
+      "description": "What a prepare() run did, one item per provider and task. Required when type is 'prepared'. One failed item does not fail the run.",
+      "type": "array",
+      "items": {
+        "title": "PreparationItem",
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "providerId",
+          "task",
+          "status"
+        ],
+        "properties": {
+          "providerId": {
+            "description": "The provider this item belongs to.",
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "description": "The task kind this item belongs to.",
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "title": "PreparationStatus",
+            "description": "'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it needs a download that neither autoDownload nor allowDownload permits. 'failed': see reason.",
+            "enum": [
+              "prepared",
+              "already_ready",
+              "skipped",
+              "failed"
+            ]
+          },
+          "reason": {
+            "description": "Why the item was skipped or failed.",
+            "type": "string",
+            "minLength": 1
+          },
+          "voiceId": {
+            "description": "The voice this item prepared, when one was bound.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "speech": {
       "title": "SpeechOutput",
-      "description": "The locale and voice traits a text-to-speech run actually used, so an unmet preference is visible without being an error.",
+      "description": "The locale and voice a text-to-speech run actually used, so an unmet preference is visible without being an error.",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -2570,10 +2845,20 @@ export const taskOutputSchema = {
         },
         "voice": {
           "title": "SpeechOutputVoice",
-          "description": "Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.",
+          "description": "The voice that spoke, as the catalog lists it.",
           "type": "object",
           "additionalProperties": true,
           "properties": {
+            "id": {
+              "description": "The voice's id, when its provider lists one.",
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "description": "The voice's display label, when its provider lists one.",
+              "type": "string",
+              "minLength": 1
+            },
             "gender": {
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             }
@@ -2777,7 +3062,9 @@ export const executionProvenanceSchema = {
                 "output_delivery_not_supported",
                 "output_format_not_supported",
                 "locale_not_supported",
-                "voice_not_available"
+                "voice_not_available",
+                "prepare_not_supported",
+                "not_ready"
               ]
             }
           }

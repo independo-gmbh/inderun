@@ -41,3 +41,7 @@ inderun-openai-providers compile app.independo.inderun:inderun-core
 inderun-openai-providers compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-openai-providers compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-openai-providers runtime org.json:json
+inderun-system-speech-providers compile app.independo.inderun:inderun-contracts
+inderun-system-speech-providers compile app.independo.inderun:inderun-core
+inderun-system-speech-providers compile org.jetbrains.kotlin:kotlin-stdlib
+inderun-system-speech-providers compile org.jetbrains.kotlinx:kotlinx-coroutines-core

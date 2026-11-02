@@ -1,7 +1,7 @@
 //! Deterministic route-planning algorithm.
 //!
 //! [`plan_route`] sorts the candidate providers by placement, model-profile,
-//! preference and locale rank, filters out any that violate the request
+//! preference, voice and locale rank, filters out any that violate the request
 //! constraints, binds each candidate to the voice it must use when the
 //! provider lists its voices, and produces a [`RoutePlan`] with a stable
 //! selection plus an inspectable explanation.
@@ -34,10 +34,19 @@
 //!   exception: unknown locales are not rejected (the provider must refuse
 //!   before committing), but a required voice or media type that the provider
 //!   does not declare is, because a hard requirement must be checkable.
-//! - Preferences rank or bind, never reject. The locale region ranks after
-//!   every explicit priority; a preferred voice only shapes which listed voice
-//!   a candidate is bound to, and that voice is always chosen inside the
-//!   privacy policy, so `local_required` binds the voice that speaks.
+//! - Preferences rank or bind, never reject. A preferred voice id and then the
+//!   locale region rank after every explicit priority; a preferred voice
+//!   otherwise only shapes which listed voice a candidate is bound to, and that
+//!   voice is always chosen inside the privacy policy, so `local_required`
+//!   binds the voice that speaks.
+//! - A provider listing voices is as private as the voice it would be bound to,
+//!   so preferring privacy never ranks a network voice with an on-device one. A
+//!   voice can only narrow the task's posture: the hard `local_required` check
+//!   stays on the provider's declaration.
+//! - Readiness decides whether something can run now, never what ranks first.
+//!   A voice that is not prepared cannot be bound for a run. In `prepare` mode
+//!   it can, so an application can make it ready, and it ranks behind ready
+//!   voices unless the request names it, so prepare warms what a run would use.
 //! - `infer_failure_code` keeps `offline` ahead of `capability_mismatch`: an
 //!   offline host is the more actionable diagnostic even when the surviving
 //!   providers also failed a mode check.
@@ -60,7 +69,7 @@ pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
             candidates.push(Candidate {
                 provider_id: provider.descriptor.id.clone(),
                 order: candidates.len() as i64,
-                voice: select_voice(provider, &input),
+                voice: select_voice(provider, &input).cloned(),
             });
         } else {
             rejected_providers.push(RejectedProvider {
@@ -142,13 +151,32 @@ fn compare_inputs(left: &Provider, right: &Provider, input: &RoutePlannerInput) 
         .then_with(|| left.descriptor.id.cmp(&right.descriptor.id))
 }
 
-fn priority_tuple(provider: &Provider, input: &RoutePlannerInput) -> (u8, usize, u8, u8) {
+fn priority_tuple(provider: &Provider, input: &RoutePlannerInput) -> (u8, usize, u8, u8, u8) {
     (
         placement_rank(provider, input),
         profile_rank(provider, input.model_profile.as_ref()),
         preference_rank(provider, input),
+        voice_rank(provider, input),
         locale_rank(provider, input),
     )
+}
+
+/// A voice id belongs to one provider, so that provider ranks ahead of those
+/// that would only substitute another voice, as long as it can bind the id
+/// inside the privacy policy. A request without an id ranks everyone 0.
+fn voice_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
+    let names_a_voice = input
+        .task
+        .voice
+        .as_ref()
+        .is_some_and(|voice| voice.id.is_some());
+    if !names_a_voice {
+        return 0;
+    }
+    let binds_it = requested_voice_id(provider, input).is_some_and(|id| {
+        select_voice(provider, input).is_some_and(|voice| voice.id.as_ref() == Some(id))
+    });
+    if binds_it { 0 } else { 1 }
 }
 
 /// The requested locale's region is a preference under `language` matching, so
@@ -179,9 +207,14 @@ fn locale_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
 /// Picks the voice a candidate must use, so the planner's privacy decision
 /// binds the voice that actually speaks rather than only the provider. Only
 /// voices that satisfy the request's locale, required traits and privacy
-/// qualify; among them a preferred gender wins, then the exact locale region,
-/// then on-device before network, then the provider's own listing order.
-fn select_voice(provider: &Provider, input: &RoutePlannerInput) -> Option<ProviderVoice> {
+/// qualify; among them, on-device before network when the request prefers
+/// privacy, then a preferred id, then a preferred gender, then the exact locale
+/// region, then on-device before network, then the provider's own listing
+/// order.
+fn select_voice<'a>(
+    provider: &'a Provider,
+    input: &RoutePlannerInput,
+) -> Option<&'a ProviderVoice> {
     if input.task.locale.is_none() && input.task.voice.is_none() {
         return None;
     }
@@ -192,13 +225,22 @@ fn select_voice(provider: &Provider, input: &RoutePlannerInput) -> Option<Provid
         .voice
         .as_ref()
         .and_then(|voice| voice.gender.as_ref());
+    let preferred_id = requested_voice_id(provider, input);
+    let prefers_privacy = prefers_privacy(input);
 
     task.voices()?
         .iter()
-        .filter(|voice| voice_fits(voice, input) && voice_is_usable(voice, input, private))
+        .filter(|voice| {
+            voice_fits(voice, &provider.descriptor.id, input)
+                && voice_is_usable(voice, input, private)
+                && (prepares(input) || voice_is_ready(voice))
+        })
         .min_by_key(|voice| {
             (
+                prefers_privacy && !voice_is_local(voice, private),
+                preferred_id.is_some_and(|id| voice.id.as_ref() != Some(id)),
                 preferred_gender.is_some_and(|gender| voice.gender.as_ref() != Some(gender)),
+                !voice_is_ready(voice),
                 input
                     .task
                     .locale
@@ -207,12 +249,42 @@ fn select_voice(provider: &Provider, input: &RoutePlannerInput) -> Option<Provid
                 !voice_is_local(voice, private),
             )
         })
-        .cloned()
 }
 
-/// Whether `voice` satisfies the request's locale and required voice traits.
-/// A preferred trait is never a filter.
-fn voice_fits(voice: &ProviderVoice, input: &RoutePlannerInput) -> bool {
+/// The voice id the request names on this provider. Voice ids share no
+/// namespace, so an id scoped to another provider means nothing here.
+fn requested_voice_id<'a>(provider: &Provider, input: &'a RoutePlannerInput) -> Option<&'a String> {
+    let voice = input.task.voice.as_ref()?;
+    let id = voice.id.as_ref()?;
+    (voice.provider_id.as_ref() == Some(&provider.descriptor.id)).then_some(id)
+}
+
+/// Whether `voice` can speak now. A `cold` voice can, only slower.
+fn voice_is_ready(voice: &ProviderVoice) -> bool {
+    !is_unprepared(voice.readiness.as_ref())
+}
+
+fn is_unprepared(readiness: Option<&ProviderReadiness>) -> bool {
+    matches!(
+        readiness,
+        Some(ProviderReadiness::NotPrepared | ProviderReadiness::Preparing)
+    )
+}
+
+fn prepares(input: &RoutePlannerInput) -> bool {
+    matches!(input.interaction_mode, Some(InteractionMode::Prepare))
+}
+
+/// Whether the request asks for privacy without demanding it.
+fn prefers_privacy(input: &RoutePlannerInput) -> bool {
+    matches!(input.constraints.privacy, Some(Privacy::LocalPreferred))
+        || matches!(input.preferences.optimize_for, Some(OptimizeFor::Privacy))
+}
+
+/// Whether `voice`, listed by `provider_id`, satisfies the request's locale,
+/// required voice id and required traits. A preferred id or trait is never a
+/// filter.
+fn voice_fits(voice: &ProviderVoice, provider_id: &str, input: &RoutePlannerInput) -> bool {
     let locale_fits = input
         .task
         .locale
@@ -220,10 +292,13 @@ fn voice_fits(voice: &ProviderVoice, input: &RoutePlannerInput) -> bool {
         .is_none_or(|locale| locale_matches(&voice.locale, locale));
     let traits_fit = input.task.voice.as_ref().is_none_or(|requirement| {
         requirement.requirement != RequirementLevel::Required
-            || requirement
+            || (requirement.id.as_ref().is_none_or(|id| {
+                requirement.provider_id.as_deref() == Some(provider_id)
+                    && voice.id.as_ref() == Some(id)
+            }) && requirement
                 .gender
                 .as_ref()
-                .is_none_or(|gender| voice.gender.as_ref() == Some(gender))
+                .is_none_or(|gender| voice.gender.as_ref() == Some(gender)))
     });
     locale_fits && traits_fit
 }
@@ -270,7 +345,7 @@ fn placement_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
         }
         Some(Cloud::Allowed) | None => match constraints.privacy {
             Some(Privacy::LocalRequired) | Some(Privacy::LocalPreferred) => {
-                if is_data_private(provider, &input.task.kind) {
+                if keeps_request_private(provider, input) {
                     0
                 } else {
                     1
@@ -291,7 +366,7 @@ fn placement_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
 fn preference_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
     match input.preferences.optimize_for {
         Some(OptimizeFor::Privacy) => {
-            if is_data_private(provider, &input.task.kind) {
+            if keeps_request_private(provider, input) {
                 0
             } else {
                 1
@@ -327,6 +402,13 @@ fn is_data_private(provider: &Provider, kind: &str) -> bool {
         .unwrap_or(descriptor.provider_descriptor_type != ProviderType::Cloud)
 }
 
+/// Whether serving this request keeps its content on the device: the task's
+/// posture, narrowed by the voice the candidate would be bound to.
+fn keeps_request_private(provider: &Provider, input: &RoutePlannerInput) -> bool {
+    let private = is_data_private(provider, &input.task.kind);
+    private && select_voice(provider, input).is_none_or(|voice| voice_is_local(voice, private))
+}
+
 /// The only task a descriptor without `taskCapabilities` is routed for.
 const LEGACY_TASK: &str = "text_to_text";
 
@@ -337,6 +419,7 @@ struct ResolvedTask<'a> {
     inputs: Vec<TaskInputKind>,
     run: bool,
     stream: bool,
+    prepare: bool,
     outputs: Vec<ProviderTaskOutput>,
     static_locales: Option<&'a [String]>,
     dynamic: Option<&'a ProviderTaskAvailability>,
@@ -376,6 +459,7 @@ fn resolve_task<'a>(provider: &'a Provider, kind: &str) -> Option<ResolvedTask<'
                 inputs: entry.inputs.clone(),
                 run: entry.interaction.run,
                 stream: entry.interaction.stream,
+                prepare: entry.interaction.prepare.unwrap_or(false),
                 outputs: entry.outputs.clone(),
                 static_locales: entry.locales.as_deref(),
                 dynamic,
@@ -386,6 +470,7 @@ fn resolve_task<'a>(provider: &'a Provider, kind: &str) -> Option<ResolvedTask<'
                 inputs: vec![TaskInputKind::Text],
                 run: descriptor.supports.run,
                 stream: descriptor.supports.streaming,
+                prepare: false,
                 outputs: vec![ProviderTaskOutput {
                     delivery: OutputDelivery::Inline,
                     media_types: None,
@@ -523,7 +608,18 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
         None => (descriptor.supports.run, descriptor.supports.streaming),
     };
 
-    if !wants_stream && !run_supported {
+    let prepares = prepares(input);
+    if prepares {
+        if !task.as_ref().is_some_and(|task| task.prepare) {
+            reasons.push(Reason {
+                code: Code::PrepareNotSupported,
+                message: format!(
+                    "Provider '{}' does not support prepare(){}.",
+                    descriptor.id, for_task
+                ),
+            });
+        }
+    } else if !wants_stream && !run_supported {
         reasons.push(Reason {
             code: Code::RunNotSupported,
             message: format!(
@@ -638,6 +734,19 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
                                 descriptor.id, locale.tag
                             ),
                         });
+                    } else if !prepares
+                        && !voices
+                            .iter()
+                            .filter(fits)
+                            .any(|voice| usable(voice) && voice_is_ready(voice))
+                    {
+                        reasons.push(Reason {
+                            code: Code::NotReady,
+                            message: format!(
+                                "Provider '{}' has no prepared voice for locale '{}' yet.",
+                                descriptor.id, locale.tag
+                            ),
+                        });
                     }
                 }
                 None => {
@@ -668,12 +777,13 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
                     ),
                 }),
                 Some(voices) => {
-                    let fits = |candidate: &&ProviderVoice| voice_fits(candidate, input);
+                    let fits =
+                        |candidate: &&ProviderVoice| voice_fits(candidate, &descriptor.id, input);
                     if !voices.iter().any(|candidate| fits(&candidate)) {
                         reasons.push(Reason {
                             code: Code::VoiceNotAvailable,
                             message: format!(
-                                "Provider '{}' has no voice with the required traits for task '{}'.",
+                                "Provider '{}' has no voice with the required id or traits for task '{}'.",
                                 descriptor.id, kind
                             ),
                         });
@@ -682,6 +792,19 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
                             code: Code::PrivacyConstraint,
                             message: format!(
                                 "Provider '{}' has the required voice only as one that sends data off the device, which local-required privacy excludes.",
+                                descriptor.id
+                            ),
+                        });
+                    } else if !prepares
+                        && !voices
+                            .iter()
+                            .filter(fits)
+                            .any(|voice| usable(voice) && voice_is_ready(voice))
+                    {
+                        reasons.push(Reason {
+                            code: Code::NotReady,
+                            message: format!(
+                                "Provider '{}' has the required voice, but it is not prepared yet.",
                                 descriptor.id
                             ),
                         });
@@ -749,14 +872,32 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
         });
     }
 
-    if !capabilities.available {
+    let task_dynamic = task.as_ref().and_then(|task| task.dynamic);
+    let unprepared = task_dynamic.is_some_and(|dynamic| is_unprepared(dynamic.readiness.as_ref()));
+    if unprepared {
+        // Prepare exists for this state; every other mode has to wait for it.
+        if !prepares {
+            reasons.push(Reason {
+                code: Code::NotReady,
+                message: task_dynamic
+                    .and_then(|dynamic| dynamic.reason.clone())
+                    .or_else(|| capabilities.reason.clone())
+                    .unwrap_or_else(|| {
+                        format!(
+                            "Provider '{}' is not prepared for task '{}' yet.",
+                            descriptor.id, kind
+                        )
+                    }),
+            });
+        }
+    } else if !capabilities.available {
         reasons.push(Reason {
             code: Code::CapabilityUnavailable,
             message: capabilities.reason.clone().unwrap_or_else(|| {
                 format!("Provider '{}' is currently unavailable.", descriptor.id)
             }),
         });
-    } else if let Some(dynamic) = task.as_ref().and_then(|task| task.dynamic)
+    } else if let Some(dynamic) = task_dynamic
         && matches!(dynamic.available, Some(false))
     {
         reasons.push(Reason {

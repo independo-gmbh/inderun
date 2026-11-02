@@ -527,6 +527,10 @@ class AndroidMlKitGenAiProviderStreamTest {
         private val gateBefore: Int? = null,
         private val parkForever: Boolean = false,
     ) : AndroidMlKitGenAiRuntime {
+        override suspend fun warmup() = Unit
+
+        override fun download(): kotlinx.coroutines.flow.Flow<Double?> = kotlinx.coroutines.flow.emptyFlow()
+
         var lastPrompt: String? = null
             private set
         var lastOptions: AndroidMlKitGenAiGenerationOptions? = null
