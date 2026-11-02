@@ -62,7 +62,9 @@ apply to Swift: the extractor follows the compiler, so every file `swift build` 
 analyzed, including the checkouts under `.build/`. The Swift job therefore analyzes without
 uploading, drops results located under `.build/` from the SARIF with `jq`, and uploads the
 rest under the same category. Findings in dependencies are not reported anywhere as a
-result; Dependabot's `swift` updates are what keep those dependencies current.
+result, and Dependabot does not update them either: its `swift` run fails because its proxy
+blocks the `download.onnxruntime.ai` binary targets (`egress not allowlisted`). Until that
+changes, `Package.resolved` only moves when someone runs `swift package update` by hand.
 
 ## Branch Protection
 
