@@ -110,7 +110,7 @@
           "transport": "system_service",
           "supports": {
             "run": true,
-            "streaming": false,
+            "streaming": true,
             "realtime": false,
             "tools": false,
             "reasoningEvents": false,
@@ -125,12 +125,16 @@
               "inputs": ["text"],
               "interaction": {
                 "run": true,
-                "stream": false
+                "stream": true
               },
               "cancel": "hard",
               "outputs": [
                 {
                   "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
                 }
               ]
             }

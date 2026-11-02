@@ -1,0 +1,329 @@
+import SwiftUI
+
+struct TextScreen: View {
+    @ObservedObject var viewModel: DemoViewModel
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    introSection
+                    privacySection
+                    promptSection
+                    actionSection
+                    streamSection
+                    resultSection
+                    routingDecisionSection
+                    availabilitySection
+                    cloudSettingsSection
+                    onnxSettingsSection
+                    limitationsSection
+                }
+                .padding(20)
+            }
+            .navigationTitle("Text to Text")
+        }
+    }
+
+    private var introSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Run the same text request through IndeRun's capability-based provider routing: Apple Foundation Models on-device, an ONNX Runtime local provider, or a cloud endpoint exposed through the demo proxy.")
+                .font(.body)
+            Text("IndeRun picks the provider automatically from your privacy preference and each provider's reported capabilities.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var privacySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Privacy Preference")
+                .font(.headline)
+            Picker("Privacy Preference", selection: $viewModel.privacy) {
+                ForEach(DemoViewModel.PrivacyPreference.allCases) { preference in
+                    Text(preference.title).tag(preference)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private var cloudSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Cloud Settings")
+                .font(.headline)
+            TextField("Endpoint URL", text: $viewModel.cloudEndpointURL, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                .autocorrectionDisabled()
+
+            TextField("Model", text: $viewModel.cloudModel)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+            Text(viewModel.cloudSettingsHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var onnxSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("ONNX Local Settings")
+                .font(.headline)
+            Picker("ONNX Model", selection: $viewModel.onnxModelSelection) {
+                ForEach(DemoOnnxModelSelection.allCases) { selection in
+                    Text(selection.title).tag(selection)
+                }
+            }
+            .pickerStyle(.menu)
+
+            if case .downloading(let progress) = viewModel.onnxDownloadState {
+                ProgressView(value: progress)
+            }
+
+            Text(viewModel.onnxSettingsHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var promptSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Prompt")
+                .font(.headline)
+            TextEditor(text: $viewModel.prompt)
+                .frame(minHeight: 160)
+                .padding(10)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                }
+                .autocorrectionDisabled()
+        }
+    }
+
+    private var actionSection: some View {
+        HStack(spacing: 12) {
+            Button {
+                Task {
+                    await viewModel.runPrompt()
+                }
+            } label: {
+                if viewModel.isRunning {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Text("Run")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!viewModel.canRun)
+
+            if viewModel.isStreaming {
+                Button(role: .destructive) {
+                    viewModel.cancelStream()
+                } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button {
+                    Task {
+                        await viewModel.streamPrompt()
+                    }
+                } label: {
+                    Text("Stream")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!viewModel.canRun)
+            }
+        }
+    }
+
+    private var streamSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Streaming (Mode 2)")
+                .font(.headline)
+
+            if viewModel.isStreaming || !viewModel.streamedText.isEmpty || viewModel.streamOutcome != nil {
+                resultPanel(
+                    title: viewModel.isStreaming ? "Streaming..." : "Streamed Output",
+                    body: viewModel.streamedText.isEmpty ? "Waiting for the first content event..." : viewModel.streamedText,
+                    tint: viewModel.isStreaming ? .blue : .green
+                )
+                if let outcome = viewModel.streamOutcome {
+                    MetadataRow(label: "Outcome", value: outcome)
+                }
+            } else {
+                Text("Stream the prompt to watch content events arrive incrementally. Only Apple Foundation Models and the cloud provider stream today, so \"Local Only\" streams solely on an Apple-Intelligence-capable device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var availabilitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Provider Availability")
+                .font(.headline)
+
+            switch viewModel.capabilitiesState {
+            case .loading:
+                Text("Checking provider availability...")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            case .failed:
+                Text("Unable to check provider availability.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            case .ready(let badges):
+                ForEach(badges) { badge in
+                    availabilityCard(badge: badge)
+                }
+            }
+
+            Button("Refresh Status") {
+                Task {
+                    await viewModel.refreshAvailability()
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.isRunning)
+        }
+    }
+
+    private var resultSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Result")
+                .font(.headline)
+
+            if let result = viewModel.result {
+                resultPanel(title: "Output", body: result.outputText, tint: .green)
+                metadataPanel(metadata: result.metadata)
+            } else if let errorState = viewModel.errorState {
+                resultPanel(title: errorState.title, body: errorState.body, tint: .red)
+                if let metadata = errorState.metadata {
+                    metadataPanel(metadata: metadata)
+                }
+            } else {
+                resultPanel(
+                    title: "Idle",
+                    body: "Run the prompt to capture generated text or a normalized IndeRun error.",
+                    tint: .secondary
+                )
+            }
+        }
+    }
+
+    private var routingDecisionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Routing Decision")
+                .font(.headline)
+
+            if let decision = viewModel.lastRouteDecision {
+                VStack(alignment: .leading, spacing: 8) {
+                    MetadataRow(label: "Selected", value: decision.selectedProviderId ?? "none")
+                    MetadataRow(label: "Explanation", value: decision.explanation.isEmpty ? "n/a" : decision.explanation)
+                    if !decision.rejectedProviderIds.isEmpty {
+                        MetadataRow(label: "Rejected", value: decision.rejectedProviderIds.joined(separator: ", "))
+                    }
+                    if !decision.fallbackProviderIds.isEmpty {
+                        MetadataRow(label: "Fallbacks", value: decision.fallbackProviderIds.joined(separator: ", "))
+                    }
+                }
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemBackground))
+                )
+            } else {
+                Text("No run yet. The routing decision appears after the first attempt.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var limitationsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Known Limitations")
+                .font(.headline)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("• The ONNX Local provider runs against a deterministic fixture runtime by default. Point it at a real bundled/app-managed ModelPackage to exercise actual on-device inference.")
+                Text("• Apple availability depends on device class, OS version, locale, Apple Intelligence state, and model readiness.")
+                Text("• The app never embeds cloud credentials. The demo proxy resolves upstream endpoint and auth server-side.")
+                Text("• The ONNX Local provider does not stream. Streaming under \"Local Only\" therefore requires Apple Foundation Models to be available; otherwise routing refuses the request with CapabilityMismatch.")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func availabilityCard(badge: DemoViewModel.ProviderBadge) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(badge.label)
+                .font(.subheadline.weight(.semibold))
+            Text(badge.available ? "Available" : "Unavailable")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(badge.available ? .green : .red)
+            Text(badge.id)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+            if let reason = badge.reason, !badge.available {
+                Text(reason)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private func resultPanel(title: String, body: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+            Text(body)
+                .font(.body)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private func metadataPanel(metadata: DemoViewModel.AttemptMetadata) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Attempt Metadata")
+                .font(.subheadline.weight(.semibold))
+            MetadataRow(label: "Run ID", value: metadata.runId)
+            MetadataRow(label: "Provider Used", value: metadata.providerUsed)
+            MetadataRow(label: "Total ms", value: metadata.totalMsDescription)
+            if let providerId = metadata.providerId {
+                MetadataRow(label: "Provider ID", value: providerId)
+            }
+            if let retryAfterMs = metadata.retryAfterMs {
+                MetadataRow(label: "Retry After", value: "\(retryAfterMs) ms")
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+}

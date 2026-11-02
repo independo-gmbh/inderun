@@ -7,7 +7,7 @@ The package is split into public API, core engine, contracts, and provider targe
 - `IndeRunContracts` - generated schema-backed models
 - `IndeRunCore` - host services, router, registry, and error mapping
 - `IndeRunSwift` - public SDK entrypoint
-- `IndeRunAppleProviders` - Apple Foundation Models provider
+- `IndeRunAppleProviders` - Apple Foundation Models and Apple system speech providers
 - `IndeRunOpenAIProviders` - OpenAI-compatible cloud provider
 - `IndeRunOnnxProviders` - ONNX Runtime provider family member for developer-supplied/custom
   local models (see `docs/architecture/onnx-runtime-provider-family.md`)
@@ -71,15 +71,28 @@ which remain public as the advanced API.
 ```swift
 let voices = await inderun.listVoices(locale: "de-AT")
 
-let playback = try await inderun.speak(SpeakOptions("Der Bus kommt.", locale: "de-AT"))
+// Speech is opt-in: try registry.register(AppleSystemSpeechProvider())
+let playback = try await inderun.speak(SpeakOptions(
+    "Der Bus kommt.",
+    locale: "de-AT",
+    voice: voices.first?.asSpeechVoice()
+))
 // playback.cancel() stops the audio; result() then returns with .cancelled.
 let ending = try await playback.result()
 ```
+
+`try await inderun.prepare()` is optional and makes the first call fast; see ADR 019. A provider's download starts only
+under `registry.register(provider, options: ProviderRegistrationOptions(autoDownload: true))` or
+`PrepareRequest(allowDownload: true)`.
 
 `speak` compiles to `stream(request:)` with playback delivery. `generateSpeech` compiles to
 `run(request:)` with artifact delivery and returns an `artifact` to read with `readArtifact` and
 release with `disposeArtifact`; routing refuses it on a provider that can only play. See
 [ADR 018](../../docs/architecture/decisions/018-speech-application-api.md).
+
+`AppleSystemSpeechProvider` plays through the application's audio session and never configures it.
+Under the default category the Silent switch mutes speech while the run still completes normally.
+An application that must be heard sets a category such as `.playback` before calling `speak`.
 
 ### Custom local ONNX models
 
@@ -152,13 +165,12 @@ while true {
 await indeRun.disposeArtifact(artifact: artifact)
 ```
 
-`AppleSpeechArtifactSampleTests` proves the path with real speech: a test-scoped provider renders
-text with `AVSpeechSynthesizer.write(_:toBufferCallback:)` and hands it over as `audio/wav` —
-a canonical 44-byte RIFF/WAVE header followed by mono, 16-bit signed little-endian PCM at the
-sample rate of the synthesizer's first buffer (float buffers are clamped and scaled). The artifact
-reports `byteLength` and `durationMs` (samples ÷ sample rate). The test skips when the host has no
-`en-US` voice or the synthesizer delivers no audio within 10 seconds. It is a sample of the
-transport, not the Apple system speech provider, which is tracked separately (#247).
+`AppleSystemSpeechProvider` produces such an artifact with real speech: it renders text with
+`AVSpeechSynthesizer.write(_:toBufferCallback:)` and hands it over as `audio/wav` — a canonical
+44-byte RIFF/WAVE header followed by mono, 16-bit signed little-endian PCM at the sample rate of the
+synthesizer's first buffer (float buffers are clamped and scaled). The artifact reports `byteLength`
+and `durationMs` (samples ÷ sample rate). `AppleSystemSpeechArtifactTests` reads one back; it skips
+when the host has no English voice or the synthesizer delivers no audio within 10 seconds.
 
 ## Credentials
 
