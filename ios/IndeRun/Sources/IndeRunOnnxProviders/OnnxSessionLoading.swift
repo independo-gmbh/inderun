@@ -156,12 +156,11 @@ actor LoadedSessionBox {
 
         // Loads tokenizer config from an already-resolved local directory with hardcoded literal
         // filenames only -- no Hub network/download/cache APIs (`HubApi.snapshot(from:)`,
-        // `.from(pretrained:)`, `HubCache`/`HubClient`) are called. Those Hub-network/cache-path
-        // APIs have open CodeQL swift/path-injection findings upstream (`HubCache.cachedFilePath`
-        // builds cache paths from `revision`/`filename` without the same validation
-        // `storeFile`/`storeData` apply; tracked in huggingface/swift-huggingface#62). Before
-        // calling those APIs with a repo ID or filename that isn't a hardcoded literal, check
-        // whether that issue is resolved, and if not, validate repo-id/filename inputs first.
+        // `.from(pretrained:)`, `HubCache`/`HubClient`) are called. `HubCache.cachedFilePath` only
+        // validates `revision`/`filename` from swift-huggingface 0.10.0 on
+        // (huggingface/swift-huggingface#62), and `codeql.yml` drops findings in SwiftPM
+        // dependencies, so no scan covers those APIs. Before calling them with a repo ID or
+        // filename that isn't a hardcoded literal, validate those inputs first.
         let tokenizer: Tokenizer
         do {
             tokenizer = try await AutoTokenizer.from(modelFolder: directory)
