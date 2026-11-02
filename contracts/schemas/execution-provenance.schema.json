@@ -119,7 +119,9 @@
                 "output_delivery_not_supported",
                 "output_format_not_supported",
                 "locale_not_supported",
-                "voice_not_available"
+                "voice_not_available",
+              "prepare_not_supported",
+              "not_ready"
               ]
             }
           }

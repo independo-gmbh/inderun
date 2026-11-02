@@ -1,6 +1,6 @@
 import type { ModelPackage, TaskRequest } from "@independo/inderun-contracts";
 import { describe, expect, it } from "vitest";
-import { IndeRun, IndeRunException } from "../../index.js";
+import { IndeRun, IndeRunException, prepare } from "../../index.js";
 import { ProviderRegistry, type HostServices, type ProviderAdapter } from "../../provider.js";
 import {
   DEFAULT_ONNX_WEB_PROVIDER_ID,
@@ -126,6 +126,15 @@ describe("OnnxRuntimeWebProvider descriptor", () => {
       },
       cancel: "soft",
       tasks: ["text_to_text"],
+      taskCapabilities: [
+        {
+          kind: "text_to_text",
+          inputs: ["text"],
+          interaction: { run: true, stream: false, prepare: true },
+          cancel: "soft",
+          outputs: [{ delivery: "inline" }]
+        }
+      ],
       privacy: { dataLeavesDevice: false }
     });
   });
@@ -143,7 +152,7 @@ describe("OnnxRuntimeWebProvider descriptor", () => {
 
 describe("OnnxRuntimeWebProvider capabilities", () => {
   it("is available when the model package and runtime are usable", async () => {
-    await expect(createProvider().capabilities(createHost())).resolves.toEqual({
+    await expect(createProvider().capabilities(createHost())).resolves.toMatchObject({
       available: true
     });
   });
@@ -189,7 +198,7 @@ describe("OnnxRuntimeWebProvider capabilities", () => {
         modelPackage: modelPackage({ source: { sourceType, ref: "models/phi3" } })
       });
 
-      await expect(provider.capabilities(createHost())).resolves.toEqual({ available: true });
+      await expect(provider.capabilities(createHost())).resolves.toMatchObject({ available: true });
     }
   });
 
@@ -275,6 +284,9 @@ describe("OnnxRuntimeWebProvider run", () => {
   it("normalizes the last user message when messages are supplied", async () => {
     const seen: string[] = [];
     const runtime: OnnxTextGenerationRuntime = {
+      async availability() {
+        return { available: true };
+      },
       async prepare() {
         return { available: true };
       },
@@ -301,6 +313,9 @@ describe("OnnxRuntimeWebProvider run", () => {
   it("passes generation controls through to the runtime", async () => {
     let received: unknown;
     const runtime: OnnxTextGenerationRuntime = {
+      async availability() {
+        return { available: true };
+      },
       async prepare() {
         return { available: true };
       },
@@ -320,6 +335,9 @@ describe("OnnxRuntimeWebProvider run", () => {
 
   it("returns runtime-reported finish reason and usage", async () => {
     const runtime: OnnxTextGenerationRuntime = {
+      async availability() {
+        return { available: true };
+      },
       async prepare() {
         return { available: true };
       },
@@ -413,5 +431,87 @@ describe("OnnxRuntimeWebProvider error mapping", () => {
     )) as IndeRunException;
 
     expect(["AuthError", "RateLimited", "Offline"]).not.toContain(error.errorClass);
+  });
+});
+
+describe("OnnxRuntimeWebProvider loading", () => {
+  function countingRuntime(
+    loadResult: { available: boolean; reason?: string } = { available: true }
+  ) {
+    const counts = { loads: 0 };
+    const runtime = {
+      ...createFixtureOnnxRuntime(),
+      prepare: async () => {
+        counts.loads += 1;
+        return loadResult;
+      }
+    };
+    return { runtime, counts };
+  }
+
+  function engine(...providers: ProviderAdapter[]): IndeRun {
+    const registry = new ProviderRegistry();
+    for (const provider of providers) registry.register(provider);
+    return new IndeRun(registry, createHost());
+  }
+
+  it("never loads the model for a capability check, and reports it cold", async () => {
+    const { runtime, counts } = countingRuntime();
+
+    const capabilities = await createProvider({ runtime }).capabilities(createHost());
+
+    expect(counts.loads).toBe(0);
+    expect(capabilities).toMatchObject({
+      available: true,
+      taskCapabilities: [{ kind: "text_to_text", readiness: "cold" }]
+    });
+  });
+
+  it("loads once for prepare, and is ready after it", async () => {
+    const { runtime, counts } = countingRuntime();
+    const provider = createProvider({ runtime });
+    const inderun = engine(provider);
+
+    const { items } = await (await prepare(inderun)).result;
+    await inderun.run(createRequest());
+
+    expect(items).toMatchObject([{ status: "prepared" }]);
+    expect(counts.loads).toBe(1);
+    await expect(provider.capabilities(createHost())).resolves.toEqual({ available: true });
+  });
+
+  it("loads on the first run when nobody prepared it", async () => {
+    const { runtime, counts } = countingRuntime();
+    const inderun = engine(createProvider({ runtime }));
+
+    await inderun.run(createRequest());
+    await inderun.run(createRequest());
+
+    expect(counts.loads).toBe(1);
+  });
+
+  it("remembers a failed load, so routing stops choosing the provider", async () => {
+    const { runtime, counts } = countingRuntime({ available: false, reason: "model corrupt" });
+    const provider = createProvider({ runtime });
+    const inderun = engine(provider);
+
+    await expect(inderun.run(createRequest())).rejects.toBeInstanceOf(IndeRunException);
+    await expect(inderun.run(createRequest())).rejects.toBeInstanceOf(IndeRunException);
+
+    expect(counts.loads).toBe(1);
+    await expect(provider.capabilities(createHost())).resolves.toEqual({
+      available: false,
+      reason: "model corrupt"
+    });
+  });
+
+  it("falls back when the model fails to load", async () => {
+    const { runtime } = countingRuntime({ available: false, reason: "model corrupt" });
+    const broken = createProvider({ runtime, id: "broken" });
+    const healthy = createProvider({ id: "healthy" });
+
+    const result = await engine(broken, healthy).run(createRequest());
+
+    expect(result.telemetry?.providerUsed).toBe("healthy");
   });
 });

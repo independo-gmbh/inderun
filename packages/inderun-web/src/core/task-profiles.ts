@@ -54,6 +54,10 @@ const textToSpeech: TaskProfile = {
       ...(speech.voice !== undefined
         ? {
             voice: {
+              ...(speech.voice.id !== undefined ? { id: speech.voice.id } : {}),
+              ...(speech.voice.providerId !== undefined
+                ? { providerId: speech.voice.providerId }
+                : {}),
               ...(speech.voice.gender !== undefined ? { gender: speech.voice.gender } : {}),
               requirement: speech.voice.requirement ?? "preferred"
             }

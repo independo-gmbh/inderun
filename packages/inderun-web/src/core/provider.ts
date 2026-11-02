@@ -158,6 +158,37 @@ export interface ProviderAdapter {
 }
 
 /**
+ * What a provider gets for {@link PreparableProviderAdapter.prepare}: no sink and no commit,
+ * because a preparation produces nothing and makes no sound.
+ */
+export interface ProviderPrepareContext {
+  runId: string;
+  hostServices: HostServices;
+  /** The task kind to prepare. */
+  task: string;
+  /** Fires on cancel and at the engine's bound. Stop waiting; a platform download may go on. */
+  signal: AbortSignal;
+  /** Absent lets a speech provider use the device's own language. */
+  locale?: string;
+  /** The voice the plan bound, as for a run. */
+  voice?: RunContext["voice"];
+}
+
+/**
+ * A provider that can make something ready ahead of a run (ADR 019). Declared per task with
+ * `interaction.prepare`; a provider that declares it must implement this, and reports what needs
+ * doing through `readiness` in `capabilities()`.
+ *
+ * The engine calls this only when there is work, and only for a download that is permitted, so a
+ * call to it means "go". Iterating to the end means it succeeded. Each yielded value is progress.
+ * Throw to fail. Files stay the platform's: a provider may trigger a platform's own download, but
+ * IndeRun stores nothing.
+ */
+export interface PreparableProviderAdapter extends ProviderAdapter {
+  prepare(context: ProviderPrepareContext): AsyncIterable<{ fractionCompleted?: number }>;
+}
+
+/**
  * What `IndeRun.stream()` returns: the run's identity, its canonical event
  * sequence, and a cancel hook.
  *

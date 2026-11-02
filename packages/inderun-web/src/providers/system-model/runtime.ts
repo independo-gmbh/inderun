@@ -106,6 +106,11 @@ export interface SystemModelRuntime {
    */
   availability(): Promise<SystemModelAvailability>;
   /**
+   * Makes the browser download or load its model, and resolves when it is ready. A browser may
+   * refuse without a user gesture. Optional: a runtime without it declares no `prepare`.
+   */
+  prepare?(onProgress: (fraction: number) => void, signal: AbortSignal): Promise<void>;
+  /**
    * Runs one Mode-1 generation. Implementations should honor `signal` where the underlying API
    * allows it.
    */

@@ -3,9 +3,12 @@ package app.independo.inderun.core
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.RoutePlannerInputTask
 import app.independo.inderun.contracts.TaskRequest
 
 /**
@@ -27,6 +30,13 @@ data class RouteSelection(
     val explanation: String,
     /** The whole chain in attempt order ([provider] first, then [fallbackProviders]), each with its bound voice. */
     val candidates: List<RouteCandidate>,
+)
+
+/** A provider that can prepare a task, with the voice a run would bind and how ready that is. */
+data class PreparationCandidate(
+    val provider: PreparableProviderAdapter,
+    val voice: ProviderVoice?,
+    val readiness: ProviderReadiness,
 )
 
 class Router private constructor(
@@ -74,6 +84,37 @@ class Router private constructor(
         }
 
         return selectFromRoutePlan(snapshots, routePlan)
+    }
+
+    /**
+     * Plans preparation for one task. Unlike [selectRoute] it never throws for an empty plan,
+     * because a task with nothing to prepare is a normal answer.
+     */
+    suspend fun planPreparation(
+        task: RoutePlannerInputTask,
+        privacy: Privacy?,
+        hostServices: HostServices,
+    ): List<PreparationCandidate> {
+        val online = hostServices.connectivity.isOnline()
+        val snapshots = collectProviderSnapshots(hostServices)
+        val routePlan = try {
+            planner.planRoute(buildPreparationPlannerInput(task, privacy, online, snapshots))
+        } catch (failure: RoutePlannerUnavailableException) {
+            throw createInternal(
+                message = "Route planner unavailable (${failure.reason.value}).",
+                details = mapOf("plannerUnavailableReason" to failure.reason.value),
+            )
+        }
+        return routePlan.candidates.mapNotNull { candidate ->
+            val snapshot = snapshots.firstOrNull { it.descriptor.id == candidate.providerId }
+            val provider = snapshot?.provider as? PreparableProviderAdapter ?: return@mapNotNull null
+            val entry = snapshot.capabilities.taskCapabilities?.firstOrNull { it.kind == task.kind }
+            PreparationCandidate(
+                provider = provider,
+                voice = candidate.voice,
+                readiness = candidate.voice?.readiness ?: entry?.readiness ?: ProviderReadiness.Ready,
+            )
+        }
     }
 
     private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> = registry.list()

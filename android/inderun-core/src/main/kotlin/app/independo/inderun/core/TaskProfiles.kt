@@ -82,8 +82,11 @@ private object TextToSpeechProfile : TaskProfile {
         } else {
             if (speech.text.isEmpty()) add("speech.text must be non-empty.")
             if (speech.locale.isEmpty()) add("speech.locale must be non-empty.")
-            if (speech.voice?.requirement == RequirementLevel.Required && speech.voice?.gender == null) {
-                add("speech.voice with requirement 'required' must name a gender.")
+            if (speech.voice?.id != null && speech.voice?.providerId == null) {
+                add("speech.voice.providerId must be provided with speech.voice.id.")
+            }
+            if (speech.voice?.requirement == RequirementLevel.Required && speech.voice?.gender == null && speech.voice?.id == null) {
+                add("speech.voice with requirement 'required' must name an id or a gender.")
             }
         }
 
@@ -127,7 +130,12 @@ private object TextToSpeechProfile : TaskProfile {
             delivery = DeliveryRequirement(mode = delivery.mode, mediaTypes = delivery.mediaTypes?.toList()),
             locale = LocaleRequirement(tag = speech.locale, match = speech.localeMatch ?: LocaleMatch.Language),
             voice = speech.voice?.let { voice ->
-                VoiceRequirement(gender = voice.gender, requirement = voice.requirement ?: RequirementLevel.Preferred)
+                VoiceRequirement(
+                    gender = voice.gender,
+                    id = voice.id,
+                    providerId = voice.providerId,
+                    requirement = voice.requirement ?: RequirementLevel.Preferred,
+                )
             },
         )
     }

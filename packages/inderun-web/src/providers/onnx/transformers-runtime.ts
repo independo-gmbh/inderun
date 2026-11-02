@@ -131,6 +131,16 @@ export function createTransformersJsRuntime(
 
   return {
     async prepare(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability> {
+      try {
+        await loadGenerator(modelPackage);
+        return { available: true };
+      } catch (err) {
+        generatorPromise = undefined;
+        return { available: false, reason: `model failed to load: ${getErrorMessage(err)}` };
+      }
+    },
+
+    async availability(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability> {
       let module: TransformersModule;
       try {
         module = await loadModule();

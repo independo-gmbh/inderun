@@ -4,6 +4,7 @@ import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.Source
 import app.independo.inderun.contracts.SourceType
@@ -14,10 +15,12 @@ import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
+import app.independo.inderun.core.ProviderPrepareContext
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -63,6 +66,60 @@ class AndroidOnnxRuntimeProviderTest {
 
         assertFalse(capabilities.available)
         assertTrue(capabilities.reason.orEmpty().contains("deferred"))
+    }
+
+    private class CountingRuntime(
+        private val loadResult: AndroidOnnxRuntimeAvailability = AndroidOnnxRuntimeAvailability(available = true),
+    ) : AndroidOnnxGenAiRuntime by createFixtureOnnxRuntime() {
+        var loads = 0
+
+        override suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability {
+            loads += 1
+            return loadResult
+        }
+    }
+
+    @Test
+    fun aCapabilityCheckNeverLoadsTheModelAndReportsItCold() = runTest {
+        val runtime = CountingRuntime()
+        val provider = providerWith(modelPackage = modelPackage(sourceType = SourceType.Filesystem), runtime = runtime)
+
+        val capabilities = provider.capabilities(fakeHostServices())
+
+        assertEquals(0, runtime.loads)
+        assertTrue(capabilities.available)
+        assertEquals(ProviderReadiness.Cold, capabilities.taskCapabilities?.single()?.readiness)
+    }
+
+    @Test
+    fun prepareLoadsOnceAndThenReportsReady() = runTest {
+        val runtime = CountingRuntime()
+        val provider = providerWith(modelPackage = modelPackage(sourceType = SourceType.Filesystem), runtime = runtime)
+        val context = ProviderPrepareContext("run_1", fakeHostServices(), "text_to_text")
+
+        provider.prepare(context).toList()
+        provider.prepare(context).toList()
+
+        assertEquals(1, runtime.loads)
+        assertEquals(null, provider.capabilities(fakeHostServices()).taskCapabilities)
+    }
+
+    @Test
+    fun aFailedLoadIsRememberedSoRoutingStopsChoosingTheProvider() = runTest {
+        val runtime = CountingRuntime(AndroidOnnxRuntimeAvailability(available = false, reason = "model corrupt"))
+        val provider = providerWith(modelPackage = modelPackage(sourceType = SourceType.Filesystem), runtime = runtime)
+        val context = ProviderPrepareContext("run_1", fakeHostServices(), "text_to_text")
+
+        try {
+            provider.prepare(context).toList()
+            fail("Expected the load to fail.")
+        } catch (error: IndeRunException) {
+            assertEquals(IndeRunErrorClass.CapabilityMismatch, error.errorClass)
+        }
+
+        val capabilities = provider.capabilities(fakeHostServices())
+        assertFalse(capabilities.available)
+        assertEquals("model corrupt", capabilities.reason)
     }
 
     @Test

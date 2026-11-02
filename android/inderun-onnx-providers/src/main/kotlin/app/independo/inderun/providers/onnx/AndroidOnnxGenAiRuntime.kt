@@ -74,8 +74,17 @@ class OnnxRuntimeError(
  * without touching the provider.
  */
 interface AndroidOnnxGenAiRuntime {
-    /** Checks runtime package availability, execution backend availability, and model readiness.
-     * Implementations must resolve with an availability snapshot rather than throwing. */
+    /**
+     * Checks whether this runtime could serve the model package, without loading anything. The
+     * router calls it on every request, also for other tasks, so it must stay cheap.
+     * Implementations must return an availability snapshot rather than throwing.
+     */
+    suspend fun availability(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability
+
+    /**
+     * Loads the model, so the first generation starts sooner. Repeating it must be cheap.
+     * Implementations must return an availability snapshot rather than throwing.
+     */
     suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability
 
     /** Runs one Mode-1 generation. */

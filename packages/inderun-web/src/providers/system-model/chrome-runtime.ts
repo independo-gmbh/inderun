@@ -102,6 +102,30 @@ export function createChromePromptApiRuntime(
       }
     },
 
+    async prepare(onProgress, signal) {
+      const languageModel = getLanguageModel();
+      if (!languageModel) {
+        throw new SystemModelRuntimeError(
+          "capability",
+          "system model API missing: 'LanguageModel' is not defined on this browser."
+        );
+      }
+      try {
+        const session = await languageModel.create({
+          ...promptOptions,
+          signal,
+          monitor(monitor: EventTarget) {
+            monitor.addEventListener("downloadprogress", (event) => {
+              onProgress((event as unknown as { loaded: number }).loaded);
+            });
+          }
+        });
+        session.destroy();
+      } catch (err) {
+        throw mapGenerateError(err);
+      }
+    },
+
     async generate(
       input: SystemModelGenerationInput,
       signal?: AbortSignal

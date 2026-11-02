@@ -261,7 +261,7 @@ final class TaskProfileTests: XCTestCase {
 
         XCTAssertEqual(issues, [
             "speech.text must be non-empty.",
-            "speech.voice.gender must be provided when speech.voice.requirement is 'required'.",
+            "speech.voice must name an id or a gender when speech.voice.requirement is 'required'.",
             "delivery.mode must be 'playback' or 'artifact' for task.kind 'text_to_speech'.",
             "delivery.mediaTypes is only valid with 'artifact' delivery."
         ])

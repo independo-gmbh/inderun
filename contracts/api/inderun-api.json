@@ -23,6 +23,13 @@
           "returns": { "type": "ProviderCapabilitySnapshot", "source": "contracts", "list": true },
           "async": true
         },
+        "prepare": {
+          "description": "Makes registered providers ready ahead of a run, without producing output or carrying user content (ADR 019). Optional: an engine does the part it can on the first run of a task. An empty request covers every provider and task. Returns a handle whose events report progress and end in one terminal outcome listing each item. Starts a platform's download only where autoDownload at registration or allowDownload on this call permits it.",
+          "params": [{ "name": "request", "type": "PrepareRequest", "source": "contracts" }],
+          "returns": { "type": "StreamRun", "source": "core" },
+          "async": true,
+          "throws": true
+        },
         "readArtifact": {
           "description": "Reads a byte range of an engine-owned media artifact a run produced (ADR 017): the bytes in the platform's native byte type, with their offset, the artifact's total size, and whether the range reaches its end. Reads are repeatable until the artifact is disposed, and each returns at most the engine's configured maximum read size. Throws an IndeRunException with errorClass Unavailable and details.code 'artifact_not_found' for an unknown, disposed or application-owned artifact, and a validation error for an offset beyond the end.",
           "params": [{ "name": "request", "type": "ArtifactReadRequest", "source": "contracts" }],

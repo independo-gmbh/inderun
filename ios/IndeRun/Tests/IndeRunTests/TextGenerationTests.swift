@@ -32,6 +32,8 @@ private final class FakeApi: IndeRunApi, @unchecked Sendable {
         return try XCTUnwrap(result)
     }
 
+    func prepare(request: PrepareRequest) async throws -> StreamRun { fatalError("not scripted") }
+
     func stream(request: TaskRequest) async throws -> StreamRun {
         lock.withLock { recordedRequests.append(request) }
         let events = events

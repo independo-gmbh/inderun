@@ -96,7 +96,12 @@ package enum TaskProfiles {
                 kind: TaskKind.textToSpeech.rawValue,
                 locale: request.speech.map { LocaleRequirement(match: $0.localeMatch ?? .language, tag: $0.locale) },
                 voice: request.speech?.voice.map {
-                    VoiceRequirement(gender: $0.gender, requirement: $0.requirement ?? .preferred)
+                    VoiceRequirement(
+                        gender: $0.gender,
+                        id: $0.id,
+                        providerId: $0.providerId,
+                        requirement: $0.requirement ?? .preferred
+                    )
                 }
             )
         },
@@ -113,8 +118,12 @@ package enum TaskProfiles {
         if speech.locale.isEmpty {
             issues.append("speech.locale must be non-empty.")
         }
-        if let voice = speech.voice, voice.requirement == .requirementLevelRequired, voice.gender == nil {
-            issues.append("speech.voice.gender must be provided when speech.voice.requirement is 'required'.")
+        if let voice = speech.voice, voice.id != nil, voice.providerId == nil {
+            issues.append("speech.voice.providerId must be provided with speech.voice.id.")
+        }
+        if let voice = speech.voice, voice.requirement == .requirementLevelRequired,
+           voice.gender == nil, voice.id == nil {
+            issues.append("speech.voice must name an id or a gender when speech.voice.requirement is 'required'.")
         }
         return issues
     }

@@ -43,7 +43,9 @@ const REJECTION_TEXT: Record<RejectionCode, string> = {
   output_delivery_not_supported: "cannot deliver the result this way",
   output_format_not_supported: "cannot produce the required format",
   locale_not_supported: "does not speak this language",
-  voice_not_available: "has no matching voice"
+  voice_not_available: "has no matching voice",
+  prepare_not_supported: "has nothing to prepare",
+  not_ready: "is not ready yet"
 };
 
 const STREAMING_CODES: readonly RejectionCode[] = [

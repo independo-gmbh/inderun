@@ -182,6 +182,10 @@
             "stream": {
               "description": "Whether the provider supports Mode 2 stream for this task.",
               "type": "boolean"
+            },
+            "prepare": {
+              "description": "Whether the provider implements prepare() for this task (ADR 019). Absent means false.",
+              "type": "boolean"
             }
           }
         },

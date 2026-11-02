@@ -66,17 +66,17 @@ public extension Message {
 public extension TaskOutput {
     /// Inline text.
     init(text: String) {
-        self.init(artifact: nil, playback: nil, speech: nil, text: text, type: .text)
+        self.init(artifact: nil, playback: nil, preparation: nil, speech: nil, text: text, type: .text)
     }
 
     /// Completion of managed playback; carries no media.
     init(playback: PlaybackOutput, speech: SpeechOutput? = nil) {
-        self.init(artifact: nil, playback: playback, speech: speech, text: nil, type: .playback)
+        self.init(artifact: nil, playback: playback, preparation: nil, speech: speech, text: nil, type: .playback)
     }
 
     /// A reference to retrievable media (ADR 017).
     init(artifact: MediaArtifact, speech: SpeechOutput? = nil) {
-        self.init(artifact: artifact, playback: nil, speech: speech, text: nil, type: .artifact)
+        self.init(artifact: artifact, playback: nil, preparation: nil, speech: speech, text: nil, type: .artifact)
     }
 }
 
@@ -316,13 +316,15 @@ public extension ProviderTaskAvailability {
         streamingUnavailableReason: String? = nil,
         cancellationAvailable: Bool? = nil,
         locales: [String]? = nil,
-        voices: [ProviderVoice]? = nil
+        voices: [ProviderVoice]? = nil,
+        readiness: ProviderReadiness? = nil
     ) {
         self.init(
             available: available,
             cancellationAvailable: cancellationAvailable,
             kind: kind,
             locales: locales,
+            readiness: readiness,
             reason: reason,
             streamingAvailable: streamingAvailable,
             streamingUnavailableReason: streamingUnavailableReason,
@@ -332,8 +334,64 @@ public extension ProviderTaskAvailability {
 }
 
 public extension ProviderVoice {
-    init(locale: String, gender: VoiceGender? = nil, networkRequired: Bool? = nil) {
-        self.init(gender: gender, locale: locale, networkRequired: networkRequired)
+    init(
+        locale: String,
+        gender: VoiceGender? = nil,
+        networkRequired: Bool? = nil,
+        id: String? = nil,
+        name: String? = nil,
+        readiness: ProviderReadiness? = nil
+    ) {
+        self.init(
+            gender: gender,
+            id: id,
+            locale: locale,
+            name: name,
+            networkRequired: networkRequired,
+            readiness: readiness
+        )
+    }
+}
+
+public extension TaskOutput {
+    /// Ends a `prepare` run: no content, one item per provider and task.
+    init(preparation: [PreparationItem]) {
+        self.init(artifact: nil, playback: nil, preparation: preparation, speech: nil, text: nil, type: .prepared)
+    }
+}
+
+public extension ProviderTaskInteraction {
+    init(run: Bool, stream: Bool) {
+        self.init(prepare: nil, run: run, stream: stream)
+    }
+}
+
+public extension PrepareRequest {
+    /// Every field is optional: an empty request covers every provider and task.
+    init(
+        tasks: [String]? = nil,
+        locale: String? = nil,
+        localeMatch: LocaleMatch? = nil,
+        voice: PrepareVoice? = nil,
+        allowDownload: Bool? = nil,
+        privacy: Privacy? = nil,
+        requestId: String? = nil
+    ) {
+        self.init(
+            allowDownload: allowDownload,
+            locale: locale,
+            localeMatch: localeMatch,
+            privacy: privacy,
+            requestId: requestId,
+            tasks: tasks,
+            voice: voice
+        )
+    }
+}
+
+public extension SpeechVoice {
+    init(gender: VoiceGender? = nil, requirement: RequirementLevel? = nil) {
+        self.init(gender: gender, id: nil, providerId: nil, requirement: requirement)
     }
 }
 

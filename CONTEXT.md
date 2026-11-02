@@ -75,6 +75,9 @@ Any provider integration should explicitly define:
   forward-looking descriptor seam — see §3). A provider that streams opts into the
   streaming adapter type; declaring `supports.streaming` without implementing it is a
   routing-visible mistake, not a harmless one.
+- what needs preparing, if anything: `readiness` in `capabilities`, and `prepare` declared per task
+  through `interaction.prepare`, like streaming. IndeRun stores nothing and starts a platform's own
+  download only under `autoDownload` or `allowDownload` (ADR 019).
 - cancellation behavior (`hard` / `soft` / `none`)
 - mapped error taxonomy and normalized telemetry
 

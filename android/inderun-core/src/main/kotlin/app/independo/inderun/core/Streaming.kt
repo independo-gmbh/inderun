@@ -179,6 +179,38 @@ interface StreamingProviderAdapter : ProviderAdapter {
 }
 
 /**
+ * What a provider gets for [PreparableProviderAdapter.prepare]: no sink and no commit, because a
+ * preparation produces nothing and makes no sound. Cancelling the collecting coroutine stops it;
+ * a platform download may go on.
+ *
+ * @property locale Null lets a speech provider use the device's own language.
+ * @property voice The voice the plan bound, as for a run.
+ */
+data class ProviderPrepareContext(
+    val runId: String,
+    val hostServices: HostServices,
+    val task: String,
+    val locale: String? = null,
+    val voice: ProviderVoice? = null,
+)
+
+/** One step of a preparation, as a fraction from 0 to 1 when the platform reports one. */
+data class PreparationProgress(val fractionCompleted: Double? = null)
+
+/**
+ * A provider that can make something ready ahead of a run (ADR 019). Declared per task with
+ * `interaction.prepare`; a provider that declares it must implement this, and reports what needs
+ * doing through `readiness` in `capabilities`.
+ *
+ * The engine calls this only when there is work, and only for a download that is permitted, so a
+ * call to it means "go". Completing the flow means it succeeded; throw to fail. Files stay the
+ * platform's: a provider may trigger a platform's own download, but IndeRun stores nothing.
+ */
+interface PreparableProviderAdapter : ProviderAdapter {
+    fun prepare(context: ProviderPrepareContext): Flow<PreparationProgress>
+}
+
+/**
  * What `IndeRun.stream()` returns: the run's identity, its canonical event
  * sequence, and a cancel hook.
  *

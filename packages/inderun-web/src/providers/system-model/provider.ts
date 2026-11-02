@@ -16,7 +16,8 @@ import {
   type SystemModelRuntime
 } from "./runtime.js";
 import type {
-  ProviderAdapter,
+  PreparableProviderAdapter,
+  ProviderPrepareContext,
   ProviderDescriptor,
   ProviderDynamicCapabilities,
   RunContext
@@ -57,7 +58,7 @@ export interface SystemModelProviderOptions {
  * contract (descriptor, capability checks, error taxonomy) and delegates everything else to an
  * injectable {@link SystemModelRuntime}.
  */
-export class SystemModelWebProvider implements ProviderAdapter {
+export class SystemModelWebProvider implements PreparableProviderAdapter {
   private readonly id: string;
   private readonly runtime: SystemModelRuntime;
 
@@ -89,6 +90,19 @@ export class SystemModelWebProvider implements ProviderAdapter {
       },
       cancel: "soft",
       tasks: [TEXT_TO_TEXT],
+      taskCapabilities: [
+        {
+          kind: TEXT_TO_TEXT,
+          inputs: ["text"],
+          interaction: {
+            run: true,
+            stream: false,
+            ...(this.runtime.prepare !== undefined ? { prepare: true } : {})
+          },
+          cancel: "soft",
+          outputs: [{ delivery: "inline" }]
+        }
+      ],
       privacy: {
         dataLeavesDevice: false
       }
@@ -106,6 +120,40 @@ export class SystemModelWebProvider implements ProviderAdapter {
   async capabilities(_host: HostServices): Promise<ProviderDynamicCapabilities> {
     const availability = await this.runtime.availability();
     return toDynamicCapabilities(availability);
+  }
+
+  /**
+   * Makes the browser download or load its model. The browser owns the model, and Chrome starts a
+   * download only from a user gesture, so call `prepare({ allowDownload: true })` from one.
+   */
+  async *prepare(context: ProviderPrepareContext): AsyncIterable<{ fractionCompleted?: number }> {
+    const fractions: number[] = [];
+    let wake = () => {};
+    let done = false;
+    let failure: unknown;
+    this.runtime.prepare!((fraction) => {
+      fractions.push(fraction);
+      wake();
+    }, context.signal)
+      .catch((error: unknown) => {
+        failure = error;
+      })
+      .finally(() => {
+        done = true;
+        wake();
+      });
+    for (;;) {
+      while (fractions.length > 0) yield { fractionCompleted: fractions.shift()! };
+      if (done) break;
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
+    }
+    if (failure !== undefined) throw this.normalizedPrepareFailure(failure, context.runId);
+  }
+
+  private normalizedPrepareFailure(error: unknown, runId: string) {
+    return toIndeRunException(error, { runId, providerId: this.id });
   }
 
   /**
@@ -229,7 +277,18 @@ function toDynamicCapabilities(availability: SystemModelAvailability): ProviderD
     ? `${prefix}: ${availability.reason}`
     : `${prefix}: the Web system-model provider is unavailable.`;
 
-  return { available: false, reason };
+  // "Not yet" is not "never": the browser can fetch this model.
+  const readiness =
+    availability.kind === "downloadable"
+      ? "not_prepared"
+      : availability.kind === "downloading"
+        ? "preparing"
+        : undefined;
+  return {
+    available: false,
+    reason,
+    ...(readiness !== undefined ? { taskCapabilities: [{ kind: TEXT_TO_TEXT, readiness }] } : {})
+  };
 }
 
 function createMessages(request: TaskRequest): SystemModelPromptMessage[] {

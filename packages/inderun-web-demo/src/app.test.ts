@@ -98,6 +98,7 @@ function fakeInderun(overrides: Partial<IndeRunApi> = {}): IndeRunApi {
   return {
     run: vi.fn(),
     stream: vi.fn(),
+    prepare: vi.fn(),
     checkCapabilities: vi.fn().mockResolvedValue(SNAPSHOTS),
     readArtifact: vi.fn(),
     disposeArtifact: vi.fn(),

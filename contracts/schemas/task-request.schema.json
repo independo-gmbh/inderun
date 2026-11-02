@@ -109,18 +109,29 @@
         },
         "voice": {
           "title": "SpeechVoice",
-          "description": "Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to fail; a 'required' one takes part in routing and is never relaxed silently. Carries no provider voice identifier.",
+          "description": "The voice to speak with: one catalog voice by providerId and id, or provider-neutral traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to fail; a 'required' one takes part in routing and is never relaxed silently.",
           "type": "object",
           "additionalProperties": true,
           "if": { "properties": { "requirement": { "const": "required" } }, "required": ["requirement"] },
-          "then": { "required": ["gender"] },
+          "then": { "anyOf": [{ "required": ["id"] }, { "required": ["gender"] }] },
+          "dependentRequired": { "id": ["providerId"] },
           "properties": {
+            "id": {
+              "description": "A voice id read from listVoices(), never written by hand. Opaque, and meaningful only on providerId and the device that listed it, so a stored id can go stale: a 'preferred' one then falls back to the other traits.",
+              "type": "string",
+              "minLength": 1
+            },
+            "providerId": {
+              "description": "The provider that listed id. Required with id, because voice ids share no namespace across providers.",
+              "type": "string",
+              "minLength": 1
+            },
             "gender": {
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             },
             "requirement": {
               "title": "RequirementLevel",
-              "description": "'preferred' (default) or 'required'. A required voice must name at least one trait.",
+              "description": "'preferred' (default) or 'required'. A required voice must name an id or a trait.",
               "enum": ["required", "preferred"]
             }
           }

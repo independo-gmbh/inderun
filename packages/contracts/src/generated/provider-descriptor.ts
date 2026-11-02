@@ -214,6 +214,10 @@ export type TaskInputKind = "text" | "image" | "audio";
  */
 export type ProviderTaskInteraction = {
     /**
+     * Whether the provider implements prepare() for this task (ADR 019). Absent means false.
+     */
+    prepare?: boolean;
+    /**
      * Whether the provider supports Mode 1 run for this task.
      */
     run: boolean;

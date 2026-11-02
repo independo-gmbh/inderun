@@ -5,6 +5,28 @@ author has to change, per platform. The release notes carry the same changes com
 
 ## 0.4 → 0.5
 
+### Speech API
+
+`speak()`, `generateSpeech()` and `listVoices()` are new and additive; `generateText()` and `streamText()` are unchanged.
+See [api-layering.md](./architecture/api-layering.md#primary-speech-api). No text provenance changes. On a speech run, a
+`local` provider now reports locality `unknown` when its bound voice may send text off the device.
+
+`listVoices()` returns every voice with an opaque `id` and a `name`. Pass an entry as `voice` to speak with it. Generated
+Swift `ProviderVoice`, `SpeechVoice`, `SpeechOutputVoice` and `VoiceRequirement` memberwise initializers gain `id`,
+`providerId` and `name` parameters. A provider that lists voices should give each an `id`, and resolve `context.voice`
+by it.
+
+### Prepare and readiness
+
+`prepare()` is new and optional (ADR 019). The first run of a task now prepares that task once, for providers that
+declare `interaction.prepare`. `ProviderRegistry.register` gains optional `autoDownload`, off by default. A run refused
+while something is not ready reports `not_ready`. ML Kit, Chrome and Foundation Models descriptors now carry
+`taskCapabilities`. `AppleFoundationModelsAvailability` gains `.notReady`. Generated Swift `TaskOutput`, `ProviderVoice`,
+`ProviderTaskAvailability` and `Payload` memberwise initializers gain new parameters.
+
+The ONNX runtime seams split in two: a custom `OnnxGenAiRuntime`, `AndroidOnnxGenAiRuntime` or `OnnxTextGenerationRuntime`
+adds a cheap `availability`, and `prepare` now loads the model. A corrupt model is found at load, not at routing.
+
 ### Provider capability types are generated contracts
 
 `ProviderDescriptor`, `ProviderDynamicCapabilities` and `ProviderCapabilitySnapshot` are now generated from

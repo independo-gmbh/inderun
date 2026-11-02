@@ -127,6 +127,8 @@ enum class Cloud(val rawValue: String) {
 
 /**
  * Privacy requirement or preference for execution placement.
+ *
+ * The privacy policy of the runs this precedes.
  */
 enum class Privacy(val rawValue: String) {
     CloudAllowed("cloud_allowed"),
@@ -296,9 +298,9 @@ data class SpeechInput(
     val text: String,
 
     /**
-     * Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
-     * and is never a reason to fail; a 'required' one takes part in routing and is never
-     * relaxed silently. Carries no provider voice identifier.
+     * The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+     * traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+     * fail; a 'required' one takes part in routing and is never relaxed silently.
      */
     val voice: SpeechVoice? = null,
 )
@@ -309,6 +311,8 @@ data class SpeechInput(
  *
  * 'exact' requires the full tag; 'language' requires only the primary language subtag and
  * treats the region as a preference.
+ *
+ * How locale compares: 'language' (default) or 'exact'.
  */
 enum class LocaleMatch(val rawValue: String) {
     Exact("exact"),
@@ -321,15 +325,28 @@ enum class LocaleMatch(val rawValue: String) {
 }
 
 /**
- * Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
- * and is never a reason to fail; a 'required' one takes part in routing and is never
- * relaxed silently. Carries no provider voice identifier.
+ * The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+ * traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+ * fail; a 'required' one takes part in routing and is never relaxed silently.
  */
 data class SpeechVoice(
     val gender: VoiceGender? = null,
 
     /**
-     * 'preferred' (default) or 'required'. A required voice must name at least one trait.
+     * A voice id read from listVoices(), never written by hand. Opaque, and meaningful only on
+     * providerId and the device that listed it, so a stored id can go stale: a 'preferred' one
+     * then falls back to the other traits.
+     */
+    val id: String? = null,
+
+    /**
+     * The provider that listed id. Required with id, because voice ids share no namespace
+     * across providers.
+     */
+    val providerId: String? = null,
+
+    /**
+     * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
      */
     val requirement: RequirementLevel? = null,
 )
@@ -349,7 +366,7 @@ enum class VoiceGender(val rawValue: String) {
 }
 
 /**
- * 'preferred' (default) or 'required'. A required voice must name at least one trait.
+ * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
  *
  * 'required' takes part in routing; 'preferred' does not.
  */
@@ -536,7 +553,13 @@ data class TaskOutput(
     val playback: PlaybackOutput? = null,
 
     /**
-     * The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+     * What a prepare() run did, one item per provider and task. Required when type is
+     * 'prepared'. One failed item does not fail the run.
+     */
+    val preparation: List<PreparationItem>? = null,
+
+    /**
+     * The locale and voice a text-to-speech run actually used, so an unmet preference is
      * visible without being an error.
      */
     val speech: SpeechOutput? = null,
@@ -547,7 +570,8 @@ data class TaskOutput(
     val text: String? = null,
 
     /**
-     * The content representation: 'text', 'playback' or 'artifact'.
+     * The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+     * run, carries no content, and lists each item in 'preparation'.
      */
     val type: TaskOutputType,
 )
@@ -641,8 +665,54 @@ data class PlaybackOutput(
     val durationMs: Double? = null,
 )
 
+data class PreparationItem(
+    /**
+     * The provider this item belongs to.
+     */
+    val providerId: String,
+
+    /**
+     * Why the item was skipped or failed.
+     */
+    val reason: String? = null,
+
+    /**
+     * 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+     * needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+     * reason.
+     */
+    val status: PreparationStatus,
+
+    /**
+     * The task kind this item belongs to.
+     */
+    val task: String,
+
+    /**
+     * The voice this item prepared, when one was bound.
+     */
+    val voiceId: String? = null,
+)
+
 /**
- * The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+ * 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+ * needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+ * reason.
+ */
+enum class PreparationStatus(val rawValue: String) {
+    AlreadyReady("already_ready"),
+    Failed("failed"),
+    Prepared("prepared"),
+    Skipped("skipped"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): PreparationStatus? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * The locale and voice a text-to-speech run actually used, so an unmet preference is
  * visible without being an error.
  */
 data class SpeechOutput(
@@ -652,24 +722,36 @@ data class SpeechOutput(
     val locale: String,
 
     /**
-     * Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+     * The voice that spoke, as the catalog lists it.
      */
     val voice: SpeechOutputVoice? = null,
 )
 
 /**
- * Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+ * The voice that spoke, as the catalog lists it.
  */
 data class SpeechOutputVoice(
     val gender: VoiceGender? = null,
+
+    /**
+     * The voice's id, when its provider lists one.
+     */
+    val id: String? = null,
+
+    /**
+     * The voice's display label, when its provider lists one.
+     */
+    val name: String? = null,
 )
 
 /**
- * The content representation: 'text', 'playback' or 'artifact'.
+ * The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+ * run, carries no content, and lists each item in 'preparation'.
  */
 enum class TaskOutputType(val rawValue: String) {
     ARTIFACT("artifact"),
     PLAYBACK("playback"),
+    PREPARED("prepared"),
     TEXT("text"),
     ;
 
@@ -853,7 +935,9 @@ data class ExecutionProvenanceRouteRejection(
  * list this provider. 'input_not_supported', 'output_delivery_not_supported',
  * 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
  * provider's task capability lacks an input kind, output delivery, media type, locale or
- * voice the request requires.
+ * voice the request requires. 'prepare_not_supported' means the task capability declares no
+ * prepare(). 'not_ready' means the provider, task or required voice exists but is not
+ * prepared yet, so prepare() can make it available.
  */
 enum class Code(val rawValue: String) {
     CapabilityUnavailable("capability_unavailable"),
@@ -861,9 +945,11 @@ enum class Code(val rawValue: String) {
     InputNotSupported("input_not_supported"),
     LocaleNotSupported("locale_not_supported"),
     NotInModelProfile("not_in_model_profile"),
+    NotReady("not_ready"),
     Offline("offline"),
     OutputDeliveryNotSupported("output_delivery_not_supported"),
     OutputFormatNotSupported("output_format_not_supported"),
+    PrepareNotSupported("prepare_not_supported"),
     PrivacyConstraint("privacy_constraint"),
     RunNotSupported("run_not_supported"),
     StreamingNotSupported("streaming_not_supported"),
@@ -1174,6 +1260,7 @@ data class RoutePlannerInputConstraints(
  * eligible providers; it never changes candidate ordering.
  */
 enum class InteractionMode(val rawValue: String) {
+    Prepare("prepare"),
     Run("run"),
     Stream("stream"),
     ;
@@ -1301,6 +1388,13 @@ data class ProviderTaskAvailability(
     val locales: List<String>? = null,
 
     /**
+     * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+     * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+     * even when the provider-level available is false.
+     */
+    val readiness: ProviderReadiness? = null,
+
+    /**
      * Why the task is unavailable, when available is false.
      */
     val reason: String? = null,
@@ -1316,25 +1410,57 @@ data class ProviderTaskAvailability(
     val streamingUnavailableReason: String? = null,
 
     /**
-     * Voices available for this task right now. Absent means the provider cannot enumerate
-     * them; a request that requires a voice then never routes to it.
+     * Every voice available for this task right now, one entry per voice. Absent means the
+     * provider cannot enumerate them; a request that requires a voice then never routes to it.
      */
     val voices: List<ProviderVoice>? = null,
 )
 
 /**
- * Provider-neutral traits of one available voice. Carries no provider voice identifier.
+ * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+ * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+ * even when the provider-level available is false.
+ *
+ * How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it
+ * runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has
+ * run. 'preparing': it is being prepared now and cannot run yet.
+ *
+ * How ready the voice is to speak. Absent means 'ready'.
+ */
+enum class ProviderReadiness(val rawValue: String) {
+    Cold("cold"),
+    NotPrepared("not_prepared"),
+    Preparing("preparing"),
+    Ready("ready"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ProviderReadiness? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * One available voice: its provider-neutral traits, and an id and name for an application
+ * that lets someone choose it.
  *
  * The voice this candidate must use if it is attempted, chosen by the planner from the
  * provider's dynamic voice inventory. It is the best voice that satisfies the request's
  * locale, required voice traits and privacy — under local-required privacy always one that
- * keeps data on the device — ranked by preferred gender, then exact locale region, then
- * on-device before network. The adapter must use a voice with exactly these traits. Absent
- * when the request names no locale or voice, or the provider does not list its voices; the
- * adapter then chooses itself under the same rules.
+ * keeps data on the device — ranked by preferred id, then preferred gender, then exact
+ * locale region, then on-device before network. The adapter must use the voice with this
+ * id, or one with exactly these traits when the voice has no id. Absent when the request
+ * names no locale or voice, or the provider does not list its voices; the adapter then
+ * chooses itself under the same rules.
  */
 data class ProviderVoice(
     val gender: VoiceGender? = null,
+
+    /**
+     * Identifies this voice within its provider, for use as speech.voice.id with
+     * speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
+     * and meaningful nowhere else. Absent when the provider cannot address single voices.
+     */
+    val id: String? = null,
 
     /**
      * BCP 47 locale the voice speaks.
@@ -1342,10 +1468,21 @@ data class ProviderVoice(
     val locale: String,
 
     /**
+     * Label for showing the voice to a person, as the platform reports it. Not unique and not
+     * localized; never compare it.
+     */
+    val name: String? = null,
+
+    /**
      * Whether using the voice sends data off the device. Absent inherits the task's privacy
      * posture.
      */
     val networkRequired: Boolean? = null,
+
+    /**
+     * How ready the voice is to speak. Absent means 'ready'.
+     */
+    val readiness: ProviderReadiness? = null,
 )
 
 /**
@@ -1616,6 +1753,11 @@ enum class TaskInputKind(val rawValue: String) {
  */
 data class ProviderTaskInteraction(
     /**
+     * Whether the provider implements prepare() for this task (ADR 019). Absent means false.
+     */
+    val prepare: Boolean? = null,
+
+    /**
      * Whether the provider supports Mode 1 run for this task.
      */
     val run: Boolean,
@@ -1703,9 +1845,10 @@ data class RoutePlannerInputTask(
     val locale: LocaleRequirement? = null,
 
     /**
-     * Voice traits the request asks for. Only a 'required' voice can reject a provider; a
-     * 'preferred' one shapes which listed voice the plan binds a candidate to, always within
-     * the request's privacy policy.
+     * The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+     * voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+     * candidate to, always within the request's privacy policy, and a preferred id also ranks
+     * the provider that can bind it ahead of others.
      */
     val voice: VoiceRequirement? = null,
 )
@@ -1744,12 +1887,23 @@ data class LocaleRequirement(
 )
 
 /**
- * Voice traits the request asks for. Only a 'required' voice can reject a provider; a
- * 'preferred' one shapes which listed voice the plan binds a candidate to, always within
- * the request's privacy policy.
+ * The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+ * voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+ * candidate to, always within the request's privacy policy, and a preferred id also ranks
+ * the provider that can bind it ahead of others.
  */
 data class VoiceRequirement(
     val gender: VoiceGender? = null,
+
+    /**
+     * A voice id, compared exactly against the voices of providerId and of no other provider.
+     */
+    val id: String? = null,
+
+    /**
+     * The provider that id belongs to.
+     */
+    val providerId: String? = null,
 
     /**
      * 'required' takes part in routing; 'preferred' does not.
@@ -1800,10 +1954,11 @@ data class Candidate(
      * The voice this candidate must use if it is attempted, chosen by the planner from the
      * provider's dynamic voice inventory. It is the best voice that satisfies the request's
      * locale, required voice traits and privacy — under local-required privacy always one that
-     * keeps data on the device — ranked by preferred gender, then exact locale region, then
-     * on-device before network. The adapter must use a voice with exactly these traits. Absent
-     * when the request names no locale or voice, or the provider does not list its voices; the
-     * adapter then chooses itself under the same rules.
+     * keeps data on the device — ranked by preferred id, then preferred gender, then exact
+     * locale region, then on-device before network. The adapter must use the voice with this
+     * id, or one with exactly these traits when the voice has no id. Absent when the request
+     * names no locale or voice, or the provider does not list its voices; the adapter then
+     * chooses itself under the same rules.
      */
     val voice: ProviderVoice? = null,
 )
@@ -1844,7 +1999,9 @@ data class Reason(
      * list this provider. 'input_not_supported', 'output_delivery_not_supported',
      * 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
      * provider's task capability lacks an input kind, output delivery, media type, locale or
-     * voice the request requires.
+     * voice the request requires. 'prepare_not_supported' means the task capability declares no
+     * prepare(). 'not_ready' means the provider, task or required voice exists but is not
+     * prepared yet, so prepare() can make it available.
      */
     val code: Code,
 
@@ -2184,6 +2341,8 @@ data class StreamEvent(
      * Mechanical/diagnostic: free-form orchestration or provider diagnostic detail. Not
      * user-visible content.
      *
+     * Progress of a prepare() run (ADR 019).
+     *
      * Terminal: the last event of the run, carrying the mutually-exclusive
      * completion/error/cancellation outcome. No further StreamEvent is delivered for this runId
      * after this event.
@@ -2215,6 +2374,21 @@ data class Payload(
      * The lifecycle phase reached.
      */
     val phase: Phase? = null,
+
+    /**
+     * How much of this item is done, from 0 to 1. Absent when the platform reports no fraction.
+     */
+    val fractionCompleted: Double? = null,
+
+    /**
+     * The provider being prepared.
+     */
+    val providerId: String? = null,
+
+    /**
+     * The task kind being prepared.
+     */
+    val task: String? = null,
 
     val finalText: String? = null,
     val finishReason: FinishReason? = null,
@@ -2523,6 +2697,66 @@ data class ProviderCapabilitySnapshot(
      * Identifier of the provider; equal to descriptor.id.
      */
     val providerId: String,
+)
+
+/**
+ * Optional scope for IndeRunApi.prepare (ADR 019). Every field is optional: an empty
+ * request covers every registered provider and task. It carries no user content.
+ */
+data class PrepareRequest(
+    /**
+     * Lets this call start a platform's own download, whatever autoDownload says at
+     * registration. Call it from a user's decision. Absent follows autoDownload.
+     */
+    val allowDownload: Boolean? = null,
+
+    /**
+     * BCP 47 tag of the language to prepare. Absent lets a speech provider use the device's own
+     * language.
+     */
+    val locale: String? = null,
+
+    /**
+     * How locale compares: 'language' (default) or 'exact'.
+     */
+    val localeMatch: LocaleMatch? = null,
+
+    /**
+     * The privacy policy of the runs this precedes.
+     */
+    val privacy: Privacy? = null,
+
+    /**
+     * Fixes the run id, for correlation.
+     */
+    val requestId: String? = null,
+
+    /**
+     * Task kinds to prepare. Absent means every task a registered provider can prepare.
+     */
+    val tasks: List<String>? = null,
+
+    /**
+     * A voice to prepare, as for a speech request.
+     */
+    val voice: PrepareVoice? = null,
+)
+
+/**
+ * A voice to prepare, as for a speech request.
+ */
+data class PrepareVoice(
+    val gender: VoiceGender? = null,
+
+    /**
+     * A voice id read from listVoices().
+     */
+    val id: String? = null,
+
+    /**
+     * The provider that listed id.
+     */
+    val providerId: String? = null,
 )
 
 /**

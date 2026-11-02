@@ -16,7 +16,7 @@ The contract types this SDK's own signatures take and return — `TaskRequest`, 
 
 | Import | For | Contains |
 | --- | --- | --- |
-| `@independo/inderun-web` | Applications | `generateText` / `streamText`, `createIndeRunWeb`, the advanced task API (`IndeRun`, `run()` / `stream()` / `checkCapabilities()`), model profiles, contract types, `IndeRunException`, telemetry |
+| `@independo/inderun-web` | Applications | `generateText` / `streamText`, `speak` / `generateSpeech` / `listVoices`, `createIndeRunWeb`, the advanced task API (`IndeRun`, `run()` / `stream()` / `checkCapabilities()`), model profiles, contract types, `IndeRunException`, telemetry |
 | `@independo/inderun-web/provider` | Provider authors and host integrators | `ProviderAdapter` and the descriptor/capability types, `ProviderRegistry`, `HostServices` and the browser host services, the `create*` error constructors |
 | `@independo/inderun-web/openai`, `/onnx`, `/system-model` | Registering a provider by hand | One provider adapter each |
 
@@ -51,6 +51,24 @@ const { finishReason } = await stream.result;
 default `"auto"`), the usual sampling options, and an `execution` policy that reuses the canonical
 constraint values. Each call compiles to one `TaskRequest` — `toTaskRequest(options)` shows which —
 and runs through the engine below, so errors, fallback, and cancellation match the advanced API.
+
+## Speech
+
+```ts
+import { listVoices, speak } from "@independo/inderun-web";
+
+const voices = await listVoices(inderun, { locale: "de-AT" });
+
+const playback = await speak(inderun, { text: "Der Bus kommt.", locale: "de-AT" });
+stopButton.onclick = () => playback.cancel();
+const { finishReason, provenance } = await playback.result; // "cancelled" after cancel()
+```
+
+`speak` compiles to `stream()` with playback delivery, so stopping is a normal ending, not an error.
+`generateSpeech` compiles to `run()` with artifact delivery and returns an `artifact` to read with
+`readArtifact()` and release with `disposeArtifact()`; routing refuses it on a provider that can
+only play. `toSpeechRequest` shows the canonical request. See
+[ADR 018](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/decisions/018-speech-application-api.md).
 
 ## Advanced: the task API
 

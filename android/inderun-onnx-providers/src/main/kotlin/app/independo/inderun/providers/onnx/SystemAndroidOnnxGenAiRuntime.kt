@@ -30,6 +30,13 @@ class SystemAndroidOnnxGenAiRuntime(context: Context) : AndroidOnnxGenAiRuntime 
 
     private val session = LoadedSessionBox(context)
 
+    override suspend fun availability(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability = try {
+        session.check(modelPackage)
+        AndroidOnnxRuntimeAvailability(available = true)
+    } catch (error: OnnxRuntimeError) {
+        AndroidOnnxRuntimeAvailability(available = false, reason = error.message)
+    }
+
     override suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability = try {
         session.loaded(modelPackage)
         AndroidOnnxRuntimeAvailability(available = true)

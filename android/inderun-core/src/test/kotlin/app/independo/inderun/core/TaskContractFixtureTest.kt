@@ -119,7 +119,7 @@ class TaskContractFixtureTest {
             ),
         )
         assertEquals(
-            listOf("speech.voice with requirement 'required' must name a gender."),
+            listOf("speech.voice with requirement 'required' must name an id or a gender."),
             profile.validate(
                 speechRequest().copy(
                     speech = SpeechInput(text = "Hallo", locale = "de-AT", voice = SpeechVoice(requirement = RequirementLevel.Required)),

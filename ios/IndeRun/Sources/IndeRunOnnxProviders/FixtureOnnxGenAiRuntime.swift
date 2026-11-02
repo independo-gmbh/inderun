@@ -5,6 +5,8 @@ import IndeRunContracts
 public struct FixtureOnnxRuntimeOptions: Sendable {
     /// Availability snapshot returned by `prepare`. Defaults to `{ available: true }`.
     public var availability: OnnxRuntimeAvailability
+    /// Result of loading, returned by `prepare`. `nil` uses `availability`.
+    public var loadResult: OnnxRuntimeAvailability?
     /// Text or full output produced by `generate`. Defaults to a deterministic echo.
     public var respond: (@Sendable (OnnxGenerationInput) -> OnnxGenerationOutput)?
     /// Error thrown by `generate` instead of producing output.
@@ -14,11 +16,13 @@ public struct FixtureOnnxRuntimeOptions: Sendable {
 
     public init(
         availability: OnnxRuntimeAvailability = OnnxRuntimeAvailability(available: true),
+        loadResult: OnnxRuntimeAvailability? = nil,
         respond: (@Sendable (OnnxGenerationInput) -> OnnxGenerationOutput)? = nil,
         failWith: OnnxRuntimeError? = nil,
         delay: Duration? = nil
     ) {
         self.availability = availability
+        self.loadResult = loadResult
         self.respond = respond
         self.failWith = failWith
         self.delay = delay
@@ -41,8 +45,12 @@ public func createFixtureOnnxRuntime(options: FixtureOnnxRuntimeOptions = Fixtur
 private struct FixtureOnnxGenAiRuntime: OnnxGenAiRuntime {
     let options: FixtureOnnxRuntimeOptions
 
-    func prepare(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
+    func availability(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
         options.availability
+    }
+
+    func prepare(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
+        options.loadResult ?? options.availability
     }
 
     func generate(_ input: OnnxGenerationInput) async throws -> OnnxGenerationOutput {

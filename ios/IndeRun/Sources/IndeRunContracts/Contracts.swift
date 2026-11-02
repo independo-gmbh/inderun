@@ -14,6 +14,7 @@
 //   let streamEvent = try StreamEvent(json)
 //   let streamTerminalOutcome = try StreamTerminalOutcome(json)
 //   let providerCapabilitySnapshot = try ProviderCapabilitySnapshot(json)
+//   let prepareRequest = try PrepareRequest(json)
 //   let artifactReadRequest = try ArtifactReadRequest(json)
 
 import Foundation
@@ -229,6 +230,8 @@ public enum Cloud: String, Codable, Sendable {
 }
 
 /// Privacy requirement or preference for execution placement.
+///
+/// The privacy policy of the runs this precedes.
 public enum Privacy: String, Codable, Sendable {
     case cloudAllowed = "cloud_allowed"
     case cloudRequired = "cloud_required"
@@ -524,9 +527,9 @@ public struct SpeechInput: Codable, Sendable {
     public var localeMatch: LocaleMatch?
     /// Plain text to speak. Markup such as SSML is out of scope.
     public var text: String
-    /// Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
-    /// and is never a reason to fail; a 'required' one takes part in routing and is never
-    /// relaxed silently. Carries no provider voice identifier.
+    /// The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+    /// traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+    /// fail; a 'required' one takes part in routing and is never relaxed silently.
     public var voice: SpeechVoice?
 
     public enum CodingKeys: String, CodingKey {
@@ -590,27 +593,40 @@ public extension SpeechInput {
 ///
 /// 'exact' requires the full tag; 'language' requires only the primary language subtag and
 /// treats the region as a preference.
+///
+/// How locale compares: 'language' (default) or 'exact'.
 public enum LocaleMatch: String, Codable, Sendable {
     case exact = "exact"
     case language = "language"
 }
 
-/// Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
-/// and is never a reason to fail; a 'required' one takes part in routing and is never
-/// relaxed silently. Carries no provider voice identifier.
+/// The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+/// traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+/// fail; a 'required' one takes part in routing and is never relaxed silently.
 // MARK: - SpeechVoice
 public struct SpeechVoice: Codable, Sendable {
     public var gender: VoiceGender?
-    /// 'preferred' (default) or 'required'. A required voice must name at least one trait.
+    /// A voice id read from listVoices(), never written by hand. Opaque, and meaningful only on
+    /// providerId and the device that listed it, so a stored id can go stale: a 'preferred' one
+    /// then falls back to the other traits.
+    public var id: String?
+    /// The provider that listed id. Required with id, because voice ids share no namespace
+    /// across providers.
+    public var providerId: String?
+    /// 'preferred' (default) or 'required'. A required voice must name an id or a trait.
     public var requirement: RequirementLevel?
 
     public enum CodingKeys: String, CodingKey {
         case gender = "gender"
+        case id = "id"
+        case providerId = "providerId"
         case requirement = "requirement"
     }
 
-    public init(gender: VoiceGender?, requirement: RequirementLevel?) {
+    public init(gender: VoiceGender?, id: String?, providerId: String?, requirement: RequirementLevel?) {
         self.gender = gender
+        self.id = id
+        self.providerId = providerId
         self.requirement = requirement
     }
 }
@@ -635,10 +651,14 @@ public extension SpeechVoice {
 
     func with(
         gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        providerId: String?? = nil,
         requirement: RequirementLevel?? = nil
     ) -> SpeechVoice {
         return SpeechVoice(
             gender: gender ?? self.gender,
+            id: id ?? self.id,
+            providerId: providerId ?? self.providerId,
             requirement: requirement ?? self.requirement
         )
     }
@@ -659,7 +679,7 @@ public enum VoiceGender: String, Codable, Sendable {
     case neutral = "neutral"
 }
 
-/// 'preferred' (default) or 'required'. A required voice must name at least one trait.
+/// 'preferred' (default) or 'required'. A required voice must name an id or a trait.
 ///
 /// 'required' takes part in routing; 'preferred' does not.
 public enum RequirementLevel: String, Codable, Sendable {
@@ -939,25 +959,31 @@ public struct TaskOutput: Codable, Sendable {
     public var artifact: MediaArtifact?
     /// Completion of managed playback. Required when type is 'playback'. Carries no media.
     public var playback: PlaybackOutput?
-    /// The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+    /// What a prepare() run did, one item per provider and task. Required when type is
+    /// 'prepared'. One failed item does not fail the run.
+    public var preparation: [PreparationItem]?
+    /// The locale and voice a text-to-speech run actually used, so an unmet preference is
     /// visible without being an error.
     public var speech: SpeechOutput?
     /// The text the run produced. Required when type is 'text'.
     public var text: String?
-    /// The content representation: 'text', 'playback' or 'artifact'.
+    /// The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+    /// run, carries no content, and lists each item in 'preparation'.
     public var type: TaskOutputType
 
     public enum CodingKeys: String, CodingKey {
         case artifact = "artifact"
         case playback = "playback"
+        case preparation = "preparation"
         case speech = "speech"
         case text = "text"
         case type = "type"
     }
 
-    public init(artifact: MediaArtifact?, playback: PlaybackOutput?, speech: SpeechOutput?, text: String?, type: TaskOutputType) {
+    public init(artifact: MediaArtifact?, playback: PlaybackOutput?, preparation: [PreparationItem]?, speech: SpeechOutput?, text: String?, type: TaskOutputType) {
         self.artifact = artifact
         self.playback = playback
+        self.preparation = preparation
         self.speech = speech
         self.text = text
         self.type = type
@@ -985,6 +1011,7 @@ public extension TaskOutput {
     func with(
         artifact: MediaArtifact?? = nil,
         playback: PlaybackOutput?? = nil,
+        preparation: [PreparationItem]?? = nil,
         speech: SpeechOutput?? = nil,
         text: String?? = nil,
         type: TaskOutputType? = nil
@@ -992,6 +1019,7 @@ public extension TaskOutput {
         return TaskOutput(
             artifact: artifact ?? self.artifact,
             playback: playback ?? self.playback,
+            preparation: preparation ?? self.preparation,
             speech: speech ?? self.speech,
             text: text ?? self.text,
             type: type ?? self.type
@@ -1168,13 +1196,98 @@ public extension PlaybackOutput {
     }
 }
 
-/// The locale and voice traits a text-to-speech run actually used, so an unmet preference is
+// MARK: - PreparationItem
+public struct PreparationItem: Codable, Sendable {
+    /// The provider this item belongs to.
+    public var providerId: String
+    /// Why the item was skipped or failed.
+    public var reason: String?
+    /// 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+    /// needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+    /// reason.
+    public var status: PreparationStatus
+    /// The task kind this item belongs to.
+    public var task: String
+    /// The voice this item prepared, when one was bound.
+    public var voiceId: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case providerId = "providerId"
+        case reason = "reason"
+        case status = "status"
+        case task = "task"
+        case voiceId = "voiceId"
+    }
+
+    public init(providerId: String, reason: String?, status: PreparationStatus, task: String, voiceId: String?) {
+        self.providerId = providerId
+        self.reason = reason
+        self.status = status
+        self.task = task
+        self.voiceId = voiceId
+    }
+}
+
+// MARK: PreparationItem convenience initializers and mutators
+
+public extension PreparationItem {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PreparationItem.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        providerId: String? = nil,
+        reason: String?? = nil,
+        status: PreparationStatus? = nil,
+        task: String? = nil,
+        voiceId: String?? = nil
+    ) -> PreparationItem {
+        return PreparationItem(
+            providerId: providerId ?? self.providerId,
+            reason: reason ?? self.reason,
+            status: status ?? self.status,
+            task: task ?? self.task,
+            voiceId: voiceId ?? self.voiceId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+/// needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+/// reason.
+public enum PreparationStatus: String, Codable, Sendable {
+    case alreadyReady = "already_ready"
+    case failed = "failed"
+    case prepared = "prepared"
+    case skipped = "skipped"
+}
+
+/// The locale and voice a text-to-speech run actually used, so an unmet preference is
 /// visible without being an error.
 // MARK: - SpeechOutput
 public struct SpeechOutput: Codable, Sendable {
     /// BCP 47 tag of the locale that was spoken.
     public var locale: String
-    /// Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+    /// The voice that spoke, as the catalog lists it.
     public var voice: SpeechOutputVoice?
 
     public enum CodingKeys: String, CodingKey {
@@ -1225,17 +1338,25 @@ public extension SpeechOutput {
     }
 }
 
-/// Provider-neutral traits of the voice that spoke. Carries no provider voice identifier.
+/// The voice that spoke, as the catalog lists it.
 // MARK: - SpeechOutputVoice
 public struct SpeechOutputVoice: Codable, Sendable {
     public var gender: VoiceGender?
+    /// The voice's id, when its provider lists one.
+    public var id: String?
+    /// The voice's display label, when its provider lists one.
+    public var name: String?
 
     public enum CodingKeys: String, CodingKey {
         case gender = "gender"
+        case id = "id"
+        case name = "name"
     }
 
-    public init(gender: VoiceGender?) {
+    public init(gender: VoiceGender?, id: String?, name: String?) {
         self.gender = gender
+        self.id = id
+        self.name = name
     }
 }
 
@@ -1258,10 +1379,14 @@ public extension SpeechOutputVoice {
     }
 
     func with(
-        gender: VoiceGender?? = nil
+        gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        name: String?? = nil
     ) -> SpeechOutputVoice {
         return SpeechOutputVoice(
-            gender: gender ?? self.gender
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            name: name ?? self.name
         )
     }
 
@@ -1274,10 +1399,12 @@ public extension SpeechOutputVoice {
     }
 }
 
-/// The content representation: 'text', 'playback' or 'artifact'.
+/// The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+/// run, carries no content, and lists each item in 'preparation'.
 public enum TaskOutputType: String, Codable, Sendable {
     case artifact = "artifact"
     case playback = "playback"
+    case prepared = "prepared"
     case text = "text"
 }
 
@@ -1578,16 +1705,20 @@ public extension ExecutionProvenanceRouteRejection {
 /// list this provider. 'input_not_supported', 'output_delivery_not_supported',
 /// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
 /// provider's task capability lacks an input kind, output delivery, media type, locale or
-/// voice the request requires.
+/// voice the request requires. 'prepare_not_supported' means the task capability declares no
+/// prepare(). 'not_ready' means the provider, task or required voice exists but is not
+/// prepared yet, so prepare() can make it available.
 public enum Code: String, Codable, Sendable {
     case capabilityUnavailable = "capability_unavailable"
     case cloudConstraint = "cloud_constraint"
     case inputNotSupported = "input_not_supported"
     case localeNotSupported = "locale_not_supported"
     case notInModelProfile = "not_in_model_profile"
+    case notReady = "not_ready"
     case offline = "offline"
     case outputDeliveryNotSupported = "output_delivery_not_supported"
     case outputFormatNotSupported = "output_format_not_supported"
+    case prepareNotSupported = "prepare_not_supported"
     case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"
     case streamingNotSupported = "streaming_not_supported"
@@ -2227,6 +2358,7 @@ public extension RoutePlannerInputConstraints {
 /// produced before this field existed keep their exact Mode-1 semantics. The mode filters
 /// eligible providers; it never changes candidate ordering.
 public enum InteractionMode: String, Codable, Sendable {
+    case prepare = "prepare"
     case run = "run"
     case stream = "stream"
 }
@@ -2504,14 +2636,18 @@ public struct ProviderTaskAvailability: Codable, Sendable {
     /// BCP 47 locales available for this task right now. Absent means the provider cannot
     /// enumerate them.
     public var locales: [String]?
+    /// How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+    /// or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+    /// even when the provider-level available is false.
+    public var readiness: ProviderReadiness?
     /// Why the task is unavailable, when available is false.
     public var reason: String?
     /// Whether the task can stream on this host right now. Absent inherits. Never null.
     public var streamingAvailable: Bool?
     /// Why streaming is unavailable for this task, when streamingAvailable is false.
     public var streamingUnavailableReason: String?
-    /// Voices available for this task right now. Absent means the provider cannot enumerate
-    /// them; a request that requires a voice then never routes to it.
+    /// Every voice available for this task right now, one entry per voice. Absent means the
+    /// provider cannot enumerate them; a request that requires a voice then never routes to it.
     public var voices: [ProviderVoice]?
 
     public enum CodingKeys: String, CodingKey {
@@ -2519,17 +2655,19 @@ public struct ProviderTaskAvailability: Codable, Sendable {
         case cancellationAvailable = "cancellationAvailable"
         case kind = "kind"
         case locales = "locales"
+        case readiness = "readiness"
         case reason = "reason"
         case streamingAvailable = "streamingAvailable"
         case streamingUnavailableReason = "streamingUnavailableReason"
         case voices = "voices"
     }
 
-    public init(available: Bool?, cancellationAvailable: Bool?, kind: String, locales: [String]?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, voices: [ProviderVoice]?) {
+    public init(available: Bool?, cancellationAvailable: Bool?, kind: String, locales: [String]?, readiness: ProviderReadiness?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, voices: [ProviderVoice]?) {
         self.available = available
         self.cancellationAvailable = cancellationAvailable
         self.kind = kind
         self.locales = locales
+        self.readiness = readiness
         self.reason = reason
         self.streamingAvailable = streamingAvailable
         self.streamingUnavailableReason = streamingUnavailableReason
@@ -2560,6 +2698,7 @@ public extension ProviderTaskAvailability {
         cancellationAvailable: Bool?? = nil,
         kind: String? = nil,
         locales: [String]?? = nil,
+        readiness: ProviderReadiness?? = nil,
         reason: String?? = nil,
         streamingAvailable: Bool?? = nil,
         streamingUnavailableReason: String?? = nil,
@@ -2570,6 +2709,7 @@ public extension ProviderTaskAvailability {
             cancellationAvailable: cancellationAvailable ?? self.cancellationAvailable,
             kind: kind ?? self.kind,
             locales: locales ?? self.locales,
+            readiness: readiness ?? self.readiness,
             reason: reason ?? self.reason,
             streamingAvailable: streamingAvailable ?? self.streamingAvailable,
             streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason,
@@ -2586,34 +2726,67 @@ public extension ProviderTaskAvailability {
     }
 }
 
-/// Provider-neutral traits of one available voice. Carries no provider voice identifier.
+/// How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+/// or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+/// even when the provider-level available is false.
+///
+/// How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it
+/// runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has
+/// run. 'preparing': it is being prepared now and cannot run yet.
+///
+/// How ready the voice is to speak. Absent means 'ready'.
+public enum ProviderReadiness: String, Codable, Sendable {
+    case cold = "cold"
+    case notPrepared = "not_prepared"
+    case preparing = "preparing"
+    case ready = "ready"
+}
+
+/// One available voice: its provider-neutral traits, and an id and name for an application
+/// that lets someone choose it.
 ///
 /// The voice this candidate must use if it is attempted, chosen by the planner from the
 /// provider's dynamic voice inventory. It is the best voice that satisfies the request's
 /// locale, required voice traits and privacy — under local-required privacy always one that
-/// keeps data on the device — ranked by preferred gender, then exact locale region, then
-/// on-device before network. The adapter must use a voice with exactly these traits. Absent
-/// when the request names no locale or voice, or the provider does not list its voices; the
-/// adapter then chooses itself under the same rules.
+/// keeps data on the device — ranked by preferred id, then preferred gender, then exact
+/// locale region, then on-device before network. The adapter must use the voice with this
+/// id, or one with exactly these traits when the voice has no id. Absent when the request
+/// names no locale or voice, or the provider does not list its voices; the adapter then
+/// chooses itself under the same rules.
 // MARK: - ProviderVoice
 public struct ProviderVoice: Codable, Sendable {
     public var gender: VoiceGender?
+    /// Identifies this voice within its provider, for use as speech.voice.id with
+    /// speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
+    /// and meaningful nowhere else. Absent when the provider cannot address single voices.
+    public var id: String?
     /// BCP 47 locale the voice speaks.
     public var locale: String
+    /// Label for showing the voice to a person, as the platform reports it. Not unique and not
+    /// localized; never compare it.
+    public var name: String?
     /// Whether using the voice sends data off the device. Absent inherits the task's privacy
     /// posture.
     public var networkRequired: Bool?
+    /// How ready the voice is to speak. Absent means 'ready'.
+    public var readiness: ProviderReadiness?
 
     public enum CodingKeys: String, CodingKey {
         case gender = "gender"
+        case id = "id"
         case locale = "locale"
+        case name = "name"
         case networkRequired = "networkRequired"
+        case readiness = "readiness"
     }
 
-    public init(gender: VoiceGender?, locale: String, networkRequired: Bool?) {
+    public init(gender: VoiceGender?, id: String?, locale: String, name: String?, networkRequired: Bool?, readiness: ProviderReadiness?) {
         self.gender = gender
+        self.id = id
         self.locale = locale
+        self.name = name
         self.networkRequired = networkRequired
+        self.readiness = readiness
     }
 }
 
@@ -2637,13 +2810,19 @@ public extension ProviderVoice {
 
     func with(
         gender: VoiceGender?? = nil,
+        id: String?? = nil,
         locale: String? = nil,
-        networkRequired: Bool?? = nil
+        name: String?? = nil,
+        networkRequired: Bool?? = nil,
+        readiness: ProviderReadiness?? = nil
     ) -> ProviderVoice {
         return ProviderVoice(
             gender: gender ?? self.gender,
+            id: id ?? self.id,
             locale: locale ?? self.locale,
-            networkRequired: networkRequired ?? self.networkRequired
+            name: name ?? self.name,
+            networkRequired: networkRequired ?? self.networkRequired,
+            readiness: readiness ?? self.readiness
         )
     }
 
@@ -3127,17 +3306,21 @@ public enum TaskInputKind: String, Codable, Sendable {
 /// Interaction modes the provider supports for this task.
 // MARK: - ProviderTaskInteraction
 public struct ProviderTaskInteraction: Codable, Sendable {
+    /// Whether the provider implements prepare() for this task (ADR 019). Absent means false.
+    public var prepare: Bool?
     /// Whether the provider supports Mode 1 run for this task.
     public var run: Bool
     /// Whether the provider supports Mode 2 stream for this task.
     public var stream: Bool
 
     public enum CodingKeys: String, CodingKey {
+        case prepare = "prepare"
         case run = "run"
         case stream = "stream"
     }
 
-    public init(run: Bool, stream: Bool) {
+    public init(prepare: Bool?, run: Bool, stream: Bool) {
+        self.prepare = prepare
         self.run = run
         self.stream = stream
     }
@@ -3162,10 +3345,12 @@ public extension ProviderTaskInteraction {
     }
 
     func with(
+        prepare: Bool?? = nil,
         run: Bool? = nil,
         stream: Bool? = nil
     ) -> ProviderTaskInteraction {
         return ProviderTaskInteraction(
+            prepare: prepare ?? self.prepare,
             run: run ?? self.run,
             stream: stream ?? self.stream
         )
@@ -3272,9 +3457,10 @@ public struct RoutePlannerInputTask: Codable, Sendable {
     /// that cannot enumerate its locales is not rejected on this basis; it must fail before
     /// committing instead.
     public var locale: LocaleRequirement?
-    /// Voice traits the request asks for. Only a 'required' voice can reject a provider; a
-    /// 'preferred' one shapes which listed voice the plan binds a candidate to, always within
-    /// the request's privacy policy.
+    /// The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+    /// voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+    /// candidate to, always within the request's privacy policy, and a preferred id also ranks
+    /// the provider that can bind it ahead of others.
     public var voice: VoiceRequirement?
 
     public enum CodingKeys: String, CodingKey {
@@ -3454,22 +3640,31 @@ public extension LocaleRequirement {
     }
 }
 
-/// Voice traits the request asks for. Only a 'required' voice can reject a provider; a
-/// 'preferred' one shapes which listed voice the plan binds a candidate to, always within
-/// the request's privacy policy.
+/// The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+/// voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+/// candidate to, always within the request's privacy policy, and a preferred id also ranks
+/// the provider that can bind it ahead of others.
 // MARK: - VoiceRequirement
 public struct VoiceRequirement: Codable, Sendable {
     public var gender: VoiceGender?
+    /// A voice id, compared exactly against the voices of providerId and of no other provider.
+    public var id: String?
+    /// The provider that id belongs to.
+    public var providerId: String?
     /// 'required' takes part in routing; 'preferred' does not.
     public var requirement: RequirementLevel
 
     public enum CodingKeys: String, CodingKey {
         case gender = "gender"
+        case id = "id"
+        case providerId = "providerId"
         case requirement = "requirement"
     }
 
-    public init(gender: VoiceGender?, requirement: RequirementLevel) {
+    public init(gender: VoiceGender?, id: String?, providerId: String?, requirement: RequirementLevel) {
         self.gender = gender
+        self.id = id
+        self.providerId = providerId
         self.requirement = requirement
     }
 }
@@ -3494,10 +3689,14 @@ public extension VoiceRequirement {
 
     func with(
         gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        providerId: String?? = nil,
         requirement: RequirementLevel? = nil
     ) -> VoiceRequirement {
         return VoiceRequirement(
             gender: gender ?? self.gender,
+            id: id ?? self.id,
+            providerId: providerId ?? self.providerId,
             requirement: requirement ?? self.requirement
         )
     }
@@ -3598,10 +3797,11 @@ public struct Candidate: Codable, Sendable {
     /// The voice this candidate must use if it is attempted, chosen by the planner from the
     /// provider's dynamic voice inventory. It is the best voice that satisfies the request's
     /// locale, required voice traits and privacy — under local-required privacy always one that
-    /// keeps data on the device — ranked by preferred gender, then exact locale region, then
-    /// on-device before network. The adapter must use a voice with exactly these traits. Absent
-    /// when the request names no locale or voice, or the provider does not list its voices; the
-    /// adapter then chooses itself under the same rules.
+    /// keeps data on the device — ranked by preferred id, then preferred gender, then exact
+    /// locale region, then on-device before network. The adapter must use the voice with this
+    /// id, or one with exactly these traits when the voice has no id. Absent when the request
+    /// names no locale or voice, or the provider does not list its voices; the adapter then
+    /// chooses itself under the same rules.
     public var voice: ProviderVoice?
 
     public enum CodingKeys: String, CodingKey {
@@ -3779,7 +3979,9 @@ public struct Reason: Codable, Sendable {
     /// list this provider. 'input_not_supported', 'output_delivery_not_supported',
     /// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
     /// provider's task capability lacks an input kind, output delivery, media type, locale or
-    /// voice the request requires.
+    /// voice the request requires. 'prepare_not_supported' means the task capability declares no
+    /// prepare(). 'not_ready' means the provider, task or required voice exists but is not
+    /// prepared yet, so prepare() can make it available.
     public var code: Code
     public var message: String
 
@@ -4473,6 +4675,8 @@ public struct StreamEvent: Codable, Sendable {
     /// Mechanical/diagnostic: free-form orchestration or provider diagnostic detail. Not
     /// user-visible content.
     ///
+    /// Progress of a prepare() run (ADR 019).
+    ///
     /// Terminal: the last event of the run, carrying the mutually-exclusive
     /// completion/error/cancellation outcome. No further StreamEvent is delivered for this runId
     /// after this event.
@@ -4560,6 +4764,12 @@ public struct Payload: Codable, Sendable {
     public var text: String?
     /// The lifecycle phase reached.
     public var phase: Phase?
+    /// How much of this item is done, from 0 to 1. Absent when the platform reports no fraction.
+    public var fractionCompleted: Double?
+    /// The provider being prepared.
+    public var providerId: String?
+    /// The task kind being prepared.
+    public var task: String?
     public var finalText: String?
     public var finishReason: FinishReason?
     public var outcome: Outcome?
@@ -4579,6 +4789,9 @@ public struct Payload: Codable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case text = "text"
         case phase = "phase"
+        case fractionCompleted = "fractionCompleted"
+        case providerId = "providerId"
+        case task = "task"
         case finalText = "finalText"
         case finishReason = "finishReason"
         case outcome = "outcome"
@@ -4593,9 +4806,12 @@ public struct Payload: Codable, Sendable {
         case reason = "reason"
     }
 
-    public init(text: String?, phase: Phase?, finalText: String?, finishReason: FinishReason?, outcome: Outcome?, output: TaskOutput?, provenance: ExecutionProvenance?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
+    public init(text: String?, phase: Phase?, fractionCompleted: Double?, providerId: String?, task: String?, finalText: String?, finishReason: FinishReason?, outcome: Outcome?, output: TaskOutput?, provenance: ExecutionProvenance?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
         self.text = text
         self.phase = phase
+        self.fractionCompleted = fractionCompleted
+        self.providerId = providerId
+        self.task = task
         self.finalText = finalText
         self.finishReason = finishReason
         self.outcome = outcome
@@ -4632,6 +4848,9 @@ public extension Payload {
     func with(
         text: String?? = nil,
         phase: Phase?? = nil,
+        fractionCompleted: Double?? = nil,
+        providerId: String?? = nil,
+        task: String?? = nil,
         finalText: String?? = nil,
         finishReason: FinishReason?? = nil,
         outcome: Outcome?? = nil,
@@ -4648,6 +4867,9 @@ public extension Payload {
         return Payload(
             text: text ?? self.text,
             phase: phase ?? self.phase,
+            fractionCompleted: fractionCompleted ?? self.fractionCompleted,
+            providerId: providerId ?? self.providerId,
+            task: task ?? self.task,
             finalText: finalText ?? self.finalText,
             finishReason: finishReason ?? self.finishReason,
             outcome: outcome ?? self.outcome,
@@ -5326,6 +5548,156 @@ public extension ProviderCapabilitySnapshot {
         return ProviderCapabilitySnapshot(
             capabilities: capabilities ?? self.capabilities,
             descriptor: descriptor ?? self.descriptor,
+            providerId: providerId ?? self.providerId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional scope for IndeRunApi.prepare (ADR 019). Every field is optional: an empty
+/// request covers every registered provider and task. It carries no user content.
+// MARK: - PrepareRequest
+public struct PrepareRequest: Codable, Sendable {
+    /// Lets this call start a platform's own download, whatever autoDownload says at
+    /// registration. Call it from a user's decision. Absent follows autoDownload.
+    public var allowDownload: Bool?
+    /// BCP 47 tag of the language to prepare. Absent lets a speech provider use the device's own
+    /// language.
+    public var locale: String?
+    /// How locale compares: 'language' (default) or 'exact'.
+    public var localeMatch: LocaleMatch?
+    /// The privacy policy of the runs this precedes.
+    public var privacy: Privacy?
+    /// Fixes the run id, for correlation.
+    public var requestId: String?
+    /// Task kinds to prepare. Absent means every task a registered provider can prepare.
+    public var tasks: [String]?
+    /// A voice to prepare, as for a speech request.
+    public var voice: PrepareVoice?
+
+    public enum CodingKeys: String, CodingKey {
+        case allowDownload = "allowDownload"
+        case locale = "locale"
+        case localeMatch = "localeMatch"
+        case privacy = "privacy"
+        case requestId = "requestId"
+        case tasks = "tasks"
+        case voice = "voice"
+    }
+
+    public init(allowDownload: Bool?, locale: String?, localeMatch: LocaleMatch?, privacy: Privacy?, requestId: String?, tasks: [String]?, voice: PrepareVoice?) {
+        self.allowDownload = allowDownload
+        self.locale = locale
+        self.localeMatch = localeMatch
+        self.privacy = privacy
+        self.requestId = requestId
+        self.tasks = tasks
+        self.voice = voice
+    }
+}
+
+// MARK: PrepareRequest convenience initializers and mutators
+
+public extension PrepareRequest {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PrepareRequest.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        allowDownload: Bool?? = nil,
+        locale: String?? = nil,
+        localeMatch: LocaleMatch?? = nil,
+        privacy: Privacy?? = nil,
+        requestId: String?? = nil,
+        tasks: [String]?? = nil,
+        voice: PrepareVoice?? = nil
+    ) -> PrepareRequest {
+        return PrepareRequest(
+            allowDownload: allowDownload ?? self.allowDownload,
+            locale: locale ?? self.locale,
+            localeMatch: localeMatch ?? self.localeMatch,
+            privacy: privacy ?? self.privacy,
+            requestId: requestId ?? self.requestId,
+            tasks: tasks ?? self.tasks,
+            voice: voice ?? self.voice
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A voice to prepare, as for a speech request.
+// MARK: - PrepareVoice
+public struct PrepareVoice: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// A voice id read from listVoices().
+    public var id: String?
+    /// The provider that listed id.
+    public var providerId: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case id = "id"
+        case providerId = "providerId"
+    }
+
+    public init(gender: VoiceGender?, id: String?, providerId: String?) {
+        self.gender = gender
+        self.id = id
+        self.providerId = providerId
+    }
+}
+
+// MARK: PrepareVoice convenience initializers and mutators
+
+public extension PrepareVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PrepareVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        providerId: String?? = nil
+    ) -> PrepareVoice {
+        return PrepareVoice(
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
             providerId: providerId ?? self.providerId
         )
     }

@@ -1,8 +1,10 @@
 import {
+  getPrepareRequestValidationIssues,
   type ArtifactReadRequest,
   getArtifactReadRequestValidationIssues,
   getTaskRequestValidationIssues,
   type MediaArtifact,
+  type PrepareRequest,
   type StreamEvent,
   type StreamRunHandle,
   type StreamTerminalOutcome,
@@ -11,9 +13,15 @@ import {
   type TaskResult
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
-import type { ProviderAdapter, ProviderCapabilitySnapshot, StreamRun } from "./provider.js";
+import type {
+  PreparableProviderAdapter,
+  ProviderAdapter,
+  ProviderCapabilitySnapshot,
+  StreamRun
+} from "./provider.js";
 import type { IndeRunApi } from "./generated/inderun-api.js";
 import { ProviderRegistry } from "./registry.js";
+import type { SharedPlannerInput } from "./route-planner.js";
 import { type RouteSelection, Router } from "./router.js";
 import {
   createCapabilityMismatch,
@@ -77,7 +85,59 @@ export interface IndeRunOptions {
  * Validates tasks, executes routing rules based on request constraints and connectivity,
  * triggers provider adapters, and logs timing telemetry.
  */
+/** How long a first run waits for preparation when its request sets no `timeoutMs`. */
+const DEFAULT_FIRST_RUN_PREPARE_MS = 30_000;
+
+/** How one provider's preparation ended, shared with callers that waited for it. */
+type PreparationOutcome = Pick<NonNullable<TaskOutput["preparation"]>[number], "status" | "reason">;
+
+/**
+ * What a preparation covered. A voice or locale is a scope of its own: having prepared `de-DE`
+ * says nothing about the voice a run for `en-US` needs.
+ */
+function preparationScope(kind: string, locale?: string, voiceId?: string): string {
+  return `${kind}|${locale ?? ""}|${voiceId ?? ""}`;
+}
+
+/** Resolves with `work`, or with `undefined` as soon as `signal` fires. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  if (signal.aborted) return Promise.resolve(undefined);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(undefined);
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/** The planner's view of a task being prepared: its scope, without any content. */
+function preparationTask(kind: string, request: PrepareRequest): SharedPlannerInput["task"] {
+  const voice = request.voice;
+  return {
+    kind,
+    inputs: ["text"],
+    ...(request.locale !== undefined
+      ? { locale: { tag: request.locale, match: request.localeMatch ?? "language" } }
+      : {}),
+    ...(voice !== undefined
+      ? {
+          voice: {
+            ...(voice.id !== undefined ? { id: voice.id } : {}),
+            ...(voice.providerId !== undefined ? { providerId: voice.providerId } : {}),
+            ...(voice.gender !== undefined ? { gender: voice.gender } : {}),
+            requirement: "preferred"
+          }
+        }
+      : {})
+  };
+}
+
 export class IndeRun implements IndeRunApi {
+  /** Scopes that need no preparation before their next run; see {@link preparationScope}. */
+  private readonly preparedScopes = new Set<string>();
+  /** First-run preparations under way, so concurrent first calls share one. */
+  private readonly firstRuns = new Map<string, Promise<void>>();
+  /** Provider preparations under way, so a second caller shares the outcome of the first. */
+  private readonly preparing = new Map<string, Promise<PreparationOutcome>>();
   private router: Router;
   private readonly artifacts: ArtifactStore;
   private telemetryService: TelemetryService;
@@ -228,6 +288,7 @@ export class IndeRun implements IndeRunApi {
       await this.checkDestination(request, runId);
 
       // 2. Select the route based on constraints, model profile, and host capabilities
+      await this.prepareBeforeFirstRun(request, runId);
       const routeSelection = await this.router.selectRoute(
         request,
         this.hostServices,
@@ -247,6 +308,7 @@ export class IndeRun implements IndeRunApi {
       for (const [index, provider] of providers.entries()) {
         const providerId = provider.describe().id;
         const voice = routeSelection.candidates[index]?.voice;
+        provenance.voiceBound(providerId, request.task.kind, voice);
         attemptedProviderIds.push(providerId);
         let committed = false;
         // Closed when the attempt ends: a provider callback that fires after the run moved
@@ -415,6 +477,7 @@ export class IndeRun implements IndeRunApi {
     // runId — there is no handle for the caller to correlate them with otherwise.
     let routeSelection: RouteSelection;
     try {
+      await this.prepareBeforeFirstRun(request, runId);
       routeSelection = await this.router.selectRoute(
         request,
         this.hostServices,
@@ -500,6 +563,7 @@ export class IndeRun implements IndeRunApi {
 
         const providerId = provider.describe().id;
         const voice = routeSelection.candidates[index]?.voice;
+        provenance.voiceBound(providerId, request.task.kind, voice);
         attemptedProviderIds.push(providerId);
         safeEmit({
           type: "stream_attempt_started",
@@ -752,6 +816,249 @@ export class IndeRun implements IndeRunApi {
     }
 
     return { handle, events: run(), cancel: (reason?: string) => controller.abort(reason) };
+  }
+
+  /**
+   * Makes registered providers ready ahead of a run (ADR 019). Optional: without it, the first
+   * run of a task does the part that does not need the application's say. Repeating it is cheap,
+   * because what is ready is skipped. Providers go one at a time, and one failing does not stop
+   * the rest: the terminal outcome lists each item.
+   * @param request - Optional scope. An empty one covers every provider and task.
+   * @throws {IndeRunException} If validation fails.
+   */
+  async prepare(request: PrepareRequest = {}): Promise<StreamRun> {
+    const startTime = this.now();
+    const now = () => this.now();
+    const runId = request.requestId ?? `run_${Math.random().toString(36).substring(2, 11)}`;
+
+    const validationIssues = getPrepareRequestValidationIssues(request);
+    if (validationIssues.length > 0) {
+      const message = `Validation failed for PrepareRequest: ${validationIssues
+        .map((i) => `${i.path} - ${i.message}`)
+        .join("; ")}`;
+      throw createInternal(message, { runId, details: { validationIssues } });
+    }
+
+    const controller = new AbortController();
+    const gate = new EventGate(runId);
+    const items = this.preparationItems(request, runId, controller.signal, false);
+    const preparedScopes = this.preparedScopes;
+    const kinds = this.preparableKinds(request.tasks);
+
+    async function* run(): AsyncGenerator<StreamEvent> {
+      const preparation: NonNullable<TaskOutput["preparation"]> = [];
+      try {
+        for await (const step of items) {
+          if ("status" in step) {
+            preparation.push(step);
+          } else {
+            const event = gate.admit({
+              timestamp: now(),
+              type: "preparation_progress",
+              payload: step
+            });
+            if (event) yield event;
+          }
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          const exception = toIndeRunException(error, { runId });
+          const terminal = gate.terminate(
+            { outcome: "error", runId, schemaVersion: "1.0", error: exception.toContractError() },
+            now()
+          );
+          if (terminal) yield terminal;
+          return;
+        }
+      }
+
+      if (controller.signal.aborted) {
+        const reason =
+          typeof controller.signal.reason === "string" ? controller.signal.reason : undefined;
+        const terminal = gate.terminate(
+          { outcome: "cancelled", runId, schemaVersion: "1.0", ...(reason ? { reason } : {}) },
+          now()
+        );
+        if (terminal) yield terminal;
+        return;
+      }
+
+      // Only what is really ready counts: a skipped or failed item must get its next chance.
+      for (const kind of kinds) {
+        const items = preparation.filter((item) => item.task === kind);
+        if (items.every((item) => item.status === "prepared" || item.status === "already_ready")) {
+          preparedScopes.add(preparationScope(kind, request.locale, request.voice?.id));
+        }
+      }
+      const terminal = gate.terminate(
+        {
+          outcome: "completed",
+          runId,
+          schemaVersion: "1.0",
+          output: { type: "prepared", preparation },
+          finishReason: "stop"
+        },
+        now()
+      );
+      if (terminal) yield terminal;
+    }
+
+    const handle: StreamRunHandle = { runId, schemaVersion: "1.0", startedAt: startTime };
+    return { handle, events: run(), cancel: (reason?: string) => controller.abort(reason) };
+  }
+
+  /**
+   * The task kinds a registered provider declares it can prepare, within `tasks` when given.
+   * Asks no provider anything, so a request with nothing to prepare costs nothing.
+   */
+  private preparableKinds(tasks?: string[]): string[] {
+    const kinds = this.registry
+      .list()
+      .flatMap((provider) => provider.describe().taskCapabilities ?? [])
+      .filter((task) => task.interaction.prepare === true)
+      .map((task) => task.kind);
+    return [...new Set(kinds)].filter((kind) => tasks === undefined || tasks.includes(kind));
+  }
+
+  /**
+   * Prepares what a request needs before its first run, once per task kind: it waits for what is
+   * loading and starts a download only under `autoDownload`. A `cold` item is left alone, because
+   * a cold run warms itself and warming first would be slower. Bounded, and never a failure: when
+   * this ends, normal routing decides, with its own fallback and refusals.
+   */
+  private async prepareBeforeFirstRun(request: TaskRequest, runId: string): Promise<void> {
+    const kind = request.task.kind;
+    const key = preparationScope(kind, request.speech?.locale, request.speech?.voice?.id);
+    if (this.preparedScopes.has(key) || this.preparableKinds([kind]).length === 0) return;
+
+    let first = this.firstRuns.get(key);
+    if (first === undefined) {
+      const speech = request.speech;
+      const voice = speech?.voice;
+      const scope: PrepareRequest = {
+        tasks: [kind],
+        ...(speech !== undefined ? { locale: speech.locale } : {}),
+        ...(speech?.localeMatch !== undefined ? { localeMatch: speech.localeMatch } : {}),
+        ...(voice !== undefined ? { voice } : {}),
+        ...(request.constraints?.privacy !== undefined
+          ? { privacy: request.constraints.privacy }
+          : {})
+      };
+      const bound = request.constraints?.timeoutMs ?? DEFAULT_FIRST_RUN_PREPARE_MS;
+      const signal = AbortSignal.timeout(bound);
+      first = (async () => {
+        try {
+          for await (const step of this.preparationItems(scope, runId, signal, true)) void step;
+        } catch {
+          // Routing reports what is wrong, with a provider-specific reason.
+        } finally {
+          // Once per scope, whatever came of it: routing answers from here on.
+          this.preparedScopes.add(key);
+          this.firstRuns.delete(key);
+        }
+      })();
+      this.firstRuns.set(key, first);
+    }
+    await first;
+  }
+
+  /** Prepares each provider and task in scope, yielding progress and then one item for each. */
+  private async *preparationItems(
+    request: PrepareRequest,
+    runId: string,
+    signal: AbortSignal,
+    firstRun: boolean
+  ): AsyncGenerator<
+    | NonNullable<TaskOutput["preparation"]>[number]
+    | { providerId: string; task: string; fractionCompleted?: number }
+  > {
+    for (const task of this.preparableKinds(request.tasks)) {
+      const plannerTask = preparationTask(task, request);
+      const { snapshots, routePlan } = await this.router.planPreparation(
+        plannerTask,
+        request.privacy,
+        this.hostServices
+      );
+
+      for (const candidate of routePlan.candidates) {
+        if (signal.aborted) return;
+        const providerId = candidate.providerId;
+        const provider = this.registry.get(providerId) as PreparableProviderAdapter | undefined;
+        if (provider === undefined) continue;
+        const voice = candidate.voice;
+        const entry = snapshots
+          .find((snapshot) => snapshot.descriptor.id === providerId)
+          ?.capabilities.taskCapabilities?.find((capability) => capability.kind === task);
+        const readiness = voice?.readiness ?? entry?.readiness ?? "ready";
+        const voiceId = voice?.id !== undefined ? { voiceId: voice.id } : {};
+
+        if (readiness === "ready" || (firstRun && readiness === "cold")) {
+          yield { providerId, task, status: "already_ready", ...voiceId };
+          continue;
+        }
+        const allowed = request.allowDownload ?? this.registry.allowsAutoDownload(providerId);
+        if (readiness === "not_prepared" && !allowed) {
+          yield {
+            providerId,
+            task,
+            status: "skipped",
+            reason: "A download is needed, and neither autoDownload nor allowDownload permits it.",
+            ...voiceId
+          };
+          continue;
+        }
+
+        const key = `${providerId}|${task}|${voice?.id ?? ""}`;
+        const running = this.preparing.get(key);
+        if (running !== undefined) {
+          const shared = await untilAborted(running, signal);
+          if (shared === undefined) return;
+          yield { providerId, task, ...shared, ...voiceId };
+          continue;
+        }
+
+        let finish!: (outcome: PreparationOutcome) => void;
+        this.preparing.set(key, new Promise((resolve) => (finish = resolve)));
+        let outcome: PreparationOutcome = {
+          status: "failed",
+          reason: "The preparation was stopped."
+        };
+        try {
+          const context = {
+            runId,
+            hostServices: this.hostServices,
+            task,
+            signal,
+            ...(request.locale !== undefined ? { locale: request.locale } : {}),
+            ...(voice !== undefined ? { voice } : {})
+          };
+          // Raced, because a provider that ignores the signal must not hold the bound hostage.
+          const progress = provider.prepare(context)[Symbol.asyncIterator]();
+          for (;;) {
+            const next = await untilAborted(progress.next(), signal);
+            if (next === undefined || next.done === true) break;
+            const { fractionCompleted } = next.value;
+            yield {
+              providerId,
+              task,
+              ...(fractionCompleted !== undefined ? { fractionCompleted } : {})
+            };
+          }
+          if (!signal.aborted) {
+            outcome = { status: "prepared" };
+            yield { providerId, task, ...outcome, ...voiceId };
+          }
+        } catch (error) {
+          if (signal.aborted) return;
+          const reason = toIndeRunException(error, { runId, providerId }).message;
+          outcome = { status: "failed", reason };
+          yield { providerId, task, ...outcome, ...voiceId };
+        } finally {
+          this.preparing.delete(key);
+          finish(outcome);
+        }
+      }
+    }
   }
 
   /**

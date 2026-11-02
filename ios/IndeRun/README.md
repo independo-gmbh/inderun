@@ -66,6 +66,21 @@ let ending = try await stream.result()
 `TaskRequest` (`TextGenerationOptions.taskRequest()`) and calls `run(request:)` or `stream(request:)`,
 which remain public as the advanced API.
 
+### Speech
+
+```swift
+let voices = await inderun.listVoices(locale: "de-AT")
+
+let playback = try await inderun.speak(SpeakOptions("Der Bus kommt.", locale: "de-AT"))
+// playback.cancel() stops the audio; result() then returns with .cancelled.
+let ending = try await playback.result()
+```
+
+`speak` compiles to `stream(request:)` with playback delivery. `generateSpeech` compiles to
+`run(request:)` with artifact delivery and returns an `artifact` to read with `readArtifact` and
+release with `disposeArtifact`; routing refuses it on a provider that can only play. See
+[ADR 018](../../docs/architecture/decisions/018-speech-application-api.md).
+
 ### Custom local ONNX models
 
 ```swift

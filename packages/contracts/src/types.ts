@@ -7,6 +7,7 @@ import type {
   RoutePlannerInput,
   TaskOutput,
   TaskRequest,
+  ProviderDynamicCapabilities,
   TaskResult
 } from "./generated/index.js";
 import type { PlaybackOutput } from "./generated/task-output.js";
@@ -37,6 +38,10 @@ export type ModelPackageFormat = ModelPackage["format"];
 export type ModelSourceType = NonNullable<ModelPackage["source"]>["sourceType"];
 /** Execution placement a provider declares (`local`, `edge`, `cloud`). */
 export type ProviderType = ProviderDescriptor["type"];
+/** How ready a task or voice is to run; see ADR 019. */
+export type ProviderReadiness = NonNullable<
+  NonNullable<ProviderDynamicCapabilities["taskCapabilities"]>[number]["readiness"]
+>;
 /** Cancellation guarantee a provider declares (`hard`, `soft`, `none`). */
 export type CancelSemantics = ProviderDescriptor["cancel"];
 /** How the engine reaches a provider (`in_process`, `system_service`, `http`, ...). */

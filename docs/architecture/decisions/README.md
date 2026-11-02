@@ -15,6 +15,8 @@ New ADRs continue the numbering here.
 | -------------------------------------------------- | -------------------------------------- | -------- |
 | [016](./016-modality-extensible-task-contracts.md) | Modality-extensible task contracts     | Accepted |
 | [017](./017-media-artifacts.md)                    | Media artifact transport and lifecycle | Accepted |
+| [018](./018-speech-application-api.md)             | Speech application API                 | Accepted |
+| [019](./019-prepare-and-readiness.md)              | Prepare and readiness                  | Accepted |
 
 ## Template
 

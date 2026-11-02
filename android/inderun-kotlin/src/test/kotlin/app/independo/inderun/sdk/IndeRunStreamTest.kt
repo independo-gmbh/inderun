@@ -142,6 +142,10 @@ private class FakeMlKitRuntime(
     private val delayMs: Long = 0,
     private val failure: Throwable? = null,
 ) : AndroidMlKitGenAiRuntime {
+    override suspend fun warmup() = Unit
+
+    override fun download(): kotlinx.coroutines.flow.Flow<Double?> = kotlinx.coroutines.flow.emptyFlow()
+
     override suspend fun availability(): AndroidMlKitGenAiAvailability = AndroidMlKitGenAiAvailability.Available
 
     override suspend fun generateText(

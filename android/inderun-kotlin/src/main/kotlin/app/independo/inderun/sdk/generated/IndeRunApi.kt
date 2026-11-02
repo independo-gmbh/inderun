@@ -4,6 +4,7 @@ package app.independo.inderun.sdk.generated
 
 import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.MediaArtifact
+import app.independo.inderun.contracts.PrepareRequest
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
@@ -25,6 +26,11 @@ interface IndeRunApi {
      * Returns a live snapshot of every registered provider's static descriptor and current dynamic availability, without executing a task or producing any side effects. Call this before run() when you need to show which providers/models are currently available — for example a settings screen or provider picker. Availability can change between calls (a local model can unload, cloud credentials can expire), so don't cache the result across a run() call.
      */
     suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot>
+
+    /**
+     * Makes registered providers ready ahead of a run, without producing output or carrying user content (ADR 019). Optional: an engine does the part it can on the first run of a task. An empty request covers every provider and task. Returns a handle whose events report progress and end in one terminal outcome listing each item. Starts a platform's download only where autoDownload at registration or allowDownload on this call permits it.
+     */
+    suspend fun prepare(request: PrepareRequest): StreamRun
 
     /**
      * Reads a byte range of an engine-owned media artifact a run produced (ADR 017): the bytes in the platform's native byte type, with their offset, the artifact's total size, and whether the range reaches its end. Reads are repeatable until the artifact is disposed, and each returns at most the engine's configured maximum read size. Throws an IndeRunException with errorClass Unavailable and details.code 'artifact_not_found' for an unknown, disposed or application-owned artifact, and a validation error for an offset beyond the end.

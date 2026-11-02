@@ -39,6 +39,12 @@ current numbers are consumer-facing content, not architecture — see
 [`packages/inderun-web/README.md`](../../packages/inderun-web/README.md#browser-support) (which
 links to Chrome's own docs) rather than restating them here.
 
+## Prepare
+
+`downloadable` is reported as readiness `not_prepared` and `downloading` as `preparing`, so an application can tell them
+from a model this browser will never have (ADR 019). `prepare` calls `create()` with a `monitor`, for progress. Chrome
+expects a user gesture before a download, so call `prepare({ allowDownload: true })` from one.
+
 ## Capability State Vocabulary
 
 Chrome's `LanguageModel.availability()` returns exactly four strings: `available`, `downloadable`,

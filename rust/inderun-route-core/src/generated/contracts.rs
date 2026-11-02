@@ -88,6 +88,8 @@ pub enum Privacy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InteractionMode {
+    Prepare,
+
     Run,
 
     Stream,
@@ -201,6 +203,12 @@ pub struct ProviderTaskAvailability {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locales: Option<Vec<String>>,
 
+    /// How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+    /// or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+    /// even when the provider-level available is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<ProviderReadiness>,
+
     /// Why the task is unavailable, when available is false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -213,34 +221,73 @@ pub struct ProviderTaskAvailability {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub streaming_unavailable_reason: Option<String>,
 
-    /// Voices available for this task right now. Absent means the provider cannot enumerate
-    /// them; a request that requires a voice then never routes to it.
+    /// Every voice available for this task right now, one entry per voice. Absent means the
+    /// provider cannot enumerate them; a request that requires a voice then never routes to it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voices: Option<Vec<ProviderVoice>>,
 }
 
-/// Provider-neutral traits of one available voice. Carries no provider voice identifier.
+/// How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+/// or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+/// even when the provider-level available is false.
+///
+/// How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it
+/// runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has
+/// run. 'preparing': it is being prepared now and cannot run yet.
+///
+/// How ready the voice is to speak. Absent means 'ready'.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderReadiness {
+    Cold,
+
+    #[serde(rename = "not_prepared")]
+    NotPrepared,
+
+    Preparing,
+
+    Ready,
+}
+
+/// One available voice: its provider-neutral traits, and an id and name for an application
+/// that lets someone choose it.
 ///
 /// The voice this candidate must use if it is attempted, chosen by the planner from the
 /// provider's dynamic voice inventory. It is the best voice that satisfies the request's
 /// locale, required voice traits and privacy — under local-required privacy always one that
-/// keeps data on the device — ranked by preferred gender, then exact locale region, then
-/// on-device before network. The adapter must use a voice with exactly these traits. Absent
-/// when the request names no locale or voice, or the provider does not list its voices; the
-/// adapter then chooses itself under the same rules.
+/// keeps data on the device — ranked by preferred id, then preferred gender, then exact
+/// locale region, then on-device before network. The adapter must use the voice with this
+/// id, or one with exactly these traits when the voice has no id. Absent when the request
+/// names no locale or voice, or the provider does not list its voices; the adapter then
+/// chooses itself under the same rules.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderVoice {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gender: Option<VoiceGender>,
 
+    /// Identifies this voice within its provider, for use as speech.voice.id with
+    /// speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
+    /// and meaningful nowhere else. Absent when the provider cannot address single voices.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
     /// BCP 47 locale the voice speaks.
     pub locale: String,
+
+    /// Label for showing the voice to a person, as the platform reports it. Not unique and not
+    /// localized; never compare it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 
     /// Whether using the voice sends data off the device. Absent inherits the task's privacy
     /// posture.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_required: Option<bool>,
+
+    /// How ready the voice is to speak. Absent means 'ready'.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<ProviderReadiness>,
 }
 
 /// Perceived gender of a voice, as the platform reports it.
@@ -473,6 +520,10 @@ pub enum TaskInputKind {
 /// Interaction modes the provider supports for this task.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderTaskInteraction {
+    /// Whether the provider implements prepare() for this task (ADR 019). Absent means false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prepare: Option<bool>,
+
     /// Whether the provider supports Mode 1 run for this task.
     pub run: bool,
 
@@ -549,9 +600,10 @@ pub struct Task {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<LocaleRequirement>,
 
-    /// Voice traits the request asks for. Only a 'required' voice can reject a provider; a
-    /// 'preferred' one shapes which listed voice the plan binds a candidate to, always within
-    /// the request's privacy policy.
+    /// The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+    /// voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+    /// candidate to, always within the request's privacy policy, and a preferred id also ranks
+    /// the provider that can bind it ahead of others.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<VoiceRequirement>,
 }
@@ -594,13 +646,23 @@ pub enum LocaleMatch {
     Language,
 }
 
-/// Voice traits the request asks for. Only a 'required' voice can reject a provider; a
-/// 'preferred' one shapes which listed voice the plan binds a candidate to, always within
-/// the request's privacy policy.
+/// The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+/// voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+/// candidate to, always within the request's privacy policy, and a preferred id also ranks
+/// the provider that can bind it ahead of others.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VoiceRequirement {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gender: Option<VoiceGender>,
+
+    /// A voice id, compared exactly against the voices of providerId and of no other provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// The provider that id belongs to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
 
     /// 'required' takes part in routing; 'preferred' does not.
     pub requirement: RequirementLevel,
@@ -650,10 +712,11 @@ pub struct Candidate {
     /// The voice this candidate must use if it is attempted, chosen by the planner from the
     /// provider's dynamic voice inventory. It is the best voice that satisfies the request's
     /// locale, required voice traits and privacy — under local-required privacy always one that
-    /// keeps data on the device — ranked by preferred gender, then exact locale region, then
-    /// on-device before network. The adapter must use a voice with exactly these traits. Absent
-    /// when the request names no locale or voice, or the provider does not list its voices; the
-    /// adapter then chooses itself under the same rules.
+    /// keeps data on the device — ranked by preferred id, then preferred gender, then exact
+    /// locale region, then on-device before network. The adapter must use the voice with this
+    /// id, or one with exactly these traits when the voice has no id. Absent when the request
+    /// names no locale or voice, or the provider does not list its voices; the adapter then
+    /// chooses itself under the same rules.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<ProviderVoice>,
 }
@@ -697,7 +760,9 @@ pub struct Reason {
     /// list this provider. 'input_not_supported', 'output_delivery_not_supported',
     /// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
     /// provider's task capability lacks an input kind, output delivery, media type, locale or
-    /// voice the request requires.
+    /// voice the request requires. 'prepare_not_supported' means the task capability declares no
+    /// prepare(). 'not_ready' means the provider, task or required voice exists but is not
+    /// prepared yet, so prepare() can make it available.
     pub code: Code,
 
     pub message: String,
@@ -710,7 +775,9 @@ pub struct Reason {
 /// list this provider. 'input_not_supported', 'output_delivery_not_supported',
 /// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
 /// provider's task capability lacks an input kind, output delivery, media type, locale or
-/// voice the request requires.
+/// voice the request requires. 'prepare_not_supported' means the task capability declares no
+/// prepare(). 'not_ready' means the provider, task or required voice exists but is not
+/// prepared yet, so prepare() can make it available.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
@@ -729,6 +796,9 @@ pub enum Code {
     #[serde(rename = "not_in_model_profile")]
     NotInModelProfile,
 
+    #[serde(rename = "not_ready")]
+    NotReady,
+
     Offline,
 
     #[serde(rename = "output_delivery_not_supported")]
@@ -736,6 +806,9 @@ pub enum Code {
 
     #[serde(rename = "output_format_not_supported")]
     OutputFormatNotSupported,
+
+    #[serde(rename = "prepare_not_supported")]
+    PrepareNotSupported,
 
     #[serde(rename = "privacy_constraint")]
     PrivacyConstraint,

@@ -220,9 +220,9 @@ export type SpeechInput = {
      */
     text: string;
     /**
-     * Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
-     * and is never a reason to fail; a 'required' one takes part in routing and is never
-     * relaxed silently. Carries no provider voice identifier.
+     * The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+     * traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+     * fail; a 'required' one takes part in routing and is never relaxed silently.
      */
     voice?: SpeechVoice;
     [property: string]: unknown;
@@ -235,14 +235,25 @@ export type SpeechInput = {
 export type LocaleMatch = "exact" | "language";
 
 /**
- * Provider-neutral voice traits. A 'preferred' voice (default) shapes which voice speaks
- * and is never a reason to fail; a 'required' one takes part in routing and is never
- * relaxed silently. Carries no provider voice identifier.
+ * The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+ * traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+ * fail; a 'required' one takes part in routing and is never relaxed silently.
  */
 export type SpeechVoice = {
     gender?: VoiceGender;
     /**
-     * 'preferred' (default) or 'required'. A required voice must name at least one trait.
+     * A voice id read from listVoices(), never written by hand. Opaque, and meaningful only on
+     * providerId and the device that listed it, so a stored id can go stale: a 'preferred' one
+     * then falls back to the other traits.
+     */
+    id?: string;
+    /**
+     * The provider that listed id. Required with id, because voice ids share no namespace
+     * across providers.
+     */
+    providerId?: string;
+    /**
+     * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
      */
     requirement?: RequirementLevel;
     [property: string]: unknown;
@@ -254,7 +265,7 @@ export type SpeechVoice = {
 export type VoiceGender = "female" | "male" | "neutral";
 
 /**
- * 'preferred' (default) or 'required'. A required voice must name at least one trait.
+ * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
  */
 export type RequirementLevel = "required" | "preferred";
 

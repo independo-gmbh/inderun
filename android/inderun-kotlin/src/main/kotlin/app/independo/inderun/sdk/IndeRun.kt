@@ -5,17 +5,23 @@ import app.independo.inderun.contracts.ArtifactOwner
 import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.AttemptOutcome
 import app.independo.inderun.contracts.ExecutionProvenance
+import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.OutputDelivery
+import app.independo.inderun.contracts.Payload
 import app.independo.inderun.contracts.PlaybackOutput
+import app.independo.inderun.contracts.PreparationItem
+import app.independo.inderun.contracts.PrepareRequest
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.RoutePlan
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
+import app.independo.inderun.contracts.StreamTerminalOutcome
 import app.independo.inderun.contracts.StreamTerminalOutcomeError
 import app.independo.inderun.contracts.StreamTerminalOutcomeTelemetry
 import app.independo.inderun.contracts.StreamTerminalOutcomeUsage
@@ -93,6 +99,7 @@ class IndeRun(
     artifactLimits: ArtifactLimits = ArtifactLimits(),
 ) : IndeRunApi {
     private val router = Router(registry)
+    private val preparer = Preparer(registry, router, hostServices)
     private val artifacts = ArtifactStore(artifactLimits)
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
 
@@ -121,6 +128,7 @@ class IndeRun(
         try {
             validateRequest(request, runId)
             checkDestination(request, runId)
+            preparer.beforeFirstRun(request, runId)
 
             val routeSelection = router.selectRoute(
                 request,
@@ -170,6 +178,7 @@ class IndeRun(
                 var keptArtifactId: String? = null
 
                 try {
+                    provenance.voiceBound(providerId, request.task.kind.rawValue, voice)
                     // A refusal fails this attempt before it starts, so it falls back like any
                     // other pre-commit provider failure.
                     recheckBoundVoice(request, providerId, voice)?.let { throw it }
@@ -464,6 +473,7 @@ class IndeRun(
             throw toIndeRunException(error, fallbackRunId = runId).withProvenance(preRunProvenance.build())
         }
 
+        preparer.beforeFirstRun(request, runId)
         val routeSelection = try {
             router.selectRoute(
                 request,
@@ -535,6 +545,88 @@ class IndeRun(
                 schemaVersion = SchemaVersion.V1_0,
                 startedAt = startedAtEpochMs,
             ),
+            events = events,
+        ) { reason -> cancellation.cancel(reason) }
+    }
+
+    /**
+     * Makes registered providers ready ahead of a run (ADR 019). Optional: without it, the first
+     * run of a task does the part that does not need the application's say. Repeating it is cheap,
+     * because what is ready is skipped. Providers go one at a time, and one failing does not stop
+     * the rest: the terminal outcome lists each item.
+     */
+    override suspend fun prepare(request: PrepareRequest): StreamRun {
+        val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
+        val cancellation = StreamCancellationToken()
+        val gate = EventGate(runId)
+        val kinds = preparer.preparableKinds(request.tasks)
+        val provenance = ProvenanceRecorder(null).build()
+        fun now(): Double = System.currentTimeMillis().toDouble()
+
+        val events = channelFlow {
+            val items = mutableListOf<PreparationItem>()
+            var failure: Throwable? = null
+            val worker = launch {
+                try {
+                    preparer.steps(request, runId, firstRun = false).collect { step ->
+                        when (step) {
+                            is PreparationStep.Finished -> items.add(step.item)
+                            is PreparationStep.Progress -> {
+                                val payload = Payload(
+                                    fractionCompleted = step.fractionCompleted,
+                                    providerId = step.providerId,
+                                    task = step.task,
+                                )
+                                gate.admit(now(), "preparation_progress", payload)?.let { send(it) }
+                            }
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    failure = error
+                }
+            }
+            cancellation.onCancel { worker.cancel() }
+            worker.join()
+
+            val problem = failure
+            val outcome = when {
+                cancellation.isCancelled -> cancelledOutcome(runId, null, cancellation.reason, provenance)
+                problem != null -> errorOutcome(
+                    runId,
+                    toIndeRunException(problem, fallbackRunId = runId).toContractError().let { contractError ->
+                        StreamTerminalOutcomeError(
+                            details = contractError.details,
+                            errorClass = contractError.errorClass,
+                            message = contractError.message,
+                            provenance = contractError.provenance,
+                            providerId = contractError.providerId,
+                            retryable = contractError.retryable,
+                            retryAfterMs = contractError.retryAfterMs,
+                            schemaVersion = contractError.schemaVersion,
+                        )
+                    },
+                    null,
+                    provenance,
+                )
+                else -> {
+                    preparer.markPrepared(kinds, request, items)
+                    StreamTerminalOutcome(
+                        finishReason = FinishReason.STOP,
+                        outcome = Outcome.Completed,
+                        output = TaskOutput(type = TaskOutputType.PREPARED, preparation = items),
+                        provenance = provenance,
+                        runId = runId,
+                        schemaVersion = SchemaVersion.V1_0,
+                    )
+                }
+            }
+            gate.terminate(outcome, now())?.let { send(it) }
+        }
+
+        return StreamRun(
+            handle = StreamRunHandle(runId = runId, schemaVersion = SchemaVersion.V1_0, startedAt = now()),
             events = events,
         ) { reason -> cancellation.cancel(reason) }
     }
@@ -693,6 +785,7 @@ class IndeRun(
             var partialText = ""
             var terminated = false
             try {
+                provenance.voiceBound(providerId, request.task.kind.rawValue, candidate.voice)
                 // A refusal fails this attempt before it starts, so it falls back like any
                 // other pre-commit provider failure.
                 recheckBoundVoice(request, providerId, candidate.voice)?.let { throw it }

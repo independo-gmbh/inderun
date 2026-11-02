@@ -89,7 +89,13 @@ export class OnnxRuntimeError extends Error {
  */
 export interface OnnxTextGenerationRuntime {
   /**
-   * Checks runtime package availability, execution backend availability, and model readiness.
+   * Checks whether this runtime could serve the model package, without loading anything. The
+   * router calls it on every request, also for other tasks, so it must stay cheap. Implementations
+   * must resolve with an availability snapshot rather than throwing.
+   */
+  availability(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability>;
+  /**
+   * Loads the model, so the first generation starts sooner. Repeating it must be cheap.
    * Implementations must resolve with an availability snapshot rather than throwing.
    */
   prepare(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability>;
@@ -104,8 +110,10 @@ export interface OnnxTextGenerationRuntime {
  * Configuration for the deterministic fixture runtime.
  */
 export interface FixtureOnnxRuntimeOptions {
-  /** Availability snapshot returned by `prepare`. Defaults to `{ available: true }`. */
+  /** Availability snapshot returned by `availability`. Defaults to `{ available: true }`. */
   availability?: OnnxRuntimeAvailability;
+  /** Result of loading, returned by `prepare`. Defaults to `availability`. */
+  loadResult?: OnnxRuntimeAvailability;
   /** Text or full output produced by `generate`. Defaults to a deterministic echo. */
   respond?: (input: OnnxGenerationInput) => string | OnnxGenerationOutput;
   /** Error thrown by `generate` instead of producing output. */
@@ -129,8 +137,11 @@ export function createFixtureOnnxRuntime(
   const availability = options.availability ?? { available: true };
 
   return {
-    async prepare(): Promise<OnnxRuntimeAvailability> {
+    async availability(): Promise<OnnxRuntimeAvailability> {
       return availability;
+    },
+    async prepare(): Promise<OnnxRuntimeAvailability> {
+      return options.loadResult ?? availability;
     },
     async generate(
       input: OnnxGenerationInput,

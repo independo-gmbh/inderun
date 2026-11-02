@@ -13,6 +13,7 @@ struct ProvenanceRecorder {
     private let modelProfile: String
     private var attempts: [ExecutionProvenanceAttempt] = []
     private var routeRejections: [ExecutionProvenanceRouteRejection] = []
+    private var boundVoices: [String: (taskKind: String, voice: ProviderVoice?)] = [:]
 
     init(modelProfile: String?) {
         self.modelProfile = modelProfile ?? ModelProfiles.auto
@@ -42,6 +43,11 @@ struct ProvenanceRecorder {
         }
     }
 
+    /// Records the voice a provider was handed, which decides what its locality can claim.
+    mutating func voiceBound(_ providerId: String, taskKind: String, voice: ProviderVoice?) {
+        boundVoices[providerId] = (taskKind, voice)
+    }
+
     /// Records how one provider attempt ended, and whether the run had committed to it
     /// (first content delivered, first possible audible effect, or an artifact handed over).
     mutating func attempted(
@@ -67,7 +73,7 @@ struct ProvenanceRecorder {
             attempts: attempts,
             configuredModel: descriptor?.model,
             fallbackOccurred: attempts.count > 1,
-            locality: descriptor.map(Self.locality(of:)) ?? .unknown,
+            locality: descriptor.map { Self.locality(of: $0, bound: boundVoices[$0.id]) } ?? .unknown,
             modelProfile: modelProfile,
             providerId: descriptor?.id,
             reportedModel: descriptor == nil ? nil : reportedModel,
@@ -76,9 +82,25 @@ struct ProvenanceRecorder {
         )
     }
 
-    private static func locality(of descriptor: ProviderDescriptor) -> Locality {
+    /// The locality to report for a provider. A `local` provider is `onDevice` only as far as
+    /// its voice allows: one that may send text off the device reports `unknown`, because the
+    /// provider runs here while the synthesis may not. An absent `networkRequired` inherits the
+    /// task's privacy posture, as it does in the planner. A speech run with no bound voice also
+    /// reports `unknown`: nothing shows where a voice the engine chose itself runs.
+    static func locality(
+        of descriptor: ProviderDescriptor,
+        bound: (taskKind: String, voice: ProviderVoice?)? = nil
+    ) -> Locality {
         switch descriptor.type {
-        case .local: return .onDevice
+        case .local:
+            guard let bound else { return .onDevice }
+            let task = descriptor.taskCapabilities?.first { $0.kind == bound.taskKind }
+            let privacy = task?.privacy ?? descriptor.privacy
+            guard let voice = bound.voice else {
+                return bound.taskKind == TaskKind.textToSpeech.rawValue ? .unknown : .onDevice
+            }
+            let mayLeave = voice.networkRequired ?? privacy?.dataLeavesDevice ?? false
+            return mayLeave ? .unknown : .onDevice
         case .edge: return .edge
         case .cloud: return .cloud
         }

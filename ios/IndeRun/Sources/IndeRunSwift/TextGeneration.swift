@@ -36,6 +36,15 @@ public struct TextExecutionOptions: Sendable {
         self.timeoutMs = timeoutMs
         self.optimizeFor = optimizeFor
     }
+
+    var taskConstraints: TaskRequestConstraints? {
+        guard privacy != nil || cloud != nil || timeoutMs != nil else { return nil }
+        return TaskRequestConstraints(privacy: privacy, cloud: cloud, timeoutMs: timeoutMs)
+    }
+
+    var taskPreferences: TaskRequestPreferences? {
+        optimizeFor.map { TaskRequestPreferences(optimizeFor: $0) }
+    }
 }
 
 /// Options for `generateText` and `streamText`.
@@ -104,16 +113,6 @@ public struct TextGenerationOptions: Sendable {
 
         let hasGeneration = maxOutputTokens != nil || temperature != nil || topP != nil
             || stop != nil || seed != nil
-        let constraints = execution.flatMap { execution -> TaskRequestConstraints? in
-            guard execution.privacy != nil || execution.cloud != nil || execution.timeoutMs != nil else {
-                return nil
-            }
-            return TaskRequestConstraints(
-                privacy: execution.privacy,
-                cloud: execution.cloud,
-                timeoutMs: execution.timeoutMs
-            )
-        }
 
         return TaskRequest(
             requestId: requestId,
@@ -129,8 +128,8 @@ public struct TextGenerationOptions: Sendable {
                     topP: topP
                 )
                 : nil,
-            constraints: constraints,
-            preferences: execution?.optimizeFor.map { TaskRequestPreferences(optimizeFor: $0) },
+            constraints: execution?.taskConstraints,
+            preferences: execution?.taskPreferences,
             telemetry: telemetry,
             authContextRef: authContextRef
         )
@@ -297,20 +296,25 @@ private func settle(_ terminal: StreamEvent, runId: String) throws -> StreamedTe
             provenance: payload?.provenance
         )
     case .some(.error):
-        let error = payload?.error
-        throw IndeRunException(
-            errorClass: error?.errorClass ?? .Internal,
-            message: error?.message ?? "Run \(runId) failed.",
-            runId: runId,
-            providerId: error?.providerId,
-            retryable: error?.retryable,
-            retryAfterMs: error?.retryAfterMs,
-            details: error?.details,
-            provenance: payload?.provenance
-        )
+        throw exceptionFromTerminal(payload, runId: runId)
     case .none:
         throw createInternal(message: "Run \(runId) ended with a malformed terminal event.", runId: runId)
     }
+}
+
+/// The `IndeRunException` a run's `error` terminal outcome stands for.
+func exceptionFromTerminal(_ payload: Payload?, runId: String) -> IndeRunException {
+    let error = payload?.error
+    return IndeRunException(
+        errorClass: error?.errorClass ?? .Internal,
+        message: error?.message ?? "Run \(runId) failed.",
+        runId: runId,
+        providerId: error?.providerId,
+        retryable: error?.retryable,
+        retryAfterMs: error?.retryAfterMs,
+        details: error?.details,
+        provenance: payload?.provenance
+    )
 }
 
 /// Holds every event read from the single-use run so any number of readers can replay it.

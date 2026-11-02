@@ -116,6 +116,12 @@ schema.
 IndeRun does not own model download/update flows today. Host applications may bundle,
 download, cache, or otherwise supply model files; the model package's `source` describes how.
 
+Loading is separate from checking (ADR 019). `capabilities(host)` runs on every request, so it only
+makes cheap checks through the runtime's `availability`. The runtime's `prepare` loads the model,
+called from `prepare()` or, failing that, by the first run. A failed load is remembered for the
+provider instance and then reported as unavailable. On Web, a `registry` source fetches its files at
+load, through `@huggingface/transformers`.
+
 ## Model Source Support Matrix
 
 The `ModelPackage.source.sourceType` discriminator enumerates where model files come from. Expected

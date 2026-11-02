@@ -60,6 +60,10 @@ canonical `TaskRequest`. `run()` and `stream()` stay public as the advanced, tas
 when you build requests programmatically or need the full event sequence. Both layers share one engine, so routing,
 fallback, cancellation, and errors behave identically. See [API layering](docs/architecture/api-layering.md).
 
+`speak()`, `generateSpeech()` and `listVoices()` are the same idea for text-to-speech: `speak()` plays through the device
+and hands back a completion and a `cancel()`, `generateSpeech()` returns retrievable audio where a provider can produce
+it, and `listVoices()` reads the live voice catalog.
+
 ### When to use the advanced API
 
 Start with `generateText()` / `streamText()`. Switch to `TaskRequest` with `run()` / `stream()` when you need

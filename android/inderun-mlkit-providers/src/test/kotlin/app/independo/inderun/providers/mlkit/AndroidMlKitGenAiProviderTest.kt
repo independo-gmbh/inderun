@@ -239,6 +239,10 @@ class AndroidMlKitGenAiProviderTest {
         private val finishReason: AndroidMlKitGenAiFinishReason? = null,
         private val failure: Throwable? = null,
     ) : AndroidMlKitGenAiRuntime {
+        override suspend fun warmup() = Unit
+
+        override fun download(): kotlinx.coroutines.flow.Flow<Double?> = kotlinx.coroutines.flow.emptyFlow()
+
         var lastPrompt: String? = null
 
         override suspend fun availability(): AndroidMlKitGenAiAvailability = availability

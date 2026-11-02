@@ -7,6 +7,7 @@ public final class IndeRun: IndeRunApi {
     private let hostServices: HostServices
     private let telemetryService: (any TelemetryService)?
     private let router: Router
+    private let preparer: Preparer
     private let modelProfiles: ModelProfiles
     /// The engine's in-memory media artifact store (ADR 017). Artifacts outlive the run that
     /// produced them and live until disposed or until this instance is released.
@@ -28,7 +29,9 @@ public final class IndeRun: IndeRunApi {
         self.registry = registry
         self.hostServices = hostServices
         self.telemetryService = telemetryService ?? hostServices.telemetry
-        self.router = Router(registry: registry)
+        let router = Router(registry: registry)
+        self.router = router
+        self.preparer = Preparer(registry: registry, router: router, hostServices: hostServices)
         self.modelProfiles = modelProfiles
         self.artifacts = ArtifactStore(limits: artifactLimits)
     }
@@ -46,6 +49,7 @@ public final class IndeRun: IndeRunApi {
         self.hostServices = hostServices
         self.telemetryService = hostServices.telemetry
         self.router = router
+        self.preparer = Preparer(registry: registry, router: router, hostServices: hostServices)
         self.modelProfiles = modelProfiles
         self.artifacts = ArtifactStore(limits: artifactLimits)
     }
@@ -148,6 +152,7 @@ public final class IndeRun: IndeRunApi {
             try await checkDestination(request: request, runId: runId)
 
             // 2. Select route
+            await preparer.beforeFirstRun(request, runId: runId)
             let routeSelection = try await router.selectRoute(
                 request: request,
                 hostServices: hostServices,
@@ -193,6 +198,7 @@ public final class IndeRun: IndeRunApi {
                 }
 
                 do {
+                    provenance.voiceBound(providerId, taskKind: request.task.kind.rawValue, voice: candidate.voice)
                     if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
                         throw refusal
                     }
@@ -355,6 +361,7 @@ public final class IndeRun: IndeRunApi {
             throw toIndeRunException(error, fallbackRunId: runId).withProvenance(provenance.build())
         }
 
+        await preparer.beforeFirstRun(request, runId: runId)
         let routeSelection: RouteSelection
         do {
             routeSelection = try await router.selectRoute(
@@ -577,6 +584,7 @@ public final class IndeRun: IndeRunApi {
 
             var partialText = ""
             do {
+                provenance.voiceBound(providerId, taskKind: request.task.kind.rawValue, voice: candidate.voice)
                 if let refusal = recheckBoundVoice(request: request, providerId: providerId, voice: candidate.voice) {
                     throw refusal
                 }
@@ -940,6 +948,60 @@ public final class IndeRun: IndeRunApi {
         if artifact.owner == .engine {
             artifacts.dispose(artifactId: artifact.id)
         }
+    }
+
+    /// Makes registered providers ready ahead of a run (ADR 019). Optional: without it, the first
+    /// run of a task does the part that does not need the application's say. Repeating it is cheap,
+    /// because what is ready is skipped. Providers go one at a time, and one failing does not stop
+    /// the rest: the terminal outcome lists each item.
+    public func prepare(request: PrepareRequest) async throws -> StreamRun {
+        let now: @Sendable () -> Double = { Date().timeIntervalSince1970 * 1000 }
+        let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
+        let gate = EventGate(runId: runId)
+        let cancellation = StreamCancellationToken()
+        let preparer = self.preparer
+        let kinds = preparer.preparableKinds(request.tasks)
+        let provenance = ProvenanceRecorder(modelProfile: nil).build()
+        let handle = StreamRunHandle(providerId: nil, runId: runId, schemaVersion: .the10, startedAt: now())
+
+        let (events, continuation) = AsyncThrowingStream<StreamEvent, Error>.makeStream()
+        let worker = Task {
+            await preparer.prepare(request, runId: runId, firstRun: false) { providerId, task, fraction in
+                let payload = Payload.preparation(providerId: providerId, task: task, fractionCompleted: fraction)
+                if let event = gate.admit(timestamp: now(), type: "preparation_progress", payload: payload) {
+                    continuation.yield(event)
+                }
+            }
+        }
+        cancellation.onCancel { worker.cancel() }
+        Task {
+            let items = await worker.value
+            let outcome: StreamTerminalOutcome
+            if cancellation.isCancelled {
+                outcome = .cancelled(runId: runId, partialText: nil, reason: cancellation.reason, provenance: provenance)
+            } else {
+                await preparer.markPrepared(kinds, request: request, items: items)
+                outcome = StreamTerminalOutcome(
+                    finalText: nil,
+                    finishReason: .stop,
+                    outcome: .completed,
+                    output: TaskOutput(preparation: items),
+                    provenance: provenance,
+                    runId: runId,
+                    schemaVersion: .the10,
+                    telemetry: nil,
+                    usage: nil,
+                    error: nil,
+                    partialText: nil,
+                    reason: nil
+                )
+            }
+            if let terminal = gate.terminate(outcome: outcome, timestamp: now()) {
+                continuation.yield(terminal)
+            }
+            continuation.finish()
+        }
+        return StreamRun(handle: handle, events: events) { reason in cancellation.cancel(reason: reason) }
     }
 
     /// Reports each registered provider's static descriptor and current dynamic capability check,
