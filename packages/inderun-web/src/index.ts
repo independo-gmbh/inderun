@@ -10,7 +10,7 @@
  * - provider-authoring and host-integration APIs ship from
  *   `@independo/inderun-web/provider`;
  * - provider adapters ship from their own subpaths (`/openai`, `/onnx`,
- *   `/system-model`), so this surface stays provider-agnostic.
+ *   `/system-model`, `/system-speech`), so this surface stays provider-agnostic.
  *
  * The engine's internals (router, route planner bindings, Event Gate) are not
  * exported at all.

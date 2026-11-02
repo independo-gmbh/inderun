@@ -18,7 +18,7 @@ The contract types this SDK's own signatures take and return — `TaskRequest`, 
 | --- | --- | --- |
 | `@independo/inderun-web` | Applications | `generateText` / `streamText`, `speak` / `generateSpeech` / `listVoices`, `createIndeRunWeb`, the advanced task API (`IndeRun`, `run()` / `stream()` / `checkCapabilities()`), model profiles, contract types, `IndeRunException`, telemetry |
 | `@independo/inderun-web/provider` | Provider authors and host integrators | `ProviderAdapter` and the descriptor/capability types, `ProviderRegistry`, `HostServices` and the browser host services, the `create*` error constructors |
-| `@independo/inderun-web/openai`, `/onnx`, `/system-model` | Registering a provider by hand | One provider adapter each |
+| `@independo/inderun-web/openai`, `/onnx`, `/system-model`, `/system-speech` | Registering a provider by hand | One provider adapter each |
 
 The router, the route planner bindings and the Event Gate are engine internals and are not exported. Moving from 0.3?
 See the [migration guide](https://github.com/independo-gmbh/inderun/blob/main/docs/migration.md).
@@ -55,20 +55,32 @@ and runs through the engine below, so errors, fallback, and cancellation match t
 ## Speech
 
 ```ts
-import { listVoices, speak } from "@independo/inderun-web";
+import { createIndeRunWeb, listVoices, speak } from "@independo/inderun-web";
 
+const inderun = createIndeRunWeb({ systemSpeech: {} });
 const voices = await listVoices(inderun, { locale: "de-AT" });
 
-const playback = await speak(inderun, { text: "Der Bus kommt.", locale: "de-AT" });
+const playback = await speak(inderun, { text: "Der Bus kommt.", locale: "de-AT", voice: voices[0] });
 stopButton.onclick = () => playback.cancel();
 const { finishReason, provenance } = await playback.result; // "cancelled" after cancel()
 ```
+
+`prepare(inderun)` is optional and makes the first call fast; see ADR 019. A provider's download starts only under
+`autoDownload` at registration, for example `createIndeRunWeb({ systemSpeech: { autoDownload: true } })`, or
+`prepare(inderun, { allowDownload: true })`.
 
 `speak` compiles to `stream()` with playback delivery, so stopping is a normal ending, not an error.
 `generateSpeech` compiles to `run()` with artifact delivery and returns an `artifact` to read with
 `readArtifact()` and release with `disposeArtifact()`; routing refuses it on a provider that can
 only play. `toSpeechRequest` shows the canonical request. See
 [ADR 018](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/decisions/018-speech-application-api.md).
+
+`systemSpeech` registers `web_system_speech`, over the browser's `speechSynthesis`. It only plays:
+the browser offers no standard way to retrieve the audio, so `generateSpeech` needs another provider.
+`local_required` is always refused, because a browser gives no reliable evidence that speech stays on
+the device, and provenance reports locality `unknown`. Chrome also needs a user gesture before it will
+speak, so call `speak` from a click handler. Details are in the
+[system speech family doc](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/system-speech-provider-family.md).
 
 ## Advanced: the task API
 

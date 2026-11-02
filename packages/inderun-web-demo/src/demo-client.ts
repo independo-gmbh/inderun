@@ -51,6 +51,7 @@ export const inderun: IndeRunApi = createIndeRunWeb({
     runtime: onnxRuntime
   },
   systemModel: {},
+  systemSpeech: {},
   modelProfiles: { [SIMPLIFY_PROFILE]: simplifyProfileTargets(cloudModel) },
   hostServices: { telemetry: routeDecisionTelemetry }
 });

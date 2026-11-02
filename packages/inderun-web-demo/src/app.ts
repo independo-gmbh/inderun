@@ -77,7 +77,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: "Cloud",
   onnx: "ONNX Local",
   "local.onnx.genai.web": "ONNX Local",
-  "local.system-model.web": "Prompt API Local"
+  "local.system-model.web": "Prompt API Local",
+  web_system_speech: "Browser Speech"
 };
 
 function providerLabel(snapshot: ProviderCapabilitySnapshot): string {

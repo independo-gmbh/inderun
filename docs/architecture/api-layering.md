@@ -173,7 +173,7 @@ Each layer has one import surface per SDK, so the layer a symbol belongs to is v
   contract types, `IndeRunException`, `toIndeRunException`, telemetry). `@independo/inderun-web/provider` is the
   provider-authoring entry point: the provider contract types, `ProviderRegistry`, the host-service interfaces and
   their browser implementations, and the `create*` error constructors. Provider adapters keep their own subpaths
-  (`/openai`, `/onnx`, `/system-model`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
+  (`/openai`, `/onnx`, `/system-model`, `/system-speech`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
   because the advanced API returns them. The internal layer is not exported.
 - **Swift and Kotlin** split along module boundaries: `IndeRunSwift` / `inderun-kotlin` carry the primary and
   advanced layers, `IndeRunCore` / `inderun-core` the provider-authoring layer, and the provider modules one family

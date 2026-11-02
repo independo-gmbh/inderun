@@ -38,7 +38,9 @@ three engines (TypeScript, Swift, Kotlin), hosts expose an optional streaming
 HTTP capability, and the OpenAI-compatible provider streams on all three
 platforms. Apple Foundation Models and Android ML Kit GenAI stream on-device; the
 remaining local/platform provider families (ONNX Runtime, web system-model) do not
-stream yet. Mode 3 `openSession()` / realtime sessions remain unimplemented.
+stream yet. Text-to-speech is implemented through `speak()` / `generateSpeech()` / `listVoices()`
+and the system speech providers on all three platforms (ADR 018). Mode 3 `openSession()` /
+realtime sessions remain unimplemented.
 
 Out of scope now:
 

@@ -310,6 +310,10 @@ The OpenAI-compatible cloud provider is available on every platform, and reaches
 including [OpenRouter](docs/openrouter.md). On-device execution additionally requires the capabilities above and is
 selected automatically by routing.
 
+System text-to-speech is opt-in on each platform: `AVSpeechSynthesizer` on iOS and macOS, `TextToSpeech` on Android, and
+`speechSynthesis` on the Web, which can only play. See the
+[system speech family doc](docs/architecture/system-speech-provider-family.md).
+
 ## Credentials & security
 
 Never place raw API keys in a `TaskRequest`. Providers resolve credentials from secure platform storage via
