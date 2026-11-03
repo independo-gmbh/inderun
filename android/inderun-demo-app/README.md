@@ -99,6 +99,24 @@ This is the only test that covers ML Kit's real behavior. The unit suites drive 
 they prove the adapter's event, error and cancellation contract — not that ML Kit chunks
 incrementally, reports finish reasons, or stops generating when cancelled.
 
+## Manual Speech Test
+
+1. In the speech section, pick a language and, optionally, a voice. Voices come from
+   `listVoices()`, including ones the engine has not installed yet; speaking with one of those
+   lets the engine download it.
+2. Tap **Speak**. System speech plays under `local_required`, and the outcome line shows the finish
+   reason, locale, voice, provider, locality, and, where the engine reports word ranges, the time to
+   the first word.
+3. Tap **Stop speaking** while it plays. The outcome reads `cancelled` and shows how long stopping
+   took.
+4. Tap **Synthesize**. The app renders the text silently through `generateSpeech()`, also under
+   `local_required`, reads the WAV header back and releases the artifact; the line shows the media
+   type, header, byte count, audio duration, render time, and locality.
+
+The app never touches `TextToSpeech`. Record device results in
+[docs/verification/system-speech.md](../../docs/verification/system-speech.md). The automated
+real-speech checks are `./gradlew :inderun-kotlin:connectedAndroidTest`.
+
 ## Demo Proxy Setup
 
 The sample app never embeds OpenAI credentials in `TaskRequest`. For cloud testing, the intended

@@ -209,6 +209,36 @@ describe("createBrowserSpeechRuntime", () => {
     await expect(pending).resolves.toMatchObject({ durationMs: expect.any(Number) });
   });
 
+  it("reports the first word boundary as first audio, measured from the hand-over", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      const fake = fakeSynthesis();
+      const pending = runtimeOver(fake).speak({ text: "Hallo Welt", locale: "de-DE" });
+      const utterance = fake.spoken[0]!;
+      now.mockReturnValue(1100);
+      utterance.onstart?.();
+      now.mockReturnValue(1240);
+      utterance.onboundary?.();
+      now.mockReturnValue(1500);
+      utterance.onboundary?.();
+      utterance.onend?.();
+
+      await expect(pending).resolves.toEqual({ durationMs: 400, firstAudioMs: 240 });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("reports no first audio when the browser sends no word boundary", async () => {
+    const fake = fakeSynthesis();
+    const pending = runtimeOver(fake).speak({ text: "Hallo", locale: "de-DE" });
+    const utterance = fake.spoken[0]!;
+    utterance.onstart?.();
+    utterance.onend?.();
+
+    expect(await pending).not.toHaveProperty("firstAudioMs");
+  });
+
   it("does not start when already aborted", async () => {
     const fake = fakeSynthesis();
     const controller = new AbortController();

@@ -92,6 +92,51 @@ final class AppleSystemSpeechArtifactTests: XCTestCase {
         XCTAssertEqual(stopped.finishReason, .cancelled)
     }
 
+    /// Providers created, stopped mid-utterance and dropped one after another, as an app that
+    /// rebuilds its engine per screen would. None may crash the process when the stopped
+    /// utterance's late callbacks arrive (#251), and the synthesizers they retire are released
+    /// after the grace period instead of accumulating for the life of the process.
+    func testDiscardedProvidersReleaseTheirSynthesizersAfterStoppedSpeech() async throws {
+        let providers = 4
+        let retiredBefore = SystemAppleSpeechRuntime.retiredSynthesizers.total
+        let long = String(repeating: "This sentence keeps the synthesizer busy for a while. ", count: 20)
+        for _ in 0..<providers {
+            let registry = ProviderRegistry()
+            try registry.register(AppleSystemSpeechProvider())
+            let engine = IndeRun(
+                registry: registry,
+                hostServices: HostServices(connectivity: MockConnectivityService(), clock: MockClockService())
+            )
+            let playback: SpeechPlayback
+            do {
+                playback = try await engine.speak(SpeakOptions(long, locale: "en-US"))
+            } catch let error as IndeRunException where error.errorClass == .CapabilityMismatch {
+                throw XCTSkip("Speech synthesis is unavailable on this host: \(error.message)")
+            }
+            try await Task.sleep(nanoseconds: 300_000_000)
+            playback.cancel(reason: "stop")
+            let stopped = try await playback.result()
+            XCTAssertEqual(stopped.finishReason, .cancelled)
+        }
+
+        // Each provider retires its synthesizer once its last run has let go of it, which a slow
+        // simulator can take a while to do; every retired one must then be freed within the grace
+        // period.
+        var retirement = SystemAppleSpeechRuntime.retiredSynthesizers
+        let retiredBy = Date().addingTimeInterval(60)
+        while Date() < retiredBy, retirement.total - retiredBefore < providers {
+            try await Task.sleep(nanoseconds: 200_000_000)
+            retirement = SystemAppleSpeechRuntime.retiredSynthesizers
+        }
+        XCTAssertEqual(retirement.total - retiredBefore, providers, "providers that retired their synthesizer")
+        let freedBy = Date().addingTimeInterval(SystemAppleSpeechRuntime.retirementGrace * 2)
+        while Date() < freedBy, retirement.pending > 0 {
+            try await Task.sleep(nanoseconds: 200_000_000)
+            retirement = SystemAppleSpeechRuntime.retiredSynthesizers
+        }
+        XCTAssertEqual(retirement.pending, 0, "retired synthesizers still held after the grace period")
+    }
+
     private func speakWithin(seconds: UInt64, _ engine: IndeRun, _ options: SpeakOptions) async throws -> SpokenSpeech {
         let playback: SpeechPlayback
         do {
@@ -135,3 +180,4 @@ final class AppleSystemSpeechArtifactTests: XCTestCase {
         (0..<4).reduce(UInt32(0)) { $0 | UInt32(data[offset + $1]) << (8 * UInt32($1)) }
     }
 }
+

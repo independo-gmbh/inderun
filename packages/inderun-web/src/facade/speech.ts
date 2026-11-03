@@ -75,6 +75,11 @@ export interface SpokenSpeech {
   finishReason?: TaskResult["finishReason"];
   /** How long the audio played, where the provider knows it. */
   durationMs?: number;
+  /**
+   * From the provider handing the text to the platform to the platform's first audible-output
+   * callback, where the platform reports one. See `PlaybackOutput.firstAudioMs`.
+   */
+  firstAudioMs?: number;
   /** The locale and voice actually used, so an unmet preference is visible. */
   speech?: TaskOutput["speech"];
   runId: string;
@@ -277,6 +282,9 @@ function settle(outcome: StreamTerminalOutcome): SpokenSpeech {
   const reported = {
     ...(output?.playback?.durationMs !== undefined
       ? { durationMs: output.playback.durationMs }
+      : {}),
+    ...(output?.playback?.firstAudioMs !== undefined
+      ? { firstAudioMs: output.playback.firstAudioMs }
       : {}),
     ...(output?.speech !== undefined ? { speech: output.speech } : {})
   };

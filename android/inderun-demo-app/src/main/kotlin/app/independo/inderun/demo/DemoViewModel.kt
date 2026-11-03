@@ -55,6 +55,10 @@ internal class DemoViewModel(
     private var activeStream: StreamRun? = null
     private var activePlayback: SpeechPlayback? = null
 
+    /** When Stop was tapped, so the outcome can show how long stopping took (#251). */
+    @Volatile
+    private var stopTappedAtNanos: Long? = null
+
     init {
         viewModelScope.launch(dispatcher) {
             ensureSelectedOnnxModelDownloaded()
@@ -251,6 +255,7 @@ internal class DemoViewModel(
             return
         }
         _uiState.update { it.copy(isSpeaking = true, speechOutcome = null) }
+        stopTappedAtNanos = null
         viewModelScope.launch(dispatcher) {
             val outcome = try {
                 val options = SpeakOptions(
@@ -264,9 +269,21 @@ internal class DemoViewModel(
                 _uiState.update { it.copy(canStopSpeaking = true) }
                 val ending = playback.result.await()
                 val provenance = ending.provenance
-                "${ending.finishReason?.rawValue} · ${ending.speech?.locale ?: state.speechLocale} · " +
-                    "${ending.speech?.voice?.name ?: "unknown voice"} · " +
-                    "${provenance?.providerId} · ${provenance?.locality?.rawValue}"
+                // Measurements for docs/verification/system-speech.md: the engine's first word,
+                // and from the Stop tap to the run's ending.
+                val timings = listOfNotNull(
+                    ending.firstAudioMs?.let { "first word ${it.toInt()} ms" },
+                    stopTappedAtNanos?.let { "stopped in ${(System.nanoTime() - it) / 1_000_000} ms" },
+                )
+                (
+                    listOf(
+                        "${ending.finishReason?.rawValue}",
+                        ending.speech?.locale ?: state.speechLocale,
+                        ending.speech?.voice?.name ?: "unknown voice",
+                        "${provenance?.providerId}",
+                        "${provenance?.locality?.rawValue}",
+                    ) + timings
+                    ).joinToString(" · ")
             } catch (error: IndeRunException) {
                 "failed: ${error.errorClass.rawValue}: ${error.message}"
             }
@@ -288,6 +305,8 @@ internal class DemoViewModel(
                     state.speechText,
                     locale = state.speechLocale,
                     voice = state.selectedSpeechVoice?.asSpeechVoice(),
+                    // The same posture as speak: a retrievable artifact must not leave the device either.
+                    execution = SpeechExecutionOptions(privacy = Privacy.LocalRequired),
                 )
                 runtime.synthesizeSpeech(options, state.toSettings())
             } catch (error: IndeRunException) {
@@ -299,6 +318,7 @@ internal class DemoViewModel(
 
     /** Stops the audio. Idempotent; the run ends as cancelled, not as an error. */
     fun stopSpeaking() {
+        if (stopTappedAtNanos == null) stopTappedAtNanos = System.nanoTime()
         activePlayback?.cancel("stopped from the demo app")
     }
 

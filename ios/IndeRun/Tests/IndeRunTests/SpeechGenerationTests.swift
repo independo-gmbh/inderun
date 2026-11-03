@@ -192,6 +192,16 @@ final class SpeechGenerationTests: XCTestCase {
 
     private var options: SpeakOptions { SpeakOptions("Hallo", locale: "de-AT") }
 
+    /// The pre-`firstAudioMs` initializer and `with` still compile, and keep the field they omit.
+    func testPlaybackOutputKeepsItsEarlierSignatures() {
+        let untimed = PlaybackOutput(durationMs: 1200)
+        XCTAssertEqual(untimed.durationMs, 1200)
+        XCTAssertNil(untimed.firstAudioMs)
+        let shortened = PlaybackOutput(durationMs: 1200, firstAudioMs: 80).with(durationMs: 900)
+        XCTAssertEqual(shortened.durationMs, 900)
+        XCTAssertEqual(shortened.firstAudioMs, 80)
+    }
+
     func testSpeakResolvesWithWhatPlayedAndTheProvenance() async throws {
         let output = TaskOutput(
             playback: PlaybackOutput(durationMs: 1200),

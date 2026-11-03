@@ -19,6 +19,12 @@ The core problem it solves is provider fragmentation: apps should not need separ
 
 The current product scope is Mode 1 `run()` execution plus Mode 2 `stream()`. All three engines implement the Mode 2 orchestrator against the canonical streaming event/outcome contracts, and the OpenAI-compatible provider streams on Web, iOS, and Android (see `docs/architecture/architecture.md`). Realtime sessions remain part of the architecture but are not implemented.
 
+Text-to-speech is the first non-text task: `speak()`, `generateSpeech()` and `listVoices()` over the system speech
+providers on all three platforms, with playback and retrievable audio as separate deliveries.
+
+Out of scope for now: speech-to-text, embeddings and image tasks, video, voice cloning, a general model registry, hosted
+services, realtime sessions, and job queues.
+
 ## Source Of Truth
 
 This brief is only a project orientation document. Detailed behavior should come from code, schemas, and public API comments.

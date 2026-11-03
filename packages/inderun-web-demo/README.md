@@ -89,6 +89,20 @@ the routing decision read from `route_decided` telemetry. These panels build a `
 and send it without a model profile, so they route across every registered target, and they offer
 `Cloud Only` (`cloud_required`) as well.
 
+## Speech
+
+The **Speech** panel (`src/speech-panel.ts`) uses only the primary speech API: `listVoices()`, `prepare()`, `speak()`
+and `generateSpeech()`. It never touches `speechSynthesis` and never branches on a provider id.
+
+- **Speak** plays the text through whichever registered provider routing picks; **Stop** cancels it. The status line
+  shows the ending (`stop` or `cancelled`), the locale and voice that spoke, the provider and locality, and, where the
+  platform reports it, the time to the first word and how long stopping took.
+- **Generate audio** asks for a retrievable artifact, reads it whole, disposes it and offers the copy in an audio
+  player. The button is enabled only when `checkCapabilities()` shows a provider whose `text_to_speech` capability
+  declares `artifact` delivery. In a browser the only speech provider is `web_system_speech`, which declares playback
+  only, so the panel says so and the button stays disabled.
+- The status line is a live region. Stop takes focus while speech plays, and focus returns to Speak afterwards.
+
 ## Configuration
 
 | Env var                              | Effect                                                                        |
@@ -148,6 +162,10 @@ incrementally — so check these by hand:
 - **Advanced stream**: in the advanced section, *Local Only* + **Stream** is refused at routing (no
   run handle, no events); an unreachable `VITE_INDERUN_DEMO_PROXY_URL` ends a stream with a terminal
   `error` outcome, which is an event, not a rejection.
+
+- **Speech**: press **Speak** in `de-DE` and `en-US`, then **Stop** mid-utterance; the status reads `cancelled` and no
+  speech continues. Confirm **Generate audio** is disabled with the playback-only note. Record each browser in
+  [docs/verification/system-speech.md](../../docs/verification/system-speech.md#web-web_system_speech).
 
 ## Security Model
 

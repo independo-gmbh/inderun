@@ -246,8 +246,12 @@ class AndroidSystemSpeechProvider(
                         // Committed only now: a call that waited its turn has made no sound, and
                         // may have been cancelled meanwhile.
                         if (!commit()) return@withLock null
-                        val durationMs = engine.speak(speech.text)
-                        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(durationMs = durationMs), speech = used)
+                        val spoken = engine.speakWithTimings(speech.text)
+                        TaskOutput(
+                            type = TaskOutputType.PLAYBACK,
+                            playback = PlaybackOutput(durationMs = spoken.durationMs, firstAudioMs = spoken.firstAudioMs),
+                            speech = used,
+                        )
                     }
                     OutputDelivery.Artifact -> synthesize(speech.text, used, artifacts, runId)
                     OutputDelivery.Inline -> throw createCapabilityMismatch("Android system speech cannot deliver speech inline.", runId, id)

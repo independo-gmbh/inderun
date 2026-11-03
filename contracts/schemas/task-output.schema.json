@@ -44,6 +44,11 @@
           "description": "How long audible playback lasted, in milliseconds. For a cancelled run, how long it played before it was stopped.",
           "type": "number",
           "minimum": 0
+        },
+        "firstAudioMs": {
+          "description": "Milliseconds from the provider handing the utterance to the platform until the platform's first audible-output callback. Measures the platform and voice, not routing, and not sound reaching a speaker. Absent when the platform reports no such callback.",
+          "type": "number",
+          "minimum": 0
         }
       }
     },

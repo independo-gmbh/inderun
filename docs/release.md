@@ -126,6 +126,54 @@ implementation("app.independo.inderun:inderun-kotlin:latest.release")
 Gradle assigns every non-SNAPSHOT Maven version the `release` status, so `latest.release` can
 also resolve to an `-rc.N` prerelease when one is newer than the latest stable release.
 
+## Compatibility matrix
+
+Core releases one version across npm, the SwiftPM tag and Maven Central. The Capacitor bridge
+([independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun)) is versioned separately and
+pins one core version on all three of its platforms. Versions as published on npm:
+
+| Core (npm, SwiftPM tag, Maven) | `@independo/capacitor-inderun` | Speech through the bridge |
+| --- | --- | --- |
+| 0.5.x (`0.5.0-rc.N` on the `dev` dist-tag until stable) | **Pending** (#250) | Pending (#250) |
+| 0.4.0 | 1.2.x | No: 0.4 has no speech API |
+| 0.3.3 | 1.1.x | No |
+| 0.2.x | 1.0.x | No |
+
+Minimum platform versions are in the [README](../README.md#minimum-system-requirements). Update this table whenever a
+bridge release moves its core pin.
+
+## Per-platform capabilities for release notes
+
+Release notes name what a platform does not support. For 0.5:
+
+| Capability | Web | iOS / macOS | Android | Capacitor |
+| --- | --- | --- | --- | --- |
+| `generateText()` / `streamText()` | Yes | Yes | Yes | Yes (core 0.4 API) |
+| `speak()` (playback, `cancel()`) | Yes, `web_system_speech` | Yes, `apple_system_speech` | Yes, `android_system_speech` | Pending (#250) |
+| `generateSpeech()` (retrievable `audio/wav`) | **No**: playback only | Yes | Yes | Pending (#250) |
+| `listVoices()` / `prepare()` | Yes | Yes | Yes | Pending (#250) |
+| `local_required` speech | **Refused**: no evidence speech stays on device | Yes | Yes, voices without the network flag | Pending (#250) |
+| `firstAudioMs` | Where the browser sends word boundaries | Yes | Where the engine sends word ranges | Pending (#250) |
+
+What has actually been run on which device is in [verification/system-speech.md](./verification/system-speech.md); a
+release note claims only what is recorded there.
+
+## Release smoke check
+
+Before promoting a prerelease to stable, install what was published, not the workspace, into a scratch project and run
+the speech quick start from the [README](../README.md#speaking-text) on each platform:
+
+1. **npm:** in an empty Vite project, `pnpm add @independo/inderun-web@<version>`, register `systemSpeech: {}`, call
+   `speak()` from a click, then `cancel()`. Expect `stop`, then `cancelled`.
+2. **SwiftPM:** in a new iOS app, add the package with `exact: "<version>"`, register `AppleSystemSpeechProvider()`,
+   and run `speak()` and `generateSpeech()` on a simulator. Expect an `audio/wav` artifact you can read and dispose.
+3. **Maven Central:** in a new Android app, add `app.independo.inderun:inderun-kotlin:<version>` and
+   `inderun-system-speech-providers:<version>`, register `AndroidSystemSpeechProvider(context)`, and run the same two
+   calls on an emulator.
+4. **Capacitor:** once #250 has shipped a bridge on this core, run its consumer smoke tests on all three platforms.
+
+Record each result, with the version, in [verification/system-speech.md](./verification/system-speech.md).
+
 ## Registry configuration requirements (one-time setup)
 
 - **npm** — the `@independo` org must own the three package names, each configured for

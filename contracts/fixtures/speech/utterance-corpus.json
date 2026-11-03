@@ -1,0 +1,158 @@
+{
+  "$comment": "Shared utterance corpus for real-audio validation (#251). Every text is synthetic: no user text, no names of real people. Tests and demo harnesses log an utterance's id, never its text, so the corpus can run in CI and on devices without putting text into telemetry. `expect` says what a real provider must do: `speak` means the utterance plays and renders when the host has a voice for its locale, and a test skips it, naming the id, when the host has none; `refuse` means routing must refuse it before any audio starts, with the given error class, on every host. `scenarios` reuse utterances by id. See docs/verification/system-speech.md for how each run is recorded.",
+  "utterances": [
+    {
+      "id": "de_at_short",
+      "locale": "de-AT",
+      "category": "short",
+      "text": "Der Bus kommt in fünf Minuten.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_at_regional",
+      "locale": "de-AT",
+      "category": "dates_times_currency",
+      "text": "Am Montag, dem 3. Jänner, um 14:30 Uhr treffen wir uns beim Stephansplatz. Das Ticket kostet 2,40 €.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_short",
+      "locale": "de-DE",
+      "category": "short",
+      "text": "Ich möchte bitte etwas trinken.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_punctuation",
+      "locale": "de-DE",
+      "category": "punctuation",
+      "text": "Halt! Wer ist da? Ich – ja, genau ich – bin es: deine Nachbarin. „Komm rein“, sagte sie; dann (leise) „danke“.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_numerals",
+      "locale": "de-DE",
+      "category": "numerals",
+      "text": "Das kostet 12,50 € und dauert 3 bis 4 Stunden. Der Termin ist am 24.12.2026 um 9:15 Uhr in Zimmer 101.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_long",
+      "locale": "de-DE",
+      "category": "long",
+      "text": "Heute Morgen war es im Park sehr ruhig. Auf dem Weg zum Bäcker habe ich zwei Hunde gesehen, die miteinander gespielt haben. Danach bin ich zur Haltestelle gegangen und habe auf die Straßenbahn gewartet. Sie kam pünktlich, und ich habe einen Sitzplatz am Fenster bekommen. Am Nachmittag möchte ich meine Schwester besuchen. Wir wollen zusammen Kuchen backen, einen Spaziergang machen und am Abend ein Brettspiel spielen. Wenn es regnet, bleiben wir drinnen und hören Musik. Morgen beginnt die neue Woche, und ich freue mich schon auf den Kurs am Dienstag.",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_short",
+      "locale": "en-US",
+      "category": "short",
+      "text": "Your appointment is at 3 pm.",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_punctuation",
+      "locale": "en-US",
+      "category": "punctuation",
+      "text": "Wait! Who's there? It's me – yes, me – your neighbor. \"Come in,\" she said; then (quietly) \"thanks.\"",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_numerals",
+      "locale": "en-US",
+      "category": "dates_times_currency",
+      "text": "It costs $12.50 and takes 3 to 4 hours. The meeting is on December 24, 2026, at 9:15 a.m. in room 101.",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_long",
+      "locale": "en-US",
+      "category": "long",
+      "text": "This morning the park was very quiet. On the way to the bakery I saw two dogs playing together. Then I walked to the stop and waited for the tram. It arrived on time, and I got a seat by the window. In the afternoon I want to visit my sister. We plan to bake a cake together, go for a walk, and play a board game in the evening. If it rains, we will stay inside and listen to music. Tomorrow a new week begins, and I am already looking forward to the course on Tuesday.",
+      "expect": "speak"
+    },
+    {
+      "id": "unsupported_locale",
+      "locale": "xx-XX",
+      "category": "unsupported_locale",
+      "text": "No installed voice speaks this language.",
+      "expect": "refuse",
+      "errorClass": "CapabilityMismatch"
+    }
+  ],
+  "scenarios": {
+    "repeat": {
+      "description": "The same utterance rendered several times in a row: every artifact is independent, readable, and released by its own dispose.",
+      "utteranceIds": ["de_de_short", "en_us_short"],
+      "count": 3
+    },
+    "cancelMidUtterance": {
+      "description": "Playback stopped while speaking ends with exactly one cancelled outcome, and a new utterance right after it plays to the end.",
+      "utteranceId": "en_us_long",
+      "cancelAfterMs": 1500,
+      "followUpUtteranceId": "en_us_short"
+    }
+  },
+  "benchmark": {
+    "$comment": "Latency scenarios for choosing a speech provider (#251). Opt-in: they play audio for minutes, so CI does not run them. Each answers one question a developer has before adopting a provider, and each platform runs them through the public API only, against a list of benchmark targets (a provider, optionally pinned to one voice). Adding a target, such as an ONNX or Core ML neural provider or a custom AVSpeechSynthesisProviderAudioUnit voice, adds a column, not a scenario. A scenario whose delivery a target does not declare is reported as unsupported for it. Each platform registers one handler per id behind a guard test. Results are reported per sample with their median and maximum; the numbers are measurements of one device, never thresholds.",
+    "scenarios": [
+      {
+        "id": "first_call_cold",
+        "delivery": "playback",
+        "question": "How long does the very first utterance take to start?",
+        "setup": "A new engine and provider instance, no prepare(). Speak the utterance once. Repeat with a new instance for each trial; the first trial is also the first in the process.",
+        "utteranceIds": ["de_de_short"],
+        "trials": 3
+      },
+      {
+        "id": "first_call_after_prepare",
+        "delivery": "playback",
+        "question": "Does calling prepare() ahead of time make the first utterance start sooner, and what does prepare() cost?",
+        "setup": "A new engine and provider instance. Call prepare() for text_to_speech in the utterance's locale and record how long it took, then speak the utterance once. Repeat with a new instance for each trial.",
+        "utteranceIds": ["de_de_short"],
+        "trials": 3
+      },
+      {
+        "id": "repeat_same_voice",
+        "delivery": "playback",
+        "question": "Do later utterances on the same voice start faster than the first?",
+        "setup": "One engine and provider instance. Speak the utterance the given number of times in a row, each after the previous one finished. Report each call by its position.",
+        "utteranceIds": ["de_de_short"],
+        "trials": 5
+      },
+      {
+        "id": "switch_language",
+        "delivery": "playback",
+        "question": "What does changing language, and so voice, between calls cost?",
+        "setup": "One engine and provider instance. Speak the utterances in order, each after the previous one finished: the first warms the voice, the second switches language, the third switches back. Report each call by its position.",
+        "utteranceIds": ["en_us_short", "de_de_short", "en_us_short"],
+        "trials": 1
+      },
+      {
+        "id": "speak_after_stop",
+        "delivery": "playback",
+        "question": "How quickly does Stop take effect, and does the next utterance start normally?",
+        "setup": "One engine and provider instance, warmed by speaking the second utterance once. Speak the first utterance, stop it after cancelAfterMs, record the time from cancel() to the cancelled ending, then speak the second utterance at once.",
+        "utteranceIds": ["en_us_long", "en_us_short"],
+        "cancelAfterMs": 1500,
+        "trials": 3
+      },
+      {
+        "id": "text_length",
+        "delivery": "playback",
+        "question": "Does the first word wait for the whole text to be synthesized? A streaming engine starts as fast on long text as on short; a non-streaming one does not.",
+        "setup": "One engine and provider instance, warmed by speaking the first utterance once. Speak each utterance, each after the previous one finished.",
+        "utteranceIds": ["de_de_short", "de_de_long"],
+        "trials": 1
+      },
+      {
+        "id": "render_speed",
+        "delivery": "artifact",
+        "question": "How long does it take to produce a retrievable audio file, cold and warm, and how does that scale with length?",
+        "setup": "One engine and provider instance. Render each utterance with generateSpeech(), cold first, then the given number of further trials. Report the render time, the audio duration, and their ratio (the real-time factor; below 1 is faster than real time). Dispose each artifact.",
+        "utteranceIds": ["de_de_short", "de_de_long"],
+        "trials": 3
+      }
+    ]
+  }
+}

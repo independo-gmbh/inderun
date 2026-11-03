@@ -46,6 +46,8 @@ jobs:
               - 'scripts/verify-route-core-apple.mjs'
               - 'scripts/rust-toolchain.mjs'
               - '.github/workflows/swift.yml'
+              # Read by the real-speech corpus tests.
+              - 'contracts/fixtures/speech/**'
 
   swift:
     name: Swift

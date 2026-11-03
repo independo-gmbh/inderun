@@ -377,6 +377,12 @@ export type PlaybackOutput = {
      * played before it was stopped.
      */
     durationMs?: number;
+    /**
+     * Milliseconds from the provider handing the utterance to the platform until the platform's
+     * first audible-output callback. Measures the platform and voice, not routing, and not
+     * sound reaching a speaker. Absent when the platform reports no such callback.
+     */
+    firstAudioMs?: number;
     [property: string]: unknown;
 }
 

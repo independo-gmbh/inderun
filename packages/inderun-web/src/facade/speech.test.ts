@@ -138,7 +138,7 @@ describe("speak", () => {
           finishReason: "stop",
           output: {
             type: "playback",
-            playback: { durationMs: 1200 },
+            playback: { durationMs: 1200, firstAudioMs: 150 },
             speech: { locale: "de-DE" }
           },
           provenance
@@ -151,6 +151,7 @@ describe("speak", () => {
     await expect(playback.result).resolves.toMatchObject({
       finishReason: "stop",
       durationMs: 1200,
+      firstAudioMs: 150,
       speech: { locale: "de-DE" },
       runId: "r1",
       provenance

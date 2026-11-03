@@ -61,6 +61,20 @@ public extension Message {
     }
 }
 
+/// `firstAudioMs` came after `durationMs`, and a provider whose platform has no first-audio
+/// callback knows only the duration, so it need not spell out the missing value.
+///
+/// The generated `with` gained a parameter for it; this keeps the signature callers compiled against.
+public extension PlaybackOutput {
+    init(durationMs: Double?) {
+        self.init(durationMs: durationMs, firstAudioMs: nil)
+    }
+
+    func with(durationMs: Double?? = nil) -> PlaybackOutput {
+        with(durationMs: durationMs, firstAudioMs: nil)
+    }
+}
+
 /// One initializer per output representation (ADR 016), so a caller cannot build a
 /// `.playback` output without its payload or a `.text` output without its text.
 public extension TaskOutput {

@@ -77,6 +77,11 @@ private class FakeSpeechEngine(
         return 900.0
     }
 
+    /** Reports a first word, as an engine with range callbacks does. */
+    var firstAudioMs: Double? = 120.0
+
+    override suspend fun speakWithTimings(text: String) = AndroidSpokenAudio(speak(text), firstAudioMs)
+
     override suspend fun synthesize(text: String, maxBytes: Long): ByteArray {
         synthesized += 1
         return audio
@@ -203,6 +208,7 @@ class AndroidSystemSpeechProviderTest {
         assertEquals(listOf("Hallo"), engine.spoken)
         assertEquals(TaskOutputType.PLAYBACK, result.output.type)
         assertEquals(900.0, result.output.playback?.durationMs)
+        assertEquals(120.0, result.output.playback?.firstAudioMs)
         assertEquals("de-DE", result.output.speech?.locale)
         assertEquals("de-local", result.output.speech?.voice?.id)
     }

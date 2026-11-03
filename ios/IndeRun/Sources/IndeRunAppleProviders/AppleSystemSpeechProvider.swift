@@ -293,10 +293,13 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
             // Committed only now: a call that waited its turn has made no sound, and may have
             // been cancelled meanwhile.
             guard commit() else { throw CancellationError() }
-            let durationMs = try await runtime.speak(text: speech.text, voice: voice)
+            let spoken = try await runtime.speak(text: speech.text, voice: voice)
             loaded.insert(voice.identifier)
             await turns.release()
-            return TaskOutput(playback: PlaybackOutput(durationMs: durationMs), speech: Self.used(voice))
+            return TaskOutput(
+                playback: PlaybackOutput(durationMs: spoken.durationMs, firstAudioMs: spoken.firstAudioMs),
+                speech: Self.used(voice)
+            )
         } catch {
             await turns.release()
             throw error

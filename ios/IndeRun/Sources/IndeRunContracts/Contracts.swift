@@ -1151,13 +1151,19 @@ public struct PlaybackOutput: Codable, Sendable {
     /// How long audible playback lasted, in milliseconds. For a cancelled run, how long it
     /// played before it was stopped.
     public var durationMs: Double?
+    /// Milliseconds from the provider handing the utterance to the platform until the platform's
+    /// first audible-output callback. Measures the platform and voice, not routing, and not
+    /// sound reaching a speaker. Absent when the platform reports no such callback.
+    public var firstAudioMs: Double?
 
     public enum CodingKeys: String, CodingKey {
         case durationMs = "durationMs"
+        case firstAudioMs = "firstAudioMs"
     }
 
-    public init(durationMs: Double?) {
+    public init(durationMs: Double?, firstAudioMs: Double?) {
         self.durationMs = durationMs
+        self.firstAudioMs = firstAudioMs
     }
 }
 
@@ -1180,10 +1186,12 @@ public extension PlaybackOutput {
     }
 
     func with(
-        durationMs: Double?? = nil
+        durationMs: Double?? = nil,
+        firstAudioMs: Double?? = nil
     ) -> PlaybackOutput {
         return PlaybackOutput(
-            durationMs: durationMs ?? self.durationMs
+            durationMs: durationMs ?? self.durationMs,
+            firstAudioMs: firstAudioMs ?? self.firstAudioMs
         )
     }
 

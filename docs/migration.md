@@ -5,6 +5,10 @@ author has to change, per platform. The release notes carry the same changes com
 
 ## 0.4 → 0.5
 
+**Text applications: nothing to change.** `generateText()`, `streamText()`, `run()` and `stream()` behave as in 0.4,
+and a text request, result or stream has the same JSON. What changes for text code is the names of some generated types,
+listed below. The 0.4 text suites still run on every platform (`pnpm test`), against the same shared fixtures.
+
 ### Speech API
 
 `speak()`, `generateSpeech()` and `listVoices()` are new and additive; `generateText()` and `streamText()` are unchanged.
@@ -15,6 +19,25 @@ See [api-layering.md](./architecture/api-layering.md#primary-speech-api). No tex
 Swift `ProviderVoice`, `SpeechVoice`, `SpeechOutputVoice` and `VoiceRequirement` memberwise initializers gain `id`,
 `providerId` and `name` parameters. A provider that lists voices should give each an `id`, and resolve `context.voice`
 by it.
+
+Playback reports when the first word started: `PlaybackOutput.firstAudioMs` and `SpokenSpeech.firstAudioMs`, optional on
+every platform. The generated Swift `PlaybackOutput(durationMs:firstAudioMs:)` initializer gains the argument;
+`PlaybackOutput(durationMs:)` and `with(durationMs:)` still compile. Code that switches exhaustively over
+`PlaybackOutput.CodingKeys` needs a `firstAudioMs` case. A custom Android `AndroidSpeechEngine` keeps working unchanged: the new
+`speakWithTimings` defaults to `speak` and reports no first word. A custom Web `SystemSpeechRuntime.speak` may resolve
+`firstAudioMs` too.
+
+**Playback and retrievable audio are separate deliveries.** `speak()` asks for `playback`: the provider plays the audio
+and the application gets an ending, never bytes. `generateSpeech()` asks for an `artifact`: silent, and its bytes are
+read with `readArtifact()`. Neither stands in for the other. A provider declares what it can do in its `text_to_speech`
+capability's `outputs`, so check `checkCapabilities()` before offering a download; the
+[README](../README.md#speaking-text) has the check. In the browser the only speech provider is playback-only.
+
+**Voices and privacy.** The voice catalog belongs to the device and differs between devices, engines and browsers, so
+store a voice `id` only for the device that listed it. Under `local_required`, Android trusts the engine's per-voice
+network flag, Apple has no such flag and relies on voices being installed, and the browser is always refused. Provenance
+reports locality `unknown` whenever the platform cannot show that the text stays on the device. See the
+[system speech family doc](architecture/system-speech-provider-family.md#locality).
 
 ### Prepare and readiness
 
@@ -134,6 +157,8 @@ matching protocol / interface on Swift and Kotlin), and a host without one refus
 
 ### Capacitor
 
+The Capacitor bridge is versioned separately and moves to the 0.5 contracts in its own release (#250); the
+[compatibility matrix](release.md#compatibility-matrix) says which bridge version pairs with which core version.
 The bridge can drop its own copy of the snapshot type and import `ProviderCapabilitySnapshot` and
 `validateProviderCapabilitySnapshot` from `@independo/inderun-contracts`. It must implement `readArtifact` and
 `disposeArtifact` by forwarding to the native engine; only the artifact id crosses the bridge, and each read is bounded

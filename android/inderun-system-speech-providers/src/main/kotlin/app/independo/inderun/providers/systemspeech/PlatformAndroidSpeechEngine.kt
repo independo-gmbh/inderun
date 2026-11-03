@@ -46,11 +46,21 @@ internal class PlatformAndroidSpeechEngine(context: Context) : AndroidSpeechEngi
 
     private class Binding(val tts: TextToSpeech, val ready: CompletableDeferred<Boolean>)
 
-    private class Pending(val continuation: CancellableContinuation<Double?>) {
+    private class Pending(val continuation: CancellableContinuation<AndroidSpokenAudio>) {
+        val issuedAt: Long = System.nanoTime()
+
         @Volatile
         var startedAt: Long? = null
 
-        fun finish() = continuation.resume(startedAt?.let { (System.nanoTime() - it) / 1_000_000.0 })
+        @Volatile
+        var firstRangeAt: Long? = null
+
+        fun finish() = continuation.resume(
+            AndroidSpokenAudio(
+                durationMs = startedAt?.let { (System.nanoTime() - it) / 1_000_000.0 },
+                firstAudioMs = firstRangeAt?.let { (it - issuedAt) / 1_000_000.0 },
+            ),
+        )
 
         fun fail(error: Throwable) = continuation.resumeWithException(error)
     }
@@ -58,6 +68,11 @@ internal class PlatformAndroidSpeechEngine(context: Context) : AndroidSpeechEngi
     private val listener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String) {
             pending[utteranceId]?.startedAt = System.nanoTime()
+        }
+
+        override fun onRangeStart(utteranceId: String, start: Int, end: Int, frame: Int) {
+            val entry = pending[utteranceId] ?: return
+            if (entry.firstRangeAt == null) entry.firstRangeAt = System.nanoTime()
         }
 
         override fun onDone(utteranceId: String) {
@@ -148,7 +163,9 @@ internal class PlatformAndroidSpeechEngine(context: Context) : AndroidSpeechEngi
         return tts.setLanguage(Locale.forLanguageTag(locale)) >= TextToSpeech.LANG_AVAILABLE
     }
 
-    override suspend fun speak(text: String): Double? {
+    override suspend fun speak(text: String): Double? = speakWithTimings(text).durationMs
+
+    override suspend fun speakWithTimings(text: String): AndroidSpokenAudio {
         val current = bind()
         return awaitUtterance(current) { id -> current.tts.speak(text, TextToSpeech.QUEUE_ADD, Bundle(), id) }
     }
@@ -165,8 +182,8 @@ internal class PlatformAndroidSpeechEngine(context: Context) : AndroidSpeechEngi
         }
     }
 
-    /** Runs one utterance to its end and returns how long it took from its first sound. */
-    private suspend fun awaitUtterance(current: Binding, start: (String) -> Int): Double? = coroutineScope {
+    /** Runs one utterance to its end and returns its timings. */
+    private suspend fun awaitUtterance(current: Binding, start: (String) -> Int): AndroidSpokenAudio = coroutineScope {
         val id = UUID.randomUUID().toString()
         // Without it an engine that never calls back would hold the provider's turn until the
         // caller cancels.
