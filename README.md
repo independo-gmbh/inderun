@@ -134,6 +134,49 @@ placement tier, so `local_required` and `local_preferred` keep their meaning. An
 Swift and Kotlin take the same profiles as `ModelProfiles` on the engine. See
 [API layering](docs/architecture/api-layering.md#model-profiles).
 
+## Speaking text
+
+One call site on every platform: `listVoices()` reads the voice catalog, `speak()` plays and returns a handle with
+`cancel()` and `result`, and `generateSpeech()` returns a `MediaArtifact` to read with `readArtifact()` and release with
+`disposeArtifact()`. The system speech providers are opt-in; register `systemSpeech` (Web), `AppleSystemSpeechProvider`
+(Swift) or `AndroidSystemSpeechProvider` (Kotlin). Snippets per platform are in the
+[Web](packages/inderun-web/README.md#speech), [Swift](ios/IndeRun/README.md#speech) and
+[Kotlin](android/inderun-kotlin/README.md#speech) READMEs.
+
+```ts
+import { createIndeRunWeb, speak } from "@independo/inderun-web";
+
+const inderun = createIndeRunWeb({ systemSpeech: {} });
+const playback = await speak(inderun, { text: "Der Bus kommt.", locale: "de-AT" });
+stopButton.onclick = () => playback.cancel();
+const { finishReason, speech, provenance, firstAudioMs } = await playback.result;
+// finishReason "stop", or "cancelled" after cancel(); provenance names the provider and its locality.
+```
+
+Some providers only play audio; others can also return it. Tell them apart from capabilities rather than by provider
+name: a provider can return audio when its `text_to_speech` capability declares `artifact` delivery.
+
+```ts
+const returnsAudio = (await inderun.checkCapabilities()).some(
+  ({ descriptor, capabilities }) =>
+    capabilities.available &&
+    descriptor.taskCapabilities?.some(
+      (task) =>
+        task.kind === "text_to_speech" && task.outputs.some((out) => out.delivery === "artifact")
+    )
+);
+```
+
+| Platform | Provider | Playback | Retrievable audio |
+| --- | --- | --- | --- |
+| Web | `web_system_speech` (`speechSynthesis`) | Yes | No: `generateSpeech()` is refused by routing |
+| iOS / macOS | `apple_system_speech` (`AVSpeechSynthesizer`) | Yes | `audio/wav` |
+| Android | `android_system_speech` (`TextToSpeech`) | Yes | `audio/wav` |
+
+Voices are the platform's own, so the catalog differs per device. The
+[packages/inderun-web-demo](packages/inderun-web-demo/README.md#speech) Speech panel shows all of this in a browser, and
+[docs/verification/system-speech.md](docs/verification/system-speech.md) records what has been run on which device.
+
 ## Platforms
 
 ### Web (TypeScript)
@@ -354,6 +397,8 @@ environment; on iOS and Android it is a convention, because a native app can rea
 - [Migration guide](docs/migration.md)
 - [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
 - [Streaming conformance and cross-platform validation](docs/streaming-conformance.md)
+- [Speech conformance and cross-platform validation](docs/speech-conformance.md)
+- [System speech verification record](docs/verification/system-speech.md)
 - [CI behavior](docs/ci.md)
 - [Releases & publishing](docs/release.md)
 - [Contributor workflow and build commands](CONTRIBUTING.md)

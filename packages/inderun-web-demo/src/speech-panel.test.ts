@@ -9,9 +9,19 @@ async function flush(): Promise<void> {
   }
 }
 
+function speechDescriptor(id: string, deliveries: string[]) {
+  return {
+    id,
+    taskCapabilities: [
+      { kind: "text_to_speech", outputs: deliveries.map((delivery) => ({ delivery })) }
+    ]
+  };
+}
+
 const snapshots = [
   {
     providerId: "web_system_speech",
+    descriptor: speechDescriptor("web_system_speech", ["playback"]),
     capabilities: {
       available: true,
       taskCapabilities: [
@@ -38,11 +48,12 @@ function terminal(outcome: Record<string, unknown>): StreamRun {
   } as unknown as StreamRun;
 }
 
-function setup(stream: IndeRunApi["stream"]) {
+function setup(stream: IndeRunApi["stream"], extra: Partial<IndeRunApi> = {}) {
   const root = document.createElement("div");
   const api = {
     stream,
     checkCapabilities: async () => snapshots,
+    ...extra,
     prepare: async () =>
       terminal({ outcome: "completed", output: { type: "prepared", preparation: [] } })
   } as unknown as IndeRunApi;
@@ -54,7 +65,10 @@ function setup(stream: IndeRunApi["stream"]) {
     status: query("speech-status"),
     voices: query("speech-voices"),
     voice: query<HTMLSelectElement>("speech-voice"),
-    locale: query<HTMLSelectElement>("speech-locale")
+    locale: query<HTMLSelectElement>("speech-locale"),
+    generate: query<HTMLButtonElement>("speech-generate"),
+    delivery: query("speech-delivery"),
+    audio: query<HTMLAudioElement>("speech-audio")
   };
 }
 
@@ -192,5 +206,110 @@ describe("speech panel", () => {
     await flush();
 
     expect(panel.status.textContent).toBe("failed: CapabilityMismatch: no voice");
+  });
+
+  it("offers no Generate when the live check takes speech away from an artifact provider", async () => {
+    const panel = setup(vi.fn(), {
+      checkCapabilities: async () => [
+        ...snapshots,
+        {
+          providerId: "native_speech",
+          descriptor: speechDescriptor("native_speech", ["playback", "artifact"]),
+          capabilities: {
+            available: true,
+            taskCapabilities: [
+              { kind: "text_to_speech", available: false, reason: "No voice is installed." }
+            ]
+          }
+        }
+      ]
+    } as unknown as Partial<IndeRunApi>);
+    await flush();
+    expect(panel.generate.disabled).toBe(true);
+    expect(panel.delivery.textContent).toBe(
+      "Plays speech: web_system_speech. Returns audio: no provider here; speech is playback-only on this platform."
+    );
+  });
+
+  it("says playback-only from capabilities and offers no Generate", async () => {
+    const panel = setup(vi.fn());
+    await flush();
+
+    expect(panel.generate.disabled).toBe(true);
+    expect(panel.delivery.textContent).toBe(
+      "Plays speech: web_system_speech. Returns audio: no provider here; speech is playback-only on this platform."
+    );
+  });
+
+  it("shows the first word time a provider reports", async () => {
+    const stream = vi.fn(async () =>
+      terminal({
+        outcome: "completed",
+        finishReason: "stop",
+        output: {
+          type: "playback",
+          playback: { firstAudioMs: 142.4 },
+          speech: { locale: "de-DE" }
+        },
+        provenance: { providerId: "web_system_speech", locality: "unknown" }
+      })
+    );
+    const panel = setup(stream);
+
+    panel.speak.click();
+    await flush();
+
+    expect(panel.status.textContent).toBe(
+      "stop · de-DE · web_system_speech · unknown · first word 142 ms"
+    );
+  });
+
+  it("generates audio where a provider returns it, then reads and releases it", async () => {
+    const artifact = { id: "a1", mediaType: "audio/wav", owner: "engine", durationMs: 1200 };
+    const bytes = new Uint8Array([82, 73, 70, 70, 1, 2]);
+    const run = vi.fn(async () => ({
+      runId: "r",
+      finishReason: "stop",
+      output: { type: "artifact", artifact },
+      provenance: { providerId: "native_speech", locality: "on_device" }
+    }));
+    const readArtifact = vi.fn(async ({ offset = 0 }: { offset?: number }) => ({
+      artifactId: "a1",
+      offset,
+      bytes: bytes.subarray(offset, offset + 4),
+      totalBytes: bytes.length,
+      done: offset + 4 >= bytes.length
+    }));
+    const disposeArtifact = vi.fn(async () => {});
+    URL.createObjectURL = vi.fn(() => "blob:speech");
+    URL.revokeObjectURL = vi.fn();
+    const panel = setup(vi.fn(), {
+      run,
+      readArtifact,
+      disposeArtifact,
+      checkCapabilities: async () => [
+        ...snapshots,
+        {
+          providerId: "native_speech",
+          descriptor: speechDescriptor("native_speech", ["playback", "artifact"]),
+          capabilities: { available: true }
+        }
+      ]
+    } as unknown as Partial<IndeRunApi>);
+    await flush();
+    expect(panel.generate.disabled).toBe(false);
+    expect(panel.delivery.textContent).toContain("Returns audio: native_speech.");
+
+    panel.generate.click();
+    await flush();
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ delivery: { mode: "artifact" } }));
+    expect(readArtifact).toHaveBeenCalledTimes(2);
+    expect(disposeArtifact).toHaveBeenCalledWith(artifact);
+    expect(panel.audio.hidden).toBe(false);
+    expect(panel.audio.getAttribute("src")).toBe("blob:speech");
+    expect(panel.status.textContent).toBe(
+      "audio/wav · 6 bytes · 1200 ms of audio · native_speech · on_device"
+    );
   });
 });

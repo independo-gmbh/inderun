@@ -112,7 +112,12 @@ outright — the panel is not updated at all, because no route was decided.
    finish reason, locale, voice, provider, and locality.
 3. Tap **Stop** while it plays. The audio stops at once and the outcome reads `cancelled`. **Stop**
    stays disabled until routing has produced a playback handle.
-4. Install or remove a voice in Settings under Accessibility, then come back. The list reloads each
+   With a finished utterance the line also shows the time to the first word; after **Stop** it
+   shows how long stopping took.
+4. Tap **Synthesize**. The app renders the text silently through `generateSpeech()`, reads the
+   WAV header back and releases the artifact; the line shows the media type, header, byte count,
+   audio duration, render time, and locality.
+5. Install or remove a voice in Settings under Accessibility, then come back. The list reloads each
    time the tab appears or the app returns to the foreground, and the selection moves only if its
    locale is gone.
 
@@ -120,7 +125,9 @@ The picker offers only locales that have a voice, so a language with no installe
 chosen and that routing refusal cannot be reached from this screen. A device with no voices shows
 a message in place of the picker and disables **Speak**.
 
-The app calls `speak()` and `listVoices()` only; it never touches `AVSpeechSynthesizer`.
+The app calls `speak()`, `generateSpeech()`, `listVoices()` and `prepare()` only; it never touches
+`AVSpeechSynthesizer`. Record device results in
+[docs/verification/system-speech.md](../../../docs/verification/system-speech.md).
 
 ## Demo Proxy Setup
 
