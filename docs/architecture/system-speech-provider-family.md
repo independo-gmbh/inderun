@@ -33,6 +33,11 @@ System speech adapters put a platform's own text-to-speech behind the canonical 
   it, and on the Web a `run()` playback cannot be stopped.
 - **Never substitutes.** A required locale, voice or format is met or refused, and playback and artifact never stand in
   for each other.
+- **Reports when the first word started.** A finished playback carries `playback.firstAudioMs`, from handing the
+  utterance to the platform until the platform's first word callback: `willSpeakRangeOfSpeechString` on Apple,
+  `onRangeStart` on Android, the first `boundary` event on the Web. It measures the platform and the voice, not
+  routing, and not sound at the speaker. An engine or browser that reports no word ranges leaves it out, and a stopped
+  run reports none.
 
 ## Locality
 

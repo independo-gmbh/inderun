@@ -189,7 +189,10 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
         if (ending.stopped === true) return undefined;
         return {
           type: "playback",
-          playback: ending.durationMs !== undefined ? { durationMs: ending.durationMs } : {},
+          playback: {
+            ...(ending.durationMs !== undefined ? { durationMs: ending.durationMs } : {}),
+            ...(ending.firstAudioMs !== undefined ? { firstAudioMs: ending.firstAudioMs } : {})
+          },
           speech: { locale, ...(voice !== undefined ? { voice: toUsedVoice(voice) } : {}) }
         };
       } catch (error) {

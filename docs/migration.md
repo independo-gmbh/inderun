@@ -16,6 +16,13 @@ Swift `ProviderVoice`, `SpeechVoice`, `SpeechOutputVoice` and `VoiceRequirement`
 `providerId` and `name` parameters. A provider that lists voices should give each an `id`, and resolve `context.voice`
 by it.
 
+Playback reports when the first word started: `PlaybackOutput.firstAudioMs` and `SpokenSpeech.firstAudioMs`, optional on
+every platform. The generated Swift `PlaybackOutput(durationMs:firstAudioMs:)` initializer gains the argument;
+`PlaybackOutput(durationMs:)` and `with(durationMs:)` still compile. Code that switches exhaustively over
+`PlaybackOutput.CodingKeys` needs a `firstAudioMs` case. A custom Android `AndroidSpeechEngine` keeps working unchanged: the new
+`speakWithTimings` defaults to `speak` and reports no first word. A custom Web `SystemSpeechRuntime.speak` may resolve
+`firstAudioMs` too.
+
 ### Prepare and readiness
 
 `prepare()` is new and optional (ADR 019). The first run of a task now prepares that task once, for providers that

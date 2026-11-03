@@ -52,12 +52,12 @@ export interface SystemSpeechRuntime {
    */
   whenIdle(signal?: AbortSignal): Promise<void>;
   /**
-   * Speaks and resolves once it has finished, with how long it played when known. Resolves with
-   * `{ stopped: true }` when `signal` stopped it, and rejects only with a
-   * {@link SystemSpeechRuntimeError}.
+   * Speaks and resolves once it has finished, with how long it played and how long the first
+   * word took to start, when known. Resolves with `{ stopped: true }` when `signal` stopped it,
+   * and rejects only with a {@link SystemSpeechRuntimeError}.
    */
   speak(
     utterance: SystemSpeechUtterance,
     signal?: AbortSignal
-  ): Promise<{ stopped?: boolean; durationMs?: number }>;
+  ): Promise<{ stopped?: boolean; durationMs?: number; firstAudioMs?: number }>;
 }

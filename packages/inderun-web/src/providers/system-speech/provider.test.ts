@@ -46,7 +46,7 @@ function fakeRuntime(voices: SystemSpeechVoice[] = [LOCAL, NETWORK]) {
         ...(utterance.voice !== undefined ? { voice: utterance.voice.uri } : {})
       });
       if (state.failure !== undefined) return Promise.reject(state.failure);
-      if (!holds.has(utterance.text)) return Promise.resolve({ durationMs: 700 });
+      if (!holds.has(utterance.text)) return Promise.resolve({ durationMs: 700, firstAudioMs: 90 });
       return new Promise((resolve) => {
         held.set(utterance.text, () => resolve({ durationMs: 700 }));
         signal?.addEventListener("abort", () => {
@@ -266,6 +266,7 @@ describe("speech through the engine", () => {
     expect(ending).toMatchObject({
       finishReason: "stop",
       durationMs: 700,
+      firstAudioMs: 90,
       speech: { locale: "de-DE" }
     });
     expect(ending.provenance?.providerId).toBe("web_system_speech");

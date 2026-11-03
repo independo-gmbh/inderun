@@ -170,6 +170,8 @@ final class DemoViewModel: ObservableObject {
     /// Held only so `stopSpeaking` can reach the handle `speak` is waiting on.
     /// Set once routing has produced a handle: until then there is nothing Stop could reach.
     @Published private var playback: SpeechPlayback?
+    /// When Stop was tapped, so the outcome can show how long stopping took (#251).
+    private var stopTappedAt: Date?
     var canStopSpeaking: Bool { playback != nil }
     var canSpeak: Bool { !isSpeaking && !speechText.isEmpty && speechLocale != nil }
 
@@ -383,6 +385,7 @@ final class DemoViewModel: ObservableObject {
         guard let selectedLocale = speechLocale else { return }
         isSpeaking = true
         speechOutcome = nil
+        stopTappedAt = nil
         defer {
             isSpeaking = false
             playback = nil
@@ -402,7 +405,46 @@ final class DemoViewModel: ObservableObject {
             let target = ending.provenance?.providerId ?? "unknown"
             let locality = ending.provenance?.locality.rawValue ?? "unknown"
             let voice = ending.speech?.voice?.name ?? "unknown voice"
-            speechOutcome = "\(ending.finishReason?.rawValue ?? "unknown") · \(locale) · \(voice) · \(target) · \(locality)"
+            // Measurements for docs/verification/system-speech.md: the platform's first word, and
+            // from the Stop tap to the run's ending.
+            let timings = [
+                ending.firstAudioMs.map { "first word \(Int($0)) ms" },
+                stopTappedAt.map { "stopped in \(Int(Date().timeIntervalSince($0) * 1000)) ms" },
+            ].compactMap { $0 }
+            speechOutcome = (["\(ending.finishReason?.rawValue ?? "unknown")", locale, voice, target, locality] + timings)
+                .joined(separator: " · ")
+        } catch {
+            speechOutcome = "failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Renders the text silently through `generateSpeech`, reads the WAV back and releases it:
+    /// the retrievable-audio path, on the same routing and privacy as `speak`.
+    func synthesizeSpeech() async {
+        guard let selectedLocale = speechLocale else { return }
+        isSpeaking = true
+        speechOutcome = nil
+        defer { isSpeaking = false }
+        do {
+            let inderun = try makeIndeRun()
+            let started = Date()
+            let speech = try await inderun.generateSpeech(GenerateSpeechOptions(SpeakOptions(
+                speechText,
+                locale: selectedLocale,
+                voice: speechVoices.first { $0.id == speechVoiceId }?.asSpeechVoice(),
+                execution: SpeechExecutionOptions(privacy: .localRequired)
+            )))
+            let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
+            let first = try await inderun.readArtifact(
+                request: ArtifactReadRequest(artifactId: speech.artifact.id, maxBytes: 4, offset: 0)
+            )
+            await inderun.disposeArtifact(artifact: speech.artifact)
+            let header = String(decoding: first.bytes, as: UTF8.self)
+            let duration = speech.artifact.durationMs.map { "\(Int($0)) ms audio" } ?? "unknown duration"
+            speechOutcome = [
+                speech.artifact.mediaType, header, "\(first.totalBytes) bytes", duration,
+                "rendered in \(elapsedMs) ms", speech.provenance?.locality.rawValue ?? "unknown",
+            ].joined(separator: " · ")
         } catch {
             speechOutcome = "failed: \(error.localizedDescription)"
         }
@@ -461,6 +503,7 @@ final class DemoViewModel: ObservableObject {
 
     /// Stops the audio. Idempotent; the run ends as cancelled, not as an error.
     func stopSpeaking() {
+        if stopTappedAt == nil { stopTappedAt = Date() }
         playback?.cancel(reason: "stopped from the demo app")
     }
 

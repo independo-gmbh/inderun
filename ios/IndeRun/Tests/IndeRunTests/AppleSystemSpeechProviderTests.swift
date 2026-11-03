@@ -55,7 +55,7 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
         lock.withLock { recordedWarmed.append(voice.identifier) }
     }
 
-    func speak(text: String, voice: AppleSpeechVoice) async throws -> Double? {
+    func speak(text: String, voice: AppleSpeechVoice) async throws -> SpokenAudio {
         let (holds, failure) = lock.withLock {
             recordedSpoken.append(text)
             recordedVoices.append(voice.identifier)
@@ -80,7 +80,7 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
                 throw error
             }
         }
-        return 900
+        return SpokenAudio(durationMs: 900, firstAudioMs: 120)
     }
 
     func render(text: String, voice: AppleSpeechVoice, maxBytes: Int) async throws -> RenderedSpeech {
@@ -165,6 +165,7 @@ final class AppleSystemSpeechProviderTests: XCTestCase {
         XCTAssertEqual(runtime.spoken, ["Hallo"])
         XCTAssertEqual(ending.finishReason, .stop)
         XCTAssertEqual(ending.durationMs, 900)
+        XCTAssertEqual(ending.firstAudioMs, 120)
         XCTAssertEqual(ending.speech?.locale, "de-DE")
         XCTAssertEqual(ending.speech?.voice?.gender, .male)
         XCTAssertEqual(ending.provenance?.providerId, "apple_system_speech")

@@ -59,6 +59,12 @@ rejecting every one. `fixtures/artifacts/media-artifacts.json` holds valid and i
 engine-owned artifact store: ranged reads, disposal, the size limits, and the artifacts the engine discards on its
 own. Each SDK registers one handler per case id behind the same kind of guard test.
 `artifact-read-request.schema.json` (`ArtifactReadRequest`) is the input of `IndeRunApi.readArtifact`.
+`fixtures/speech/utterance-corpus.json` is the real-audio corpus (#251): synthetic German and English utterances, an
+unsupported locale that must be refused, and repeat and cancel scenarios. It is not a vector with expected output, because
+a real synthesizer's bytes differ by device; the Apple and Android real-speech suites run it against the platform's own
+engine, and `packages/contracts/src/utterance-corpus.test.ts` keeps it well-formed. Tests log an utterance's id, never
+its text. Its `benchmark` section lists opt-in latency scenarios, each with the question it answers; the Apple and
+Android benchmark suites register one handler per scenario id behind a guard test.
 
 `fixtures/routing/planner-conformance.json` holds the shared route-planner vectors: complete `RoutePlannerInput`s and
 the exact `RoutePlan` each must produce, messages included. The planner is one Rust crate, so these check the

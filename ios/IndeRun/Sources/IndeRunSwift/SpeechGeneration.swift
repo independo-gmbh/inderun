@@ -106,6 +106,9 @@ public struct SpokenSpeech: Sendable {
     public let finishReason: FinishReason?
     /// How long the audio played, where the provider knows it.
     public let durationMs: Double?
+    /// From the provider handing the text to the platform to the platform's first audible-output
+    /// callback, where the platform reports one. See `PlaybackOutput.firstAudioMs`.
+    public let firstAudioMs: Double?
     /// The locale and voice actually used, so an unmet preference is visible.
     public let speech: SpeechOutput?
     public let runId: String
@@ -183,12 +186,14 @@ public struct SpeechVoiceInfo: Sendable, Equatable {
 private func settleSpeech(_ terminal: StreamEvent, runId: String) throws -> SpokenSpeech {
     let payload = terminal.payload
     let durationMs = payload?.output?.playback?.durationMs
+    let firstAudioMs = payload?.output?.playback?.firstAudioMs
     let speech = payload?.output?.speech
     switch payload?.outcome {
     case .some(.completed):
         return SpokenSpeech(
             finishReason: payload?.finishReason,
             durationMs: durationMs,
+            firstAudioMs: firstAudioMs,
             speech: speech,
             runId: runId,
             provenance: payload?.provenance
@@ -197,6 +202,7 @@ private func settleSpeech(_ terminal: StreamEvent, runId: String) throws -> Spok
         return SpokenSpeech(
             finishReason: .cancelled,
             durationMs: durationMs,
+            firstAudioMs: firstAudioMs,
             speech: speech,
             runId: runId,
             provenance: payload?.provenance

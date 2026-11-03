@@ -3,12 +3,23 @@ plugins {
     id("com.vanniktech.maven.publish")
 }
 
+// The real-audio instrumented tests (#251) read the shared utterance corpus as an asset, so
+// the device sees the same file the Swift and JS suites read from the repository.
+androidComponents {
+    onVariants { variant ->
+        variant.androidTest?.sources?.assets?.addStaticSourceDirectory(
+            File(rootProject.projectDir.parentFile, "contracts/fixtures/speech").path
+        )
+    }
+}
+
 android {
     namespace = "app.independo.inderun.sdk"
     compileSdk = 37
 
     defaultConfig {
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -49,4 +60,11 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+
+    // Real TextToSpeech on an emulator or device: `connectedAndroidTest` (docs/ci.md).
+    androidTestImplementation(project(":inderun-system-speech-providers"))
+    androidTestImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:core:1.7.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }

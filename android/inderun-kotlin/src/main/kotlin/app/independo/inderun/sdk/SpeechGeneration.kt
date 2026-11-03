@@ -111,6 +111,8 @@ data class GenerateSpeechOptions(
  *   provider reported it.
  * @property durationMs How long the audio played, where the provider knows it.
  * @property speech The locale and voice actually used, so an unmet preference is visible.
+ * @property firstAudioMs From the provider handing the text to the platform to the platform's
+ *   first audible-output callback, where the platform reports one. See `PlaybackOutput.firstAudioMs`.
  */
 data class SpokenSpeech(
     val finishReason: FinishReason?,
@@ -118,6 +120,7 @@ data class SpokenSpeech(
     val speech: SpeechOutput?,
     val runId: String,
     val provenance: ExecutionProvenance?,
+    val firstAudioMs: Double? = null,
 )
 
 /** What [speak] returns: a handle on playback in progress. */
@@ -265,8 +268,8 @@ private fun settleSpeech(terminal: StreamEvent, runId: String): SpokenSpeech {
     val payload = terminal.payload
     val output = payload?.output
     return when (payload?.outcome) {
-        Outcome.Completed -> SpokenSpeech(payload.finishReason, output?.playback?.durationMs, output?.speech, runId, payload.provenance)
-        Outcome.Cancelled -> SpokenSpeech(FinishReason.CANCELLED, output?.playback?.durationMs, output?.speech, runId, payload.provenance)
+        Outcome.Completed -> SpokenSpeech(payload.finishReason, output?.playback?.durationMs, output?.speech, runId, payload.provenance, output?.playback?.firstAudioMs)
+        Outcome.Cancelled -> SpokenSpeech(FinishReason.CANCELLED, output?.playback?.durationMs, output?.speech, runId, payload.provenance, output?.playback?.firstAudioMs)
         Outcome.Error -> throw exceptionFromTerminal(payload, runId)
         null -> throw createInternal("Run $runId ended with a malformed terminal event.", runId = runId)
     }

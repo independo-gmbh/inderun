@@ -98,6 +98,15 @@ struct SpeechScreen: View {
             }
             .buttonStyle(.bordered)
             .disabled(!viewModel.canStopSpeaking)
+
+            Button {
+                Task { await viewModel.synthesizeSpeech() }
+            } label: {
+                Text("Synthesize")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!viewModel.canSpeak)
         }
     }
 

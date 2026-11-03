@@ -21,6 +21,16 @@ struct RenderedSpeech: Sendable, Equatable {
     }
 }
 
+/// What one finished utterance reported. Either value is `nil` when the synthesizer never sent the
+/// callback it is measured from.
+struct SpokenAudio: Sendable, Equatable {
+    /// From `didStart` to `didFinish`.
+    var durationMs: Double?
+    /// From handing the utterance to the synthesizer to its first `willSpeakRangeOfSpeechString`,
+    /// the earliest callback that marks a word being spoken.
+    var firstAudioMs: Double?
+}
+
 /// Internal seam around `AVSpeechSynthesizer`.
 ///
 /// The production implementation drives the real synthesizer; tests inject a scripted runtime so
@@ -42,9 +52,9 @@ protocol AppleSpeechRuntime: Sendable {
     /// utterance starts sooner. Cancelling the calling task stops it.
     func warm(voice: AppleSpeechVoice) async throws
 
-    /// Speaks `text` and returns once it has finished, with how long it played when known.
+    /// Speaks `text` and returns once it has finished, with its timings when known.
     /// Cancelling the calling task stops the audio immediately and throws `CancellationError`.
-    func speak(text: String, voice: AppleSpeechVoice) async throws -> Double?
+    func speak(text: String, voice: AppleSpeechVoice) async throws -> SpokenAudio
 
     /// Renders `text` silently. Cancelling the calling task stops rendering and throws
     /// `CancellationError`.
@@ -80,9 +90,32 @@ enum SpeechWAV {
 
 /// The one synthesizer playback uses, created at the first utterance. A new synthesizer loads its
 /// voice again, which held the first word back by over a second on an iPhone.
+///
+/// It also keeps the session that used it last. The system delivers callbacks for a stopped
+/// utterance on the main queue some time after `stopSpeaking`, and one that reaches a freed
+/// synthesizer or delegate crashed the process (#251), so neither is freed while the system may
+/// still call it: a session lives until the next one replaces it, and when the provider goes away
+/// both are retired rather than released. A retired pair is stopped and then released on the main
+/// queue, behind any callback already queued there, `SystemAppleSpeechRuntime.retirementGrace`
+/// later, so providers created and discarded repeatedly hold only the synthesizers retired in the
+/// last few seconds.
 private final class PlaybackSynthesizer: @unchecked Sendable {
+    private final class Retired: @unchecked Sendable {
+        let lock = NSLock()
+        var items: [ObjectIdentifier: (AVSpeechSynthesizer, AnyObject?)] = [:]
+        var total = 0
+    }
+
+    private static let retired = Retired()
+
+    /// Retired synthesizers not yet released, and every one retired so far in the process.
+    static var retirement: (pending: Int, total: Int) {
+        retired.lock.withLock { (retired.items.count, retired.total) }
+    }
+
     private let lock = NSLock()
     private var synthesizer: AVSpeechSynthesizer?
+    private var lastSession: AnyObject?
 
     func shared() -> AVSpeechSynthesizer {
         lock.withLock {
@@ -90,6 +123,39 @@ private final class PlaybackSynthesizer: @unchecked Sendable {
             let created = AVSpeechSynthesizer()
             synthesizer = created
             return created
+        }
+    }
+
+    /// Keeps `session` alive until a later session replaces it or the provider is released.
+    func keep(_ session: AnyObject) {
+        lock.withLock { lastSession = session }
+    }
+
+    deinit {
+        guard let synthesizer else { return }
+        let key = ObjectIdentifier(synthesizer)
+        let session = lastSession
+        Self.retired.lock.withLock {
+            Self.retired.items[key] = (synthesizer, session)
+            Self.retired.total += 1
+        }
+        Self.release(key)
+    }
+
+    /// Stops a retired synthesizer and releases it a grace period later. Nothing can still be
+    /// speaking through it: a run holds its provider until it ends, so the provider is released
+    /// only after its last utterance finished or was stopped. The stop is for a synthesizer that
+    /// still reports speaking, which a simulator was seen to do, and its callbacks arrive within
+    /// the grace period.
+    private static func release(_ key: ObjectIdentifier) {
+        DispatchQueue.main.async {
+            let synthesizer = retired.lock.withLock { retired.items[key]?.0 }
+            if synthesizer?.isSpeaking == true { synthesizer?.stopSpeaking(at: .immediate) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + SystemAppleSpeechRuntime.retirementGrace) {
+                // Removed under the lock, freed after it.
+                let item = retired.lock.withLock { retired.items.removeValue(forKey: key) }
+                _ = item
+            }
         }
     }
 }
@@ -101,8 +167,14 @@ struct SystemAppleSpeechRuntime: AppleSpeechRuntime {
     /// How long an utterance may take to start. Without it a synthesizer that never calls back
     /// would hold the provider's turn until the caller cancels.
     static let speechStartTimeout: TimeInterval = 15
+    /// How long a released provider's synthesizer is kept after it is stopped: longer than the
+    /// system takes to deliver a stopped utterance's last callbacks.
+    static let retirementGrace: TimeInterval = 5
 
     private let playback = PlaybackSynthesizer()
+
+    /// Playback synthesizers retired by released providers: those not yet released, and the total.
+    static var retiredSynthesizers: (pending: Int, total: Int) { PlaybackSynthesizer.retirement }
 
     func voices() -> [AppleSpeechVoice] {
         let voices = AVSpeechSynthesisVoice.speechVoices()
@@ -138,6 +210,7 @@ struct SystemAppleSpeechRuntime: AppleSpeechRuntime {
             maxBytes: 1024 * 1024,
             synthesizer: playback.shared()
         )
+        playback.keep(session)
         _ = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { session.start($0) }
         } onCancel: {
@@ -159,8 +232,9 @@ struct SystemAppleSpeechRuntime: AppleSpeechRuntime {
         return voice.voiceTraits.contains(.isNoveltyVoice)
     }
 
-    func speak(text: String, voice: AppleSpeechVoice) async throws -> Double? {
+    func speak(text: String, voice: AppleSpeechVoice) async throws -> SpokenAudio {
         let session = PlaybackSession(utterance: utterance(text: text, voice: voice), synthesizer: playback.shared())
+        playback.keep(session)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { session.start($0) }
         } onCancel: {
@@ -196,10 +270,12 @@ private final class PlaybackSession: NSObject, AVSpeechSynthesizerDelegate, @unc
     private let utterance: AVSpeechUtterance
     private let synthesizer: AVSpeechSynthesizer
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<Double?, Error>?
+    private var continuation: CheckedContinuation<SpokenAudio, Error>?
     private var stopped = false
     private var settled = false
+    private var issuedAt: Date?
     private var startedAt: Date?
+    private var firstAudioMs: Double?
     private var interruptionObserver: NSObjectProtocol?
     private var startWatchdog: DispatchWorkItem?
 
@@ -208,7 +284,7 @@ private final class PlaybackSession: NSObject, AVSpeechSynthesizerDelegate, @unc
         self.synthesizer = synthesizer
     }
 
-    func start(_ continuation: CheckedContinuation<Double?, Error>) {
+    func start(_ continuation: CheckedContinuation<SpokenAudio, Error>) {
         let observer = makeInterruptionObserver()
         let alreadyStopped = lock.withLock {
             interruptionObserver = observer
@@ -222,6 +298,7 @@ private final class PlaybackSession: NSObject, AVSpeechSynthesizerDelegate, @unc
         }
         armStartWatchdog()
         synthesizer.delegate = self
+        lock.withLock { issuedAt = Date() }
         synthesizer.speak(utterance)
         // A stop that landed since the check above found nothing to stop yet.
         if lock.withLock({ stopped }) { synthesizer.stopSpeaking(at: .immediate) }
@@ -245,10 +322,24 @@ private final class PlaybackSession: NSObject, AVSpeechSynthesizerDelegate, @unc
         }
     }
 
+    func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        willSpeakRangeOfSpeechString characterRange: NSRange,
+        utterance: AVSpeechUtterance
+    ) {
+        guard utterance === self.utterance else { return }
+        let now = Date()
+        lock.withLock {
+            if firstAudioMs == nil, let issuedAt { firstAudioMs = now.timeIntervalSince(issuedAt) * 1000 }
+        }
+    }
+
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         guard utterance === self.utterance else { return }
-        let durationMs = lock.withLock { startedAt.map { Date().timeIntervalSince($0) * 1000 } }
-        settle(.success(durationMs))
+        let spoken = lock.withLock {
+            SpokenAudio(durationMs: startedAt.map { Date().timeIntervalSince($0) * 1000 }, firstAudioMs: firstAudioMs)
+        }
+        settle(.success(spoken))
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
@@ -256,7 +347,7 @@ private final class PlaybackSession: NSObject, AVSpeechSynthesizerDelegate, @unc
         settle(.failure(CancellationError()))
     }
 
-    private func settle(_ result: Result<Double?, Error>) {
+    private func settle(_ result: Result<SpokenAudio, Error>) {
         let (continuation, observer) = lock.withLock {
             defer {
                 self.continuation = nil
@@ -307,8 +398,13 @@ private final class PlaybackSession: NSObject, AVSpeechSynthesizerDelegate, @unc
 }
 
 /// One silent render through `AVSpeechSynthesizer.write(_:toBufferCallback:)`, converting each
-/// buffer to 16-bit PCM from its first channel. A zero-length buffer ends the utterance.
-private final class RenderSession: @unchecked Sendable {
+/// buffer to 16-bit PCM from its first channel.
+///
+/// The synthesizer sends an empty buffer at each of its internal chunk boundaries, not only at the
+/// end, so an empty buffer is not the end of the audio: ending there cut long text off after its
+/// first chunk (#251). The render ends on `didFinish`, which the synthesizer sends for a written
+/// utterance too, after its last buffer.
+private final class RenderSession: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
     private let utterance: AVSpeechUtterance
     private let maxBytes: Int
     private let synthesizer: AVSpeechSynthesizer
@@ -325,6 +421,11 @@ private final class RenderSession: @unchecked Sendable {
         self.synthesizer = synthesizer
     }
 
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        guard utterance === self.utterance else { return }
+        finish()
+    }
+
     func start(_ continuation: CheckedContinuation<RenderedSpeech, Error>) {
         let alreadyStopped = lock.withLock {
             if !stopped { self.continuation = continuation }
@@ -335,13 +436,10 @@ private final class RenderSession: @unchecked Sendable {
             return
         }
         armWatchdog()
+        synthesizer.delegate = self
         synthesizer.write(utterance) { [self] buffer in
-            guard let pcm = buffer as? AVAudioPCMBuffer else { return }
-            if pcm.frameLength == 0 {
-                finish()
-            } else {
-                append(pcm)
-            }
+            guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else { return }
+            append(pcm)
         }
         // A stop that landed since the check above found nothing to stop yet.
         if lock.withLock({ stopped }) { synthesizer.stopSpeaking(at: .immediate) }

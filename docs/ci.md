@@ -10,7 +10,7 @@ truth for exact steps. This table describes only what each one covers.
 - `JavaScript` (`javascript.yml`): builds and tests the pnpm packages, regenerating the shared contract and Rust→WASM artifacts first.
 - `Rust` (`rust.yml`): builds and tests the `inderun_route_core` crate.
 - `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
-- `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs.
+- `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs. A second job, `Android emulator speech`, runs the real-speech corpus on an emulator; see "Real speech on an emulator" below.
 - The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
 - `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
@@ -93,9 +93,9 @@ To avoid running, e.g., the Android build for a docs-only or web-only PR, each o
 skips the real job via `needs`/`if` when nothing relevant changed:
 
 - `javascript.yml`: `packages/**`, `contracts/**`, `rust/inderun-route-core/**`, `Cargo.toml`, `Cargo.lock`, `scripts/build-route-core-wasm.mjs` (all of these feed the WASM bindings, and the Web SDK has no fallback planner — a dependency-only change can alter the compiled route core and therefore Web routing), `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`
-- `android.yml`: `android/**`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `scripts/build-route-core-android.mjs`, `scripts/rust-toolchain.mjs` (the Kotlin SDK loads the compiled route core and has no fallback planner, so anything that can change the core changes Android routing)
+- `android.yml`: `android/**`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `scripts/build-route-core-android.mjs`, `scripts/rust-toolchain.mjs` (the Kotlin SDK loads the compiled route core and has no fallback planner, so anything that can change the core changes Android routing), and `contracts/fixtures/speech/**` (the emulator job's corpus)
 - `rust.yml`: `rust/**`, `Cargo.toml`, `Cargo.lock`
-- `swift.yml`: `ios/**`, `Package.swift`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and the four route-core scripts under `scripts/` (the Swift SDK links the compiled route core and has no fallback planner, so anything that can change the core changes iOS routing — and anything that can change the core's _provenance checks_ has to re-run them)
+- `swift.yml`: `ios/**`, `Package.swift`, `rust/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and the four route-core scripts under `scripts/` (the Swift SDK links the compiled route core and has no fallback planner, so anything that can change the core changes iOS routing — and anything that can change the core's _provenance checks_ has to re-run them), and `contracts/fixtures/speech/**` (the real-speech corpus tests read it)
 
 Each filter also includes the workflow's own file, so editing a workflow always
 re-runs it. This is deliberately done as an in-workflow `changes` job rather than a
@@ -103,6 +103,33 @@ top-level `on.pull_request.paths:` filter — GitHub can leave a required check 
 `Pending` forever if the whole workflow is skipped by trigger-level path filtering.
 `codeql.yml` is not path-gated within `main` PRs; it always runs there (see Code
 Scanning above for why it's excluded from `dev` PRs instead of path-gated).
+
+## Real speech on an emulator
+
+The `Android emulator speech` job in `android.yml` runs
+`./gradlew :inderun-kotlin:connectedDebugAndroidTest` inside
+`ReactiveCircus/android-emulator-runner` (API 36, `google_apis`, x86_64, with KVM). The
+instrumented tests in `android/inderun-kotlin/src/androidTest` drive the real `TextToSpeech`
+through the shipping provider and the real engine, over the shared corpus in
+`contracts/fixtures/speech/utterance-corpus.json` (packaged as a test asset). They are the
+Android counterpart of `AppleSystemSpeechCorpusTests`, which `swift test` and the simulator step
+in `swift.yml` already run against the real `AVSpeechSynthesizer`.
+
+- A locale with no installed on-device voice is skipped by utterance id, never counted as a pass.
+  A fresh `google_apis` image usually has English voices only, so German entries may skip there.
+- The job uploads the `IndeRunCorpus` logcat lines (`INDERUN-TRACE …`: ids and measurements,
+  never utterance text) and the test report as the `android-speech-corpus` artifact.
+- It is **not** a required check: emulator boots and the image's TTS engine are less predictable
+  than the JVM suites. Add it to branch protection once it has been stable for a while.
+- The test APK packages the route core's native libraries, so the job installs the NDK like the
+  `Android` job does.
+- The latency benchmark in the same test APK (`SpeechBenchmarkTest`) is opt-in and does not run
+  here; only its guard test does. See
+  [docs/verification/system-speech.md](./verification/system-speech.md#latency-scenarios).
+
+Locally: start an emulator or connect a device, then run
+`cd android && ./gradlew :inderun-kotlin:connectedAndroidTest`, and read the traces with
+`adb logcat -d -s IndeRunCorpus:I`.
 
 ## Pinned actions
 

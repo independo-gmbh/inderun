@@ -197,6 +197,14 @@ build script prints the install commands when a toolchain is missing.
 - `cd android && ./gradlew build`
 - `cd android && ./gradlew test`
 - `cd android && ./gradlew spotlessCheck` (`spotlessApply` to auto-format)
+- `cd android && ./gradlew :inderun-kotlin:connectedAndroidTest` — the real-speech corpus
+  instrumented tests (`src/androidTest`), against a running emulator or connected device. Needs
+  the NDK (the test APK packages the route core). CI runs it in the non-required
+  `Android emulator speech` job; see `docs/ci.md`. Add
+  `-Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true` for the opt-in speech latency
+  benchmark (`SpeechBenchmarkTest`); its Swift counterpart runs with
+  `INDERUN_SPEECH_BENCHMARK=1 swift test --filter SpeechBenchmarkTests`. Both are described in
+  `docs/verification/system-speech.md`.
 - `cd android && ./gradlew publishToMavenLocal` — build the library modules' Maven
   artifacts locally (no credentials needed); Maven Central publishing is automated in CI.
 

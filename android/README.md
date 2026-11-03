@@ -90,4 +90,6 @@ Central. See [docs/ci.md](../docs/ci.md).
 ```sh
 cd android && ./gradlew build
 cd android && ./gradlew test
+# Real TextToSpeech over the shared speech corpus; needs a running emulator or device and the NDK.
+cd android && ./gradlew :inderun-kotlin:connectedAndroidTest
 ```

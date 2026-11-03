@@ -19,6 +19,8 @@ export interface BrowserSpeechUtterance {
   lang: string;
   voice: BrowserSpeechVoice | null;
   onstart: (() => void) | null;
+  /** Optional, so a runtime without word boundaries still fits; the first one marks speech. */
+  onboundary?: (() => void) | null;
   onend: (() => void) | null;
   onerror: ((event: { error?: string }) => void) | null;
 }
@@ -200,6 +202,8 @@ export function createBrowserSpeechRuntime(
 
         let settled = false;
         let startedAt: number | undefined;
+        let firstAudioMs: number | undefined;
+        let issuedAt = 0;
         const settle = (finish: () => void) => {
           if (settled) return;
           settled = true;
@@ -229,9 +233,17 @@ export function createBrowserSpeechRuntime(
           startedAt = Date.now();
           clearTimeout(startTimer);
         };
+        // A word boundary is the earliest event that marks a word being spoken; `onstart` fires
+        // when the utterance starts, which some browsers report before any audio.
+        utterance.onboundary = () => {
+          firstAudioMs ??= Date.now() - issuedAt;
+        };
         utterance.onend = () =>
           settle(() =>
-            resolve(startedAt !== undefined ? { durationMs: Date.now() - startedAt } : {})
+            resolve({
+              ...(startedAt !== undefined ? { durationMs: Date.now() - startedAt } : {}),
+              ...(firstAudioMs !== undefined ? { firstAudioMs } : {})
+            })
           );
         utterance.onerror = (event) =>
           settle(() =>
@@ -243,6 +255,7 @@ export function createBrowserSpeechRuntime(
             )
           );
 
+        issuedAt = Date.now();
         api.speak(utterance);
       });
     }

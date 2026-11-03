@@ -75,11 +75,14 @@ internal class AndroidDemoRuntime(
 
     override suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String {
         val inderun = makeIndeRun(settings)
+        val started = System.nanoTime()
         val speech = inderun.generateSpeech(GenerateSpeechOptions(options))
+        val renderedMs = (System.nanoTime() - started) / 1_000_000
         val first = inderun.readArtifact(ArtifactReadRequest(artifactId = speech.artifact.id))
         val header = first.bytes.copyOf(4).decodeToString()
         inderun.disposeArtifact(speech.artifact)
-        return "${speech.artifact.mediaType} · $header · ${first.totalBytes} bytes · ${speech.artifact.durationMs} ms · ${speech.provenance?.locality?.rawValue}"
+        return "${speech.artifact.mediaType} · $header · ${first.totalBytes} bytes · ${speech.artifact.durationMs} ms · " +
+            "rendered in $renderedMs ms · ${speech.provenance?.locality?.rawValue}"
     }
 
     override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = makeIndeRun(settings).checkCapabilities()

@@ -19,6 +19,17 @@ sealed interface AndroidSpeechReadiness {
     data class Unavailable(val reason: String) : AndroidSpeechReadiness
 }
 
+/** What one finished utterance reported; either value is null when the engine never sent its callback. */
+data class AndroidSpokenAudio(
+    /** From `onStart` to `onDone`. */
+    val durationMs: Double? = null,
+    /**
+     * From handing the utterance to the engine to its first `onRangeStart`, the earliest callback
+     * that marks a word being spoken. Engines that do not report ranges leave it null.
+     */
+    val firstAudioMs: Double? = null,
+)
+
 /**
  * The seam around `android.speech.tts.TextToSpeech`, kept free of platform types so the provider
  * runs in plain unit tests. Callers use one engine call at a time: the engine's voice selection
@@ -50,6 +61,12 @@ interface AndroidSpeechEngine {
      * Cancelling the calling coroutine stops the audio immediately.
      */
     suspend fun speak(text: String): Double?
+
+    /**
+     * [speak], also reporting when the first word started. The provider calls this one; an engine
+     * that cannot tell when audio starts keeps the default, which reports only the duration.
+     */
+    suspend fun speakWithTimings(text: String): AndroidSpokenAudio = AndroidSpokenAudio(durationMs = speak(text))
 
     /**
      * Renders [text] silently and returns the file's bytes; the engine holds no copy. Cancelling
