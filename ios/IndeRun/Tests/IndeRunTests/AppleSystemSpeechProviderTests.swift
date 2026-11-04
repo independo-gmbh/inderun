@@ -18,6 +18,8 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
     private var heldTexts: Set<String> = []
     private var failures: [String: Error] = [:]
     private var rendered = 0
+    private var resolveDelay: TimeInterval = 0
+    private var reportedFirstAudioMs: Double? = 120
 
     init(voices: [AppleSpeechVoice] = ScriptedSpeechRuntime.german) {
         installed = voices
@@ -35,6 +37,10 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
     var stopped: [String] { lock.withLock { recordedStopped } }
     var renderCount: Int { lock.withLock { rendered } }
 
+    /// Voice lookup is synchronous and happens before the handoff, so blocking here is time the
+    /// request spends inside the provider before the runtime is asked to speak.
+    func delayVoiceLookup(by seconds: TimeInterval) { lock.withLock { resolveDelay = seconds } }
+    func reportFirstAudio(_ ms: Double?) { lock.withLock { reportedFirstAudioMs = ms } }
     func hold(_ text: String) { lock.withLock { _ = heldTexts.insert(text) } }
     func fail(_ text: String, with error: Error) { lock.withLock { failures[text] = error } }
     func remove() { lock.withLock { installed = [] } }
@@ -43,7 +49,11 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
         lock.withLock { held.removeValue(forKey: text) }?.resume()
     }
 
-    func voices() -> [AppleSpeechVoice] { lock.withLock { installed } }
+    func voices() -> [AppleSpeechVoice] {
+        let delay = lock.withLock { resolveDelay }
+        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        return lock.withLock { installed }
+    }
 
     func voice(identifier: String) -> AppleSpeechVoice? {
         voices().first { $0.identifier == identifier }
@@ -80,7 +90,7 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
                 throw error
             }
         }
-        return SpokenAudio(durationMs: 900, firstAudioMs: 120)
+        return SpokenAudio(durationMs: 900, firstAudioMs: lock.withLock { reportedFirstAudioMs })
     }
 
     func render(text: String, voice: AppleSpeechVoice, maxBytes: Int) async throws -> RenderedSpeech {
@@ -93,12 +103,28 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
 private func fallbackProvider() -> MockStreamProvider {
     MockStreamProvider(
         id: "z_fallback",
-        script: [.init(.result(output: TaskOutput(playback: PlaybackOutput(durationMs: 1)), finishReason: .stop))],
+        script: [.init(.result(output: TaskOutput(playback: PlaybackOutput(timing: PlaybackTiming(durationMs: 1, firstAudioMs: nil, firstChunkMs: nil))), finishReason: .stop))],
         task: .textToSpeech
     )
 }
 
 final class AppleSystemSpeechProviderTests: XCTestCase {
+    func testFirstAudioCountsFromTheRequestNotTheHandoff() async throws {
+        let runtime = ScriptedSpeechRuntime()
+        runtime.delayVoiceLookup(by: 0.06)
+        let ending = try await engine(runtime).speak(SpeakOptions("Hallo", locale: "de-AT")).result()
+        XCTAssertGreaterThanOrEqual(ending.timing?.firstAudioMs ?? 0, 180)
+    }
+
+    func testFirstAudioAbsentWhenTheRuntimeReportsNone() async throws {
+        let runtime = ScriptedSpeechRuntime()
+        runtime.reportFirstAudio(nil)
+        runtime.delayVoiceLookup(by: 0.06)
+        let ending = try await engine(runtime).speak(SpeakOptions("Hallo", locale: "de-AT")).result()
+        XCTAssertNil(ending.timing?.firstAudioMs)
+        XCTAssertEqual(ending.timing?.durationMs, 900)
+    }
+
     private func engine(
         _ runtime: ScriptedSpeechRuntime,
         also others: [any ProviderAdapter] = [],
@@ -164,8 +190,8 @@ final class AppleSystemSpeechProviderTests: XCTestCase {
 
         XCTAssertEqual(runtime.spoken, ["Hallo"])
         XCTAssertEqual(ending.finishReason, .stop)
-        XCTAssertEqual(ending.durationMs, 900)
-        XCTAssertEqual(ending.firstAudioMs, 120)
+        XCTAssertEqual(ending.timing?.durationMs, 900)
+        XCTAssertGreaterThanOrEqual(ending.timing?.firstAudioMs ?? 0, 120)
         XCTAssertEqual(ending.speech?.locale, "de-DE")
         XCTAssertEqual(ending.speech?.voice?.gender, .male)
         XCTAssertEqual(ending.provenance?.providerId, "apple_system_speech")

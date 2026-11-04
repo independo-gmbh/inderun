@@ -149,8 +149,9 @@ import { createIndeRunWeb, speak } from "@independo/inderun-web";
 const inderun = createIndeRunWeb({ systemSpeech: {} });
 const playback = await speak(inderun, { text: "Der Bus kommt.", locale: "de-AT" });
 stopButton.onclick = () => playback.cancel();
-const { finishReason, speech, provenance, firstAudioMs } = await playback.result;
-// finishReason "stop", or "cancelled" after cancel(); provenance names the provider and its locality.
+const { finishReason, speech, provenance, timing } = await playback.result;
+// finishReason "stop", or "cancelled" after cancel(); provenance names the provider and its locality;
+// timing?.firstAudioMs is when the first word started, where the platform reports it.
 ```
 
 Some providers only play audio; others can also return it. Tell them apart from capabilities rather than by provider

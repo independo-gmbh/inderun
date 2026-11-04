@@ -150,7 +150,7 @@ class SharedPlannerInputSerializationCoverageTest {
                             cancellationAvailable = false,
                             locales = listOf("de-DE"),
                             voices = listOf(
-                                ProviderVoice(id = "anna", name = "Anna", locale = "de-DE", gender = VoiceGender.Female, networkRequired = false, readiness = ProviderReadiness.Cold),
+                                ProviderVoice(id = "anna", name = "Anna", locale = "de-DE", locales = listOf("de-DE", "en-US"), gender = VoiceGender.Female, networkRequired = false, readiness = ProviderReadiness.Cold),
                             ),
                         ),
                     ),

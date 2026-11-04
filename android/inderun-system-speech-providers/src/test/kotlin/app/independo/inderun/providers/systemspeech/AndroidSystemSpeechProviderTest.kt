@@ -207,10 +207,34 @@ class AndroidSystemSpeechProviderTest {
         assertEquals(listOf("de-DE" to FakeSpeechEngine.LOCAL), engine.selected)
         assertEquals(listOf("Hallo"), engine.spoken)
         assertEquals(TaskOutputType.PLAYBACK, result.output.type)
-        assertEquals(900.0, result.output.playback?.durationMs)
-        assertEquals(120.0, result.output.playback?.firstAudioMs)
+        assertEquals(900.0, result.output.playback?.timing?.durationMs)
+        // The seam's 120 ms plus the provider's own request-entry overhead.
+        assertTrue(result.output.playback?.timing?.firstAudioMs!! >= 120.0)
         assertEquals("de-DE", result.output.speech?.locale)
         assertEquals("de-local", result.output.speech?.voice?.id)
+    }
+
+    @Test
+    fun firstAudioCountsFromTheRequestNotTheHandoff() = runTest {
+        val engine = FakeSpeechEngine()
+        // Wall clock, not virtual time: the provider measures with System.nanoTime().
+        engine.onSelect = { Thread.sleep(60) }
+
+        val result = provider(engine).run(request(), runContext(FakeSpeechEngine.LOCAL_LISTED))
+
+        assertTrue(result.output.playback?.timing?.firstAudioMs!! >= 180.0)
+    }
+
+    @Test
+    fun firstAudioAbsentWhenTheEngineReportsNone() = runTest {
+        val engine = FakeSpeechEngine()
+        engine.firstAudioMs = null
+        engine.onSelect = { Thread.sleep(60) }
+
+        val result = provider(engine).run(request(), runContext(FakeSpeechEngine.LOCAL_LISTED))
+
+        assertNull(result.output.playback?.timing?.firstAudioMs)
+        assertEquals(900.0, result.output.playback?.timing?.durationMs)
     }
 
     @Test

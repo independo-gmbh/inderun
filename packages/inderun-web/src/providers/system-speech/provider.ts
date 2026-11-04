@@ -1,4 +1,9 @@
-import type { TaskOutput, TaskRequest, TaskResult } from "@independo/inderun-contracts";
+import type {
+  PlaybackTiming,
+  TaskOutput,
+  TaskRequest,
+  TaskResult
+} from "@independo/inderun-contracts";
 import { createCapabilityMismatch, createInternal, createUnavailable } from "../../core/errors.js";
 import type { HostServices } from "../../core/host.js";
 import type {
@@ -166,6 +171,8 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
     context: RunContext,
     signal?: AbortSignal
   ): Promise<TaskOutput | undefined> {
+    // The origin of `firstAudioMs`: before the turn wait, voice lookup and commit.
+    const receivedAt = Date.now();
     const { speech, delivery } = request;
     if (speech === undefined || delivery?.mode !== "playback") {
       throw createCapabilityMismatch("Browser speech can only play text-to-speech requests.", {
@@ -182,17 +189,22 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
       if (signal?.aborted === true || !context.commit()) return undefined;
       const locale = voice?.locale ?? speech.locale;
       try {
+        const handoffAt = Date.now();
         const ending = await this.runtime.speak(
           { text: speech.text, locale, ...(voice !== undefined ? { voice } : {}) },
           signal
         );
         if (ending.stopped === true) return undefined;
+        // The runtime counts from the handoff; add what this provider spent before it.
+        const timing: PlaybackTiming = {
+          ...(ending.durationMs !== undefined ? { durationMs: ending.durationMs } : {}),
+          ...(ending.firstAudioMs !== undefined
+            ? { firstAudioMs: ending.firstAudioMs + (handoffAt - receivedAt) }
+            : {})
+        };
         return {
           type: "playback",
-          playback: {
-            ...(ending.durationMs !== undefined ? { durationMs: ending.durationMs } : {}),
-            ...(ending.firstAudioMs !== undefined ? { firstAudioMs: ending.firstAudioMs } : {})
-          },
+          playback: Object.keys(timing).length > 0 ? { timing } : {},
           speech: { locale, ...(voice !== undefined ? { voice: toUsedVoice(voice) } : {}) }
         };
       } catch (error) {

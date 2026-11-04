@@ -116,6 +116,11 @@ export type ProviderVoice = {
      */
     locale: string;
     /**
+     * Every BCP 47 tag the voice speaks; may repeat `locale`. A request's locale matches
+     * `locale` or any entry here.
+     */
+    locales?: string[];
+    /**
      * Label for showing the voice to a person, as the platform reports it. Not unique and not
      * localized; never compare it.
      */

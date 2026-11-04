@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TaskRequest } from "@independo/inderun-contracts";
 import {
   generateSpeech,
@@ -195,8 +195,20 @@ describe("SystemSpeechWebProvider", () => {
     const voices = await listVoices(engine(fakeRuntime([ANNA, ANNA_TOO]).runtime));
 
     expect(voices).toEqual([
-      { providerId: "web_system_speech", id: "anna", name: "Anna", locale: "de-DE" },
-      { providerId: "web_system_speech", id: "anna-2", name: "Anna", locale: "de-DE" }
+      {
+        providerId: "web_system_speech",
+        kind: "platform",
+        id: "anna",
+        name: "Anna",
+        locale: "de-DE"
+      },
+      {
+        providerId: "web_system_speech",
+        kind: "platform",
+        id: "anna-2",
+        name: "Anna",
+        locale: "de-DE"
+      }
     ]);
   });
 
@@ -265,13 +277,50 @@ describe("speech through the engine", () => {
     expect(fake.spoken).toEqual([{ text: "Hallo", voice: "local" }]);
     expect(ending).toMatchObject({
       finishReason: "stop",
-      durationMs: 700,
-      firstAudioMs: 90,
+      timing: { durationMs: 700, firstAudioMs: 90 },
       speech: { locale: "de-DE" }
     });
     expect(ending.provenance?.providerId).toBe("web_system_speech");
     expect(ending.provenance?.locality).toBe("unknown");
     expect(ending.provenance?.attempts[0]?.committed).toBe(true);
+  });
+
+  describe("timing origin", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** A runtime whose voice lookup takes 50 ms of (fake) wall-clock time. */
+    function slowVoiceRuntime(ending: { durationMs: number; firstAudioMs?: number }) {
+      const fake = fakeRuntime();
+      const voices = fake.runtime.voices.bind(fake.runtime);
+      fake.runtime.voices = async () => {
+        vi.setSystemTime(Date.now() + 50);
+        return voices();
+      };
+      fake.runtime.speak = async () => ending;
+      return fake.runtime;
+    }
+
+    it("counts firstAudioMs from the request, not the handoff", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+
+      const ending = await (
+        await speak(engine(slowVoiceRuntime({ durationMs: 700, firstAudioMs: 90 })), options)
+      ).result;
+
+      expect(ending.timing?.firstAudioMs).toBe(140);
+    });
+
+    it("leaves firstAudioMs absent when the runtime reports none", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+
+      const ending = await (
+        await speak(engine(slowVoiceRuntime({ durationMs: 700 })), options)
+      ).result;
+
+      expect(ending.timing).toEqual({ durationMs: 700 });
+    });
   });
 
   it("always refuses local_required", async () => {
@@ -312,7 +361,10 @@ describe("speech through the engine", () => {
 
     const result = await engine(fake.runtime).run(request);
 
-    expect(result.output).toMatchObject({ type: "playback", playback: { durationMs: 700 } });
+    expect(result.output).toMatchObject({
+      type: "playback",
+      playback: { timing: { durationMs: 700 } }
+    });
   });
 
   it("stops the audio on cancel with one terminal outcome", async () => {

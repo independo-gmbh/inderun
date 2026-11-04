@@ -17,6 +17,7 @@ New ADRs continue the numbering here.
 | [017](./017-media-artifacts.md)                    | Media artifact transport and lifecycle | Accepted |
 | [018](./018-speech-application-api.md)             | Speech application API                 | Accepted |
 | [019](./019-prepare-and-readiness.md)              | Prepare and readiness                  | Accepted |
+| [020](./020-neural-speech-and-model-packages.md)   | Neural speech and model packages       | Accepted |
 
 ## Template
 

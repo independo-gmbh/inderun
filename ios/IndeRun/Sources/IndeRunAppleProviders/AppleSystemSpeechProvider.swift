@@ -287,17 +287,25 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
         runId: String,
         commit: @Sendable () -> Bool
     ) async throws -> TaskOutput {
+        let receivedAt = Date()
         try await turns.acquire()
         do {
             let voice = try resolveVoice(speech: speech, bound: bound, runId: runId)
             // Committed only now: a call that waited its turn has made no sound, and may have
             // been cancelled meanwhile.
             guard commit() else { throw CancellationError() }
+            let handoffAt = Date()
             let spoken = try await runtime.speak(text: speech.text, voice: voice)
             loaded.insert(voice.identifier)
             await turns.release()
+            // The runtime counts from the handoff; `firstAudioMs` counts from the request, so the
+            // wait for a turn and voice resolution are included. A runtime reporting none stays none.
+            let firstAudioMs = spoken.firstAudioMs.map { $0 + handoffAt.timeIntervalSince(receivedAt) * 1000 }
+            let timing = spoken.durationMs == nil && firstAudioMs == nil
+                ? nil
+                : PlaybackTiming(durationMs: spoken.durationMs, firstAudioMs: firstAudioMs, firstChunkMs: nil)
             return TaskOutput(
-                playback: PlaybackOutput(durationMs: spoken.durationMs, firstAudioMs: spoken.firstAudioMs),
+                playback: PlaybackOutput(timing: timing),
                 speech: Self.used(voice)
             )
         } catch {

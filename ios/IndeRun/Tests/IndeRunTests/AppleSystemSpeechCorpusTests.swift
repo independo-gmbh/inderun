@@ -193,7 +193,7 @@ final class AppleSystemSpeechCorpusTests: XCTestCase {
         let scenario = corpus.scenarios.cancelMidUtterance
         let fallback = MockStreamProvider(
             id: "z_fallback",
-            script: [.init(.result(output: TaskOutput(playback: PlaybackOutput(durationMs: 1)), finishReason: .stop))],
+            script: [.init(.result(output: TaskOutput(playback: PlaybackOutput(timing: PlaybackTiming(durationMs: 1, firstAudioMs: nil, firstChunkMs: nil))), finishReason: .stop))],
             task: .textToSpeech
         )
         let inderun = try engine(also: [fallback])
@@ -236,8 +236,8 @@ final class AppleSystemSpeechCorpusTests: XCTestCase {
             "id": followUp.id,
             "scenario": "followUp",
             "finishReason": next.finishReason?.rawValue ?? "",
-            "durationMs": next.durationMs ?? -1,
-            "firstAudioMs": next.firstAudioMs ?? -1,
+            "durationMs": next.timing?.durationMs ?? -1,
+            "firstAudioMs": next.timing?.firstAudioMs ?? -1,
             "voice": next.speech?.voice?.id ?? "",
         ])
     }

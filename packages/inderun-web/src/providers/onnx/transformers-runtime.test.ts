@@ -99,6 +99,16 @@ describe("createTransformersJsRuntime availability", () => {
     expect(availability.reason).toContain("unsupported model format");
   });
 
+  it("reports unavailable for Core AI model packages", async () => {
+    const { module } = createFakeModule();
+    const runtime = createTransformersJsRuntime({ load: async () => module });
+
+    const availability = await runtime.availability(modelPackage({ format: "coreai" }));
+
+    expect(availability.available).toBe(false);
+    expect(availability.reason).toContain("unsupported model format");
+  });
+
   it("reports unavailable when a programmatic source has no createGenerator", async () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });

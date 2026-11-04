@@ -109,8 +109,8 @@ the host's secure storage via `authContextRef`.
 
 The normative field shapes are defined by the `ModelPackage` schema
 (`contracts/schemas/model-package.schema.json`), generated into the TypeScript, Kotlin, and Swift
-contracts. The schema is intentionally lean and forward-compatible: only `id` and `format` are
-required, and unknown fields are permitted. This document does not restate the fields; consult the
+contracts. The schema is intentionally lean and forward-compatible: only `id` and `format` (and
+`speech` when `tasks` contains `text_to_speech`) are required, and unknown fields are permitted. This document does not restate the fields; consult the
 schema.
 
 IndeRun does not own model download/update flows today. Host applications may bundle,

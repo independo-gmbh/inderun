@@ -3,6 +3,7 @@ package app.independo.inderun.sdk
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.PlaybackOutput
+import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.TaskKind
@@ -153,10 +154,14 @@ private fun taskOutputFrom(json: JSONObject): TaskOutput {
         "Unsupported output in the conformance catalog: $json"
     }
     val playback = json.getJSONObject("playback")
-    check(playback.keys().asSequence().all { it == "durationMs" }) { "Unsupported playback output: $playback" }
+    check(playback.keys().asSequence().all { it == "timing" }) { "Unsupported playback output: $playback" }
+    val timing = playback.optJSONObject("timing")
+    check(timing == null || timing.keys().asSequence().all { it == "durationMs" }) { "Unsupported playback timing: $timing" }
     return TaskOutput(
         type = type,
-        playback = PlaybackOutput(durationMs = if (playback.has("durationMs")) playback.getDouble("durationMs") else null),
+        playback = PlaybackOutput(
+            timing = timing?.let { PlaybackTiming(durationMs = if (it.has("durationMs")) it.getDouble("durationMs") else null) },
+        ),
     )
 }
 
@@ -941,7 +946,7 @@ private val handlers: Map<String, suspend () -> Observation> = mapOf(
                 Step.Commit,
                 Step.Emit(
                     ProviderStreamEvent.Result(
-                        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(durationMs = 1200.0)),
+                        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(timing = PlaybackTiming(durationMs = 1200.0))),
                     ),
                 ),
             ),

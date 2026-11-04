@@ -1111,12 +1111,18 @@ export const modelPackageSchema = {
       "minLength": 1
     },
     "format": {
-      "description": "Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI model package.",
+      "description": "Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).",
       "enum": [
         "onnx",
         "ort",
-        "genai"
+        "genai",
+        "coreai"
       ]
+    },
+    "variant": {
+      "description": "Optional concrete artifact variant of this logical model (for example 'onnx-int8', 'coreai-fp16'). 'id' names the model, 'variant' the bytes.",
+      "type": "string",
+      "minLength": 1
     },
     "tasks": {
       "description": "IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by dynamic capability checks and route matching.",
@@ -1148,6 +1154,11 @@ export const modelPackageSchema = {
             "type": "string",
             "minLength": 1
           }
+        },
+        "minOsVersion": {
+          "description": "Minimum platform OS version the package needs, where known (for example '27.0' for a Core AI asset). Applies to every platform listed in `platforms`; split packages whose platforms need different OS floors.",
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -1257,6 +1268,160 @@ export const modelPackageSchema = {
           "description": "Approximate peak memory required to run the model, where known.",
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "speech": {
+      "title": "SpeechModelPackage",
+      "description": "What a text_to_speech model package adds: the pipeline that turns text into PCM, the graphs it runs, its text frontend and the voices it offers. Required when 'tasks' contains 'text_to_speech'.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "pipeline",
+        "sampleRate",
+        "graphs",
+        "voices"
+      ],
+      "properties": {
+        "pipeline": {
+          "description": "The text-to-PCM recipe the provider runs for this package: which graphs in which order, with which text frontend. A provider refuses a value it does not implement.",
+          "$comment": "Known values: 'articulino', 'supertonic'. Later: 'kokoro', 'piper', 'pocket_tts'. Open on purpose: a new model family must not force a schema and codegen change.",
+          "type": "string",
+          "minLength": 1
+        },
+        "sampleRate": {
+          "description": "Sample rate of the PCM the pipeline produces, in Hz.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "channels": {
+          "description": "Channels of the PCM the pipeline produces. Absent means 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "graphs": {
+          "description": "Role to file. Roles are defined by the pipeline (for example 'text_encoder', 'acoustic', 'codec'); For a 'coreai' package a value is either the .aimodel file, whose inference function is then named after the role, or `<file>#<function>` when the function name differs.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "frontend": {
+          "title": "SpeechFrontend",
+          "description": "How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need a grapheme-to-phoneme step whose assets are listed here.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "title": "FrontendKind",
+              "enum": [
+                "grapheme",
+                "phoneme"
+              ]
+            },
+            "assets": {
+              "description": "Role to file for the frontend's own assets (tokenizer, lexicon, G2P graph).",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "license": {
+              "$ref": "#/$defs/assetLicense"
+            }
+          }
+        },
+        "voices": {
+          "description": "The voices this package offers, one entry per selectable voice. Each is listed through capabilities as a ProviderVoice.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "title": "SpeechModelVoice",
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "name",
+              "locales"
+            ],
+            "properties": {
+              "id": {
+                "description": "Identifies the voice within the package and, through the provider, as speech.voice.id. Unique within the package.",
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "description": "Label for showing the voice to a person.",
+                "type": "string",
+                "minLength": 1
+              },
+              "locales": {
+                "description": "Hyphenated BCP 47 tags the voice speaks (for example 'de-DE', not 'de_DE'); the first is its primary locale.",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+                }
+              },
+              "gender": {
+                "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+              },
+              "file": {
+                "description": "The voice asset (style vector or speaker embedding), relative to the package. Absent when the voice is built into the graphs and selected by the pipeline (for example a speaker index). No speaker encoder runs on the device.",
+                "type": "string",
+                "minLength": 1
+              },
+              "license": {
+                "$ref": "#/$defs/assetLicense"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "if": {
+    "required": [
+      "tasks"
+    ],
+    "properties": {
+      "tasks": {
+        "type": "array",
+        "contains": {
+          "const": "text_to_speech"
+        }
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "speech"
+    ]
+  },
+  "$defs": {
+    "assetLicense": {
+      "title": "AssetLicense",
+      "description": "Licence of one asset inside a package (a voice, a frontend), where it differs from the package's own.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "spdx": {
+          "description": "SPDX license identifier where known.",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "description": "License or model card URL where available.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }
@@ -2543,6 +2708,14 @@ export const providerDynamicCapabilitiesSchema = {
           "type": "string",
           "minLength": 1
         },
+        "locales": {
+          "description": "Every BCP 47 tag the voice speaks; may repeat `locale`. A request's locale matches `locale` or any entry here.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "gender": {
           "$ref": "#/$defs/voiceGender"
         },
@@ -2772,15 +2945,28 @@ export const taskOutputSchema = {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "durationMs": {
-          "description": "How long audible playback lasted, in milliseconds. For a cancelled run, how long it played before it was stopped.",
-          "type": "number",
-          "minimum": 0
-        },
-        "firstAudioMs": {
-          "description": "Milliseconds from the provider handing the utterance to the platform until the platform's first audible-output callback. Measures the platform and voice, not routing, and not sound reaching a speaker. Absent when the platform reports no such callback.",
-          "type": "number",
-          "minimum": 0
+        "timing": {
+          "title": "PlaybackTiming",
+          "description": "What the provider measured about the playback. Absent when it measured nothing. 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's run() or stream() started handling the request, so their difference is the provider's output latency. The span includes everything the provider does after it starts handling the request (queue wait, voice lookup, a cold model load) and excludes routing.",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "durationMs": {
+              "description": "How long audible playback lasted, in milliseconds. For a cancelled run, how long it played before it was stopped, when the provider reports it.",
+              "type": "number",
+              "minimum": 0
+            },
+            "firstAudioMs": {
+              "description": "Milliseconds from the provider receiving the request until the platform's first audible-output callback (for a system voice, its first word callback) or the first audio frame leaving the output. Absent when nothing reports it.",
+              "type": "number",
+              "minimum": 0
+            },
+            "firstChunkMs": {
+              "description": "Milliseconds from the provider receiving the request until its first playable PCM chunk existed. Absent when the provider does not synthesize PCM itself.",
+              "type": "number",
+              "minimum": 0
+            }
+          }
         }
       }
     },

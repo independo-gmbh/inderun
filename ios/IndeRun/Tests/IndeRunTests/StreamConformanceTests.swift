@@ -914,7 +914,7 @@ final class StreamConformanceTests: XCTestCase {
 /// The catalog cases that stream a `text_to_speech` request (speech 'Hallo' in de-AT, played
 /// back on the device) and exercise the explicit commit rule.
 extension StreamConformanceTests {
-    private static let playbackOutput = TaskOutput(playback: PlaybackOutput(durationMs: nil))
+    private static let playbackOutput = TaskOutput(playback: PlaybackOutput(timing: nil))
 
     // swiftlint:disable:next function_body_length
     private var nonTextOutputHandlers: [String: Handler] {
@@ -922,7 +922,7 @@ extension StreamConformanceTests {
             "playback_commit_then_completed_with_output": { [self] in
                 let provider = MockStreamProvider(
                     id: "p1",
-                    script: [.commit, .init(.result(output: TaskOutput(playback: PlaybackOutput(durationMs: 1200))))],
+                    script: [.commit, .init(.result(output: TaskOutput(playback: PlaybackOutput(timing: PlaybackTiming(durationMs: 1200, firstAudioMs: nil, firstChunkMs: nil)))))],
                     task: .textToSpeech
                 )
                 let registry = ProviderRegistry()

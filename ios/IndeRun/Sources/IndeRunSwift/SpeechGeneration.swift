@@ -104,11 +104,9 @@ public struct GenerateSpeechOptions: Sendable {
 public struct SpokenSpeech: Sendable {
     /// `.cancelled` when playback was stopped; otherwise as the provider reported it.
     public let finishReason: FinishReason?
-    /// How long the audio played, where the provider knows it.
-    public let durationMs: Double?
-    /// From the provider handing the text to the platform to the platform's first audible-output
-    /// callback, where the platform reports one. See `PlaybackOutput.firstAudioMs`.
-    public let firstAudioMs: Double?
+    /// How long the audio played and how soon it began, where the provider reports it. Absent when
+    /// the provider knows nothing. See `PlaybackTiming`.
+    public let timing: PlaybackTiming?
     /// The locale and voice actually used, so an unmet preference is visible.
     public let speech: SpeechOutput?
     public let runId: String
@@ -160,16 +158,31 @@ public struct GeneratedSpeech: Sendable {
     public let taskResult: TaskResult
 }
 
+/// Whether the provider names the model that speaks a voice.
+public enum SpeechVoiceKind: String, Codable, Sendable {
+    /// The provider names no model: a system voice, or any provider without a model id.
+    case platform
+    /// The provider names the model that speaks, so the voice belongs to that model.
+    case model
+}
+
 /// A voice a registered provider offers right now. Pass ``asSpeechVoice(requirement:)`` as
 /// `voice` to speak with it. `id` is opaque and meaningful only on `providerId` on this device:
 /// read it, store it, but never write one by hand.
-public struct SpeechVoiceInfo: Sendable, Equatable {
+public struct SpeechVoiceInfo: Sendable, Equatable, Codable {
     public let providerId: String
+    /// ``SpeechVoiceKind/model`` when the provider names the model that speaks.
+    public let kind: SpeechVoiceKind
+    /// The model that speaks this voice. Present exactly when `kind` is ``SpeechVoiceKind/model``.
+    public let model: String?
     /// `nil` when the provider cannot address single voices.
     public let id: String?
     /// Label for showing the voice to a person. Not unique, so never compare it.
     public let name: String?
+    /// The voice's primary BCP 47 tag.
     public let locale: String
+    /// Every BCP 47 tag the voice speaks. `nil` when it speaks only `locale`.
+    public let locales: [String]?
     public let gender: VoiceGender?
     /// `true` when the voice sends text off the device. `nil` inherits the provider's posture.
     public let networkRequired: Bool?
@@ -185,15 +198,13 @@ public struct SpeechVoiceInfo: Sendable, Equatable {
 
 private func settleSpeech(_ terminal: StreamEvent, runId: String) throws -> SpokenSpeech {
     let payload = terminal.payload
-    let durationMs = payload?.output?.playback?.durationMs
-    let firstAudioMs = payload?.output?.playback?.firstAudioMs
+    let timing = payload?.output?.playback?.timing
     let speech = payload?.output?.speech
     switch payload?.outcome {
     case .some(.completed):
         return SpokenSpeech(
             finishReason: payload?.finishReason,
-            durationMs: durationMs,
-            firstAudioMs: firstAudioMs,
+            timing: timing,
             speech: speech,
             runId: runId,
             provenance: payload?.provenance
@@ -201,8 +212,7 @@ private func settleSpeech(_ terminal: StreamEvent, runId: String) throws -> Spok
     case .some(.cancelled):
         return SpokenSpeech(
             finishReason: .cancelled,
-            durationMs: durationMs,
-            firstAudioMs: firstAudioMs,
+            timing: timing,
             speech: speech,
             runId: runId,
             provenance: payload?.provenance
@@ -215,12 +225,13 @@ private func settleSpeech(_ terminal: StreamEvent, runId: String) throws -> Spok
 }
 
 /// Case-insensitive BCP 47 comparison, the same one the route planner applies.
-private func localeMatches(_ available: String, _ wanted: String, _ match: LocaleMatch?) -> Bool {
-    let have = available.lowercased()
+private func localeMatches(_ voice: ProviderVoice, _ wanted: String, _ match: LocaleMatch?) -> Bool {
     let want = wanted.lowercased()
-    if match == .exact { return have == want }
     let primary = { (tag: String) in tag.split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) }
-    return primary(have) == primary(want)
+    return ([voice.locale] + (voice.locales ?? [])).contains { available in
+        let have = available.lowercased()
+        return match == .exact ? have == want : primary(have) == primary(want)
+    }
 }
 
 public extension IndeRunApi {
@@ -266,13 +277,16 @@ public extension IndeRunApi {
                   let task = snapshot.capabilities.taskCapabilities?.first(where: { $0.kind == "text_to_speech" }),
                   task.available != false else { return [] }
             return (task.voices ?? [])
-                .filter { voice in locale.map { localeMatches(voice.locale, $0, localeMatch) } ?? true }
+                .filter { voice in locale.map { localeMatches(voice, $0, localeMatch) } ?? true }
                 .map { voice in
                     SpeechVoiceInfo(
                         providerId: snapshot.providerId,
+                        kind: snapshot.descriptor.model == nil ? .platform : .model,
+                        model: snapshot.descriptor.model,
                         id: voice.id,
                         name: voice.name,
                         locale: voice.locale,
+                        locales: voice.locales,
                         gender: voice.gender,
                         networkRequired: voice.networkRequired,
                         readiness: voice.readiness

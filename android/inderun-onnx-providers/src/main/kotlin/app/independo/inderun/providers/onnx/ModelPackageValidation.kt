@@ -1,6 +1,7 @@
 package app.independo.inderun.providers.onnx
 
 import app.independo.inderun.contracts.ModelPackage
+import app.independo.inderun.contracts.SpeechModelPackage
 
 /** A single model package validation problem. `path` is a JSON-pointer-style path, for example
  * `/source/ref`. */
@@ -10,10 +11,14 @@ data class ModelPackageValidationIssue(val path: String, val message: String)
  * Minimal structural validation for [ModelPackage], mirroring the subset of
  * `getModelPackageValidationIssues` (`packages/contracts/src/validators.ts`, ported to Swift in
  * `OnnxRuntimeAppleProvider`'s `ModelPackageValidation.swift`) that the provider's capability gate
- * needs: the `id` required field, the inline-secret-key rule, and the `source.ref` URL-userinfo
- * rule. This is a hand-written subset, not a generated JSON Schema validator -- see the ONNX
+ * needs: the `id` required field, the inline-secret-key rule, the `source.ref` URL-userinfo
+ * rule, and the speech rules (`speech` is required when `tasks` contains `text_to_speech`, voice
+ * ids are unique within it, and the structural rules: `sampleRate` and `channels` are at least 1,
+ * `graphs` and `voices` are non-empty, and every voice lists at least one locale, each a hyphenated
+ * BCP 47 tag). This is a hand-written subset, not a generated JSON Schema validator -- see the ONNX
  * Runtime provider family spec for the normative field shapes in
- * `contracts/schemas/model-package.schema.json`.
+ * `contracts/schemas/model-package.schema.json`. Moving this validator into Core, so every platform
+ * shares one implementation, is the first step of the neural speech provider PR.
  */
 fun getModelPackageValidationIssues(modelPackage: ModelPackage): List<ModelPackageValidationIssue> {
     val issues = mutableListOf<ModelPackageValidationIssue>()
@@ -31,7 +36,56 @@ fun getModelPackageValidationIssues(modelPackage: ModelPackage): List<ModelPacka
         }
     }
 
+    if (modelPackage.tasks?.contains("text_to_speech") == true && modelPackage.speech == null) {
+        issues += ModelPackageValidationIssue("/speech", "required when tasks contains 'text_to_speech'")
+    }
+
+    modelPackage.speech?.voices?.let { voices ->
+        if (voices.map { it.id }.toSet().size != voices.size) {
+            issues += ModelPackageValidationIssue("/speech/voices", "voice ids must be unique")
+        }
+    }
+
+    modelPackage.speech?.let { issues += findSpeechStructureIssues(it) }
+
     issues += findInlineSecretKeys(modelPackage)
+
+    return issues
+}
+
+private val BCP47_TAG = Regex("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+
+/** Mirrors the structural constraints of `speech` in `model-package.schema.json`: numeric minimums,
+ * non-empty `graphs`/`voices`, and per-voice `locales`. */
+private fun findSpeechStructureIssues(speech: SpeechModelPackage): List<ModelPackageValidationIssue> {
+    val issues = mutableListOf<ModelPackageValidationIssue>()
+
+    if (speech.sampleRate < 1) {
+        issues += ModelPackageValidationIssue("/speech/sampleRate", "must be >= 1")
+    }
+    speech.channels?.let { channels ->
+        if (channels < 1) issues += ModelPackageValidationIssue("/speech/channels", "must be >= 1")
+    }
+    if (speech.graphs.isEmpty()) {
+        issues += ModelPackageValidationIssue("/speech/graphs", "must list at least one graph")
+    }
+    if (speech.voices.isEmpty()) {
+        issues += ModelPackageValidationIssue("/speech/voices", "must list at least one voice")
+    }
+
+    speech.voices.forEachIndexed { index, voice ->
+        if (voice.locales.isEmpty()) {
+            issues += ModelPackageValidationIssue("/speech/voices/$index/locales", "must list at least one locale")
+        }
+        voice.locales.forEachIndexed { localeIndex, locale ->
+            if (!BCP47_TAG.matches(locale)) {
+                issues += ModelPackageValidationIssue(
+                    "/speech/voices/$index/locales/$localeIndex",
+                    "must be a hyphenated BCP 47 tag",
+                )
+            }
+        }
+    }
 
     return issues
 }

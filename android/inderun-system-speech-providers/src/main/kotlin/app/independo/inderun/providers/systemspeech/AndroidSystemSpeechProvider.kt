@@ -6,6 +6,7 @@ import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.LocaleMatch
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.PlaybackOutput
+import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
@@ -229,6 +230,9 @@ class AndroidSystemSpeechProvider(
         artifacts: ArtifactSink,
         commit: () -> Boolean,
     ): TaskOutput? {
+        // The clock for `firstAudioMs` starts here, so waiting for the turn lock and voice
+        // selection count toward the first word, not just the platform's own latency.
+        val receivedAt = System.nanoTime()
         val speech = request.speech
         val delivery = request.delivery?.mode
         if (speech == null || delivery == null) {
@@ -246,10 +250,20 @@ class AndroidSystemSpeechProvider(
                         // Committed only now: a call that waited its turn has made no sound, and
                         // may have been cancelled meanwhile.
                         if (!commit()) return@withLock null
+                        val handoffAt = System.nanoTime()
                         val spoken = engine.speakWithTimings(speech.text)
+                        // The engine times from its own handoff; add what came before it. An
+                        // engine that reports no first word leaves it absent, never overhead-only.
+                        val firstAudioMs = spoken.firstAudioMs?.let { it + (handoffAt - receivedAt) / 1_000_000.0 }
                         TaskOutput(
                             type = TaskOutputType.PLAYBACK,
-                            playback = PlaybackOutput(durationMs = spoken.durationMs, firstAudioMs = spoken.firstAudioMs),
+                            playback = PlaybackOutput(
+                                timing = if (spoken.durationMs == null && firstAudioMs == null) {
+                                    null
+                                } else {
+                                    PlaybackTiming(durationMs = spoken.durationMs, firstAudioMs = firstAudioMs)
+                                },
+                            ),
                             speech = used,
                         )
                     }

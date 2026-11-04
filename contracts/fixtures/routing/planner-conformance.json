@@ -5608,6 +5608,422 @@
         "rejectedProviders": [],
         "selectedProviderId": "speech_a"
       }
+    },
+    {
+      "id": "multilingual_voice_binds_listed_language",
+      "description": "A voice that lists another language in locales is bound for a request in that language.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "en-US",
+            "match": "language"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_multilingual",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "id": "martin",
+                      "locale": "de-DE",
+                      "locales": ["de-DE", "en-US"],
+                      "gender": "male",
+                      "networkRequired": false
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_multilingual",
+            "voice": {
+              "id": "martin",
+              "locale": "de-DE",
+              "locales": ["de-DE", "en-US"],
+              "gender": "male",
+              "networkRequired": false
+            }
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_multilingual",
+          "summary": "Selected provider 'speech_multilingual' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_multilingual"
+      }
+    },
+    {
+      "id": "multilingual_voice_exact_match_is_case_insensitive",
+      "description": "An exact-match request compares tags case-insensitively against locale and locales.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "EN-us",
+            "match": "exact"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_multilingual",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "id": "martin",
+                      "locale": "de-DE",
+                      "locales": ["de-DE", "en-US"],
+                      "gender": "male",
+                      "networkRequired": false
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_multilingual",
+            "voice": {
+              "id": "martin",
+              "locale": "de-DE",
+              "locales": ["de-DE", "en-US"],
+              "gender": "male",
+              "networkRequired": false
+            }
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_multilingual",
+          "summary": "Selected provider 'speech_multilingual' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_multilingual"
+      }
+    },
+    {
+      "id": "multilingual_voice_exact_region_via_locales",
+      "description": "An exact region listed in locales outranks a voice that only shares the language.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "de-AT",
+            "match": "language"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_multilingual",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "id": "anna",
+                      "locale": "de-DE",
+                      "networkRequired": false
+                    },
+                    {
+                      "id": "martin",
+                      "locale": "de-DE",
+                      "locales": ["de-DE", "de-AT"],
+                      "networkRequired": false
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [
+          {
+            "order": 0,
+            "providerId": "speech_multilingual",
+            "voice": {
+              "id": "martin",
+              "locale": "de-DE",
+              "locales": ["de-DE", "de-AT"],
+              "networkRequired": false
+            }
+          }
+        ],
+        "explanation": {
+          "selectedProviderId": "speech_multilingual",
+          "summary": "Selected provider 'speech_multilingual' deterministically from 1 eligible candidate(s)."
+        },
+        "fallbackProviderIds": [],
+        "rejectedProviders": [],
+        "selectedProviderId": "speech_multilingual"
+      }
+    },
+    {
+      "id": "multilingual_voice_rejects_unlisted_language",
+      "description": "A language that neither locale nor locales lists is rejected.",
+      "input": {
+        "task": {
+          "kind": "text_to_speech",
+          "inputs": ["text"],
+          "delivery": {
+            "mode": "playback"
+          },
+          "locale": {
+            "tag": "fr-FR",
+            "match": "language"
+          }
+        },
+        "constraints": {
+          "privacy": "cloud_allowed",
+          "cloud": "allowed",
+          "networkOnline": true
+        },
+        "preferences": {
+          "optimizeFor": "balanced"
+        },
+        "providers": [
+          {
+            "descriptor": {
+              "id": "speech_multilingual",
+              "type": "local",
+              "transport": "system_service",
+              "supports": {
+                "run": true,
+                "streaming": false,
+                "realtime": false,
+                "tools": false,
+                "reasoningEvents": false,
+                "structuredOutput": false,
+                "multimodal": false
+              },
+              "cancel": "hard",
+              "tasks": ["text_to_speech"],
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "inputs": ["text"],
+                  "interaction": {
+                    "run": true,
+                    "stream": false
+                  },
+                  "cancel": "hard",
+                  "outputs": [
+                    {
+                      "delivery": "playback"
+                    }
+                  ],
+                  "locales": ["de-DE", "en-US"]
+                }
+              ],
+              "privacy": {
+                "dataLeavesDevice": false
+              }
+            },
+            "capabilities": {
+              "available": true,
+              "taskCapabilities": [
+                {
+                  "kind": "text_to_speech",
+                  "voices": [
+                    {
+                      "id": "martin",
+                      "locale": "de-DE",
+                      "locales": ["de-DE", "en-US"],
+                      "gender": "male",
+                      "networkRequired": false
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "candidates": [],
+        "explanation": {
+          "summary": "No eligible local provider found for task 'text_to_speech'."
+        },
+        "failureCode": "capability_mismatch",
+        "fallbackProviderIds": [],
+        "rejectedProviders": [
+          {
+            "providerId": "speech_multilingual",
+            "reasons": [
+              {
+                "code": "locale_not_supported",
+                "message": "Provider 'speech_multilingual' does not offer locale 'fr-FR' for task 'text_to_speech'."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

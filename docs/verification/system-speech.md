@@ -23,13 +23,15 @@ synthetic, and the tests log only ids and measurements, so nothing a user typed 
   [docs/ci.md](../ci.md#real-speech-on-an-emulator).
 - **Web:** no automated real-browser run. Headless browsers list no voices, so Web results come from manual runs only.
 
-Each run prints one `INDERUN-TRACE` line per utterance. What the fields measure:
+Each run prints one `INDERUN-TRACE` line per utterance. What the fields measure (every `firstAudioMs` and time-to-first-word
+recorded in this document was taken before the origin moved to the provider's request receipt, and will read slightly
+higher on the next run):
 
 | Field | Measured from … to … |
 | --- | --- |
 | `bytes`, `sampleRate`, `durationMs` | The WAV artifact as read back through `readArtifact`; the duration is the engine's, checked against the byte count |
 | `synthesisMs` | `generateSpeech` called to returned, routing included |
-| `firstAudioMs` | The provider handing the utterance to the platform to its first word callback (`PlaybackOutput.firstAudioMs`) |
+| `firstAudioMs` | The provider starting to handle the request to the platform's first word callback (`PlaybackOutput.timing.firstAudioMs`) |
 | `stopLatencyMs` | `cancel()` called to the `cancelled` ending delivered |
 | `fallbackCalls` | Calls into a second registered speech provider; must stay 0 after audio started |
 
@@ -233,7 +235,9 @@ They are opt-in, because they play audio for minutes:
   -Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true`, then `adb logcat -d -s IndeRunBenchmark:I`.
 
 Each sample is one `INDERUN-BENCH` line, and each step one `INDERUN-BENCH-SUMMARY` line with the median, maximum and
-count. Cold and warm calls are never pooled. `firstAudioMs` is the platform's first word callback; `wallMs` is
+count. Cold and warm calls are never pooled. `firstAudioMs` is the platform's first word callback (the numbers recorded
+below were taken before the origin moved to the provider's request receipt and will read slightly higher on the next
+run); `wallMs` is
 `speak()` called to its ending, so it includes routing and the audio itself. The runs below have one to five samples per
 step on one machine each. They show the shape of each provider, not a number to plan with.
 

@@ -75,7 +75,7 @@ private final class SpeechProvider: StreamingProviderAdapter, @unchecked Sendabl
         log.record(context.voice)
         return TaskResult(
             runId: context.runId,
-            output: TaskOutput(playback: PlaybackOutput(durationMs: nil)),
+            output: TaskOutput(playback: PlaybackOutput(timing: nil)),
             finishReason: .stop,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
         )
@@ -85,7 +85,7 @@ private final class SpeechProvider: StreamingProviderAdapter, @unchecked Sendabl
         -> AsyncThrowingStream<ProviderStreamEvent, Error> {
         log.record(context.voice)
         return AsyncThrowingStream { continuation in
-            continuation.yield(.result(output: TaskOutput(playback: PlaybackOutput(durationMs: nil))))
+            continuation.yield(.result(output: TaskOutput(playback: PlaybackOutput(timing: nil))))
             continuation.finish()
         }
     }

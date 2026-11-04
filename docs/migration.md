@@ -20,12 +20,11 @@ Swift `ProviderVoice`, `SpeechVoice`, `SpeechOutputVoice` and `VoiceRequirement`
 `providerId` and `name` parameters. A provider that lists voices should give each an `id`, and resolve `context.voice`
 by it.
 
-Playback reports when the first word started: `PlaybackOutput.firstAudioMs` and `SpokenSpeech.firstAudioMs`, optional on
-every platform. The generated Swift `PlaybackOutput(durationMs:firstAudioMs:)` initializer gains the argument;
-`PlaybackOutput(durationMs:)` and `with(durationMs:)` still compile. Code that switches exhaustively over
-`PlaybackOutput.CodingKeys` needs a `firstAudioMs` case. A custom Android `AndroidSpeechEngine` keeps working unchanged: the new
-`speakWithTimings` defaults to `speak` and reports no first word. A custom Web `SystemSpeechRuntime.speak` may resolve
-`firstAudioMs` too.
+Playback reports when the first word started, as `PlaybackOutput.timing.firstAudioMs` and `SpokenSpeech.timing`,
+optional on every platform. The shape is described under "Neural speech model packages and voice locales" below; the
+flat `firstAudioMs` fields of the 0.5 release candidates never shipped in a release. A custom Android
+`AndroidSpeechEngine` keeps working unchanged: the new `speakWithTimings` defaults to `speak` and reports no first
+word. A custom Web `SystemSpeechRuntime.speak` may resolve `firstAudioMs` too.
 
 **Playback and retrievable audio are separate deliveries.** `speak()` asks for `playback`: the provider plays the audio
 and the application gets an ending, never bytes. `generateSpeech()` asks for an `artifact`: silent, and its bytes are
@@ -154,6 +153,33 @@ with `readArtifact({ artifactId, offset?, maxBytes? })`, which returns an `Artif
 for providers that produce media. A request may name an application destination with `delivery.destinationRef`
 (artifact delivery only); it needs the new optional host service (`artifactDestinations` on Web `HostServices`, the
 matching protocol / interface on Swift and Kotlin), and a host without one refuses the request before routing.
+
+### Neural speech model packages and voice locales
+
+Four contract shapes changed: three grew additively on the wire; `PlaybackOutput` moved its fields, a breaking change.
+
+- **`ModelPackage`** gains `speech`, `variant` and `runtime.minOsVersion`. The Swift memberwise initializers grew;
+  labelled compat initializers keep the old `ModelPackage(files:format:…version:)` and
+  `Runtime(minOpset:minRuntimeVersion:platforms:)` signatures compiling. `Format` gains `coreai`, so an exhaustive
+  `switch` / `when` over it needs a case.
+- **`ProviderVoice`** gains `locales`. The Swift memberwise initializer grew (use the labelled convenience
+  initializer) and the Kotlin positional constructor order changed.
+- **`PlaybackOutput`** loses its flat `durationMs`, `firstAudioMs` and `firstChunkMs` and gains `timing`, a
+  `PlaybackTiming` with the same three optional fields (`minimum: 0`); `timing` is absent when the provider measured
+  nothing. `SpokenSpeech.durationMs`, `.firstAudioMs` and `.firstChunkMs` are replaced by `SpokenSpeech.timing`, the
+  generated `PlaybackTiming`, on all three SDKs. Read `speech.timing?.firstAudioMs` instead of `speech.firstAudioMs`.
+  On Swift the `PlaybackOutput(durationMs:)` and `PlaybackOutput(durationMs:firstAudioMs:)` compatibility initializers
+  and `with(durationMs:)` are removed (use `PlaybackOutput(timing: PlaybackTiming(durationMs:…))`), and
+  `PlaybackOutput.CodingKeys` has only `timing`. On Kotlin use `PlaybackOutput(timing = PlaybackTiming(…))`; every
+  `PlaybackTiming` field defaults to null. No current engine reports timing for a cancelled run; a provider-to-engine
+  path for partial timing on cancel is a follow-up of the neural speech provider PR.
+- **`firstAudioMs` origin.** `firstAudioMs` and `firstChunkMs` count from the moment the provider's `run()` or `stream()`
+  started handling the request, including its own queue wait and voice lookup and excluding routing. The three system
+  speech providers add that receipt-to-handoff time to what the platform reports, so `firstAudioMs` reads slightly
+  higher than in the 0.5 release candidates, where it counted from the handoff to the platform only. The runtime seams
+  (`SystemSpeechRuntime`, `AppleSpeechRuntime`, `AndroidSpeechEngine`) are unchanged.
+- **TypeScript `SpeechVoiceInfo`** gains a required `kind` plus optional `model` and `locales`; code that constructs
+  one by hand must supply `kind`.
 
 ### Capacitor
 

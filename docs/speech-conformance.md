@@ -20,6 +20,7 @@ difference fails; a scenario catalog has one handler per case id behind a guard 
 | Fixture | What it holds | Loaded by |
 | --- | --- | --- |
 | [`facade/speech.json`](../contracts/fixtures/facade/speech.json) | `speak` / `generateSpeech` options and the exact `TaskRequest` each compiles to | `packages/inderun-web/src/facade/speech.test.ts`, `SpeechGenerationTests.swift`, `SpeechGenerationTest.kt` |
+| [`facade/list-voices.json`](../contracts/fixtures/facade/list-voices.json) | `listVoices()` snapshots in, entries out | `packages/inderun-web/src/facade/speech.test.ts`, `SpeechGenerationTests.swift`, `SpeechGenerationTest.kt` |
 | [`task-contracts/text-to-speech.json`](../contracts/fixtures/task-contracts/text-to-speech.json) | Valid speech requests, results and terminals, and requests the per-kind rules reject | `packages/contracts/src/task-contract-fixtures.test.ts`, `packages/inderun-web/src/core/task-profiles.test.ts`, `TaskContractFixtureTests.swift`, `TaskContractFixtureTest.kt` |
 | [`execution/voice-locality.json`](../contracts/fixtures/execution/voice-locality.json) | The locality provenance a run reports for each provider type and voice | `packages/inderun-web/src/core/provenance.test.ts`, `SpeechGenerationTests.swift`, `SpeechGenerationTest.kt` |
 | [`execution/artifact-lifecycle.json`](../contracts/fixtures/execution/artifact-lifecycle.json) | Scenario catalog: ranged reads, disposal, limits, discarded artifacts | `packages/inderun-web/src/core/artifacts.conformance.test.ts`, `ArtifactLifecycleConformanceTests.swift`, `ArtifactLifecycleConformanceTest.kt` |
@@ -68,7 +69,8 @@ These are by design and are part of each provider's declared capability, not dri
   per-voice network flag; Android trusts the engine's.
 - **Sample rate and voice names** differ per engine (22,050 Hz on the macOS compact voices, 24,000 Hz on Google TTS in
   the recorded runs).
-- **`firstAudioMs`** comes from each platform's own word callback and is absent where the engine or browser sends none.
+- **`timing.firstAudioMs`** comes from each platform's own word callback, counted from the provider starting to handle
+  the request, and is absent where the engine or browser sends none.
 
 One gap is not by design: the Kotlin SDK does not yet round-trip `provider/capability-snapshots.json`, while TypeScript
 and Swift do.

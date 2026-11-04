@@ -12,6 +12,7 @@ import app.independo.inderun.contracts.Locality
 import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.PlaybackOutput
+import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
@@ -289,8 +290,8 @@ class AndroidSystemSpeechCorpusTest {
                 "id" to followUp.id,
                 "scenario" to "followUp",
                 "finishReason" to next.finishReason?.rawValue,
-                "durationMs" to next.durationMs,
-                "firstAudioMs" to next.firstAudioMs,
+                "durationMs" to next.timing?.durationMs,
+                "firstAudioMs" to next.timing?.firstAudioMs,
                 "voice" to next.speech?.voice?.id,
             ),
         )
@@ -418,7 +419,7 @@ class AndroidSystemSpeechCorpusTest {
             calls += 1
             return flowOf(
                 ProviderStreamEvent.Result(
-                    TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(durationMs = 1.0)),
+                    TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(timing = PlaybackTiming(durationMs = 1.0))),
                     FinishReason.STOP,
                 ),
             )

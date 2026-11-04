@@ -272,7 +272,7 @@ internal class DemoViewModel(
                 // Measurements for docs/verification/system-speech.md: the engine's first word,
                 // and from the Stop tap to the run's ending.
                 val timings = listOfNotNull(
-                    ending.firstAudioMs?.let { "first word ${it.toInt()} ms" },
+                    ending.timing?.firstAudioMs?.let { "first word ${it.toInt()} ms" },
                     stopTappedAtNanos?.let { "stopped in ${(System.nanoTime() - it) / 1_000_000} ms" },
                 )
                 (

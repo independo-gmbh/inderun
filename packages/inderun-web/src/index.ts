@@ -114,6 +114,7 @@ export type {
   IndeRunErrorClass,
   MediaArtifact,
   PlaybackTaskOutput,
+  PlaybackTiming,
   PrepareRequest,
   ProviderReadiness,
   SpeechTaskRequest,

@@ -240,9 +240,36 @@ export function getRoutePlanValidationIssues(value: unknown): ValidationIssue[] 
 }
 
 export function getModelPackageValidationIssues(value: unknown): ValidationIssue[] {
-  return getValidationIssues(validateModelPackageSchema, value, {
+  const issues = getValidationIssues(validateModelPackageSchema, value, {
     forbidInlineSecrets: true
   });
+  issues.push(...findDuplicateVoiceIds(value));
+  return issues;
+}
+
+/**
+ * A speech package's voice ids become `speech.voice.id` on the provider, so two voices sharing
+ * one would be indistinguishable to a request. JSON Schema cannot express uniqueness of one
+ * property across array items, so it is checked here, mirrored in the native validators.
+ */
+function findDuplicateVoiceIds(value: unknown): ValidationIssue[] {
+  if (typeof value !== "object" || value === null) return [];
+  const speech = (value as { speech?: unknown }).speech;
+  if (typeof speech !== "object" || speech === null) return [];
+  const voices = (speech as { voices?: unknown }).voices;
+  if (!Array.isArray(voices)) return [];
+  const seen = new Set<string>();
+  for (const voice of voices) {
+    const id = (voice as { id?: unknown })?.id;
+    if (typeof id !== "string") continue;
+    if (seen.has(id)) {
+      return [
+        { path: "/speech/voices", keyword: "uniqueVoiceIds", message: "voice ids must be unique" }
+      ];
+    }
+    seen.add(id);
+  }
+  return [];
 }
 
 export function getProviderDescriptorValidationIssues(value: unknown): ValidationIssue[] {

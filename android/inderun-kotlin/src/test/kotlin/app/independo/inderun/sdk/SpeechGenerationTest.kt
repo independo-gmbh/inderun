@@ -6,6 +6,8 @@ import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.AttemptOutcome
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Cloud
+import app.independo.inderun.contracts.ExecutionProvenance
+import app.independo.inderun.contracts.ExecutionProvenanceAttempt
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.LocaleMatch
@@ -14,11 +16,13 @@ import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.OptimizeFor
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.PlaybackOutput
+import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderSupports
 import app.independo.inderun.contracts.ProviderTaskAvailability
 import app.independo.inderun.contracts.ProviderTaskCapability
@@ -31,6 +35,8 @@ import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.SpeechOutput
 import app.independo.inderun.contracts.SpeechVoice
+import app.independo.inderun.contracts.StreamEvent
+import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.TaskInputKind
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskOutput
@@ -44,11 +50,14 @@ import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.ProviderStreamEvent
 import app.independo.inderun.core.StreamRun
+import app.independo.inderun.core.cancelledOutcome
 import app.independo.inderun.core.createUnavailable
+import app.independo.inderun.core.toPayload
 import app.independo.inderun.sdk.generated.IndeRunApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.json.JSONArray
@@ -69,12 +78,20 @@ import java.io.File
 private class ScriptedApi(
     private val snapshots: List<ProviderCapabilitySnapshot> = emptyList(),
     private val result: TaskResult? = null,
+    private val events: List<StreamEvent> = emptyList(),
 ) : IndeRunApi {
     override suspend fun run(request: TaskRequest): TaskResult = result!!
 
     override suspend fun prepare(request: app.independo.inderun.contracts.PrepareRequest): app.independo.inderun.core.StreamRun = error("not scripted")
 
-    override suspend fun stream(request: TaskRequest): StreamRun = error("not scripted")
+    override suspend fun stream(request: TaskRequest): StreamRun = if (events.isEmpty()) {
+        error("not scripted")
+    } else {
+        StreamRun(
+            handle = StreamRunHandle(providerId = "tts", runId = events.last().runId, schemaVersion = SchemaVersion.V1_0, startedAt = 0.0),
+            events = flowOf(*events.toTypedArray()),
+        ) {}
+    }
 
     override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = snapshots
 
@@ -262,7 +279,7 @@ class SpeechGenerationTest {
     fun speakResolvesWithWhatPlayedAndTheProvenance() = runBlocking {
         val output = TaskOutput(
             type = TaskOutputType.PLAYBACK,
-            playback = PlaybackOutput(durationMs = 1200.0),
+            playback = PlaybackOutput(timing = PlaybackTiming(durationMs = 1200.0, firstAudioMs = 150.0, firstChunkMs = 95.0)),
             speech = SpeechOutput(locale = "de-DE"),
         )
         val inderun = engine(
@@ -276,11 +293,49 @@ class SpeechGenerationTest {
         val ending = inderun.speak(options, CoroutineScope(Dispatchers.Default)).result.await()
 
         assertEquals(FinishReason.STOP, ending.finishReason)
-        assertEquals(1200.0, ending.durationMs)
+        assertEquals(1200.0, ending.timing?.durationMs)
+        assertEquals(95.0, ending.timing?.firstChunkMs)
+        assertEquals(150.0, ending.timing?.firstAudioMs)
         assertEquals("de-DE", ending.speech?.locale)
         assertEquals("tts", ending.provenance?.providerId)
         assertEquals(true, ending.provenance?.attempts?.single()?.committed)
         assertEquals(Locality.Unknown, ending.provenance?.locality)
+    }
+
+    @Test
+    fun cancelledPlaybackKeepsItsTiming() = runBlocking {
+        val provenance = ExecutionProvenance(
+            attemptCount = 1,
+            attempts = listOf(ExecutionProvenanceAttempt(outcome = AttemptOutcome.Cancelled, providerId = "tts")),
+            fallbackOccurred = false,
+            locality = Locality.OnDevice,
+            modelProfile = "auto",
+            providerId = "tts",
+            routeRejections = emptyList(),
+        )
+        val terminal = StreamEvent(
+            payload = cancelledOutcome(
+                runId = "r2",
+                partialText = null,
+                reason = null,
+                provenance = provenance,
+                output = TaskOutput(
+                    type = TaskOutputType.PLAYBACK,
+                    playback = PlaybackOutput(timing = PlaybackTiming(durationMs = 640.0)),
+                ),
+            ).toPayload(),
+            runId = "r2",
+            schemaVersion = SchemaVersion.V1_0,
+            sequence = 0,
+            timestamp = 0.0,
+            type = "terminal",
+        )
+        val api = ScriptedApi(events = listOf(terminal))
+
+        val ending = api.speak(options, CoroutineScope(Dispatchers.Default)).result.await()
+
+        assertEquals(FinishReason.CANCELLED, ending.finishReason)
+        assertEquals(640.0, ending.timing?.durationMs)
     }
 
     @Test
@@ -408,6 +463,73 @@ class SpeechGenerationTest {
             ),
             voiceApi.listVoices(),
         )
+    }
+
+    @Test
+    fun matchesTheSharedListVoicesVectors() = runTest {
+        val cases = fixtureCases("contracts/fixtures/facade/list-voices.json")
+        assertTrue(cases.isNotEmpty())
+        for (vector in cases) {
+            val snapshots = vector.getJSONArray("snapshots").let { array -> (0 until array.length()).map { snapshotFrom(array.getJSONObject(it)) } }
+            val options = vector.optJSONObject("options")
+            val voices = ScriptedApi(snapshots = snapshots).listVoices(
+                locale = options?.optString("locale")?.takeIf { it.isNotEmpty() },
+                localeMatch = options?.optString("localeMatch")?.takeIf { it.isNotEmpty() }?.let { LocaleMatch.fromRawValue(it) },
+            )
+            assertEquals(vector.getString("id"), vector.getJSONArray("expected").normalized(), voices.map { voiceMap(it) }.normalized())
+        }
+    }
+
+    /** Builds the parts of a snapshot `listVoices` reads from its fixture JSON; the rest is a skeleton. */
+    private fun snapshotFrom(json: JSONObject): ProviderCapabilitySnapshot {
+        val capabilities = json.getJSONObject("capabilities")
+        val task = capabilities.getJSONArray("taskCapabilities").getJSONObject(0)
+        val voices = task.getJSONArray("voices").let { array ->
+            (0 until array.length()).map { index ->
+                val voice = array.getJSONObject(index)
+                ProviderVoice(
+                    gender = voice.optString("gender").takeIf { it.isNotEmpty() }?.let { VoiceGender.fromRawValue(it) },
+                    id = voice.optString("id").takeIf { it.isNotEmpty() },
+                    locale = voice.getString("locale"),
+                    locales = voice.optJSONArray("locales")?.let { list -> (0 until list.length()).map { list.getString(it) } },
+                    name = voice.optString("name").takeIf { it.isNotEmpty() },
+                    networkRequired = if (voice.has("networkRequired")) voice.getBoolean("networkRequired") else null,
+                    readiness = voice.optString("readiness").takeIf { it.isNotEmpty() }?.let { ProviderReadiness.fromRawValue(it) },
+                )
+            }
+        }
+        val descriptor = json.getJSONObject("descriptor")
+        return ProviderCapabilitySnapshot(
+            capabilities = ProviderDynamicCapabilities(
+                available = capabilities.getBoolean("available"),
+                taskCapabilities = listOf(
+                    ProviderTaskAvailability(
+                        available = if (task.has("available")) task.getBoolean("available") else null,
+                        kind = task.getString("kind"),
+                        voices = voices,
+                    ),
+                ),
+            ),
+            descriptor = speechDescriptor(ProviderType.Local).copy(
+                model = descriptor.optString("model").takeIf { it.isNotEmpty() },
+                transport = ProviderTransport.fromRawValue(descriptor.getString("transport"))!!,
+            ),
+            providerId = json.getString("providerId"),
+        )
+    }
+
+    /** The voice in the fixture's `expected` shape: absent keys stay absent. */
+    private fun voiceMap(voice: SpeechVoiceInfo): Map<String, Any?> = buildMap {
+        put("providerId", voice.providerId)
+        put("kind", voice.kind.name.lowercase())
+        voice.model?.let { put("model", it) }
+        voice.id?.let { put("id", it) }
+        voice.name?.let { put("name", it) }
+        put("locale", voice.locale)
+        voice.locales?.let { put("locales", it) }
+        voice.gender?.let { put("gender", it.rawValue) }
+        voice.networkRequired?.let { put("networkRequired", it) }
+        voice.readiness?.let { put("readiness", it.rawValue) }
     }
 
     @Test

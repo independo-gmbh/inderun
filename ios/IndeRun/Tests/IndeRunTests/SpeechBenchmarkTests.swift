@@ -123,9 +123,9 @@ final class SpeechBenchmarkTests: XCTestCase {
             let started = Date()
             let ending = try await engine.speak(options(utterance)).result()
             record(step, utterance, [
-                "firstAudioMs": ending.firstAudioMs,
+                "firstAudioMs": ending.timing?.firstAudioMs,
                 "wallMs": Date().timeIntervalSince(started) * 1000,
-                "durationMs": ending.durationMs,
+                "durationMs": ending.timing?.durationMs,
             ])
         }
     }

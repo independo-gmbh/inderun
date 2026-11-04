@@ -94,7 +94,7 @@ private final class KeptCommit: @unchecked Sendable {
 final class RunCommitTests: XCTestCase {
     private static let played: Behaviour = { context in
         _ = context.commit()
-        return TaskOutput(playback: PlaybackOutput(durationMs: 900))
+        return TaskOutput(playback: PlaybackOutput(timing: PlaybackTiming(durationMs: 900, firstAudioMs: nil, firstChunkMs: nil)))
     }
 
     private func engine(_ providers: [SpeechRunProvider]) throws -> IndeRun {
@@ -126,7 +126,7 @@ final class RunCommitTests: XCTestCase {
         let result = try await engine.run(request: makeSpeechRequest())
 
         XCTAssertEqual(result.output.type, .playback)
-        XCTAssertEqual(result.output.playback?.durationMs, 900)
+        XCTAssertEqual(result.output.playback?.timing?.durationMs, 900)
         let attempts = try XCTUnwrap(result.provenance?.attempts)
         XCTAssertEqual(attempts.map(\.providerId), ["p1"])
         XCTAssertEqual(attempts.map(\.outcome), [.succeeded])

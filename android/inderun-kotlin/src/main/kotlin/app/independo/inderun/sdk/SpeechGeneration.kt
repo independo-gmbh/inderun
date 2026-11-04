@@ -7,7 +7,9 @@ import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.OutputDeliveryRequest
+import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.ProviderReadiness
+import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.SpeechInput
@@ -109,18 +111,17 @@ data class GenerateSpeechOptions(
  *
  * @property finishReason [FinishReason.CANCELLED] when playback was stopped; otherwise as the
  *   provider reported it.
- * @property durationMs How long the audio played, where the provider knows it.
+ * @property timing How long the audio played and when the first audio or PCM chunk arrived, each
+ *   where the provider knows it; null when it knows none. See [PlaybackTiming]. A cancelled run
+ *   keeps whatever timing the provider reported; the system speech providers report none after a stop.
  * @property speech The locale and voice actually used, so an unmet preference is visible.
- * @property firstAudioMs From the provider handing the text to the platform to the platform's
- *   first audible-output callback, where the platform reports one. See `PlaybackOutput.firstAudioMs`.
  */
 data class SpokenSpeech(
     val finishReason: FinishReason?,
-    val durationMs: Double?,
+    val timing: PlaybackTiming?,
     val speech: SpeechOutput?,
     val runId: String,
     val provenance: ExecutionProvenance?,
-    val firstAudioMs: Double? = null,
 )
 
 /** What [speak] returns: a handle on playback in progress. */
@@ -154,11 +155,30 @@ data class GeneratedSpeech(
     val taskResult: TaskResult,
 )
 
+/** Whether the provider names the model that speaks a voice. */
+enum class SpeechVoiceKind(val rawValue: String) {
+    /** The provider names no model: a system voice, or any provider without a model id. */
+    Platform("platform"),
+
+    /** The provider names the model that speaks, so the voice belongs to that model. */
+    Model("model"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechVoiceKind? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
 /**
  * A voice a registered provider offers right now. Pass [asSpeechVoice] as `voice` to speak with
  * it. [id] is opaque and meaningful only on [providerId] on this device: read it, store it, but
  * never write one by hand.
  *
+ * @property kind [SpeechVoiceKind.Model] when the provider names the model that speaks.
+ * @property model The model that speaks this voice. Non-null exactly when [kind] is
+ *   [SpeechVoiceKind.Model].
+ * @property locale The voice's primary BCP 47 tag.
+ * @property locales Every BCP 47 tag the voice speaks. Null when it speaks only [locale].
  * @property id Null when the provider cannot address single voices.
  * @property name Label for showing the voice to a person. Not unique, so never compare it.
  * @property networkRequired `true` when the voice sends text off the device. Null inherits the
@@ -173,6 +193,9 @@ data class SpeechVoiceInfo(
     val name: String? = null,
     /** `NotPrepared` and `Preparing` mean "not yet". Null means ready. See `prepare`. */
     val readiness: ProviderReadiness? = null,
+    val kind: SpeechVoiceKind = SpeechVoiceKind.Platform,
+    val model: String? = null,
+    val locales: List<String>? = null,
 ) {
     /**
      * This voice as a request's `voice`. Left preferred, it falls back to its traits when it is
@@ -253,23 +276,38 @@ suspend fun IndeRunApi.listVoices(locale: String? = null, localeMatch: LocaleMat
         ?.firstOrNull { it.kind == TaskKind.TEXT_TO_SPEECH.rawValue }
         ?.takeIf { snapshot.capabilities.available && it.available != false }
     task?.voices.orEmpty()
-        .filter { voice -> locale == null || localeMatches(voice.locale, locale, localeMatch) }
-        .map { SpeechVoiceInfo(snapshot.providerId, it.locale, it.gender, it.networkRequired, it.id, it.name, it.readiness) }
+        .filter { voice -> locale == null || localeMatches(voice, locale, localeMatch) }
+        .map {
+            val model = snapshot.descriptor.model
+            SpeechVoiceInfo(
+                providerId = snapshot.providerId,
+                locale = it.locale,
+                gender = it.gender,
+                networkRequired = it.networkRequired,
+                id = it.id,
+                name = it.name,
+                readiness = it.readiness,
+                kind = if (model == null) SpeechVoiceKind.Platform else SpeechVoiceKind.Model,
+                model = model,
+                locales = it.locales,
+            )
+        }
 }
 
 /** Case-insensitive BCP 47 comparison, the same one the route planner applies. */
-private fun localeMatches(available: String, wanted: String, match: LocaleMatch?): Boolean {
-    if (match == LocaleMatch.Exact) return available.equals(wanted, ignoreCase = true)
+private fun localeMatches(voice: ProviderVoice, wanted: String, match: LocaleMatch?): Boolean {
     val primary = { tag: String -> tag.split('-', '_').first() }
-    return primary(available).equals(primary(wanted), ignoreCase = true)
+    return (listOf(voice.locale) + voice.locales.orEmpty()).any { available ->
+        if (match == LocaleMatch.Exact) available.equals(wanted, ignoreCase = true) else primary(available).equals(primary(wanted), ignoreCase = true)
+    }
 }
 
 private fun settleSpeech(terminal: StreamEvent, runId: String): SpokenSpeech {
     val payload = terminal.payload
     val output = payload?.output
     return when (payload?.outcome) {
-        Outcome.Completed -> SpokenSpeech(payload.finishReason, output?.playback?.durationMs, output?.speech, runId, payload.provenance, output?.playback?.firstAudioMs)
-        Outcome.Cancelled -> SpokenSpeech(FinishReason.CANCELLED, output?.playback?.durationMs, output?.speech, runId, payload.provenance, output?.playback?.firstAudioMs)
+        Outcome.Completed -> SpokenSpeech(payload.finishReason, output?.playback?.timing, output?.speech, runId, payload.provenance)
+        Outcome.Cancelled -> SpokenSpeech(FinishReason.CANCELLED, output?.playback?.timing, output?.speech, runId, payload.provenance)
         Outcome.Error -> throw exceptionFromTerminal(payload, runId)
         null -> throw createInternal("Run $runId ended with a malformed terminal event.", runId = runId)
     }

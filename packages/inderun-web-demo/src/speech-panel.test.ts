@@ -248,7 +248,7 @@ describe("speech panel", () => {
         finishReason: "stop",
         output: {
           type: "playback",
-          playback: { firstAudioMs: 142.4 },
+          playback: { timing: { firstAudioMs: 142.4 } },
           speech: { locale: "de-DE" }
         },
         provenance: { providerId: "web_system_speech", locality: "unknown" }

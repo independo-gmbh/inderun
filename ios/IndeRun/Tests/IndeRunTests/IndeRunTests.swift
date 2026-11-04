@@ -1519,7 +1519,9 @@ final class IndeRunTests: XCTestCase {
             limits: nil,
             runtime: nil,
             source: Source(ref: "models/test-model", sourceType: sourceType),
+            speech: nil,
             tasks: ["text_to_text"],
+            variant: nil,
             version: "1.0"
         )
     }
@@ -1603,7 +1605,7 @@ final class IndeRunTests: XCTestCase {
     func testOnnxAppleCapabilitiesRejectsMalformedModelPackage() async {
         let modelPackage = ModelPackage(
             files: nil, format: .onnx, id: "", integrity: nil, license: nil, limits: nil,
-            runtime: nil, source: nil, tasks: nil, version: nil
+            runtime: nil, source: nil, speech: nil, tasks: nil, variant: nil, version: nil
         )
         let provider = OnnxRuntimeAppleProvider(
             options: OnnxProviderOptions(modelPackage: modelPackage, runtime: createFixtureOnnxRuntime())
@@ -1653,6 +1655,15 @@ final class IndeRunTests: XCTestCase {
 
         XCTAssertFalse(capabilities.available)
         XCTAssertTrue(capabilities.reason?.contains("unsupported task") ?? false)
+    }
+
+    func testOnnxAppleCheckedFilesRefusesCoreAIFormat() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.format = .coreai
+
+        XCTAssertThrowsError(try LoadedSessionBox.checkedFiles(modelPackage)) { error in
+            XCTAssertTrue((error as? OnnxRuntimeError)?.message.contains("unsupported model format") ?? false)
+        }
     }
 
     func testOnnxAppleRunReturnsTaskResultFromFixture() async throws {
@@ -1741,6 +1752,107 @@ final class IndeRunTests: XCTestCase {
         let issues = getModelPackageValidationIssues(modelPackage)
 
         XCTAssertTrue(issues.isEmpty)
+    }
+
+    func testModelPackageKeepsPreSpeechInitializerSignatures() {
+        let runtime = Runtime(minOpset: 17, minRuntimeVersion: "1.20", platforms: ["ios"])
+        let modelPackage = ModelPackage(
+            files: Files(config: nil, external: nil, filesRequired: ["model.onnx"], tokenizer: "tokenizer.json"),
+            format: .onnx,
+            id: "my-onnx-model",
+            integrity: nil, license: nil, limits: nil, runtime: runtime,
+            source: Source(ref: "my-model", sourceType: .bundled),
+            tasks: ["text_to_text"],
+            version: "1.0"
+        )
+
+        XCTAssertNil(modelPackage.speech)
+        XCTAssertNil(modelPackage.variant)
+        XCTAssertNil(runtime.minOsVersion)
+        XCTAssertEqual(modelPackage.runtime?.minOpset, 17)
+    }
+
+    func testModelPackageValidationRequiresSpeechForTextToSpeech() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.tasks = ["text_to_speech"]
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertTrue(issues.contains { $0.path == "/speech" })
+    }
+
+    func testModelPackageValidationRejectsDuplicateSpeechVoiceIds() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.tasks = ["text_to_speech"]
+        let voice = SpeechModelVoice(file: "v.bin", gender: nil, id: "v", license: nil, locales: ["de-DE"], name: "V")
+        modelPackage.speech = SpeechModelPackage(
+            channels: nil,
+            frontend: nil,
+            graphs: ["acoustic": "a.onnx"],
+            pipeline: "articulino",
+            sampleRate: 24000,
+            voices: [voice, voice]
+        )
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertTrue(issues.contains { $0.path == "/speech/voices" })
+    }
+
+    private func makeSpeechModelPackage(
+        sampleRate: Int = 24000,
+        graphs: [String: String] = ["acoustic": "a.onnx"],
+        voices: [SpeechModelVoice]
+    ) -> ModelPackage {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.tasks = ["text_to_speech"]
+        modelPackage.speech = SpeechModelPackage(
+            channels: nil,
+            frontend: nil,
+            graphs: graphs,
+            pipeline: "articulino",
+            sampleRate: sampleRate,
+            voices: voices
+        )
+        return modelPackage
+    }
+
+    private func makeSpeechVoice(locales: [String]) -> SpeechModelVoice {
+        SpeechModelVoice(file: "v.bin", gender: nil, id: "v", license: nil, locales: locales, name: "V")
+    }
+
+    func testModelPackageValidationRejectsStructurallyEmptySpeech() {
+        let modelPackage = makeSpeechModelPackage(sampleRate: 0, graphs: [:], voices: [])
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertEqual(issues.map(\.path), ["/speech/sampleRate", "/speech/graphs", "/speech/voices"])
+        XCTAssertEqual(issues.map(\.message), [
+            "must be >= 1",
+            "must list at least one graph",
+            "must list at least one voice"
+        ])
+    }
+
+    func testModelPackageValidationRejectsMalformedVoiceLocales() {
+        let emptyLocales = getModelPackageValidationIssues(
+            makeSpeechModelPackage(voices: [makeSpeechVoice(locales: [])])
+        )
+        XCTAssertEqual(emptyLocales.map(\.path), ["/speech/voices/0/locales"])
+        XCTAssertEqual(emptyLocales.map(\.message), ["must list at least one locale"])
+
+        let malformed = ["de_DE", "-de-DE", "de-DE!", "", "de-DE\n"]
+        let badTags = getModelPackageValidationIssues(
+            makeSpeechModelPackage(voices: [makeSpeechVoice(locales: malformed)])
+        )
+        XCTAssertEqual(badTags.map(\.path), malformed.indices.map { "/speech/voices/0/locales/\($0)" })
+        XCTAssertEqual(badTags.map(\.message), Array(repeating: "must be a hyphenated BCP 47 tag", count: malformed.count))
+    }
+
+    func testModelPackageValidationAcceptsAWellFormedSpeechPackage() {
+        let modelPackage = makeSpeechModelPackage(voices: [makeSpeechVoice(locales: ["de-DE", "en-US"])])
+
+        XCTAssertEqual(getModelPackageValidationIssues(modelPackage), [])
     }
 
     func testOnnxAppleRunThrowsRawCancellationErrorWithoutNormalizing() async {

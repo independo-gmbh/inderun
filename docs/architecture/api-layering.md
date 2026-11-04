@@ -83,8 +83,10 @@ already decide.
   has no audible effect, and returns a `MediaArtifact` to read with `readArtifact()` and release with
   `disposeArtifact()`. It is not cancellable, like `generateText()`.
 - `listVoices(inderun, options)` reads `checkCapabilities()` and returns every voice registered providers offer right
-  now, each with `id`, `name`, traits and `providerId`. Pass an entry as `voice` to speak with it (`asSpeechVoice()` on
-  Swift and Kotlin). An id is opaque and scoped to its provider and device; ADR 018 section 3 sets the fallback rules.
+  now, each with `id`, `name`, traits and `providerId`. An entry also carries `locales` (every tag the voice
+  speaks), `kind` (`platform` or `model`, from whether the provider names a model) and `model`. Pass an entry as
+  `voice` to speak with it (`asSpeechVoice()` on Swift and Kotlin). An id is opaque and scoped to its provider and
+  device; ADR 018 section 3 sets the fallback rules.
 
 Playback and retrievable audio are separate capabilities. A provider that can only play is refused for
 `generateSpeech()` by routing, and the two are never substituted for one another.

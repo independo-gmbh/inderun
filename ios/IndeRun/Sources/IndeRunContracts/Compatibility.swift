@@ -61,20 +61,6 @@ public extension Message {
     }
 }
 
-/// `firstAudioMs` came after `durationMs`, and a provider whose platform has no first-audio
-/// callback knows only the duration, so it need not spell out the missing value.
-///
-/// The generated `with` gained a parameter for it; this keeps the signature callers compiled against.
-public extension PlaybackOutput {
-    init(durationMs: Double?) {
-        self.init(durationMs: durationMs, firstAudioMs: nil)
-    }
-
-    func with(durationMs: Double?? = nil) -> PlaybackOutput {
-        with(durationMs: durationMs, firstAudioMs: nil)
-    }
-}
-
 /// One initializer per output representation (ADR 016), so a caller cannot build a
 /// `.playback` output without its payload or a `.text` output without its text.
 public extension TaskOutput {
@@ -354,12 +340,14 @@ public extension ProviderVoice {
         networkRequired: Bool? = nil,
         id: String? = nil,
         name: String? = nil,
-        readiness: ProviderReadiness? = nil
+        readiness: ProviderReadiness? = nil,
+        locales: [String]? = nil
     ) {
         self.init(
             gender: gender,
             id: id,
             locale: locale,
+            locales: locales,
             name: name,
             networkRequired: networkRequired,
             readiness: readiness
@@ -412,5 +400,45 @@ public extension SpeechVoice {
 public extension ProviderCapabilitySnapshot {
     init(providerId: String, descriptor: ProviderDescriptor, capabilities: ProviderDynamicCapabilities) {
         self.init(capabilities: capabilities, descriptor: descriptor, providerId: providerId)
+    }
+}
+
+/// `speech` and `variant` joined `ModelPackage` after `version` was already the last label callers wrote;
+/// the generated memberwise initializer grew, so this keeps the signature they compiled against.
+public extension ModelPackage {
+    init(
+        files: Files?,
+        format: Format,
+        id: String,
+        integrity: Integrity?,
+        license: License?,
+        limits: Limits?,
+        runtime: Runtime?,
+        source: Source?,
+        tasks: [String]?,
+        version: String?
+    ) {
+        self.init(
+            files: files,
+            format: format,
+            id: id,
+            integrity: integrity,
+            license: license,
+            limits: limits,
+            runtime: runtime,
+            source: source,
+            speech: nil,
+            tasks: tasks,
+            variant: nil,
+            version: version
+        )
+    }
+}
+
+/// `minOsVersion` joined `Runtime` between `minOpset` and `minRuntimeVersion`; this keeps the
+/// three-field signature that callers compiled against.
+public extension Runtime {
+    init(minOpset: Int?, minRuntimeVersion: String?, platforms: [String]?) {
+        self.init(minOpset: minOpset, minOsVersion: nil, minRuntimeVersion: minRuntimeVersion, platforms: platforms)
     }
 }

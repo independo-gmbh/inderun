@@ -59,7 +59,7 @@ function speechProvider(id: string, behaviour: Behaviour, calls: string[]): Prov
 
 const played: Behaviour = async (context) => {
   context.commit();
-  return { type: "playback", playback: { durationMs: 900 } };
+  return { type: "playback", playback: { timing: { durationMs: 900 } } };
 };
 
 async function runWith(providers: Array<[string, Behaviour]>, request = createSpeechRequest()) {
@@ -78,7 +78,7 @@ describe("run() commit rule", () => {
   it("returns a committed playback result with its provenance", async () => {
     const { result } = await runWith([["p1", played]]);
 
-    expect(result?.output).toEqual({ type: "playback", playback: { durationMs: 900 } });
+    expect(result?.output).toEqual({ type: "playback", playback: { timing: { durationMs: 900 } } });
     expect(result?.provenance?.attempts).toEqual([
       { providerId: "p1", outcome: "succeeded", committed: true }
     ]);
