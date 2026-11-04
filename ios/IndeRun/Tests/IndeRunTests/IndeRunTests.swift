@@ -897,6 +897,10 @@ final class IndeRunTests: XCTestCase {
         XCTAssertGreaterThan(clock.monotonicNow() ?? 0, 0)
     }
 
+    func testDefaultHostServicesIncludeAudioOutput() {
+        XCTAssertNotNil(DefaultHostServices.make().audioOutput)
+    }
+
     func testKeychainSecureStorageRoundTripBySlotId() async throws {
         // The keychain needs a signed bundle with a keychain-access group. An
         // xctest bundle running on the simulator has neither, so SecItemAdd fails

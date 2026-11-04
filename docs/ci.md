@@ -115,10 +115,18 @@ through the shipping provider and the real engine, over the shared corpus in
 Android counterpart of `AppleSystemSpeechCorpusTests`, which `swift test` and the simulator step
 in `swift.yml` already run against the real `AVSpeechSynthesizer`.
 
+The same test APK runs the audio output catalog (`contracts/fixtures/host/audio-output-lifecycle.json`)
+against the real `AudioTrack` default (`AudioTrackAudioOutputConformanceTest`). The stop and
+refusal cases do not depend on the playback head and run everywhere. The cases that wait for audio
+to play run only where a probe sees the head advance and skip otherwise, as they may under the
+job's `-noaudio` emulator; on a real device they run. Every wait in it is bounded, so a silent
+audio HAL skips or fails a case rather than hanging the job.
+
 - A locale with no installed on-device voice is skipped by utterance id, never counted as a pass.
   A fresh `google_apis` image usually has English voices only, so German entries may skip there.
 - The job uploads the `IndeRunCorpus` logcat lines (`INDERUN-TRACE …`: ids and measurements,
-  never utterance text) and the test report as the `android-speech-corpus` artifact.
+  never utterance text), the `IndeRunAudioOutput` lines (the probe outcome and any catalog
+  failures) and the test report as the `android-speech-corpus` artifact.
 - It is **not** a required check: emulator boots and the image's TTS engine are less predictable
   than the JVM suites. Add it to branch protection once it has been stable for a while.
 - The test APK packages the route core's native libraries, so the job installs the NDK like the
@@ -128,8 +136,9 @@ in `swift.yml` already run against the real `AVSpeechSynthesizer`.
   [docs/verification/system-speech.md](./verification/system-speech.md#latency-scenarios).
 
 Locally: start an emulator or connect a device, then run
-`cd android && ./gradlew :inderun-kotlin:connectedAndroidTest`, and read the traces with
-`adb logcat -d -s IndeRunCorpus:I`.
+`cd android && ./gradlew :inderun-kotlin:connectedAndroidTest`, which runs both the speech corpus
+and the audio output catalog, and read their logs with
+`adb logcat -d -s IndeRunCorpus:I IndeRunAudioOutput:I`.
 
 ## Pinned actions
 

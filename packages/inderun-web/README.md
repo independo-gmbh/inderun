@@ -110,6 +110,8 @@ Streaming over the network needs a host that can deliver a response body increme
 `createBrowserHostServices` provides one; a custom host without a `streamingHttpClient` still runs
 Mode 1, and a stream request is refused at routing time with a `streaming_unavailable` reason rather
 than failing later.
+`createBrowserHostServices` also provides a Web Audio `audioOutput` for providers that synthesize PCM themselves;
+browsers need a user gesture before the first `open()`, and a page that has none gets `audio_not_allowed`.
 
 Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
 SDK and documented once, in

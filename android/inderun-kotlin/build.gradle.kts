@@ -3,12 +3,16 @@ plugins {
     id("com.vanniktech.maven.publish")
 }
 
-// The real-audio instrumented tests (#251) read the shared utterance corpus as an asset, so
-// the device sees the same file the Swift and JS suites read from the repository.
+// The real-audio instrumented tests read the shared utterance corpus (#251) and the audio output
+// catalog (ADR 021) as assets, so the device sees the same files the Swift and JS suites read
+// from the repository.
 androidComponents {
     onVariants { variant ->
         variant.androidTest?.sources?.assets?.addStaticSourceDirectory(
             File(rootProject.projectDir.parentFile, "contracts/fixtures/speech").path
+        )
+        variant.androidTest?.sources?.assets?.addStaticSourceDirectory(
+            File(rootProject.projectDir.parentFile, "contracts/fixtures/host").path
         )
     }
 }
@@ -25,6 +29,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    // Catalog handlers shared by the JVM and the instrumented audio output runs.
+    sourceSets {
+        getByName("test") { kotlin.srcDir("src/sharedTest/kotlin") }
+        getByName("androidTest") { kotlin.srcDir("src/sharedTest/kotlin") }
     }
 
     testOptions {

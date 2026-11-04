@@ -181,6 +181,16 @@ Four contract shapes changed: three grew additively on the wire; `PlaybackOutput
 - **TypeScript `SpeechVoiceInfo`** gains a required `kind` plus optional `model` and `locales`; code that constructs
   one by hand must supply `kind`.
 
+### Audio output host service
+
+Additive. `HostServices` gains an optional `audioOutput` (an `AudioOutputService`) on all three SDKs, for providers
+that synthesize PCM themselves ([ADR 021](./architecture/decisions/021-audio-output-host-service.md)). The browser,
+Apple and Android default bundles now include one, so nothing changes for an app that uses them. A hand-built
+`HostServices` needs nothing and keeps working; a provider that needs audio output then refuses before commit with
+`audio_output_unavailable`. The Swift `DefaultHostServices.make` grew one defaulted `audioOutput` parameter,
+`createBrowserHostServices` accepts `audioOutput` to replace the default, and the Kotlin
+`HostServicesFactory.create(context)` signature is unchanged.
+
 ### Capacitor
 
 The Capacitor bridge is versioned separately and moves to the 0.5 contracts in its own release (#250); the

@@ -217,7 +217,7 @@ jobs:
           working-directory: android
           script: |
             adb logcat -c
-            ./gradlew :inderun-kotlin:connectedDebugAndroidTest; status=$?; adb logcat -d -s IndeRunCorpus:I > ../speech-corpus-traces.txt; exit $status
+            ./gradlew :inderun-kotlin:connectedDebugAndroidTest; status=$?; adb logcat -d -s IndeRunCorpus:I IndeRunAudioOutput:I > ../speech-corpus-traces.txt; exit $status
 
       - name: Keep the corpus traces and test report
         if: always()

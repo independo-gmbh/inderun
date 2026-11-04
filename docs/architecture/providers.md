@@ -79,6 +79,8 @@ Three text families stream today: OpenAI-compatible on all three platforms, Appl
 
 Streaming from a platform-local runtime needs nothing from the host: the Apple and ML Kit providers read their system runtime's partial responses directly. Streaming over the network needs a host capability the buffered `HttpClientService` cannot provide, so hosts may additionally expose an optional `HttpStreamingClientService` that resolves the response head first and delivers the body as incremental byte chunks. All three default host implementations provide it. A host that does not is a supported configuration: Mode 1 keeps working there, and providers report `streamingAvailable: false` with a reason, which the planner surfaces as a `streaming_unavailable` rejection.
 
+A provider that synthesizes audio itself plays it through an optional `AudioOutputService` on the host. All three default hosts provide it. A host that does not is a supported configuration: system speech keeps working there, and a provider that synthesizes audio refuses a playback request before commit with `audio_output_unavailable`, so routing falls through to the next target ([ADR 021](./decisions/021-audio-output-host-service.md)).
+
 Realtime sessions (`openSession`, Mode 3) remain fully unimplemented.
 
 ### Demos & Tests per Family

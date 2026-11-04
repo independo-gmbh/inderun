@@ -16,6 +16,9 @@
 export {
   type AbortSignalLike,
   type ArtifactDestinationService,
+  type AudioOutputFormat,
+  type AudioOutputService,
+  type AudioOutputSession,
   type ConnectivityService,
   type DeviceConstraintsService,
   type SecureStorageService,
@@ -42,6 +45,13 @@ export {
   type CreateBrowserHostServicesOptions,
   type FetchHttpClientOptions
 } from "./core/browser-host.js";
+export {
+  createWebAudioOutputService,
+  type CreateWebAudioOutputServiceOptions,
+  type WebAudioBufferLike,
+  type WebAudioContextLike,
+  type WebAudioSourceLike
+} from "./core/browser-audio-output.js";
 
 /**
  * The provider contract. Implement `ProviderAdapter` for a Mode 1 backend and add

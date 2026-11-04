@@ -8,12 +8,25 @@ IndeRun is organized into four layers:
 
 - Application consumers, such as web apps, native mobile apps, and demo apps
 - Public SDK surfaces, such as the TypeScript, Swift, and Kotlin entrypoints
-- Engine core and host services, which own routing, orchestration, telemetry, and platform access
+- Engine core and host services, which own routing, orchestration, telemetry, and platform access, including, optionally, audio output
 - Provider adapters, which wrap local runtimes, system services, or cloud APIs
 
 The separation matters because provider-specific details should remain behind adapter boundaries whenever a normalized IndeRun shape exists.
 
 The public SDK surface is itself split into a primary familiar API, the advanced task-based execution API, and a provider-authoring surface, with the engine internals behind them carrying no compatibility promise. [api-layering.md](./api-layering.md) defines those layers, model profiles, and the mapping from the familiar API onto the canonical contract.
+
+## Host Services
+
+Host services are the layer that reaches the platform: connectivity, secure storage, timing, HTTP, telemetry, and
+audio output. Providers and the engine ask a host service instead of calling the operating system, which keeps platform
+access out of adapters and lets a host replace any service. `connectivity` is the one required service; the rest are
+optional (`deviceConstraints`, `secureStorage`, `clock`, `httpClient`, `streamingHttpClient`, `telemetry`,
+`artifactDestinations`, `audioOutput`), and Kotlin also requires `secureStorage` and `clock`. When an optional service
+is absent, the provider that depends on it reports or refuses before it commits, so routing falls through to the next
+target instead of failing mid-run: a missing streaming HTTP client gives `streamingAvailable: false`, a missing
+artifact destination gives `artifact_destination_unsupported`, and a missing audio output gives
+`audio_output_unavailable`. Artifact destinations are described in [ADR 017](./decisions/017-media-artifacts.md) and
+audio output in [ADR 021](./decisions/021-audio-output-host-service.md).
 
 ## Execution Model
 

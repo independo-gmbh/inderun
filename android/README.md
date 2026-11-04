@@ -56,6 +56,8 @@ The HTTP-transport providers need a host that can deliver a response body increm
 runs Mode 1, and a stream request that can only be served over HTTP is refused at routing time
 with a `streaming_unavailable` reason. The ML Kit provider does not go through that path — it
 streams from Gemini Nano with no host HTTP capability involved.
+`HostServicesFactory.create(context)` also provides an `AudioTrack` `audioOutput` for providers that synthesize PCM
+themselves; it requests no audio focus.
 
 The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types. Keep
