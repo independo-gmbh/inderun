@@ -24,13 +24,14 @@ difference fails; a scenario catalog has one handler per case id behind a guard 
 | [`task-contracts/text-to-speech.json`](../contracts/fixtures/task-contracts/text-to-speech.json) | Valid speech requests, results and terminals, and requests the per-kind rules reject | `packages/contracts/src/task-contract-fixtures.test.ts`, `packages/inderun-web/src/core/task-profiles.test.ts`, `TaskContractFixtureTests.swift`, `TaskContractFixtureTest.kt` |
 | [`execution/voice-locality.json`](../contracts/fixtures/execution/voice-locality.json) | The locality provenance a run reports for each provider type and voice | `packages/inderun-web/src/core/provenance.test.ts`, `SpeechGenerationTests.swift`, `SpeechGenerationTest.kt` |
 | [`execution/artifact-lifecycle.json`](../contracts/fixtures/execution/artifact-lifecycle.json) | Scenario catalog: ranged reads, disposal, limits, discarded artifacts | `packages/inderun-web/src/core/artifacts.conformance.test.ts`, `ArtifactLifecycleConformanceTests.swift`, `ArtifactLifecycleConformanceTest.kt` |
+| [`host/audio-output-lifecycle.json`](../contracts/fixtures/host/audio-output-lifecycle.json) | Scenario catalog: what the audio output host service guarantees at open, write, drain and stop | `packages/inderun-web/src/core/audio-output.conformance.test.ts` (fixture), `AudioOutputLifecycleConformanceTests.swift` (fixture and `AVAudioEngine`), `AudioOutputLifecycleConformanceTest.kt` (fixture), `AudioTrackAudioOutputConformanceTest.kt` (real `AudioTrack`, instrumented) |
 | [`artifacts/media-artifacts.json`](../contracts/fixtures/artifacts/media-artifacts.json) | Valid and invalid `MediaArtifact` references | `packages/contracts/src/task-contract-fixtures.test.ts` |
 | [`routing/planner-conformance.json`](../contracts/fixtures/routing/planner-conformance.json) | Planner inputs and exact plans, `text_to_speech` cases included | `rust/inderun-route-core/src/tests.rs`, `packages/inderun-route-core-wasm/test/conformance.mjs`, `RoutePlannerConformanceTests.swift`, `SharedCoreRoutePlannerConformanceTest.kt`, `packages/contracts/src/routing-conformance.test.ts` |
 | [`provider/capability-snapshots.json`](../contracts/fixtures/provider/capability-snapshots.json) | Capability snapshots that must round-trip without gaining or losing a key | `packages/contracts/src/validators.test.ts`, `ProviderCapabilitySnapshotTests.swift` |
 | [`speech/utterance-corpus.json`](../contracts/fixtures/speech/utterance-corpus.json) | Real-audio corpus: German and English utterances, a refused locale, repeat and cancel scenarios | `packages/contracts/src/utterance-corpus.test.ts` (shape), `AppleSystemSpeechCorpusTests.swift`, `AndroidSystemSpeechCorpusTest.kt` (real engines) |
 
 The Swift suites live in `ios/IndeRun/Tests/IndeRunTests/`; the Kotlin ones in `android/inderun-kotlin/src/test/` and
-`android/inderun-core/src/test/`, except the corpus test, which is instrumented (`android/inderun-kotlin/src/androidTest/`).
+`android/inderun-core/src/test/`, except the corpus test and the `AudioTrack` catalog run, which are instrumented (`android/inderun-kotlin/src/androidTest/`).
 
 ## Real engines
 

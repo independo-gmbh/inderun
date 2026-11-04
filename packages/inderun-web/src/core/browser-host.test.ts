@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { FetchHttpClient, FetchStreamingHttpClient } from "./browser-host.js";
+import { createFixtureAudioOutput } from "../test/audio-output-fixture.js";
+import {
+  FetchHttpClient,
+  FetchStreamingHttpClient,
+  createBrowserHostServices
+} from "./browser-host.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -190,5 +195,22 @@ describe("FetchStreamingHttpClient", () => {
 
     expect(aborted).toBe(false);
     expect(await collect(response.body)).toEqual(["chunk"]);
+  });
+});
+
+describe("createBrowserHostServices", () => {
+  const connectivity = {
+    async isOnline() {
+      return true;
+    }
+  };
+
+  it("includes an audio output service without touching AudioContext", () => {
+    expect(createBrowserHostServices({ connectivity }).audioOutput).toBeDefined();
+  });
+
+  it("keeps a supplied audio output service", () => {
+    const audioOutput = createFixtureAudioOutput().service;
+    expect(createBrowserHostServices({ connectivity, audioOutput }).audioOutput).toBe(audioOutput);
   });
 });

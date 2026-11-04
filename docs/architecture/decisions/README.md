@@ -18,6 +18,7 @@ New ADRs continue the numbering here.
 | [018](./018-speech-application-api.md)             | Speech application API                 | Accepted |
 | [019](./019-prepare-and-readiness.md)              | Prepare and readiness                  | Accepted |
 | [020](./020-neural-speech-and-model-packages.md)   | Neural speech and model packages       | Accepted |
+| [021](./021-audio-output-host-service.md)          | Audio output host service              | Accepted |
 
 ## Template
 

@@ -121,6 +121,9 @@ export type {
 export type {
   AbortSignalLike,
   ArtifactDestinationService,
+  AudioOutputFormat,
+  AudioOutputService,
+  AudioOutputSession,
   ConnectivityService,
   ThermalState,
   DeviceConstraintsService,

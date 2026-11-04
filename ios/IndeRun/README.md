@@ -136,6 +136,10 @@ Mode 1, and a stream request that can only be served over HTTP is refused at rou
 `streaming_unavailable` reason. The Apple provider does not go through that path — it streams
 from the system model with no host HTTP capability involved, and it emits `content_snapshot`
 rather than `content_delta`.
+`DefaultHostServices.make()` also provides an `AVAudioEngine` `audioOutput` for providers that
+synthesize PCM themselves; it leaves the `AVAudioSession` category to the app. The SDK sets no
+category, so under the default category playback is muted by the silent switch: an app that must
+be heard sets `.playback` itself, as the demo does.
 
 The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types.
