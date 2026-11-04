@@ -60,6 +60,17 @@ final class SpeechGenerationTests: XCTestCase {
         let cases: [FacadeVector]
     }
 
+    private struct ListVoicesVector: Decodable {
+        let id: String
+        let snapshots: [ProviderCapabilitySnapshot]
+        let options: [String: AnyJSON]?
+        let expected: AnyJSON
+    }
+
+    private struct ListVoicesFixture: Decodable {
+        let cases: [ListVoicesVector]
+    }
+
     private struct LocalityVector: Decodable {
         let id: String
         let providerType: String
@@ -133,6 +144,23 @@ final class SpeechGenerationTests: XCTestCase {
         }
     }
 
+    func testMatchesTheSharedListVoicesVectors() async throws {
+        let fixture = try JSONDecoder().decode(
+            ListVoicesFixture.self,
+            from: Data(contentsOf: fixtureURL("facade/list-voices.json"))
+        )
+        XCTAssertFalse(fixture.cases.isEmpty)
+        for vector in fixture.cases {
+            let raw = vector.options?.mapValues(\.value) ?? [:]
+            let voices = await ScriptedApi(snapshots: vector.snapshots).listVoices(
+                locale: raw["locale"] as? String,
+                localeMatch: (raw["localeMatch"] as? String).flatMap(LocaleMatch.init(rawValue:))
+            )
+            let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(voices)) as? NSArray
+            XCTAssertEqual(encoded, vector.expected.value as? NSArray, vector.id)
+        }
+    }
+
     func testMatchesTheSharedVoiceLocalityVectors() throws {
         let fixture = try JSONDecoder().decode(
             LocalityFixture.self,
@@ -192,19 +220,15 @@ final class SpeechGenerationTests: XCTestCase {
 
     private var options: SpeakOptions { SpeakOptions("Hallo", locale: "de-AT") }
 
-    /// The pre-`firstAudioMs` initializer and `with` still compile, and keep the field they omit.
-    func testPlaybackOutputKeepsItsEarlierSignatures() {
-        let untimed = PlaybackOutput(durationMs: 1200)
-        XCTAssertEqual(untimed.durationMs, 1200)
-        XCTAssertNil(untimed.firstAudioMs)
-        let shortened = PlaybackOutput(durationMs: 1200, firstAudioMs: 80).with(durationMs: 900)
-        XCTAssertEqual(shortened.durationMs, 900)
-        XCTAssertEqual(shortened.firstAudioMs, 80)
+    func testPlaybackTimingDecodesFromTheWire() throws {
+        let output = try JSONDecoder().decode(PlaybackOutput.self, from: Data(#"{"timing":{"firstAudioMs":80}}"#.utf8))
+        XCTAssertEqual(output.timing?.firstAudioMs, 80)
+        XCTAssertNil(output.timing?.durationMs)
     }
 
     func testSpeakResolvesWithWhatPlayedAndTheProvenance() async throws {
         let output = TaskOutput(
-            playback: PlaybackOutput(durationMs: 1200),
+            playback: PlaybackOutput(timing: PlaybackTiming(durationMs: 1200, firstAudioMs: 150, firstChunkMs: 95)),
             speech: SpeechOutput(locale: "de-DE", voice: nil)
         )
         let inderun = try engine(script: [.commit, .init(.result(output: output, finishReason: .stop, reportedModel: nil))])
@@ -212,10 +236,63 @@ final class SpeechGenerationTests: XCTestCase {
         let ending = try await inderun.speak(options).result()
 
         XCTAssertEqual(ending.finishReason, .stop)
-        XCTAssertEqual(ending.durationMs, 1200)
+        XCTAssertEqual(ending.timing?.durationMs, 1200)
+        XCTAssertEqual(ending.timing?.firstChunkMs, 95)
         XCTAssertEqual(ending.speech?.locale, "de-DE")
         XCTAssertEqual(ending.provenance?.providerId, "tts")
         XCTAssertEqual(ending.provenance?.attempts.first?.committed, true)
+    }
+
+    func testCancelledPlaybackKeepsItsTiming() async throws {
+        let provenance = ExecutionProvenance(
+            attemptCount: 1,
+            attempts: [ExecutionProvenanceAttempt(committed: true, errorClass: nil, outcome: .cancelled, providerId: "tts")],
+            configuredModel: nil,
+            fallbackOccurred: false,
+            locality: .onDevice,
+            modelProfile: "auto",
+            providerId: "tts",
+            reportedModel: nil,
+            routeRejections: [],
+            schemaVersion: .the10
+        )
+        let outcome = StreamTerminalOutcome(
+            finalText: nil,
+            finishReason: nil,
+            outcome: .cancelled,
+            output: TaskOutput(
+                playback: PlaybackOutput(timing: PlaybackTiming(durationMs: 640, firstAudioMs: nil, firstChunkMs: nil))
+            ),
+            provenance: provenance,
+            runId: "r2",
+            schemaVersion: .the10,
+            telemetry: nil,
+            usage: nil,
+            error: nil,
+            partialText: nil,
+            reason: nil
+        )
+        let terminal = StreamEvent(
+            payload: Payload(terminalOutcome: outcome),
+            runId: "r2",
+            schemaVersion: .the10,
+            sequence: 0,
+            timestamp: 0,
+            type: "terminal"
+        )
+        let run = StreamRun(
+            handle: StreamRunHandle(providerId: "tts", runId: "r2", schemaVersion: .the10, startedAt: 0),
+            events: AsyncThrowingStream { continuation in
+                continuation.yield(terminal)
+                continuation.finish()
+            },
+            cancel: { _ in }
+        )
+
+        let ending = try await SpeechPlayback(run: run).result()
+
+        XCTAssertEqual(ending.finishReason, .cancelled)
+        XCTAssertEqual(ending.timing?.durationMs, 640)
     }
 
     func testCancelStopsPlaybackAndResolvesRatherThanThrows() async throws {
@@ -335,18 +412,21 @@ final class SpeechGenerationTests: XCTestCase {
         let voices = await voiceApi.listVoices()
 
         XCTAssertEqual(voices, [
-            SpeechVoiceInfo(providerId: "tts", id: nil, name: nil, locale: "de-DE", gender: .female, networkRequired: false, readiness: nil),
-            SpeechVoiceInfo(providerId: "tts", id: nil, name: nil, locale: "de_AT", gender: nil, networkRequired: nil, readiness: nil),
-            SpeechVoiceInfo(providerId: "tts", id: nil, name: nil, locale: "en-GB", gender: nil, networkRequired: true, readiness: nil)
+            SpeechVoiceInfo(providerId: "tts", kind: .platform, model: nil, id: nil, name: nil, locale: "de-DE", locales: nil, gender: .female, networkRequired: false, readiness: nil),
+            SpeechVoiceInfo(providerId: "tts", kind: .platform, model: nil, id: nil, name: nil, locale: "de_AT", locales: nil, gender: nil, networkRequired: nil, readiness: nil),
+            SpeechVoiceInfo(providerId: "tts", kind: .platform, model: nil, id: nil, name: nil, locale: "en-GB", locales: nil, gender: nil, networkRequired: true, readiness: nil)
         ])
     }
 
     func testACatalogEntryBecomesAScopedRequestVoice() {
         let voice = SpeechVoiceInfo(
             providerId: "tts",
+            kind: .platform,
+            model: nil,
             id: "anna",
             name: "Anna",
             locale: "de-DE",
+            locales: nil,
             gender: .female,
             networkRequired: nil,
             readiness: nil
@@ -361,9 +441,12 @@ final class SpeechGenerationTests: XCTestCase {
     func testACatalogEntryWithoutAnIdSelectsByTraits() {
         let voice = SpeechVoiceInfo(
             providerId: "tts",
+            kind: .platform,
+            model: nil,
             id: nil,
             name: nil,
             locale: "de-DE",
+            locales: nil,
             gender: .female,
             networkRequired: nil,
             readiness: nil

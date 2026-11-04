@@ -470,7 +470,7 @@
       "id": "playback_commit_then_completed_with_output",
       "category": "non_text_outputs",
       "description": "A playback provider commits before it would be heard and ends with a playback output. The run completes with that output and no content events, because content events are text-only.",
-      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` calls commit(), then emits result(output {type 'playback', playback {durationMs 1200}}).",
+      "setup": "Request: text_to_speech, speech 'Hallo' in de-AT, playback delivery, privacy local_required. `p1` calls commit(), then emits result(output {type 'playback', playback {timing {durationMs 1200}}}).",
       "expect": {
         "eventTypes": ["terminal"],
         "terminalCount": 1,
@@ -479,7 +479,7 @@
           "output": {
             "type": "playback",
             "playback": {
-              "durationMs": 1200
+              "timing": { "durationMs": 1200 }
             }
           },
           "absentPartialText": true

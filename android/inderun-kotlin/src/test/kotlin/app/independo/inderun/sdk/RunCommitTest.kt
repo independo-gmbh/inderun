@@ -11,6 +11,7 @@ import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.OutputDeliveryRequest
 import app.independo.inderun.contracts.PlaybackOutput
+import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.ProviderDescriptor
 import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderSupports
@@ -67,7 +68,7 @@ class RunCommitTest {
     fun returnsACommittedPlaybackResultWithItsProvenance() = runTest {
         val outcome = runWith(listOf("p1" to played))
 
-        assertEquals(TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(durationMs = 900.0)), outcome.result?.output)
+        assertEquals(TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(timing = PlaybackTiming(durationMs = 900.0))), outcome.result?.output)
         assertEquals(
             listOf(ExecutionProvenanceAttempt(committed = true, outcome = AttemptOutcome.Succeeded, providerId = "p1")),
             outcome.result?.provenance?.attempts,
@@ -170,7 +171,7 @@ class RunCommitTest {
 
     private val played: suspend (RunContext) -> TaskOutput = { context ->
         context.commit()
-        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(durationMs = 900.0))
+        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(timing = PlaybackTiming(durationMs = 900.0)))
     }
 
     /** A run-only speech provider whose output comes from [behaviour], recording each call. */

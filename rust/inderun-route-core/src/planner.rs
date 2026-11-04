@@ -196,7 +196,7 @@ fn locale_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
     let offers_exact = match task.voices() {
         Some(voices) => voices
             .iter()
-            .any(|voice| exact(&voice.locale) && voice_is_usable(voice, input, private)),
+            .any(|voice| voice_locales(voice).any(exact) && voice_is_usable(voice, input, private)),
         None => task
             .known_locales()
             .is_some_and(|locales| locales.iter().any(|tag| exact(tag))),
@@ -241,11 +241,9 @@ fn select_voice<'a>(
                 preferred_id.is_some_and(|id| voice.id.as_ref() != Some(id)),
                 preferred_gender.is_some_and(|gender| voice.gender.as_ref() != Some(gender)),
                 !voice_is_ready(voice),
-                input
-                    .task
-                    .locale
-                    .as_ref()
-                    .is_some_and(|locale| !voice.locale.eq_ignore_ascii_case(&locale.tag)),
+                input.task.locale.as_ref().is_some_and(|locale| {
+                    !voice_locales(voice).any(|tag| tag.eq_ignore_ascii_case(&locale.tag))
+                }),
                 !voice_is_local(voice, private),
             )
         })
@@ -281,6 +279,12 @@ fn prefers_privacy(input: &RoutePlannerInput) -> bool {
         || matches!(input.preferences.optimize_for, Some(OptimizeFor::Privacy))
 }
 
+/// Every BCP 47 tag `voice` speaks: its `locale`, then each of `locales`. A
+/// request's locale matches a voice when it matches any of them.
+fn voice_locales(voice: &ProviderVoice) -> impl Iterator<Item = &str> {
+    std::iter::once(voice.locale.as_str()).chain(voice.locales.iter().flatten().map(String::as_str))
+}
+
 /// Whether `voice`, listed by `provider_id`, satisfies the request's locale,
 /// required voice id and required traits. A preferred id or trait is never a
 /// filter.
@@ -289,7 +293,7 @@ fn voice_fits(voice: &ProviderVoice, provider_id: &str, input: &RoutePlannerInpu
         .task
         .locale
         .as_ref()
-        .is_none_or(|locale| locale_matches(&voice.locale, locale));
+        .is_none_or(|locale| voice_locales(voice).any(|tag| locale_matches(tag, locale)));
     let traits_fit = input.task.voice.as_ref().is_none_or(|requirement| {
         requirement.requirement != RequirementLevel::Required
             || (requirement.id.as_ref().is_none_or(|id| {
@@ -723,7 +727,9 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
         if let Some(locale) = &input.task.locale {
             match voices {
                 Some(voices) => {
-                    let fits = |voice: &&ProviderVoice| locale_matches(&voice.locale, locale);
+                    let fits = |voice: &&ProviderVoice| {
+                        voice_locales(voice).any(|tag| locale_matches(tag, locale))
+                    };
                     if !voices.iter().any(|voice| fits(&voice)) {
                         reasons.push(locale_not_supported(&descriptor.id, locale, kind));
                     } else if !voices.iter().filter(fits).any(&usable) {

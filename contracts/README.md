@@ -14,7 +14,8 @@ references a `media-artifact.schema.json` (`MediaArtifact`): an engine-issued id
 ([ADR 017](../docs/architecture/decisions/017-media-artifacts.md)).
 
 It also includes provider-family bootstrap contracts such as `model-package.schema.json` (the
-provider-neutral `ModelPackage` used by local-model provider families; see
+provider-neutral `ModelPackage` used by local-model provider families, describing text and speech models,
+including Apple Core AI assets; see
 `docs/architecture/onnx-runtime-provider-family.md`).
 
 It also includes the canonical Mode 2 streaming contracts — `stream-run.schema.json`

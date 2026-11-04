@@ -1,7 +1,9 @@
 import type {
   ExecutionProvenance,
   MediaArtifact,
+  PlaybackTiming,
   ProviderReadiness,
+  ProviderCapabilitySnapshot,
   StreamTerminalOutcome,
   TaskOutput,
   TaskRequest,
@@ -73,13 +75,8 @@ export interface GenerateSpeechOptions extends SpeechCommonOptions {
 export interface SpokenSpeech {
   /** `"cancelled"` when playback was stopped; otherwise as the provider reported it. */
   finishReason?: TaskResult["finishReason"];
-  /** How long the audio played, where the provider knows it. */
-  durationMs?: number;
-  /**
-   * From the provider handing the text to the platform to the platform's first audible-output
-   * callback, where the platform reports one. See `PlaybackOutput.firstAudioMs`.
-   */
-  firstAudioMs?: number;
+  /** What the provider measured, see `PlaybackTiming`. */
+  timing?: PlaybackTiming;
   /** The locale and voice actually used, so an unmet preference is visible. */
   speech?: TaskOutput["speech"];
   runId: string;
@@ -128,11 +125,21 @@ export interface ListVoicesOptions {
  */
 export interface SpeechVoiceInfo {
   providerId: string;
+  /**
+   * `"model"` when the provider names the model that speaks, so the voice belongs to that model;
+   * `"platform"` when it names none (a system voice, or any provider without a model id).
+   */
+  kind: "platform" | "model";
+  /** The model that speaks this voice. Present exactly when `kind` is `"model"`. */
+  model?: string;
   /** Absent when the provider cannot address single voices. */
   id?: string;
   /** Label for showing the voice to a person. Not unique, so never compare it. */
   name?: string;
+  /** The voice's primary BCP 47 tag. */
   locale: string;
+  /** Every BCP 47 tag the voice speaks. Absent when it speaks only `locale`. */
+  locales?: string[];
   gender?: SpeechVoice["gender"];
   /** `true` when the voice sends text off the device. Absent inherits the provider's posture. */
   networkRequired?: boolean;
@@ -244,17 +251,21 @@ export async function listVoices(
   options: ListVoicesOptions = {}
 ): Promise<SpeechVoiceInfo[]> {
   const voices: SpeechVoiceInfo[] = [];
-  for (const { providerId, capabilities } of await inderun.checkCapabilities()) {
+  for (const { providerId, descriptor, capabilities } of await inderun.checkCapabilities()) {
     if (!capabilities.available) continue;
     const task = capabilities.taskCapabilities?.find((entry) => entry.kind === "text_to_speech");
     if (task === undefined || task.available === false) continue;
     for (const voice of task.voices ?? []) {
-      if (options.locale !== undefined && !localeMatches(voice.locale, options)) continue;
+      if (options.locale !== undefined && !localeMatches(voice, options)) continue;
+      const model = descriptor?.model;
       voices.push({
         providerId,
+        kind: model !== undefined ? "model" : "platform",
+        ...(model !== undefined ? { model } : {}),
         ...(voice.id !== undefined ? { id: voice.id } : {}),
         ...(voice.name !== undefined ? { name: voice.name } : {}),
         locale: voice.locale,
+        ...(voice.locales !== undefined ? { locales: voice.locales } : {}),
         ...(voice.gender !== undefined ? { gender: voice.gender } : {}),
         ...(voice.networkRequired !== undefined ? { networkRequired: voice.networkRequired } : {}),
         ...(voice.readiness !== undefined ? { readiness: voice.readiness } : {})
@@ -264,12 +275,21 @@ export async function listVoices(
   return voices;
 }
 
-/** Case-insensitive BCP 47 comparison, the same one the route planner applies. */
-function localeMatches(available: string, options: ListVoicesOptions): boolean {
-  const have = available.toLowerCase();
+type ProviderVoice = NonNullable<
+  NonNullable<ProviderCapabilitySnapshot["capabilities"]["taskCapabilities"]>[number]["voices"]
+>[number];
+
+/**
+ * Case-insensitive BCP 47 comparison, the same one the route planner applies, against the voice's
+ * `locale` and every entry of its `locales`.
+ */
+function localeMatches(voice: ProviderVoice, options: ListVoicesOptions): boolean {
   const want = options.locale!.toLowerCase();
-  if (options.localeMatch === "exact") return have === want;
-  return have.split(/[-_]/)[0] === want.split(/[-_]/)[0];
+  return [voice.locale, ...(voice.locales ?? [])].some((available) => {
+    const have = available.toLowerCase();
+    if (options.localeMatch === "exact") return have === want;
+    return have.split(/[-_]/)[0] === want.split(/[-_]/)[0];
+  });
 }
 
 function settle(outcome: StreamTerminalOutcome): SpokenSpeech {
@@ -280,12 +300,7 @@ function settle(outcome: StreamTerminalOutcome): SpokenSpeech {
   };
   const { output } = outcome;
   const reported = {
-    ...(output?.playback?.durationMs !== undefined
-      ? { durationMs: output.playback.durationMs }
-      : {}),
-    ...(output?.playback?.firstAudioMs !== undefined
-      ? { firstAudioMs: output.playback.firstAudioMs }
-      : {}),
+    ...(output?.playback?.timing !== undefined ? { timing: output.playback.timing } : {}),
     ...(output?.speech !== undefined ? { speech: output.speech } : {})
   };
   switch (outcome.outcome) {

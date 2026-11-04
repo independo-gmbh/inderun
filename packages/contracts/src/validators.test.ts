@@ -248,10 +248,28 @@ describe("TaskOutput validation", () => {
     expect(
       getTaskOutputValidationIssues({
         type: "playback",
-        playback: { durationMs: 1200 },
+        playback: { timing: { durationMs: 1200 } },
         speech: { locale: "de-DE", voice: { gender: "female" } }
       })
     ).toEqual([]);
+  });
+
+  it("accepts playback timing", () => {
+    expect(
+      getTaskOutputValidationIssues({
+        type: "playback",
+        playback: { timing: { durationMs: 2140, firstAudioMs: 240, firstChunkMs: 180 } }
+      })
+    ).toEqual([]);
+  });
+
+  it("rejects a negative first-audio timing", () => {
+    expect(
+      getTaskOutputValidationIssues({
+        type: "playback",
+        playback: { timing: { firstAudioMs: -1 } }
+      }).map((issue) => issue.path)
+    ).toContain("/playback/timing/firstAudioMs");
   });
 });
 
@@ -339,6 +357,95 @@ describe("ModelPackage validation", () => {
       getModelPackageValidationIssues({
         format: "onnx"
       }).some((issue) => issue.path === "/" && issue.keyword === "required")
+    ).toBe(true);
+  });
+
+  const articulino = {
+    id: "articulino-de-en",
+    version: "1.0.0",
+    variant: "onnx-int8",
+    format: "onnx",
+    tasks: ["text_to_speech"],
+    runtime: { platforms: ["apple", "android", "web"], minOsVersion: "16.0" },
+    files: { required: ["text_encoder.onnx", "acoustic.onnx", "codec.onnx"] },
+    license: {
+      spdx: "Apache-2.0",
+      url: "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS"
+    },
+    source: { sourceType: "app_managed", ref: "models/articulino" },
+    speech: {
+      pipeline: "articulino",
+      sampleRate: 24000,
+      channels: 1,
+      graphs: { text_encoder: "text_encoder.onnx", acoustic: "acoustic.onnx", codec: "codec.onnx" },
+      frontend: { kind: "grapheme" },
+      voices: [
+        {
+          id: "sample",
+          name: "Sample",
+          locales: ["de-DE", "en-US"],
+          gender: "male",
+          file: "voices/sample.bin",
+          license: { spdx: "Apache-2.0" }
+        }
+      ]
+    }
+  };
+
+  it("accepts a Core AI package", () => {
+    expect(validateModelPackage({ id: "articulino-de-en", format: "coreai" })).toBe(true);
+  });
+
+  it("accepts a speech model package", () => {
+    expect(validateModelPackage(articulino)).toBe(true);
+  });
+
+  it("rejects a text_to_speech package without speech", () => {
+    const issues = getModelPackageValidationIssues({
+      id: "x",
+      format: "onnx",
+      tasks: ["text_to_speech"]
+    });
+    expect(issues.some((issue) => issue.path === "/" && issue.keyword === "required")).toBe(true);
+  });
+
+  it("rejects a speech voice without locales", () => {
+    const { speech, ...rest } = articulino;
+    const issues = getModelPackageValidationIssues({
+      ...rest,
+      speech: { ...speech, voices: [{ id: "v", name: "V", locales: [], file: "v.bin" }] }
+    });
+    expect(issues.some((issue) => issue.path === "/speech/voices/0/locales")).toBe(true);
+  });
+
+  it("rejects an underscore locale tag in a speech voice", () => {
+    const { speech, ...rest } = articulino;
+    const issues = getModelPackageValidationIssues({
+      ...rest,
+      speech: { ...speech, voices: [{ id: "v", name: "V", locales: ["en_US"], file: "v.bin" }] }
+    });
+    expect(issues.some((issue) => issue.path === "/speech/voices/0/locales/0")).toBe(true);
+  });
+
+  it("accepts a speech voice without a file", () => {
+    const { speech, ...rest } = articulino;
+    expect(
+      validateModelPackage({
+        ...rest,
+        speech: { ...speech, voices: [{ id: "v", name: "V", locales: ["en-US"] }] }
+      })
+    ).toBe(true);
+  });
+
+  it("rejects duplicate speech voice ids", () => {
+    const { speech, ...rest } = articulino;
+    const voice = speech.voices[0];
+    const issues = getModelPackageValidationIssues({
+      ...rest,
+      speech: { ...speech, voices: [voice, voice] }
+    });
+    expect(
+      issues.some((issue) => issue.path === "/speech/voices" && issue.keyword === "uniqueVoiceIds")
     ).toBe(true);
   });
 
@@ -726,7 +833,7 @@ describe("StreamTerminalOutcome validation", () => {
         }
       }
     ],
-    ["cancelled", { output: { type: "playback", playback: { durationMs: 640 } } }]
+    ["cancelled", { output: { type: "playback", playback: { timing: { durationMs: 640 } } } }]
   ])(
     "accepts a %s outcome that carries a non-text output in both terminal copies",
     (outcome, payload) => {

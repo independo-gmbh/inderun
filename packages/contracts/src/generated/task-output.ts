@@ -101,16 +101,40 @@ export type ArtifactOwner = "engine" | "application";
  */
 export type PlaybackOutput = {
     /**
+     * What the provider measured about the playback. Absent when it measured nothing.
+     * 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+     * run() or stream() started handling the request, so their difference is the provider's
+     * output latency. The span includes everything the provider does after it starts handling
+     * the request (queue wait, voice lookup, a cold model load) and excludes routing.
+     */
+    timing?: PlaybackTiming;
+    [property: string]: unknown;
+}
+
+/**
+ * What the provider measured about the playback. Absent when it measured nothing.
+ * 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+ * run() or stream() started handling the request, so their difference is the provider's
+ * output latency. The span includes everything the provider does after it starts handling
+ * the request (queue wait, voice lookup, a cold model load) and excludes routing.
+ */
+export type PlaybackTiming = {
+    /**
      * How long audible playback lasted, in milliseconds. For a cancelled run, how long it
-     * played before it was stopped.
+     * played before it was stopped, when the provider reports it.
      */
     durationMs?: number;
     /**
-     * Milliseconds from the provider handing the utterance to the platform until the platform's
-     * first audible-output callback. Measures the platform and voice, not routing, and not
-     * sound reaching a speaker. Absent when the platform reports no such callback.
+     * Milliseconds from the provider receiving the request until the platform's first
+     * audible-output callback (for a system voice, its first word callback) or the first audio
+     * frame leaving the output. Absent when nothing reports it.
      */
     firstAudioMs?: number;
+    /**
+     * Milliseconds from the provider receiving the request until its first playable PCM chunk
+     * existed. Absent when the provider does not synthesize PCM itself.
+     */
+    firstChunkMs?: number;
     [property: string]: unknown;
 }
 

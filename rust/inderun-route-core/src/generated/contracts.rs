@@ -275,6 +275,11 @@ pub struct ProviderVoice {
     /// BCP 47 locale the voice speaks.
     pub locale: String,
 
+    /// Every BCP 47 tag the voice speaks; may repeat `locale`. A request's locale matches
+    /// `locale` or any entry here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locales: Option<Vec<String>>,
+
     /// Label for showing the voice to a person, as the platform reports it. Not unique and not
     /// localized; never compare it.
     #[serde(skip_serializing_if = "Option::is_none")]

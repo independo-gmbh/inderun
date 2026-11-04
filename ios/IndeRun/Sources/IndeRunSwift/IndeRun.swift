@@ -487,7 +487,7 @@ public final class IndeRun: IndeRunApi {
                 partialText: textRun ? partialText : nil,
                 output: delivered ?? (
                     committed && delivery == .playback
-                        ? TaskOutput(playback: PlaybackOutput(durationMs: nil))
+                        ? TaskOutput(playback: PlaybackOutput(timing: nil))
                         : nil
                 ),
                 reason: cancellation.reason,

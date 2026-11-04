@@ -11,10 +11,15 @@ public struct ModelPackageValidationIssue: Equatable, Sendable {
 
 /// Minimal structural validation for `ModelPackage`, mirroring the subset of
 /// `getModelPackageValidationIssues` (`packages/contracts/src/validators.ts`) that the provider's
-/// capability gate needs: the schema's `required` fields, the inline-secret-key rule, and the
-/// `source.ref` URL-userinfo rule. This is a hand-written subset, not a generated JSON Schema
+/// capability gate needs: the schema's `required` fields, the inline-secret-key rule, the
+/// `source.ref` URL-userinfo rule, and the speech rules (`speech` is required when `tasks` contains
+/// `text_to_speech`, voice ids are unique within it, and the structural rules: `sampleRate` and
+/// `channels` are at least 1, `graphs` and `voices` are non-empty, and every voice lists at least one
+/// locale, each a hyphenated BCP 47 tag). This is a hand-written subset, not a generated JSON Schema
 /// validator (no AJV-equivalent exists in Swift) -- see the ONNX Runtime provider family spec
-/// for the normative field shapes in `contracts/schemas/model-package.schema.json`.
+/// for the normative field shapes in `contracts/schemas/model-package.schema.json`. Moving this
+/// validator into Core, so every platform shares one implementation, is the first step of the
+/// neural speech provider PR.
 public func getModelPackageValidationIssues(_ modelPackage: ModelPackage) -> [ModelPackageValidationIssue] {
     var issues: [ModelPackageValidationIssue] = []
 
@@ -31,7 +36,70 @@ public func getModelPackageValidationIssues(_ modelPackage: ModelPackage) -> [Mo
         )
     }
 
+    if modelPackage.tasks?.contains("text_to_speech") == true, modelPackage.speech == nil {
+        issues.append(
+            ModelPackageValidationIssue(path: "/speech", message: "required when tasks contains 'text_to_speech'")
+        )
+    }
+
+    if let voices = modelPackage.speech?.voices, Set(voices.map(\.id)).count != voices.count {
+        issues.append(ModelPackageValidationIssue(path: "/speech/voices", message: "voice ids must be unique"))
+    }
+
+    if let speech = modelPackage.speech {
+        issues.append(contentsOf: findSpeechStructureIssues(in: speech))
+    }
+
     issues.append(contentsOf: findInlineSecretKeys(in: modelPackage))
+
+    return issues
+}
+
+private let bcp47TagPattern = try? Regex("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+
+/// Whole-string match (`$` in a search would also accept a trailing newline, unlike Ajv and Kotlin).
+private func isBcp47Tag(_ tag: String) -> Bool {
+    guard let pattern = bcp47TagPattern else { return false }
+    return tag.wholeMatch(of: pattern) != nil
+}
+
+/// Mirrors the structural constraints of `speech` in `model-package.schema.json`: numeric minimums,
+/// non-empty `graphs`/`voices`, and per-voice `locales`.
+private func findSpeechStructureIssues(in speech: SpeechModelPackage) -> [ModelPackageValidationIssue] {
+    var issues: [ModelPackageValidationIssue] = []
+
+    if speech.sampleRate < 1 {
+        issues.append(ModelPackageValidationIssue(path: "/speech/sampleRate", message: "must be >= 1"))
+    }
+    if let channels = speech.channels, channels < 1 {
+        issues.append(ModelPackageValidationIssue(path: "/speech/channels", message: "must be >= 1"))
+    }
+    if speech.graphs.isEmpty {
+        issues.append(ModelPackageValidationIssue(path: "/speech/graphs", message: "must list at least one graph"))
+    }
+    if speech.voices.isEmpty {
+        issues.append(ModelPackageValidationIssue(path: "/speech/voices", message: "must list at least one voice"))
+    }
+
+    for (index, voice) in speech.voices.enumerated() {
+        if voice.locales.isEmpty {
+            issues.append(
+                ModelPackageValidationIssue(
+                    path: "/speech/voices/\(index)/locales",
+                    message: "must list at least one locale"
+                )
+            )
+        }
+        for (localeIndex, locale) in voice.locales.enumerated()
+        where !isBcp47Tag(locale) {
+            issues.append(
+                ModelPackageValidationIssue(
+                    path: "/speech/voices/\(index)/locales/\(localeIndex)",
+                    message: "must be a hyphenated BCP 47 tag"
+                )
+            )
+        }
+    }
 
     return issues
 }

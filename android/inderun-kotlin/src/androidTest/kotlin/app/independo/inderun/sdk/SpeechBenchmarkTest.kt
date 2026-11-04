@@ -111,9 +111,9 @@ class SpeechBenchmarkTest {
                 step,
                 utterance,
                 mapOf(
-                    "firstAudioMs" to ending.firstAudioMs,
+                    "firstAudioMs" to ending.timing?.firstAudioMs,
                     "wallMs" to elapsedMs(started),
-                    "durationMs" to ending.durationMs,
+                    "durationMs" to ending.timing?.durationMs,
                 ),
             )
         }

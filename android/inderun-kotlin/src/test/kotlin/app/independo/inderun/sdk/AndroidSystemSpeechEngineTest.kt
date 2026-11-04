@@ -97,7 +97,7 @@ class AndroidSystemSpeechEngineTest {
 
         assertEquals(local, engine.selected)
         assertEquals(FinishReason.STOP, ending.finishReason)
-        assertEquals(500.0, ending.durationMs)
+        assertEquals(500.0, ending.timing?.durationMs)
         assertEquals(Locality.OnDevice, ending.provenance?.locality)
     }
 

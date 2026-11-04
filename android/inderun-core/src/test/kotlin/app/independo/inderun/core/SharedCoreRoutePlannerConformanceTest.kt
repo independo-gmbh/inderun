@@ -52,6 +52,7 @@ class SharedCoreRoutePlannerConformanceTest {
                         voice.id?.let { put("id", it) }
                         voice.name?.let { put("name", it) }
                         put("locale", voice.locale)
+                        voice.locales?.let { put("locales", it) }
                         voice.gender?.let { put("gender", it.rawValue) }
                         voice.networkRequired?.let { put("networkRequired", it) }
                         voice.readiness?.let { put("readiness", it.rawValue) }

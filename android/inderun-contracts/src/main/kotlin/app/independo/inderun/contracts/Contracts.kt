@@ -659,17 +659,41 @@ enum class ArtifactOwner(val rawValue: String) {
  */
 data class PlaybackOutput(
     /**
+     * What the provider measured about the playback. Absent when it measured nothing.
+     * 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+     * run() or stream() started handling the request, so their difference is the provider's
+     * output latency. The span includes everything the provider does after it starts handling
+     * the request (queue wait, voice lookup, a cold model load) and excludes routing.
+     */
+    val timing: PlaybackTiming? = null,
+)
+
+/**
+ * What the provider measured about the playback. Absent when it measured nothing.
+ * 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+ * run() or stream() started handling the request, so their difference is the provider's
+ * output latency. The span includes everything the provider does after it starts handling
+ * the request (queue wait, voice lookup, a cold model load) and excludes routing.
+ */
+data class PlaybackTiming(
+    /**
      * How long audible playback lasted, in milliseconds. For a cancelled run, how long it
-     * played before it was stopped.
+     * played before it was stopped, when the provider reports it.
      */
     val durationMs: Double? = null,
 
     /**
-     * Milliseconds from the provider handing the utterance to the platform until the platform's
-     * first audible-output callback. Measures the platform and voice, not routing, and not
-     * sound reaching a speaker. Absent when the platform reports no such callback.
+     * Milliseconds from the provider receiving the request until the platform's first
+     * audible-output callback (for a system voice, its first word callback) or the first audio
+     * frame leaving the output. Absent when nothing reports it.
      */
     val firstAudioMs: Double? = null,
+
+    /**
+     * Milliseconds from the provider receiving the request until its first playable PCM chunk
+     * existed. Absent when the provider does not synthesize PCM itself.
+     */
+    val firstChunkMs: Double? = null,
 )
 
 data class PreparationItem(
@@ -1475,6 +1499,12 @@ data class ProviderVoice(
     val locale: String,
 
     /**
+     * Every BCP 47 tag the voice speaks; may repeat `locale`. A request's locale matches
+     * `locale` or any entry here.
+     */
+    val locales: List<String>? = null,
+
+    /**
      * Label for showing the voice to a person, as the platform reports it. Not unique and not
      * localized; never compare it.
      */
@@ -2033,7 +2063,7 @@ data class ModelPackage(
     /**
      * Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
      * graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
-     * model package.
+     * model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).
      */
     val format: Format,
 
@@ -2072,10 +2102,23 @@ data class ModelPackage(
     val source: Source? = null,
 
     /**
+     * What a text_to_speech model package adds: the pipeline that turns text into PCM, the
+     * graphs it runs, its text frontend and the voices it offers. Required when 'tasks'
+     * contains 'text_to_speech'.
+     */
+    val speech: SpeechModelPackage? = null,
+
+    /**
      * IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by
      * dynamic capability checks and route matching.
      */
     val tasks: List<String>? = null,
+
+    /**
+     * Optional concrete artifact variant of this logical model (for example 'onnx-int8',
+     * 'coreai-fp16'). 'id' names the model, 'variant' the bytes.
+     */
+    val variant: String? = null,
 
     /**
      * Optional application-defined version for the model package, used for cache invalidation
@@ -2114,9 +2157,10 @@ data class Files(
 /**
  * Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
  * graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
- * model package.
+ * model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).
  */
 enum class Format(val rawValue: String) {
+    Coreai("coreai"),
     Genai("genai"),
     Onnx("onnx"),
     Ort("ort"),
@@ -2180,6 +2224,13 @@ data class Runtime(
     val minOpset: Long? = null,
 
     /**
+     * Minimum platform OS version the package needs, where known (for example '27.0' for a Core
+     * AI asset). Applies to every platform listed in `platforms`; split packages whose
+     * platforms need different OS floors.
+     */
+    val minOsVersion: String? = null,
+
+    /**
      * Minimum runtime package version required to load the model, where known.
      */
     val minRuntimeVersion: String? = null,
@@ -2235,6 +2286,119 @@ enum class SourceType(val rawValue: String) {
         fun fromRawValue(value: String): SourceType? = entries.firstOrNull { it.rawValue == value }
     }
 }
+
+/**
+ * What a text_to_speech model package adds: the pipeline that turns text into PCM, the
+ * graphs it runs, its text frontend and the voices it offers. Required when 'tasks'
+ * contains 'text_to_speech'.
+ */
+data class SpeechModelPackage(
+    /**
+     * Channels of the PCM the pipeline produces. Absent means 1.
+     */
+    val channels: Long? = null,
+
+    /**
+     * How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need
+     * a grapheme-to-phoneme step whose assets are listed here.
+     */
+    val frontend: SpeechFrontend? = null,
+
+    /**
+     * Role to file. Roles are defined by the pipeline (for example 'text_encoder', 'acoustic',
+     * 'codec'); For a 'coreai' package a value is either the .aimodel file, whose inference
+     * function is then named after the role, or `<file>#<function>` when the function name
+     * differs.
+     */
+    val graphs: Map<String, String>,
+
+    /**
+     * The text-to-PCM recipe the provider runs for this package: which graphs in which order,
+     * with which text frontend. A provider refuses a value it does not implement.
+     */
+    val pipeline: String,
+
+    /**
+     * Sample rate of the PCM the pipeline produces, in Hz.
+     */
+    val sampleRate: Long,
+
+    /**
+     * The voices this package offers, one entry per selectable voice. Each is listed through
+     * capabilities as a ProviderVoice.
+     */
+    val voices: List<SpeechModelVoice>,
+)
+
+/**
+ * How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need
+ * a grapheme-to-phoneme step whose assets are listed here.
+ */
+data class SpeechFrontend(
+    /**
+     * Role to file for the frontend's own assets (tokenizer, lexicon, G2P graph).
+     */
+    val assets: Map<String, String>? = null,
+
+    val kind: FrontendKind,
+    val license: AssetLicense? = null,
+)
+
+enum class FrontendKind(val rawValue: String) {
+    Grapheme("grapheme"),
+    Phoneme("phoneme"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): FrontendKind? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Licence of one asset inside a package (a voice, a frontend), where it differs from the
+ * package's own.
+ */
+data class AssetLicense(
+    /**
+     * SPDX license identifier where known.
+     */
+    val spdx: String? = null,
+
+    /**
+     * License or model card URL where available.
+     */
+    val url: String? = null,
+)
+
+data class SpeechModelVoice(
+    /**
+     * The voice asset (style vector or speaker embedding), relative to the package. Absent when
+     * the voice is built into the graphs and selected by the pipeline (for example a speaker
+     * index). No speaker encoder runs on the device.
+     */
+    val file: String? = null,
+
+    val gender: VoiceGender? = null,
+
+    /**
+     * Identifies the voice within the package and, through the provider, as speech.voice.id.
+     * Unique within the package.
+     */
+    val id: String,
+
+    val license: AssetLicense? = null,
+
+    /**
+     * Hyphenated BCP 47 tags the voice speaks (for example 'de-DE', not 'de_DE'); the first is
+     * its primary locale.
+     */
+    val locales: List<String>,
+
+    /**
+     * Label for showing the voice to a person.
+     */
+    val name: String,
+)
 
 /**
  * The serializable acknowledgment returned when a Mode 2 stream is opened, before any

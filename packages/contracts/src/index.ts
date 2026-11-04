@@ -98,6 +98,7 @@ export type {
   ModelPackageFormat,
   ModelSourceType,
   PlaybackTaskOutput,
+  PlaybackTiming,
   ProviderReadiness,
   ProviderTransport,
   ProviderType,

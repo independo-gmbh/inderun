@@ -1148,22 +1148,19 @@ public enum ArtifactOwner: String, Codable, Sendable {
 /// Completion of managed playback. Required when type is 'playback'. Carries no media.
 // MARK: - PlaybackOutput
 public struct PlaybackOutput: Codable, Sendable {
-    /// How long audible playback lasted, in milliseconds. For a cancelled run, how long it
-    /// played before it was stopped.
-    public var durationMs: Double?
-    /// Milliseconds from the provider handing the utterance to the platform until the platform's
-    /// first audible-output callback. Measures the platform and voice, not routing, and not
-    /// sound reaching a speaker. Absent when the platform reports no such callback.
-    public var firstAudioMs: Double?
+    /// What the provider measured about the playback. Absent when it measured nothing.
+    /// 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+    /// run() or stream() started handling the request, so their difference is the provider's
+    /// output latency. The span includes everything the provider does after it starts handling
+    /// the request (queue wait, voice lookup, a cold model load) and excludes routing.
+    public var timing: PlaybackTiming?
 
     public enum CodingKeys: String, CodingKey {
-        case durationMs = "durationMs"
-        case firstAudioMs = "firstAudioMs"
+        case timing = "timing"
     }
 
-    public init(durationMs: Double?, firstAudioMs: Double?) {
-        self.durationMs = durationMs
-        self.firstAudioMs = firstAudioMs
+    public init(timing: PlaybackTiming?) {
+        self.timing = timing
     }
 }
 
@@ -1186,12 +1183,80 @@ public extension PlaybackOutput {
     }
 
     func with(
-        durationMs: Double?? = nil,
-        firstAudioMs: Double?? = nil
+        timing: PlaybackTiming?? = nil
     ) -> PlaybackOutput {
         return PlaybackOutput(
+            timing: timing ?? self.timing
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// What the provider measured about the playback. Absent when it measured nothing.
+/// 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+/// run() or stream() started handling the request, so their difference is the provider's
+/// output latency. The span includes everything the provider does after it starts handling
+/// the request (queue wait, voice lookup, a cold model load) and excludes routing.
+// MARK: - PlaybackTiming
+public struct PlaybackTiming: Codable, Sendable {
+    /// How long audible playback lasted, in milliseconds. For a cancelled run, how long it
+    /// played before it was stopped, when the provider reports it.
+    public var durationMs: Double?
+    /// Milliseconds from the provider receiving the request until the platform's first
+    /// audible-output callback (for a system voice, its first word callback) or the first audio
+    /// frame leaving the output. Absent when nothing reports it.
+    public var firstAudioMs: Double?
+    /// Milliseconds from the provider receiving the request until its first playable PCM chunk
+    /// existed. Absent when the provider does not synthesize PCM itself.
+    public var firstChunkMs: Double?
+
+    public enum CodingKeys: String, CodingKey {
+        case durationMs = "durationMs"
+        case firstAudioMs = "firstAudioMs"
+        case firstChunkMs = "firstChunkMs"
+    }
+
+    public init(durationMs: Double?, firstAudioMs: Double?, firstChunkMs: Double?) {
+        self.durationMs = durationMs
+        self.firstAudioMs = firstAudioMs
+        self.firstChunkMs = firstChunkMs
+    }
+}
+
+// MARK: PlaybackTiming convenience initializers and mutators
+
+public extension PlaybackTiming {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PlaybackTiming.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        durationMs: Double?? = nil,
+        firstAudioMs: Double?? = nil,
+        firstChunkMs: Double?? = nil
+    ) -> PlaybackTiming {
+        return PlaybackTiming(
             durationMs: durationMs ?? self.durationMs,
-            firstAudioMs: firstAudioMs ?? self.firstAudioMs
+            firstAudioMs: firstAudioMs ?? self.firstAudioMs,
+            firstChunkMs: firstChunkMs ?? self.firstChunkMs
         )
     }
 
@@ -2770,6 +2835,9 @@ public struct ProviderVoice: Codable, Sendable {
     public var id: String?
     /// BCP 47 locale the voice speaks.
     public var locale: String
+    /// Every BCP 47 tag the voice speaks; may repeat `locale`. A request's locale matches
+    /// `locale` or any entry here.
+    public var locales: [String]?
     /// Label for showing the voice to a person, as the platform reports it. Not unique and not
     /// localized; never compare it.
     public var name: String?
@@ -2783,15 +2851,17 @@ public struct ProviderVoice: Codable, Sendable {
         case gender = "gender"
         case id = "id"
         case locale = "locale"
+        case locales = "locales"
         case name = "name"
         case networkRequired = "networkRequired"
         case readiness = "readiness"
     }
 
-    public init(gender: VoiceGender?, id: String?, locale: String, name: String?, networkRequired: Bool?, readiness: ProviderReadiness?) {
+    public init(gender: VoiceGender?, id: String?, locale: String, locales: [String]?, name: String?, networkRequired: Bool?, readiness: ProviderReadiness?) {
         self.gender = gender
         self.id = id
         self.locale = locale
+        self.locales = locales
         self.name = name
         self.networkRequired = networkRequired
         self.readiness = readiness
@@ -2820,6 +2890,7 @@ public extension ProviderVoice {
         gender: VoiceGender?? = nil,
         id: String?? = nil,
         locale: String? = nil,
+        locales: [String]?? = nil,
         name: String?? = nil,
         networkRequired: Bool?? = nil,
         readiness: ProviderReadiness?? = nil
@@ -2828,6 +2899,7 @@ public extension ProviderVoice {
             gender: gender ?? self.gender,
             id: id ?? self.id,
             locale: locale ?? self.locale,
+            locales: locales ?? self.locales,
             name: name ?? self.name,
             networkRequired: networkRequired ?? self.networkRequired,
             readiness: readiness ?? self.readiness
@@ -4054,7 +4126,7 @@ public struct ModelPackage: Codable, Sendable {
     public var files: Files?
     /// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
     /// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
-    /// model package.
+    /// model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).
     public var format: Format
     /// Stable application-scoped identifier for the model package.
     public var id: String
@@ -4072,9 +4144,16 @@ public struct ModelPackage: Codable, Sendable {
     /// platform-dependent; see the ONNX Runtime provider-family specification for the
     /// per-platform support matrix.
     public var source: Source?
+    /// What a text_to_speech model package adds: the pipeline that turns text into PCM, the
+    /// graphs it runs, its text frontend and the voices it offers. Required when 'tasks'
+    /// contains 'text_to_speech'.
+    public var speech: SpeechModelPackage?
     /// IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by
     /// dynamic capability checks and route matching.
     public var tasks: [String]?
+    /// Optional concrete artifact variant of this logical model (for example 'onnx-int8',
+    /// 'coreai-fp16'). 'id' names the model, 'variant' the bytes.
+    public var variant: String?
     /// Optional application-defined version for the model package, used for cache invalidation
     /// and compatibility checks.
     public var version: String?
@@ -4088,11 +4167,13 @@ public struct ModelPackage: Codable, Sendable {
         case limits = "limits"
         case runtime = "runtime"
         case source = "source"
+        case speech = "speech"
         case tasks = "tasks"
+        case variant = "variant"
         case version = "version"
     }
 
-    public init(files: Files?, format: Format, id: String, integrity: Integrity?, license: License?, limits: Limits?, runtime: Runtime?, source: Source?, tasks: [String]?, version: String?) {
+    public init(files: Files?, format: Format, id: String, integrity: Integrity?, license: License?, limits: Limits?, runtime: Runtime?, source: Source?, speech: SpeechModelPackage?, tasks: [String]?, variant: String?, version: String?) {
         self.files = files
         self.format = format
         self.id = id
@@ -4101,7 +4182,9 @@ public struct ModelPackage: Codable, Sendable {
         self.limits = limits
         self.runtime = runtime
         self.source = source
+        self.speech = speech
         self.tasks = tasks
+        self.variant = variant
         self.version = version
     }
 }
@@ -4133,7 +4216,9 @@ public extension ModelPackage {
         limits: Limits?? = nil,
         runtime: Runtime?? = nil,
         source: Source?? = nil,
+        speech: SpeechModelPackage?? = nil,
         tasks: [String]?? = nil,
+        variant: String?? = nil,
         version: String?? = nil
     ) -> ModelPackage {
         return ModelPackage(
@@ -4145,7 +4230,9 @@ public extension ModelPackage {
             limits: limits ?? self.limits,
             runtime: runtime ?? self.runtime,
             source: source ?? self.source,
+            speech: speech ?? self.speech,
             tasks: tasks ?? self.tasks,
+            variant: variant ?? self.variant,
             version: version ?? self.version
         )
     }
@@ -4231,8 +4318,9 @@ public extension Files {
 
 /// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
 /// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
-/// model package.
+/// model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).
 public enum Format: String, Codable, Sendable {
+    case coreai = "coreai"
     case genai = "genai"
     case onnx = "onnx"
     case ort = "ort"
@@ -4408,6 +4496,10 @@ public extension Limits {
 public struct Runtime: Codable, Sendable {
     /// Minimum ONNX opset version the model requires, where known.
     public var minOpset: Int?
+    /// Minimum platform OS version the package needs, where known (for example '27.0' for a Core
+    /// AI asset). Applies to every platform listed in `platforms`; split packages whose
+    /// platforms need different OS floors.
+    public var minOsVersion: String?
     /// Minimum runtime package version required to load the model, where known.
     public var minRuntimeVersion: String?
     /// Platforms the package is expected to run on (for example 'web', 'android', 'apple').
@@ -4416,12 +4508,14 @@ public struct Runtime: Codable, Sendable {
 
     public enum CodingKeys: String, CodingKey {
         case minOpset = "minOpset"
+        case minOsVersion = "minOsVersion"
         case minRuntimeVersion = "minRuntimeVersion"
         case platforms = "platforms"
     }
 
-    public init(minOpset: Int?, minRuntimeVersion: String?, platforms: [String]?) {
+    public init(minOpset: Int?, minOsVersion: String?, minRuntimeVersion: String?, platforms: [String]?) {
         self.minOpset = minOpset
+        self.minOsVersion = minOsVersion
         self.minRuntimeVersion = minRuntimeVersion
         self.platforms = platforms
     }
@@ -4447,11 +4541,13 @@ public extension Runtime {
 
     func with(
         minOpset: Int?? = nil,
+        minOsVersion: String?? = nil,
         minRuntimeVersion: String?? = nil,
         platforms: [String]?? = nil
     ) -> Runtime {
         return Runtime(
             minOpset: minOpset ?? self.minOpset,
+            minOsVersion: minOsVersion ?? self.minOsVersion,
             minRuntimeVersion: minRuntimeVersion ?? self.minRuntimeVersion,
             platforms: platforms ?? self.platforms
         )
@@ -4543,6 +4639,298 @@ public enum SourceType: String, Codable, Sendable {
     case programmatic = "programmatic"
     case registry = "registry"
     case remote = "remote"
+}
+
+/// What a text_to_speech model package adds: the pipeline that turns text into PCM, the
+/// graphs it runs, its text frontend and the voices it offers. Required when 'tasks'
+/// contains 'text_to_speech'.
+// MARK: - SpeechModelPackage
+public struct SpeechModelPackage: Codable, Sendable {
+    /// Channels of the PCM the pipeline produces. Absent means 1.
+    public var channels: Int?
+    /// How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need
+    /// a grapheme-to-phoneme step whose assets are listed here.
+    public var frontend: SpeechFrontend?
+    /// Role to file. Roles are defined by the pipeline (for example 'text_encoder', 'acoustic',
+    /// 'codec'); For a 'coreai' package a value is either the .aimodel file, whose inference
+    /// function is then named after the role, or `<file>#<function>` when the function name
+    /// differs.
+    public var graphs: [String: String]
+    /// The text-to-PCM recipe the provider runs for this package: which graphs in which order,
+    /// with which text frontend. A provider refuses a value it does not implement.
+    public var pipeline: String
+    /// Sample rate of the PCM the pipeline produces, in Hz.
+    public var sampleRate: Int
+    /// The voices this package offers, one entry per selectable voice. Each is listed through
+    /// capabilities as a ProviderVoice.
+    public var voices: [SpeechModelVoice]
+
+    public enum CodingKeys: String, CodingKey {
+        case channels = "channels"
+        case frontend = "frontend"
+        case graphs = "graphs"
+        case pipeline = "pipeline"
+        case sampleRate = "sampleRate"
+        case voices = "voices"
+    }
+
+    public init(channels: Int?, frontend: SpeechFrontend?, graphs: [String: String], pipeline: String, sampleRate: Int, voices: [SpeechModelVoice]) {
+        self.channels = channels
+        self.frontend = frontend
+        self.graphs = graphs
+        self.pipeline = pipeline
+        self.sampleRate = sampleRate
+        self.voices = voices
+    }
+}
+
+// MARK: SpeechModelPackage convenience initializers and mutators
+
+public extension SpeechModelPackage {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechModelPackage.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        channels: Int?? = nil,
+        frontend: SpeechFrontend?? = nil,
+        graphs: [String: String]? = nil,
+        pipeline: String? = nil,
+        sampleRate: Int? = nil,
+        voices: [SpeechModelVoice]? = nil
+    ) -> SpeechModelPackage {
+        return SpeechModelPackage(
+            channels: channels ?? self.channels,
+            frontend: frontend ?? self.frontend,
+            graphs: graphs ?? self.graphs,
+            pipeline: pipeline ?? self.pipeline,
+            sampleRate: sampleRate ?? self.sampleRate,
+            voices: voices ?? self.voices
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need
+/// a grapheme-to-phoneme step whose assets are listed here.
+// MARK: - SpeechFrontend
+public struct SpeechFrontend: Codable, Sendable {
+    /// Role to file for the frontend's own assets (tokenizer, lexicon, G2P graph).
+    public var assets: [String: String]?
+    public var kind: FrontendKind
+    public var license: AssetLicense?
+
+    public enum CodingKeys: String, CodingKey {
+        case assets = "assets"
+        case kind = "kind"
+        case license = "license"
+    }
+
+    public init(assets: [String: String]?, kind: FrontendKind, license: AssetLicense?) {
+        self.assets = assets
+        self.kind = kind
+        self.license = license
+    }
+}
+
+// MARK: SpeechFrontend convenience initializers and mutators
+
+public extension SpeechFrontend {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechFrontend.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        assets: [String: String]?? = nil,
+        kind: FrontendKind? = nil,
+        license: AssetLicense?? = nil
+    ) -> SpeechFrontend {
+        return SpeechFrontend(
+            assets: assets ?? self.assets,
+            kind: kind ?? self.kind,
+            license: license ?? self.license
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+public enum FrontendKind: String, Codable, Sendable {
+    case grapheme = "grapheme"
+    case phoneme = "phoneme"
+}
+
+/// Licence of one asset inside a package (a voice, a frontend), where it differs from the
+/// package's own.
+// MARK: - AssetLicense
+public struct AssetLicense: Codable, Sendable {
+    /// SPDX license identifier where known.
+    public var spdx: String?
+    /// License or model card URL where available.
+    public var url: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case spdx = "spdx"
+        case url = "url"
+    }
+
+    public init(spdx: String?, url: String?) {
+        self.spdx = spdx
+        self.url = url
+    }
+}
+
+// MARK: AssetLicense convenience initializers and mutators
+
+public extension AssetLicense {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(AssetLicense.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        spdx: String?? = nil,
+        url: String?? = nil
+    ) -> AssetLicense {
+        return AssetLicense(
+            spdx: spdx ?? self.spdx,
+            url: url ?? self.url
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - SpeechModelVoice
+public struct SpeechModelVoice: Codable, Sendable {
+    /// The voice asset (style vector or speaker embedding), relative to the package. Absent when
+    /// the voice is built into the graphs and selected by the pipeline (for example a speaker
+    /// index). No speaker encoder runs on the device.
+    public var file: String?
+    public var gender: VoiceGender?
+    /// Identifies the voice within the package and, through the provider, as speech.voice.id.
+    /// Unique within the package.
+    public var id: String
+    public var license: AssetLicense?
+    /// Hyphenated BCP 47 tags the voice speaks (for example 'de-DE', not 'de_DE'); the first is
+    /// its primary locale.
+    public var locales: [String]
+    /// Label for showing the voice to a person.
+    public var name: String
+
+    public enum CodingKeys: String, CodingKey {
+        case file = "file"
+        case gender = "gender"
+        case id = "id"
+        case license = "license"
+        case locales = "locales"
+        case name = "name"
+    }
+
+    public init(file: String?, gender: VoiceGender?, id: String, license: AssetLicense?, locales: [String], name: String) {
+        self.file = file
+        self.gender = gender
+        self.id = id
+        self.license = license
+        self.locales = locales
+        self.name = name
+    }
+}
+
+// MARK: SpeechModelVoice convenience initializers and mutators
+
+public extension SpeechModelVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechModelVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        file: String?? = nil,
+        gender: VoiceGender?? = nil,
+        id: String? = nil,
+        license: AssetLicense?? = nil,
+        locales: [String]? = nil,
+        name: String? = nil
+    ) -> SpeechModelVoice {
+        return SpeechModelVoice(
+            file: file ?? self.file,
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            license: license ?? self.license,
+            locales: locales ?? self.locales,
+            name: name ?? self.name
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
 }
 
 /// The serializable acknowledgment returned when a Mode 2 stream is opened, before any

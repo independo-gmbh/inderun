@@ -833,7 +833,12 @@ const handlers: Record<string, Handler> = {
       task: "text_to_speech",
       script: [
         { commit: true },
-        { event: { kind: "result", output: { type: "playback", playback: { durationMs: 1200 } } } }
+        {
+          event: {
+            kind: "result",
+            output: { type: "playback", playback: { timing: { durationMs: 1200 } } }
+          }
+        }
       ]
     });
     registry.register(provider);

@@ -1,0 +1,535 @@
+{
+  "$comment": "Cross-SDK vectors for listVoices(): capability snapshots in, SpeechVoiceInfo entries out, in order. kind is 'model' exactly when the descriptor names a model. A locale option matches locale or any entry of locales, by language unless localeMatch is 'exact'. Every SDK runs every case and fails on any difference.",
+  "cases": [
+    {
+      "id": "platform_and_model_voices",
+      "snapshots": [
+        {
+          "providerId": "apple_system_speech",
+          "descriptor": {
+            "id": "apple_system_speech",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE",
+                  "en-US"
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "anna",
+                    "name": "Anna",
+                    "locale": "de-DE",
+                    "gender": "female"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "local.onnx.speech.apple:articulino",
+          "descriptor": {
+            "id": "local.onnx.speech.apple:articulino",
+            "type": "local",
+            "transport": "in_process",
+            "model": "articulino-de-en",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE",
+                  "en-US"
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "sample",
+                    "name": "Sample",
+                    "locale": "de-DE",
+                    "locales": [
+                      "de-DE",
+                      "en-US"
+                    ],
+                    "networkRequired": false,
+                    "readiness": "not_prepared"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "off_task",
+          "descriptor": {
+            "id": "off_task",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE",
+                  "en-US"
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "x",
+                    "name": "X",
+                    "locale": "de-DE"
+                  }
+                ],
+                "available": false
+              }
+            ]
+          }
+        }
+      ],
+      "expected": [
+        {
+          "providerId": "apple_system_speech",
+          "kind": "platform",
+          "id": "anna",
+          "name": "Anna",
+          "locale": "de-DE",
+          "gender": "female"
+        },
+        {
+          "providerId": "local.onnx.speech.apple:articulino",
+          "kind": "model",
+          "model": "articulino-de-en",
+          "id": "sample",
+          "name": "Sample",
+          "locale": "de-DE",
+          "locales": [
+            "de-DE",
+            "en-US"
+          ],
+          "networkRequired": false,
+          "readiness": "not_prepared"
+        }
+      ]
+    },
+    {
+      "id": "locale_filter_matches_any_listed_locale",
+      "snapshots": [
+        {
+          "providerId": "apple_system_speech",
+          "descriptor": {
+            "id": "apple_system_speech",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE",
+                  "en-US"
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "anna",
+                    "name": "Anna",
+                    "locale": "de-DE",
+                    "gender": "female"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "local.onnx.speech.apple:articulino",
+          "descriptor": {
+            "id": "local.onnx.speech.apple:articulino",
+            "type": "local",
+            "transport": "in_process",
+            "model": "articulino-de-en",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE",
+                  "en-US"
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "sample",
+                    "name": "Sample",
+                    "locale": "de-DE",
+                    "locales": [
+                      "de-DE",
+                      "en-US"
+                    ],
+                    "networkRequired": false,
+                    "readiness": "not_prepared"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "locale": "en-GB"
+      },
+      "expected": [
+        {
+          "providerId": "local.onnx.speech.apple:articulino",
+          "kind": "model",
+          "model": "articulino-de-en",
+          "id": "sample",
+          "name": "Sample",
+          "locale": "de-DE",
+          "locales": [
+            "de-DE",
+            "en-US"
+          ],
+          "networkRequired": false,
+          "readiness": "not_prepared"
+        }
+      ]
+    },
+    {
+      "id": "exact_locale_filter_uses_listed_locales",
+      "snapshots": [
+        {
+          "providerId": "apple_system_speech",
+          "descriptor": {
+            "id": "apple_system_speech",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE",
+                  "en-US"
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "anna",
+                    "name": "Anna",
+                    "locale": "de-DE",
+                    "gender": "female"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "local.onnx.speech.apple:articulino",
+          "descriptor": {
+            "id": "local.onnx.speech.apple:articulino",
+            "type": "local",
+            "transport": "in_process",
+            "model": "articulino-de-en",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE",
+                  "en-US"
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "sample",
+                    "name": "Sample",
+                    "locale": "de-DE",
+                    "locales": [
+                      "de-DE",
+                      "en-US"
+                    ],
+                    "networkRequired": false,
+                    "readiness": "not_prepared"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "locale": "EN-us",
+        "localeMatch": "exact"
+      },
+      "expected": [
+        {
+          "providerId": "local.onnx.speech.apple:articulino",
+          "kind": "model",
+          "model": "articulino-de-en",
+          "id": "sample",
+          "name": "Sample",
+          "locale": "de-DE",
+          "locales": [
+            "de-DE",
+            "en-US"
+          ],
+          "networkRequired": false,
+          "readiness": "not_prepared"
+        }
+      ]
+    }
+  ]
+}

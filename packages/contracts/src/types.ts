@@ -10,7 +10,7 @@ import type {
   ProviderDynamicCapabilities,
   TaskResult
 } from "./generated/index.js";
-import type { PlaybackOutput } from "./generated/task-output.js";
+import type { PlaybackOutput, PlaybackTiming } from "./generated/task-output.js";
 import type { OutputDeliveryRequest, SpeechInput } from "./generated/task-request.js";
 
 // Convenience aliases derived from the generated schema types, so consumers can
@@ -70,5 +70,7 @@ export type SpeechTaskRequest = TaskRequest & {
 export type TextTaskOutput = TaskOutput & { type: "text"; text: string };
 /** Completion of managed playback; carries no media. */
 export type PlaybackTaskOutput = TaskOutput & { type: "playback"; playback: PlaybackOutput };
+/** What a provider measured about playback: duration and first-audio/first-chunk latency. */
+export type { PlaybackTiming };
 /** A reference to retrievable media (ADR 017). */
 export type ArtifactTaskOutput = TaskOutput & { type: "artifact"; artifact: MediaArtifact };

@@ -11,9 +11,11 @@ import {
   toSpeechRequest,
   type GenerateSpeechOptions,
   type IndeRunApi,
+  type ListVoicesOptions,
   type MediaArtifact,
   type ProviderCapabilitySnapshot,
   type SpeakOptions,
+  type SpeechVoiceInfo,
   type StreamEvent,
   type StreamRun,
   type StreamTerminalOutcome,
@@ -23,6 +25,23 @@ import {
 import { createBrowserHostServices } from "../core/browser-host.js";
 import { ProviderRegistry } from "../provider.js";
 import { createFakeStreamProvider } from "../test/stream-fakes.js";
+
+const listVoicesFixture = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../contracts/fixtures/facade/list-voices.json"
+    ),
+    "utf8"
+  )
+) as {
+  cases: {
+    id: string;
+    snapshots: ProviderCapabilitySnapshot[];
+    options?: ListVoicesOptions;
+    expected: SpeechVoiceInfo[];
+  }[];
+};
 
 const fixture = JSON.parse(
   readFileSync(
@@ -138,7 +157,7 @@ describe("speak", () => {
           finishReason: "stop",
           output: {
             type: "playback",
-            playback: { durationMs: 1200, firstAudioMs: 150 },
+            playback: { timing: { durationMs: 1200, firstAudioMs: 150, firstChunkMs: 95 } },
             speech: { locale: "de-DE" }
           },
           provenance
@@ -150,8 +169,7 @@ describe("speak", () => {
     expect(playback.runId).toBe("r1");
     await expect(playback.result).resolves.toMatchObject({
       finishReason: "stop",
-      durationMs: 1200,
-      firstAudioMs: 150,
+      timing: { durationMs: 1200, firstAudioMs: 150, firstChunkMs: 95 },
       speech: { locale: "de-DE" },
       runId: "r1",
       provenance
@@ -164,13 +182,17 @@ describe("speak", () => {
         runEnding({
           outcome: "cancelled",
           runId: "r2",
-          output: { type: "playback", playback: {} }
+          output: { type: "playback", playback: { timing: { durationMs: 640 } } }
         })
     });
 
     const { result } = await speak(api, { text: "Hallo", locale: "de" });
 
-    await expect(result).resolves.toMatchObject({ finishReason: "cancelled", runId: "r2" });
+    await expect(result).resolves.toMatchObject({
+      finishReason: "cancelled",
+      runId: "r2",
+      timing: { durationMs: 640 }
+    });
   });
 
   it("forwards cancel to the run", async () => {
@@ -312,9 +334,15 @@ describe("listVoices", () => {
 
   it("lists the voices of available providers, in order", async () => {
     await expect(listVoices(api)).resolves.toEqual([
-      { providerId: "tts", locale: "de-DE", gender: "female", networkRequired: false },
-      { providerId: "tts", locale: "de_AT" },
-      { providerId: "tts", locale: "en-GB", networkRequired: true }
+      {
+        providerId: "tts",
+        kind: "platform",
+        locale: "de-DE",
+        gender: "female",
+        networkRequired: false
+      },
+      { providerId: "tts", kind: "platform", locale: "de_AT" },
+      { providerId: "tts", kind: "platform", locale: "en-GB", networkRequired: true }
     ]);
   });
 
@@ -327,4 +355,13 @@ describe("listVoices", () => {
     const voices = await listVoices(api, { locale: "DE-de", localeMatch: "exact" });
     expect(voices.map((voice) => voice.locale)).toEqual(["de-DE"]);
   });
+});
+
+describe("listVoices fixture", () => {
+  for (const vector of listVoicesFixture.cases) {
+    it(vector.id, async () => {
+      const api = fakeApi({ checkCapabilities: async () => vector.snapshots });
+      expect(await listVoices(api, vector.options ?? {})).toEqual(vector.expected);
+    });
+  }
 });

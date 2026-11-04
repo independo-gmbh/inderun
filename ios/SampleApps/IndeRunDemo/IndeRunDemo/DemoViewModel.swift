@@ -408,7 +408,7 @@ final class DemoViewModel: ObservableObject {
             // Measurements for docs/verification/system-speech.md: the platform's first word, and
             // from the Stop tap to the run's ending.
             let timings = [
-                ending.firstAudioMs.map { "first word \(Int($0)) ms" },
+                ending.timing?.firstAudioMs.map { "first word \(Int($0)) ms" },
                 stopTappedAt.map { "stopped in \(Int(Date().timeIntervalSince($0) * 1000)) ms" },
             ].compactMap { $0 }
             speechOutcome = (["\(ending.finishReason?.rawValue ?? "unknown")", locale, voice, target, locality] + timings)
@@ -630,7 +630,9 @@ final class DemoViewModel: ObservableObject {
                 limits: nil,
                 runtime: nil,
                 source: Source(ref: directory.path, sourceType: .filesystem),
+                speech: nil,
                 tasks: ["text_to_text"],
+                variant: nil,
                 version: nil
             )
             // No runtime override: defaults to SystemOnnxGenAiRuntime(), real ONNX Runtime inference.
@@ -649,7 +651,9 @@ final class DemoViewModel: ObservableObject {
             limits: nil,
             runtime: nil,
             source: Source(ref: nil, sourceType: .programmatic),
+            speech: nil,
             tasks: ["text_to_text"],
+            variant: nil,
             version: nil
         )
         return OnnxRuntimeAppleProvider(

@@ -344,6 +344,7 @@ private fun ProviderTaskAvailability.toPlannerJson(): JSONObject = JSONObject()
                         .put("id", voice.id)
                         .put("name", voice.name)
                         .put("locale", voice.locale)
+                        .put("locales", voice.locales?.let { JSONArray(it) })
                         .put("gender", voice.gender?.rawValue)
                         .put("networkRequired", voice.networkRequired)
                         .put("readiness", voice.readiness?.rawValue)
@@ -429,6 +430,7 @@ private fun JSONObject.toProviderVoice(): ProviderVoice = ProviderVoice(
     id = optString("id").takeUnless { it.isEmpty() },
     name = optString("name").takeUnless { it.isEmpty() },
     locale = getString("locale"),
+    locales = optJSONArray("locales")?.toStringList(),
     gender = optString("gender").takeUnless { it.isEmpty() }?.let(VoiceGender::fromRawValue),
     networkRequired = if (has("networkRequired")) getBoolean("networkRequired") else null,
     readiness = optString("readiness").takeUnless { it.isEmpty() }?.let(ProviderReadiness::fromRawValue),

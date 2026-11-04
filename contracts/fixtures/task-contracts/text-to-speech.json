@@ -24,7 +24,7 @@
         "runId": "run_tts_1",
         "output": {
           "type": "playback",
-          "playback": { "durationMs": 2140 },
+          "playback": { "timing": { "durationMs": 2140, "firstAudioMs": 240, "firstChunkMs": 180 } },
           "speech": { "locale": "de-DE", "voice": { "gender": "female" } }
         },
         "finishReason": "stop",
@@ -54,7 +54,7 @@
         "schemaVersion": "1.0",
         "runId": "run_tts_2",
         "outcome": "cancelled",
-        "output": { "type": "playback", "playback": { "durationMs": 640 } },
+        "output": { "type": "playback", "playback": { "timing": { "durationMs": 640 } } },
         "reason": "consumer_cancelled"
       },
       "planner": {

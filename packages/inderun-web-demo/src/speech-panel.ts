@@ -150,14 +150,16 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
         stopButton.disabled = false;
         // Stop takes focus, so a keyboard user can stop with one key press.
         stopButton.focus();
-        const { finishReason, speech, provenance, firstAudioMs } = await playback.result;
+        const { finishReason, speech, provenance, timing } = await playback.result;
         const parts = [
           finishReason,
           speech?.locale ?? locale.value,
           speech?.voice?.name,
           provenance?.providerId,
           provenance?.locality,
-          firstAudioMs !== undefined ? `first word ${Math.round(firstAudioMs)} ms` : undefined,
+          timing?.firstAudioMs !== undefined
+            ? `first word ${Math.round(timing.firstAudioMs)} ms`
+            : undefined,
           stopPressedAt !== undefined
             ? `stopped in ${Math.round(performance.now() - stopPressedAt)} ms`
             : undefined

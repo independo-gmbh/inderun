@@ -153,7 +153,7 @@ Release notes name what a platform does not support. For 0.5:
 | `generateSpeech()` (retrievable `audio/wav`) | **No**: playback only | Yes | Yes | Pending (#250) |
 | `listVoices()` / `prepare()` | Yes | Yes | Yes | Pending (#250) |
 | `local_required` speech | **Refused**: no evidence speech stays on device | Yes | Yes, voices without the network flag | Pending (#250) |
-| `firstAudioMs` | Where the browser sends word boundaries | Yes | Where the engine sends word ranges | Pending (#250) |
+| `timing.firstAudioMs` | Where the browser sends word boundaries | Yes | Where the engine sends word ranges | Pending (#250) |
 
 What has actually been run on which device is in [verification/system-speech.md](./verification/system-speech.md); a
 release note claims only what is recorded there.
