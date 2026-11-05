@@ -87,6 +87,7 @@ let package = Package(
             dependencies: [
                 "IndeRunCore",
                 "IndeRunContracts",
+                "IndeRunNeuralSpeech",
                 .product(name: "onnxruntime", package: "onnxruntime-swift-package-manager"),
                 .product(name: "Tokenizers", package: "swift-transformers")
             ],

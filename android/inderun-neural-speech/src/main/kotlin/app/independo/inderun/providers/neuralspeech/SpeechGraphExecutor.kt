@@ -24,6 +24,10 @@ data class SpeechTensor(val shape: List<Int>, val data: SpeechTensorData)
  * Runs one graph of a speech model package; implemented by the ONNX Runtime executor (PR 4).
  * [load] receives the package's `speech.graphs` (role to file), [run] executes the graph with that
  * role, and [close] releases what [load] acquired.
+ *
+ * A [load] replaces what an earlier load left: the previous graphs are released once no run uses
+ * them, and only the ones given here can run. A pipeline runtime calls it once per successful
+ * `prepare` of a package, and again only after a failed one.
  */
 interface SpeechGraphExecutor {
     suspend fun load(graphs: Map<String, String>)

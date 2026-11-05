@@ -84,3 +84,44 @@ describe("neural-speech-lifecycle.json", () => {
     expect(getModelPackageValidationIssues(fixture.package)).toEqual([]);
   });
 });
+
+type PipelineTensor = { shape: number[]; data: number[] };
+type PipelineCase = { id: string; kind: string };
+type Pipeline = {
+  config: { charset: string };
+  voice: Record<string, PipelineTensor>;
+  cases: PipelineCase[];
+};
+
+describe("articulino-pipeline.json", () => {
+  const fixture = load("articulino-pipeline.json") as Pipeline;
+  const kinds = [
+    "letters",
+    "durations",
+    "frameCondition",
+    "flowSteps",
+    "postprocess",
+    "split",
+    "endToEnd",
+    "cancel"
+  ];
+
+  it("has unique case ids and a handled kind for every case", () => {
+    const caseIds = fixture.cases.map((c) => c.id);
+    expect(new Set(caseIds).size).toBe(caseIds.length);
+    for (const c of fixture.cases) {
+      expect(kinds, c.id).toContain(c.kind);
+    }
+  });
+
+  it("has a charset of 52 characters", () => {
+    expect([...fixture.config.charset]).toHaveLength(52);
+  });
+
+  it("gives every voice tensor as many values as its shape holds", () => {
+    for (const [name, tensor] of Object.entries(fixture.voice)) {
+      const size = tensor.shape.reduce((a, b) => a * b, 1);
+      expect(tensor.data.length, name).toBe(size);
+    }
+  });
+});

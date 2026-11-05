@@ -58,7 +58,7 @@ struct KvCacheLayout: Sendable {
 /// should be created before and destroyed after other ORT API usage" -- creating a fresh one per
 /// model load (the previous behavior) worked but discarded that shared-lifecycle intent for no
 /// benefit.
-private enum SharedOnnxEnvironment {
+enum SharedOnnxEnvironment {
     static let instance: Result<ORTEnv, OnnxRuntimeError> = {
         do {
             return .success(try ORTEnv(loggingLevel: .warning))

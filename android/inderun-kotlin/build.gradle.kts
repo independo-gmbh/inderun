@@ -75,6 +75,9 @@ dependencies {
 
     // Real TextToSpeech on an emulator or device: `connectedAndroidTest` (docs/ci.md).
     androidTestImplementation(project(":inderun-system-speech-providers"))
+    // The real-model neural speech test runs the Articulino graphs through ONNX Runtime.
+    androidTestImplementation(project(":inderun-onnx-providers"))
+    androidTestImplementation(project(":inderun-neural-speech"))
     androidTestImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core:1.7.0")
     androidTestImplementation("androidx.test:runner:1.7.0")

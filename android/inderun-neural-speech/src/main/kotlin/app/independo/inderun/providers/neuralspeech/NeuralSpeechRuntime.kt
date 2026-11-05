@@ -22,8 +22,12 @@ data class NeuralSpeechSynthesisInput(
 /**
  * Executes a speech model package.
  *
- * [availability] is also where an unknown `pipeline` and `limits.memBytes` are refused, with the
- * reason verbatim; it must not load the model. [prepare] loads it. [synthesize] is called once per
+ * [availability] is also where an unknown `pipeline` is refused, with the reason verbatim; it must
+ * not load the model. `limits.memBytes` is refused there by the composed runtime of
+ * `inderun-onnx-providers` (`OnnxNeuralSpeechRuntime`), against the device's total memory; the
+ * pipeline runtimes (`ArticulinoRuntime`) do not check it. [prepare] loads the model and is
+ * idempotent on success: the same package (`id@version`) prepared again returns the remembered
+ * outcome; only a failed prepare is retried. [synthesize] is called once per
  * sentence and produces that sentence's PCM; it honours coroutine cancellation between chunks
  * (cancelling the collector ends synthesis), and signals failures with [NeuralSpeechRuntimeError].
  *

@@ -21,7 +21,9 @@ public struct SpeechTensor: Sendable, Equatable {
 /// to its file). Implemented by the ONNX Runtime and Core AI executors of later releases; a
 /// ``NeuralSpeechRuntime`` drives it.
 public protocol SpeechGraphExecutor: Sendable {
-    /// Loads every graph, keyed by role.
+    /// Loads every graph, keyed by role. A load replaces what an earlier load left: the previous graphs
+    /// are released once no run uses them, and only the ones given here can run. A pipeline runtime calls
+    /// it once per successful `prepare` of a package, and again only after a failed one.
     func load(graphs: [String: String]) async throws
     /// Runs the graph of `role` on `inputs`, returning its outputs by name.
     func run(role: String, inputs: [String: SpeechTensor]) async throws -> [String: SpeechTensor]

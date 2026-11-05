@@ -134,14 +134,29 @@ let playback = try await inderun.speak(SpeakOptions("Der Bus kommt.", locale: "d
 ```
 
 `NeuralSpeechProvider` runs a developer-supplied speech model package (its `speech` block names
-the pipeline, graphs and voices) through a `NeuralSpeechRuntime` you pass in: no runtime ships yet,
-so `runtime` is required. Its id is `local.onnx.speech.apple:<modelPackage.id>`, so one provider per
+the pipeline, graphs and voices) through a `NeuralSpeechRuntime` you pass in, so `runtime` is
+required. Its id is `local.onnx.speech.apple:<modelPackage.id>`, so one provider per
 model registers without clashes. `speak` plays through the host's `audioOutput`
 (`DefaultHostServices.make()` provides one; a host without it refuses before any sound with
 `audio_output_unavailable`, so the run can fall back), one utterance at a time per provider;
 `generateSpeech` returns an `audio/wav` artifact of at most 16 MiB and needs no audio output.
-`prepare()` loads the model ahead of the first call. The package's sources may be `bundled`,
-`programmatic`, `app_managed` or `filesystem`.
+`prepare()` loads the model ahead of the first call.
+
+`OnnxNeuralSpeechRuntime()` (in `IndeRunOnnxProviders`, which re-exports `IndeRunNeuralSpeech`) runs
+`pipeline: "articulino"` packages through ONNX Runtime on the CPU execution provider. The package
+sits in one directory, as `tools/neural-speech/README.md` writes it:
+
+```
+model-package.json        # the ModelPackage; speech.graphs, speech.voices, integrity.checksums
+config.json
+text.onnx  dit_step.onnx  decoder.onnx
+voices/<id>.safetensors
+```
+
+The directory comes from the package `source`: `filesystem` (`ref` is the path), `bundled` (relative
+to the app bundle's resources) or `app_managed` (relative to Application Support); other source
+types are refused with the reason in `availability`. Declared checksums are verified at `prepare()`.
+The runtime has no German frontend for digits yet: write numbers as words until it lands.
 
 ## Streaming
 
