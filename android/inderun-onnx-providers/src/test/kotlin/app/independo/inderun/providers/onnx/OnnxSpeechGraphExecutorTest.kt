@@ -22,6 +22,8 @@ import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * None of these reach ONNX Runtime (its native library is not loadable on the JVM) or touch the
@@ -36,6 +38,30 @@ class OnnxSpeechGraphExecutorTest {
             val unsafe = unsafeField.get(null) as sun.misc.Unsafe
             return unsafe.allocateInstance(android.content.ContextWrapper::class.java) as Context
         }
+
+    @Test
+    fun closedSessionsAreClosedOnTheExecutionThreadAfterQueuedRuns() {
+        val running = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        var closedOn: String? = null
+        // Stands in for a run in flight on the execution thread.
+        OnnxExecutionDispatcher.dispatcher.executor.execute {
+            running.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
+        assertTrue(running.await(5, TimeUnit.SECONDS))
+        closeOnExecutionThread(
+            listOf {
+                closedOn = Thread.currentThread().name
+                closed.countDown()
+            },
+        )
+        assertFalse("closed while a run was in flight", closed.await(100, TimeUnit.MILLISECONDS))
+        release.countDown()
+        assertTrue(closed.await(5, TimeUnit.SECONDS))
+        assertEquals("inderun-onnx-execution", closedOn)
+    }
 
     @Test
     fun runBeforeLoadIsInternal() = runTest {

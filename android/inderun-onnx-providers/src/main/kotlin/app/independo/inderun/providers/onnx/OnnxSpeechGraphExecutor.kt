@@ -35,8 +35,9 @@ private class LoadedSpeechGraph(val session: OrtSession, val options: OrtSession
  * tensors are f32 or i64 only (see [SpeechTensor]); a graph output of any other element type is
  * refused. No ONNX Runtime type appears in this class's signatures.
  *
- * [load] replaces the loaded graphs. A run looks its session up on the dispatcher and the replaced
- * sessions are closed there too, after the swap, so a session is never closed while a run uses it.
+ * [load] replaces the loaded graphs and [close] drops them. A run looks its session up on the
+ * dispatcher and the dropped sessions are closed there too, after the swap, so a session is never
+ * closed while a run uses it.
  *
  * @param threads ONNX Runtime intra-op threads; default `min(4, availableProcessors)`.
  */
@@ -71,7 +72,7 @@ class OnnxSpeechGraphExecutor(private val directory: File, threads: Int? = null)
 
     override fun close() {
         val previous = synchronized(lock) { graphs.also { graphs = emptyMap() } }
-        previous.values.forEach { it.close() }
+        closeOnExecutionThread(previous.values.map { graph -> { graph.close() } })
     }
 
     private fun createGraph(role: String, file: String): LoadedSpeechGraph {

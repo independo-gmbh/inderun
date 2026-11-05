@@ -43,7 +43,8 @@ data class OnnxNeuralSpeechRuntimeOptions(
  * (`filesystem`, `bundled` or `app_managed` sources), checks the declared checksums at `prepare`,
  * and runs the Articulino pipeline through ONNX Runtime. One pipeline runtime is built and cached
  * per package id and version. A package whose `limits.memBytes` exceeds the device's total memory is
- * refused at `availability`, `prepare` and `synthesize`, before anything loads.
+ * refused at `availability`, `prepare` and `synthesize`, before anything loads. A bundled source is
+ * extracted by `prepare` (or a `synthesize` that loads), never by `availability`.
  */
 class OnnxNeuralSpeechRuntime(
     private val context: Context,
@@ -59,18 +60,18 @@ class OnnxNeuralSpeechRuntime(
     private val mutex = Mutex()
     private val runtimes = HashMap<String, ArticulinoRuntime>()
 
-    override suspend fun availability(modelPackage: ModelPackage): NeuralSpeechAvailability = when (val resolution = resolve(modelPackage, verify = false)) {
+    override suspend fun availability(modelPackage: ModelPackage): NeuralSpeechAvailability = when (val resolution = resolve(modelPackage, verify = false, extract = false)) {
         is Resolution.Ready -> resolution.runtime.availability(modelPackage)
         is Resolution.Refused -> resolution.availability
     }
 
-    override suspend fun prepare(modelPackage: ModelPackage): NeuralSpeechAvailability = when (val resolution = resolve(modelPackage, verify = true)) {
+    override suspend fun prepare(modelPackage: ModelPackage): NeuralSpeechAvailability = when (val resolution = resolve(modelPackage, verify = true, extract = true)) {
         is Resolution.Ready -> resolution.runtime.prepare(modelPackage)
         is Resolution.Refused -> resolution.availability
     }
 
     override fun synthesize(input: NeuralSpeechSynthesisInput): Flow<PcmChunk> = flow {
-        when (val resolution = resolve(input.modelPackage, verify = false)) {
+        when (val resolution = resolve(input.modelPackage, verify = false, extract = true)) {
             is Resolution.Refused -> throw NeuralSpeechRuntimeError(
                 NeuralSpeechRuntimeErrorKind.Unavailable,
                 resolution.availability.reason ?: "unavailable",
@@ -79,7 +80,7 @@ class OnnxNeuralSpeechRuntime(
         }
     }
 
-    private suspend fun resolve(modelPackage: ModelPackage, verify: Boolean): Resolution {
+    private suspend fun resolve(modelPackage: ModelPackage, verify: Boolean, extract: Boolean): Resolution {
         val pipeline = modelPackage.speech?.pipeline
         if (pipeline != "articulino") {
             return Resolution.Refused(NeuralSpeechAvailability(false, "unsupported pipeline '${pipeline.orEmpty()}'"))
@@ -97,9 +98,9 @@ class OnnxNeuralSpeechRuntime(
             ?: return Resolution.Refused(NeuralSpeechAvailability(false, "model source unavailable: no model source was configured."))
         val key = "${modelPackage.id}:${modelPackage.version.orEmpty()}"
         val directory = try {
-            // Bundled sources are extracted on first use, which is blocking file work.
+            // Extracting a bundled source is blocking file work.
             withContext(Dispatchers.IO) {
-                directories.resolve(modelPackage, sourceType, key).also {
+                directories.resolve(modelPackage, sourceType, key, extract).also {
                     if (verify) directories.verifyChecksums(it, modelPackage)
                 }
             }

@@ -25,14 +25,19 @@ export interface OnnxNeuralSpeechRuntimeOptions {
 
 /**
  * Reads package files over `fetch`, relative to `baseUrl`. Names that are empty, absolute (a path
- * or a URL) or contain a `..` component are refused, so a package cannot read outside its base.
+ * or a URL) or contain a `..` component, written or percent-encoded, are refused, and the resolved
+ * URL must stay under the base's origin and path, so a package cannot read outside its base.
  */
 export function createUrlPackageFiles(baseUrl: string | URL): SpeechPackageFiles {
   const base = directoryUrl(baseUrl);
   return {
     async read(file) {
       checkPackageFileName(file);
-      const response = await fetch(new URL(file, base));
+      const url = new URL(file, base);
+      if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
+        throw new NeuralSpeechRuntimeError("capability", `model file name invalid: ${file}`);
+      }
+      const response = await fetch(url);
       if (!response.ok) {
         throw new NeuralSpeechRuntimeError(
           "capability",

@@ -253,7 +253,12 @@ describe("url package files", () => {
       "a/../../x.onnx",
       "/x.onnx",
       "https://evil.example/x.onnx",
-      "//evil.example/x"
+      "//evil.example/x",
+      "%2e%2e/x",
+      "a/%2E%2e/x",
+      ".%2E/x",
+      "a%2f..%2fx",
+      "a%5cx"
     ]) {
       await expect(files.read(name), name).rejects.toMatchObject({
         kind: "capability",
@@ -261,5 +266,16 @@ describe("url package files", () => {
       });
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads a nested path inside the package directory", async () => {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1])));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await createUrlPackageFiles("https://cdn.example/models/art/").read(
+      "voices/de/v%20one.safetensors"
+    );
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://cdn.example/models/art/voices/de/v%20one.safetensors"
+    );
   });
 });
