@@ -117,6 +117,24 @@ jobs:
       - name: Run Swift package tests against the committed route core
         run: swift test
 
+      # The Core AI module compiles to a stub on any Xcode without the CoreAI
+      # framework (first in the macOS 27 SDK), so the two test passes above never
+      # type-check the real path. This step picks the newest Xcode on the runner
+      # and builds the module, then the IndeRunTests target (so the Core AI test
+      # files are type-checked too; SwiftPM refuses `--target` with
+      # `--build-tests`), in its own scratch path so the toolchain
+      # switch never leaks into the test and simulator steps below. Advisory until
+      # macos-latest ships Xcode 27: until then it still builds the stub, and a
+      # newer toolchain may fail for reasons unrelated to this module.
+      - name: Build the Core AI module with the newest Xcode
+        continue-on-error: true
+        run: |
+          newest="$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+          echo "Using $newest"
+          DEVELOPER_DIR="$newest/Contents/Developer" xcodebuild -version
+          DEVELOPER_DIR="$newest/Contents/Developer" swift build --target IndeRunCoreAIProviders --scratch-path .build-coreai
+          DEVELOPER_DIR="$newest/Contents/Developer" swift build --target IndeRunTests --scratch-path .build-coreai
+
       # The Swift half of the cross-platform public-API guard (#189). Scoped to
       # IndeRunContracts on purpose: swift-api-digester cannot load a baseline for
       # any target that depends on the InderunRouteCoreFFI binary target ("missing

@@ -1,5 +1,6 @@
 import Foundation
 import IndeRunContracts
+import IndeRunCore
 
 /// Options of an ``OnnxNeuralSpeechRuntime``.
 public struct OnnxNeuralSpeechRuntimeOptions: Sendable {
@@ -68,21 +69,13 @@ public final class OnnxNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Send
     }
 
     public func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    switch await self.resolve(input.modelPackage, verify: false) {
-                    case let .refused(refusal):
-                        throw NeuralSpeechRuntimeError(kind: .unavailable, message: refusal.reason ?? "unavailable")
-                    case let .ready(runtime):
-                        for try await chunk in runtime.synthesize(input) { continuation.yield(chunk) }
-                    }
-                    continuation.finish()
-                } catch {
-                    if Task.isCancelled { continuation.finish() } else { continuation.finish(throwing: error) }
-                }
+        ComposedNeuralSpeechRuntime.stream { continuation in
+            switch await self.resolve(input.modelPackage, verify: false) {
+            case let .refused(refusal):
+                throw NeuralSpeechRuntimeError(kind: .unavailable, message: refusal.reason ?? "unavailable")
+            case let .ready(runtime):
+                for try await chunk in runtime.synthesize(input) { continuation.yield(chunk) }
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -91,19 +84,14 @@ public final class OnnxNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Send
         guard pipeline == "articulino" else {
             return .refused(NeuralSpeechAvailability(available: false, reason: "unsupported pipeline '\(pipeline ?? "")'"))
         }
-        if let needed = modelPackage.limits?.memBytes {
-            let device = options.deviceMemoryBytes?() ?? ProcessInfo.processInfo.physicalMemory
-            if needed > 0, UInt64(needed) > device {
-                return .refused(NeuralSpeechAvailability(
-                    available: false, reason: "insufficient memory: package needs \(needed) bytes, device has \(device) bytes"
-                ))
-            }
+        if let reason = ComposedNeuralSpeechRuntime.memoryRefusal(modelPackage, deviceMemoryBytes: options.deviceMemoryBytes) {
+            return .refused(NeuralSpeechAvailability(available: false, reason: reason))
         }
         let directory: URL
         do {
-            directory = try LoadedSessionBox.resolveDirectory(modelPackage)
-            if verify { try LoadedSessionBox.verifyChecksums(modelPackage, directory: directory) }
-        } catch let error as OnnxRuntimeError {
+            directory = try ModelPackageDirectory.resolve(modelPackage)
+            if verify { try ModelPackageDirectory.verifyChecksums(modelPackage, directory: directory) }
+        } catch let error as ModelPackageDirectoryError {
             return .refused(NeuralSpeechAvailability(available: false, reason: error.message))
         } catch {
             return .refused(NeuralSpeechAvailability(available: false, reason: String(describing: error)))

@@ -149,6 +149,13 @@ public final class ArticulinoRuntime: NeuralSpeechRuntime {
     // MARK: Availability and prepare
 
     private func check(_ modelPackage: ModelPackage) -> NeuralSpeechAvailability {
+        Self.checkPackage(modelPackage)
+    }
+
+    /// The package metadata the pipeline needs (pipeline, `frontend.assets.config`, the three graph
+    /// roles, a file per voice), checked without loading anything, so a composed runtime can refuse
+    /// an incomplete package before it does expensive work of its own.
+    package static func checkPackage(_ modelPackage: ModelPackage) -> NeuralSpeechAvailability {
         let speech = modelPackage.speech
         guard speech?.pipeline == Self.pipeline, let speech else {
             return NeuralSpeechAvailability(available: false, reason: "unsupported pipeline '\(speech?.pipeline ?? "")'")

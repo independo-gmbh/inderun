@@ -1,15 +1,27 @@
 import Foundation
 import IndeRunContracts
 
+/// How ready a runtime's model is before the provider has loaded it (ADR 019).
+public enum NeuralSpeechReadiness: String, Sendable, Equatable {
+    /// A `prepare` is required before a run can succeed.
+    case notPrepared = "not_prepared"
+    /// A run works, but the first one is slow.
+    case cold
+}
+
 /// Availability snapshot reported by a ``NeuralSpeechRuntime``.
 public struct NeuralSpeechAvailability: Sendable, Equatable {
     public let available: Bool
     /// Human-readable detail; the provider surfaces it verbatim when `available` is `false`.
     public let reason: String?
+    /// Optional hint, reported until the provider has loaded the model itself; `nil` keeps the
+    /// provider's own `cold`.
+    public let readiness: NeuralSpeechReadiness?
 
-    public init(available: Bool, reason: String? = nil) {
+    public init(available: Bool, reason: String? = nil, readiness: NeuralSpeechReadiness? = nil) {
         self.available = available
         self.reason = reason
+        self.readiness = readiness
     }
 }
 

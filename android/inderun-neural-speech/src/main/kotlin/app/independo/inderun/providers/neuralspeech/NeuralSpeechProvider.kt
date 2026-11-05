@@ -233,13 +233,15 @@ class NeuralSpeechProvider(
         }
         loadFailure?.let { return unavailable(it) }
 
+        // Until the provider has loaded the model, the runtime's hint (when it gives one) wins over cold.
+        val hint = if (loaded) null else availability.readiness?.let { ProviderReadiness.fromRawValue(it.rawValue) }
         return ProviderDynamicCapabilities(
             available = true,
             taskCapabilities = listOf(
                 ProviderTaskAvailability(
                     kind = TASK,
-                    voices = speech.voices.map(::listed),
-                    readiness = if (loaded) null else ProviderReadiness.Cold,
+                    voices = speech.voices.map { listed(it).copy(readiness = hint) },
+                    readiness = if (loaded) null else hint ?: ProviderReadiness.Cold,
                 ),
             ),
         )

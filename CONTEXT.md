@@ -42,7 +42,7 @@ provider families (ONNX Runtime, web system-model) do not stream yet.
 Text-to-speech is implemented through `speak()` / `generateSpeech()` /
 `listVoices()` and the system speech providers on all three platforms (ADR 018). A neural speech provider family
 (`local.onnx.speech.*`, runtime seam, fixture runtime) exists on all three SDKs; its ONNX executor and the first model
-pipeline (Articulino) ship, and the German text frontend and Apple Core AI follow (ADR 020, ADR 021).
+pipeline (Articulino) ship, the Apple Core AI runtime ships for iOS/macOS 27 (ADR 022; model conversion record pending), and the German text frontend follows (ADR 020, ADR 021).
 Mode 3 `openSession()` / realtime sessions remain unimplemented.
 
 Out of scope now:
@@ -259,6 +259,11 @@ Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing 
   — build an Articulino model package (graphs, int64-`text_mask` `text.onnx`, voices, `model-package.json`).
 - `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_articulino_voice.py --models <onnx-release-dir> --precision int8 --wav <file> --out <file>.safetensors`
   — build one voice bundle.
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_coreai_package.py --asset <articulino.aimodel> --config <config.json> --models <onnx-release-dir> --precision int8 --voice <wav>[:<id>] --out <dir>`
+  — build an Articulino Core AI model package (the exported `.aimodel`, `config.json`, voices, `model-package.json`).
+- `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 5]` — opt-in: time an
+  ONNX Articulino package on a connected iPhone through the demo app, with a temporary hook the script reverts (needs
+  Xcode and a paired phone; see the README).
 - `tools/neural-speech/.venv/bin/python tools/neural-speech/generate_pipeline_fixture.py` — regenerate
   `contracts/fixtures/speech/articulino-pipeline.json`; the output is deterministic.
 
