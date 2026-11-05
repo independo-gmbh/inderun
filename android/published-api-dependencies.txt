@@ -34,6 +34,7 @@ inderun-neural-speech compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-neural-speech compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-onnx-providers compile app.independo.inderun:inderun-contracts
 inderun-onnx-providers compile app.independo.inderun:inderun-core
+inderun-onnx-providers compile app.independo.inderun:inderun-neural-speech
 inderun-onnx-providers compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-onnx-providers runtime ai.djl.android:tokenizer-native
 inderun-onnx-providers runtime ai.djl.huggingface:tokenizers

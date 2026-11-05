@@ -108,8 +108,8 @@ My calls (overridable):
     `kotlin-enum-wire-values.mjs` churn per family; the provider refuses unknown values with
     `capability_unavailable: unsupported pipeline`.
   - `sampleRate` (required with `speech`), `channels`.
-  - `graphs`: `{ role: file }` — roles defined by the pipeline (Articulino `text_encoder`,
-    `acoustic`, `codec`; Supertonic `text_encoder`, `duration`, `estimator`, `vocoder`). Same map
+  - `graphs`: `{ role: file }` — roles defined by the pipeline (Articulino `text`, `dit_step`,
+    `decoder`, with `encoder` and `voice` run offline by the tool; Supertonic `text_encoder`, `duration`, `estimator`, `vocoder`). Same map
     for ONNX files and `.aimodel` inference functions.
   - `frontend`: `{ kind: "grapheme" | "phoneme", assets: { role: file }, license? }`.
   - `voices[]`: `{ id, name, locales: [BCP47…] (minItems 1), gender?, file, license: {spdx,url} }`;
@@ -193,7 +193,8 @@ NeuralSpeechRuntime.synthesize({pkg, text, locale, voiceId, signal}) -> AsyncIte
 SpeechGraphExecutor.load(graphs: {role: path}); run(role, inputs: {name: SpeechTensor}) -> {name: SpeechTensor}   // SpeechTensor {shape, f32 | i64}
 ```
 
-The default runtime = pipeline (from `speech.pipeline`) over an executor; `createFixtureNeuralSpeechRuntime()`
+The default runtime = pipeline (from `speech.pipeline`, in `articulino/`, with the safetensors voice reader and the
+`SpeechPackageFiles` seam) over an executor, composed per SDK in the ORT module; `createFixtureNeuralSpeechRuntime()`
 emits deterministic tone chunks for tests and demos.
 
 Descriptor: `type: local`, `transport: in_process`, `model: modelPackage.id`, `cancel: hard`
@@ -204,7 +205,7 @@ outputs: [playback, artifact audio/wav], locales: union of voices[].locales }]`,
 `runtime.availability` → remembered load failure → `readiness: cold` until loaded (pattern from
 `OnnxRuntimeAppleProvider.capabilities`); voices from `speech.voices` with `locale = locales[0]`,
 `locales`, `gender`, `networkRequired: false`; below `limits.memBytes` → `available: false` with
-reason. Execution: shared sentence splitter; per sentence run the pipeline and either write chunks
+reason (the composed ONNX runtime on Apple and Android; the web has no host memory API). Execution: shared sentence splitter; per sentence run the pipeline and either write chunks
 to the audio session (playback: commit before first write; `timing.firstChunkMs` from the pipeline,
 `timing.firstAudioMs` from the sink, `timing.durationMs` from samples) or append to an `ArtifactWriter`
 (WAV header + s16 chunks; stop at the existing 16 MiB cap before `finish()` — ≈5.5 min at
@@ -215,14 +216,15 @@ provider-to-engine path for partial timing on cancel (how long played before the
 
 Placement:
 
-- Web: `packages/inderun-web/src/providers/neural-speech/{provider,runtime,pipeline,frontend,
-  wav,ort-executor,pipelines/articulino}.ts`; subpath `./neural-speech` in `package.json`
+- Web: `packages/inderun-web/src/providers/neural-speech/{provider,runtime,frontend,wav,
+  safetensors,ort-executor,onnx-runtime}.ts` and `articulino/{config,math,runtime}.ts`; subpath `./neural-speech` in `package.json`
   `exports`; `createIndeRunWeb({ neuralSpeech: [...] })` in `web-sdk.ts`; `onnxruntime-web` as
   an optional peer reached structurally, like `TransformersModule`; COOP/COEP headers already set
   by the web demo for WASM threads. `pnpm verify:packaging` covers the new subpath.
 - Apple: new target + product `IndeRunNeuralSpeech` (`ios/IndeRun/Sources/IndeRunNeuralSpeech/`:
   `NeuralSpeechProvider.swift`, `NeuralSpeechRuntime.swift`, `SpeechGraphExecutor.swift`,
-  `SpeechTextFrontend.swift`, `ArticulinoPipeline.swift`, `PcmChunk.swift`,
+  `SpeechTextFrontend.swift`, `Safetensors.swift`, `SpeechPackageFiles.swift`,
+  `Articulino/{ArticulinoConfig,ArticulinoMath,ArticulinoRuntime}.swift`, `PcmChunk.swift`,
   `FixtureNeuralSpeechRuntime.swift`, `Exports.swift` with `@_exported import IndeRunCore`);
   depends on `IndeRunCore` only. `OnnxSpeechGraphExecutor.swift` goes into
   `IndeRunOnnxProviders` (already links ORT and `SharedOnnxEnvironment`), which gains a
@@ -330,14 +332,15 @@ per model — never a model id on the request.
 | 1 | Contracts + planner `locales` + facade `kind` + fixtures + ADR 020 (XCFramework rebuild + provenance) | 2–3 d | — |
 | 2 | `audioOutput` host service ×3 + defaults + fixture + ADR 021 | 3–4 d | 1 |
 | 3 | Neural speech family (first step: move `getModelPackageValidationIssues` into Core and add the structural speech rules natively): modules ×3, provider, seams, fixture runtime, parity fixtures, family doc, matrix rows | 5–7 d | 1, 2 |
-| 4 | ORT executors ×3 + Articulino pipeline + frontend port + env-gated real-model tests | 5–8 d | 0, 3 |
-| 5 | Core AI module + CI step + conversion record + ADR 022 (ADR 019 amendment) | 4–6 d | 0b, 3 (parallel with 4) |
-| 6 | Catalog + downloaders + Voices lab ×3 | 5–7 d | 4 |
-| 7 | Corpus extension + benchmark targets + JSON export + verification docs + first device numbers (ORT vs Core AI on the same iPhone) | 3–4 d | 4, 5 |
-| 8 | Supertonic 3 pipeline (`benchmark_only` until legal sign-off) | 3–4 d | 4 |
-| 9 | Non-GPL G2P increment + Kokoro pipeline (DE + EN) | 10–15 d | 4 |
+| 4a | ORT executors ×3 + Articulino pipeline + safetensors voices + preparation tool + env-gated real-model tests | 5–8 d | 0, 3 |
+| 4b | German frontend: pre-split hook; numbers, ordinals, decimals, times, dates (incl. Jänner), money, units, abbreviations, acronyms, digit fallback | 3–5 d | 4a |
+| 5 | Core AI module + CI step + conversion record + ADR 022 (ADR 019 amendment) | 4–6 d | 0b, 3, 4a (reuses its pipeline and seams; parallel with 4b) |
+| 6 | Catalog + downloaders + Voices lab ×3 | 5–7 d | 4a |
+| 7 | Corpus extension + benchmark targets + JSON export + verification docs + first device numbers (ORT vs Core AI on the same iPhone) | 3–4 d | 4a, 5 |
+| 8 | Supertonic 3 pipeline (`benchmark_only` until legal sign-off) | 3–4 d | 4a |
+| 9 | Non-GPL G2P increment + Kokoro pipeline (DE + EN) | 10–15 d | 4a |
 | 10 | Piper pipeline (reuses G2P) | 3–5 d | 9 |
-| 11 | Pocket TTS viability spike → implement or document unavailable | 3–8 d | 4 |
+| 11 | Pocket TTS viability spike → implement or document unavailable | 3–8 d | 4a |
 | 12 | Device campaign (one Apple-Intelligence iPhone, one older iPhone, one midrange Android), listening scores per locale, write-up | ongoing | 7+ |
 | 13 | Capacitor bridge (bridge repo, after #250): `configure({speech:{models:[{modelPackage, runtime:"onnx"|"coreai"}]}})`, `listVoices`, `speak/stopSpeaking`, `prepare` | separate | 6 |
 

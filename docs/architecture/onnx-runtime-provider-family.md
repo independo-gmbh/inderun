@@ -240,6 +240,11 @@ duplicate it, to avoid drifting out of sync with the implementation.
 **Authoring a custom local provider:** implement `OnnxTextGenerationRuntime`, per
 [Authoring A Custom Local ONNX Provider](#authoring-a-custom-local-onnx-provider) below.
 
+**Speech.** The same modules also host the ONNX Runtime `SpeechGraphExecutor` and the composed neural speech runtime
+(`createOnnxNeuralSpeechRuntime` on the Web, with `onnxruntime-web` as an optional peer; `OnnxNeuralSpeechRuntime` in
+`IndeRunOnnxProviders` and `inderun-onnx-providers`). They serve the neural speech provider, not
+`local.onnx.genai.*`; see [neural-speech-provider-family.md](neural-speech-provider-family.md).
+
 ## Apple Implementation
 
 Ships as its own SwiftPM library product, `IndeRunOnnxProviders`

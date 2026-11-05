@@ -193,12 +193,20 @@ Apple and Android default bundles now include one, so nothing changes for an app
 
 ### Neural speech provider family
 
-Additive, except for one Kotlin import below. The neural speech family
+Additive, apart from three changes listed below: a wider Swift re-export, a new Kotlin `api` dependency and one moved
+Kotlin import. The neural speech family
 ([ADR 020](./architecture/decisions/020-neural-speech-and-model-packages.md),
 [family doc](./architecture/neural-speech-provider-family.md)) adds a Web subpath `@independo/inderun-web/neural-speech`
 with a `neuralSpeech` option on `createIndeRunWeb`, a Swift product and target `IndeRunNeuralSpeech`, and a Kotlin Gradle
-module `inderun-neural-speech`. Nothing registers it by default, so an app that does not use it changes nothing. No
-runtime that runs a real model ships yet; the provider takes an injected `runtime`.
+module `inderun-neural-speech`. Nothing registers it by default, so an app that does not use it changes nothing. The provider takes a required
+`runtime`; an ONNX Runtime runtime with the Articulino pipeline now ships on all three SDKs (below).
+
+- **Web: a new optional peer.** `onnxruntime-web` is an optional peer dependency of `@independo/inderun-web`, needed only
+  for `createOnnxNeuralSpeechRuntime()`. Apps that do not use it install nothing.
+- **Swift: a wider re-export.** `IndeRunOnnxProviders` now re-exports `IndeRunNeuralSpeech`, so an app that imports it
+  also sees the neural speech types; a name clash is the only way this can break existing code.
+- **Kotlin: a new `api` dependency.** `inderun-onnx-providers` now depends on `inderun-neural-speech` with `api`, so its
+  types are on a consumer's compile classpath.
 
 The model package validator moved into Core on Swift and Kotlin, so the ONNX and neural speech families share one. This
 matters only to code that names it directly.

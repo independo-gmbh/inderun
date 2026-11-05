@@ -72,6 +72,24 @@ SDK and documented once, in [Streaming (Mode 2)](../docs/streaming.md). Note in 
 `content_snapshot` must be handled even though both Android providers emit `content_delta`: ML Kit
 uses an empty snapshot to retract a response Gemini Nano rejected on a policy check.
 
+## Neural speech
+
+`inderun-neural-speech` holds the provider; `inderun-onnx-providers` holds the runtime that makes it
+speak: `OnnxNeuralSpeechRuntime(context)` is the `NeuralSpeechRuntime` an app passes to
+`NeuralSpeechProvider`. It runs the Articulino graphs through ONNX Runtime on the CPU execution
+provider (intra-op threads `min(4, cores)`), and checks the package's declared checksums at `prepare`.
+
+```kotlin
+val provider = NeuralSpeechProvider(NeuralSpeechProviderOptions(modelPackage, OnnxNeuralSpeechRuntime(context)))
+```
+
+The package is a directory in the layout `tools/neural-speech/README.md` describes
+(`model-package.json`, `config.json`, `text.onnx`, `dit_step.onnx`, `decoder.onnx`,
+`voices/<id>.safetensors`), referenced by the `ModelPackage`'s `source`: `filesystem` (`ref` is the
+directory), `bundled` (`ref` is an asset directory, extracted once into app-private storage) or
+`app_managed` (`ref` is relative to `Context.filesDir`). Other source types are reported as
+unavailable. No normalizer runs yet: write numbers as words until the German frontend lands.
+
 ## Route planner
 
 Provider selection is decided by the shared Rust route core (`rust/inderun-route-core`), not by

@@ -46,6 +46,10 @@ dependencies {
     api(project(":inderun-contracts"))
     api(project(":inderun-core"))
 
+    // OnnxSpeechGraphExecutor and OnnxNeuralSpeechRuntime implement and compose this module's
+    // SpeechGraphExecutor / NeuralSpeechRuntime types in their public signatures.
+    api(project(":inderun-neural-speech"))
+
     // ONNX Runtime and the tokenizer are reached only through `internal` declarations
     // (LoadedSession, runOnnxSession), and this module publishes no `Flow` of its own.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")

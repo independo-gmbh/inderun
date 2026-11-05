@@ -2305,8 +2305,8 @@ data class SpeechModelPackage(
     val frontend: SpeechFrontend? = null,
 
     /**
-     * Role to file. Roles are defined by the pipeline (for example 'text_encoder', 'acoustic',
-     * 'codec'); For a 'coreai' package a value is either the .aimodel file, whose inference
+     * Role to file. Roles are defined by the pipeline (for example 'text', 'dit_step',
+     * 'decoder'). For a 'coreai' package a value is either the .aimodel file, whose inference
      * function is then named after the role, or `<file>#<function>` when the function name
      * differs.
      */

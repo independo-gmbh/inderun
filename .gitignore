@@ -273,3 +273,7 @@ test_dir/
 
 # Local env overrides
 .env.local
+
+# Neural speech preparation tool (tools/neural-speech)
+tools/neural-speech/.venv/
+__pycache__/

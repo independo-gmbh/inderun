@@ -140,6 +140,22 @@ Locally: start an emulator or connect a device, then run
 and the audio output catalog, and read their logs with
 `adb logcat -d -s IndeRunCorpus:I IndeRunAudioOutput:I`.
 
+The neural speech runtime has its own real-model test, `OnnxNeuralSpeechRealModelTest`, in the same
+test APK. It runs the Articulino graphs through ONNX Runtime and **skips unless** the
+`neuralSpeechModelDir` instrumentation argument is passed, so the CI job above never runs it. To run
+it locally, push a package written by `tools/neural-speech/prepare_articulino_package.py` to the
+device and pass its path:
+
+```bash
+adb push <package-dir> /data/local/tmp/articulino
+cd android && ./gradlew :inderun-kotlin:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=app.independo.inderun.sdk.OnnxNeuralSpeechRealModelTest \
+  -Pandroid.testInstrumentationRunnerArguments.neuralSpeechModelDir=/data/local/tmp/articulino
+adb logcat -d -s IndeRunNeuralSpeech
+```
+
+The log line carries the ABI, the audio length and the wall time.
+
 ## Pinned actions
 
 Third-party actions (everything except `dtolnay/rust-toolchain`) are pinned to a full

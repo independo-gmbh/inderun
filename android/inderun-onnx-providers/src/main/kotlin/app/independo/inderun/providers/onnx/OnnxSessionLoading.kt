@@ -38,7 +38,8 @@ internal data class LoadedSession(
  * repeated `prepare`/`generate` calls do not reload the model and tokenizer every time. A changed
  * `version`/`ref`/checksum evicts the stale session rather than silently reusing it.
  */
-internal class LoadedSessionBox(private val context: Context) {
+internal class LoadedSessionBox(context: Context) {
+    private val directories = OnnxModelDirectory(context)
     private val mutex = Mutex()
     private var cached: LoadedSession? = null
 
@@ -62,8 +63,8 @@ internal class LoadedSessionBox(private val context: Context) {
         val sourceType = checkedSourceType(modelPackage)
         val requiredFiles = checkedRequiredFiles(modelPackage)
         if (sourceType != SourceType.Bundled) {
-            val directory = resolveDirectory(modelPackage, sourceType, sessionCacheKey(modelPackage))
-            checkFilesExist(directory, requiredFiles)
+            val directory = directories.resolve(modelPackage, sourceType, sessionCacheKey(modelPackage))
+            directories.checkFilesExist(directory, requiredFiles)
         }
     }
 
@@ -94,25 +95,13 @@ internal class LoadedSessionBox(private val context: Context) {
         return requiredFiles
     }
 
-    private fun checkFilesExist(directory: File, requiredFiles: List<String>) {
-        requiredFiles.forEach { relativePath ->
-            val file = File(directory, relativePath)
-            if (!file.exists()) {
-                throw OnnxRuntimeError(
-                    kind = OnnxRuntimeErrorKind.CAPABILITY,
-                    message = "model files missing: '$relativePath' not found at ${file.absolutePath}.",
-                )
-            }
-        }
-    }
-
     private fun load(modelPackage: ModelPackage, cacheKey: String): LoadedSession {
         val sourceType = checkedSourceType(modelPackage)
-        val directory = resolveDirectory(modelPackage, sourceType, cacheKey)
+        val directory = directories.resolve(modelPackage, sourceType, cacheKey)
         val requiredFiles = checkedRequiredFiles(modelPackage)
         val graphFile = File(directory, requiredFiles.first())
-        checkFilesExist(directory, requiredFiles)
-        verifyChecksums(directory, modelPackage)
+        directories.checkFilesExist(directory, requiredFiles)
+        directories.verifyChecksums(directory, modelPackage)
 
         val tokenizerFile = modelPackage.files?.tokenizer?.let { File(directory, it) }
 
@@ -207,117 +196,6 @@ internal class LoadedSessionBox(private val context: Context) {
         return options
     }
 
-    private fun resolveDirectory(modelPackage: ModelPackage, sourceType: SourceType, cacheKey: String): File {
-        val ref = modelPackage.source?.ref
-        return when (sourceType) {
-            SourceType.Bundled -> {
-                val relative = ref.orEmpty()
-                val assetDir = File(
-                    context.filesDir,
-                    "inderun-onnx-assets/${modelPackage.id}/${cacheKeyDigest(cacheKey)}",
-                )
-                extractAssetDirectory(relative, assetDir)
-                assetDir
-            }
-            SourceType.Filesystem -> {
-                if (ref.isNullOrEmpty()) {
-                    throw OnnxRuntimeError(
-                        kind = OnnxRuntimeErrorKind.CAPABILITY,
-                        message = "model source unavailable: a 'filesystem' model source requires 'source.ref'.",
-                    )
-                }
-                File(ref)
-            }
-            SourceType.AppManaged -> {
-                val base = context.filesDir
-                if (ref.isNullOrEmpty()) base else File(base, ref)
-            }
-            SourceType.Programmatic -> throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "runtime package unavailable: 'programmatic' model sources have no files to " +
-                    "resolve; supply a custom AndroidOnnxGenAiRuntime instead.",
-            )
-            SourceType.Registry, SourceType.Remote -> throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "model source unavailable: '${sourceType.rawValue}' model sources are " +
-                    "deferred on Android.",
-            )
-        }
-    }
-
-    /**
-     * Extracts a bundled asset directory into app-private storage exactly once per
-     * [cacheKeyDigest], atomically: the copy lands in a sibling temp directory, a completion
-     * marker is written last, and only then is the temp directory moved into place. A directory
-     * missing the marker (never completed, or a previous run crashed mid-copy) is re-extracted
-     * rather than trusted.
-     */
-    private fun extractAssetDirectory(assetPath: String, targetDir: File) {
-        if (File(targetDir, EXTRACTION_COMPLETE_MARKER).exists()) return
-
-        val tempDir = File(targetDir.parentFile, "${targetDir.name}.tmp-${System.nanoTime()}")
-        tempDir.deleteRecursively()
-        tempDir.mkdirs()
-        try {
-            copyAssetTree(assetPath, tempDir)
-            val completionMarker = File(tempDir, EXTRACTION_COMPLETE_MARKER)
-            if (!completionMarker.createNewFile()) {
-                throw IllegalStateException(
-                    "failed to create extraction completion marker '$EXTRACTION_COMPLETE_MARKER'.",
-                )
-            }
-        } catch (error: Throwable) {
-            tempDir.deleteRecursively()
-            throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "model source unavailable: failed to extract bundled model assets for '$assetPath'.",
-                originalError = error,
-            )
-        }
-
-        targetDir.deleteRecursively()
-        if (!tempDir.renameTo(targetDir)) {
-            tempDir.deleteRecursively()
-            throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "model source unavailable: failed to install extracted model assets for '$assetPath'.",
-            )
-        }
-    }
-
-    private fun copyAssetTree(assetPath: String, targetDir: File) {
-        val assetManager = context.assets
-        val entries = assetManager.list(assetPath).orEmpty()
-        entries.forEach { entry ->
-            val childAssetPath = if (assetPath.isEmpty()) entry else "$assetPath/$entry"
-            val childEntries = assetManager.list(childAssetPath)
-            if (childEntries.isNullOrEmpty()) {
-                assetManager.open(childAssetPath).use { input ->
-                    File(targetDir, entry).outputStream().use { output -> input.copyTo(output) }
-                }
-            } else {
-                val childDir = File(targetDir, entry)
-                childDir.mkdirs()
-                copyAssetTree(childAssetPath, childDir)
-            }
-        }
-    }
-
-    /**
-     * Verifies every file named in `integrity.checksums`, not only the required-file list, so a
-     * checksum declared for the tokenizer or config file is enforced too. Files the map names but
-     * that this runtime did not resolve a path for are skipped; an unsupported checksum algorithm
-     * is a capability failure rather than a silently skipped check.
-     */
-    private fun verifyChecksums(directory: File, modelPackage: ModelPackage) {
-        val checksums = modelPackage.integrity?.checksums ?: return
-        for ((relativePath, expected) in checksums) {
-            val file = File(directory, relativePath)
-            if (!file.exists()) continue
-            verifyChecksum(file, relativePath, expected)
-        }
-    }
-
     /**
      * Resolves the tokenizer's end-of-sequence token id from the model config JSON's
      * `eos_token_id` field. The DJL tokenizer binding does not expose special token ids directly,
@@ -336,10 +214,6 @@ internal class LoadedSessionBox(private val context: Context) {
         } catch (error: Throwable) {
             null
         }
-    }
-
-    private companion object {
-        const val EXTRACTION_COMPLETE_MARKER = ".inderun-onnx-extraction-complete"
     }
 }
 

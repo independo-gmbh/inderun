@@ -29,6 +29,7 @@ export {
   type NeuralSpeechSynthesisInput,
   type PcmChunk,
   type SpeechGraphExecutor,
+  type SpeechPackageFiles,
   type SpeechTensor
 } from "./providers/neural-speech/runtime.js";
 
@@ -37,6 +38,30 @@ export {
   type FixtureNeuralSpeechRuntime,
   type FixtureNeuralSpeechRuntimeOptions
 } from "./providers/neural-speech/fixture-runtime.js";
+
+/** Voice bundles and the Articulino pipeline over a `SpeechGraphExecutor`. */
+export { parseSafetensors, type SafetensorsFile } from "./providers/neural-speech/safetensors.js";
+export {
+  createArticulinoRuntime,
+  type ArticulinoRuntimeOptions
+} from "./providers/neural-speech/articulino/runtime.js";
+export type { NoiseSource } from "./providers/neural-speech/articulino/math.js";
+export {
+  parseArticulinoConfig,
+  type ArticulinoConfig
+} from "./providers/neural-speech/articulino/config.js";
+
+/** The ONNX Runtime executor (onnxruntime-web, an optional peer) and the runtime composed on it. */
+export {
+  createOnnxWebSpeechGraphExecutor,
+  type OnnxRuntimeWebModule,
+  type OnnxWebSpeechGraphExecutorOptions
+} from "./providers/neural-speech/ort-executor.js";
+export {
+  createOnnxNeuralSpeechRuntime,
+  createUrlPackageFiles,
+  type OnnxNeuralSpeechRuntimeOptions
+} from "./providers/neural-speech/onnx-runtime.js";
 
 /** The text frontend and WAV encoder runtimes build on. */
 export { GraphemeTokenizer, splitSentences } from "./providers/neural-speech/frontend.js";

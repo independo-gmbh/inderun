@@ -30,8 +30,12 @@ public struct NeuralSpeechSynthesisInput: Sendable {
 
 /// Executes a speech model package for ``NeuralSpeechProvider``.
 ///
-/// `availability` is also where an unknown `pipeline` and `limits.memBytes` are refused, with the
-/// reason verbatim; it must not load anything. `prepare` loads the model. `synthesize` is called
+/// `availability` is also where an unknown `pipeline` is refused, with the reason verbatim; it must
+/// not load anything. `limits.memBytes` is refused there by the composed runtime of
+/// `IndeRunOnnxProviders` (`OnnxNeuralSpeechRuntime`), against the device's physical memory; the
+/// pipeline runtimes (`ArticulinoRuntime`) do not check it. `prepare` loads the model and is
+/// idempotent on success: the same package (`id@version`) prepared again returns the remembered
+/// outcome; only a failed prepare is retried. `synthesize` is called
 /// once per sentence and returns that sentence's chunks; cancelling the consuming task, or
 /// abandoning the iteration, ends it without an error. On a timeout the provider cancels the
 /// pull; a stream that honours cancellation returns at once, a synchronous call is waited for, so

@@ -21,9 +21,49 @@ export interface SpeechTensor {
 
 /** Runs one graph of a package; implemented by the ORT and Core AI executors (PR 4, PR 5). */
 export interface SpeechGraphExecutor {
+  /**
+   * Loads every graph, keyed by role. A load replaces what an earlier load left: the previous
+   * graphs are released and only the ones given here can run. A pipeline runtime calls it once
+   * per successful `prepare` of a package, and again only after a failed one.
+   */
   load(graphs: Record<string, string>): Promise<void>;
   run(role: string, inputs: Record<string, SpeechTensor>): Promise<Record<string, SpeechTensor>>;
   close?(): Promise<void>;
+}
+
+/** Reads a package's files by the relative names a ModelPackage uses. */
+export interface SpeechPackageFiles {
+  read(file: string): Promise<Uint8Array>;
+}
+
+/**
+ * Throws `model file name invalid: <file>` (capability) for a name a package file may not have:
+ * empty, absolute (a leading `/` or `\`, or a URL scheme), or with a `..` component, so a package
+ * cannot reach outside its directory. A component is also read percent-decoded, because a URL
+ * resolves `%2e%2e` as `..`, and one that decodes to a separator is refused. Every package file
+ * reader and graph executor applies it.
+ */
+export function checkPackageFileName(file: string): void {
+  if (
+    file.length === 0 ||
+    /^[/\\]/u.test(file) ||
+    /^[a-z][a-z0-9+.-]*:/iu.test(file) ||
+    file.split(/[/\\]/u).some((part) => {
+      const decoded = percentDecoded(part);
+      return part === ".." || decoded === ".." || /[/\\]/u.test(decoded);
+    })
+  ) {
+    throw new NeuralSpeechRuntimeError("capability", `model file name invalid: ${file}`);
+  }
+}
+
+/** `part` percent-decoded, or as written when it is not valid percent-encoding. */
+function percentDecoded(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
 }
 
 /** Availability snapshot reported by a neural speech runtime. */
@@ -46,8 +86,11 @@ export interface NeuralSpeechSynthesisInput {
 /**
  * Executes a speech model package.
  *
- * `availability` is also where an unknown `pipeline` and `limits.memBytes` are refused, with the
- * reason verbatim. `synthesize` is called once per sentence; an aborted `signal` ends the
+ * `availability` is also where an unknown `pipeline` is refused, with the reason verbatim. The
+ * Web SDK has no host memory API, so no web runtime refuses `limits.memBytes`; the composed ONNX
+ * runtimes of the Swift and Kotlin SDKs do. `prepare` loads the model and is idempotent on success:
+ * the same package (`id@version`) prepared again returns the remembered outcome; only a failed
+ * prepare is retried. `synthesize` is called once per sentence; an aborted `signal` ends the
  * iteration without throwing. On a timeout the provider aborts the signal and leaves the iteration
  * without waiting for it, so compute still running must stay bounded to that sentence.
  *

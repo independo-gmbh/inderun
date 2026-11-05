@@ -359,10 +359,25 @@ const inderun = createIndeRunWeb({
 ```
 
 The provider id is `local.onnx.speech.web:<modelPackage.id>` unless you pass `id`, so register one
-entry per model. `runtime` is required: the provider does no inference itself, and no runtime that
-runs a real model ships yet. The ONNX Runtime executor and the first pipeline arrive with the next
-release of this programme (#260 PR 4). Until then, inject your own `NeuralSpeechRuntime`, or the
-fixture runtime for demos and tests:
+entry per model. `runtime` is required: the provider does no inference itself. For a real model use
+the ONNX Runtime runtime, which picks the pipeline from `modelPackage.speech.pipeline` (`articulino`
+today) and runs its graphs on the `onnxruntime-web` wasm backend:
+
+```ts
+import { createOnnxNeuralSpeechRuntime } from "@independo/inderun-web/neural-speech";
+
+const runtime = createOnnxNeuralSpeechRuntime();
+```
+
+`onnxruntime-web` is an optional peer dependency IndeRun does not bundle; install it yourself
+(`pnpm add onnxruntime-web`). Without it the runtime reports itself unavailable. Package files are
+fetched from `modelPackage.source.ref` (relative to the page) for `bundled` and `app_managed`
+packages, laid out as `prepare_articulino_package.py` writes them (`model-package.json`,
+`config.json`, the three graphs, `voices/<id>.safetensors`); pass `files` (a `SpeechPackageFiles`)
+to read them from anywhere else. WASM threads need cross-origin isolation (see
+[Runtime dependency](#runtime-dependency)); without it the backend runs single-threaded. Digits are
+not read until the German frontend lands; write numbers as words. For demos and tests without a
+model, use the fixture runtime:
 
 ```ts
 import { createFixtureNeuralSpeechRuntime } from "@independo/inderun-web/neural-speech";

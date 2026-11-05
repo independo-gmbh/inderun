@@ -42,7 +42,7 @@ provider families (ONNX Runtime, web system-model) do not stream yet.
 Text-to-speech is implemented through `speak()` / `generateSpeech()` /
 `listVoices()` and the system speech providers on all three platforms (ADR 018). A neural speech provider family
 (`local.onnx.speech.*`, runtime seam, fixture runtime) exists on all three SDKs; its ONNX executor and the first model
-pipeline follow (ADR 020, ADR 021).
+pipeline (Articulino) ship, and the German text frontend and Apple Core AI follow (ADR 020, ADR 021).
 Mode 3 `openSession()` / realtime sessions remain unimplemented.
 
 Out of scope now:
@@ -248,6 +248,19 @@ Checked-in Rust commands:
 - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown`
 - `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
 - `pnpm --filter @independo/inderun-route-core-wasm test`
+
+Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing here runs in CI, see
+`tools/neural-speech/README.md`):
+
+- `python3.13 -m venv tools/neural-speech/.venv && tools/neural-speech/.venv/bin/pip install -r tools/neural-speech/requirements.txt`
+  — create the tool's environment (`onnxruntime` has no wheel for newer Pythons).
+- `tools/neural-speech/.venv/bin/python -m unittest discover -s tools/neural-speech -p 'test_*.py'` — the host-math tests.
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_articulino_package.py --models <onnx-release-dir> --precision int8 --voice <wav>[:<id>] --out <dir>`
+  — build an Articulino model package (graphs, int64-`text_mask` `text.onnx`, voices, `model-package.json`).
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_articulino_voice.py --models <onnx-release-dir> --precision int8 --wav <file> --out <file>.safetensors`
+  — build one voice bundle.
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/generate_pipeline_fixture.py` — regenerate
+  `contracts/fixtures/speech/articulino-pipeline.json`; the output is deterministic.
 
 Every generated Kotlin contract enum carries `enum class X(val rawValue: String)` plus a
 `fromRawValue` companion, so the schema spelling is never re-derived by hand — `name` is not the

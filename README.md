@@ -400,6 +400,7 @@ environment; on iOS and Android it is a convention, because a native app can rea
 - [Streaming conformance and cross-platform validation](docs/streaming-conformance.md)
 - [Speech conformance and cross-platform validation](docs/speech-conformance.md)
 - [System speech verification record](docs/verification/system-speech.md)
+- [Neural speech preparation tool (Python, offline)](tools/neural-speech/README.md)
 - [CI behavior](docs/ci.md)
 - [Releases & publishing](docs/release.md)
 - [Contributor workflow and build commands](CONTRIBUTING.md)
