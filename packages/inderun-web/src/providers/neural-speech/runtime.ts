@@ -57,6 +57,12 @@ export interface NeuralSpeechAvailability {
   available: boolean;
   /** Human-readable detail; the provider surfaces it verbatim when `available` is false. */
   reason?: string;
+  /**
+   * Optional hint for a runtime whose model is not usable yet. `not_prepared` means a `prepare` is
+   * required before a run can succeed; `cold` means it runs but slowly at first. The provider
+   * reports it until it has loaded the model itself; absent keeps the provider's own `cold`.
+   */
+  readiness?: "not_prepared" | "cold";
 }
 
 /** One sentence handed to a neural speech runtime. */

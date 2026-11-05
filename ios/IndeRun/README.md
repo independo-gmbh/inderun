@@ -13,6 +13,8 @@ The package is split into public API, core engine, contracts, and provider targe
   local models (see `docs/architecture/onnx-runtime-provider-family.md`)
 - `IndeRunNeuralSpeech` - neural speech provider for developer-supplied text-to-speech model
   packages, played through the host's `audioOutput` or returned as `audio/wav`
+- `IndeRunCoreAIProviders` - neural speech runtime for `coreai` model packages through Apple Core
+  AI (iOS 27 / macOS 27); builds to a stub on an SDK without Core AI
 
 Requires iOS 16+ / macOS 14+ (raised from iOS 15 / macOS 12 by `IndeRunOnnxProviders`'s
 dependencies: the official ONNX Runtime SPM bindings and `swift-transformers`).
@@ -157,6 +159,38 @@ The directory comes from the package `source`: `filesystem` (`ref` is the path),
 to the app bundle's resources) or `app_managed` (relative to Application Support); other source
 types are refused with the reason in `availability`. Declared checksums are verified at `prepare()`.
 The runtime has no German frontend for digits yet: write numbers as words until it lands.
+
+#### Core AI
+
+```swift
+import IndeRunCoreAIProviders
+
+try registry.register(makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions(
+    modelPackage: coreAIPackage // format: "coreai", speech.pipeline: "articulino"
+)))
+```
+
+`makeCoreAINeuralSpeechProvider` (in `IndeRunCoreAIProviders`, which re-exports
+`IndeRunNeuralSpeech`) registers a `NeuralSpeechProvider` over a `CoreAINeuralSpeechRuntime`, with the
+id `local.coreai.speech.apple:<modelPackage.id>`. It runs `format: "coreai"`, `pipeline: "articulino"`
+packages laid out like the ONNX ones, with one Core AI asset holding the three graphs in place of
+the `.onnx` files, as `tools/neural-speech/prepare_coreai_package.py` writes it:
+
+```
+model-package.json        # the ModelPackage; format: "coreai"
+config.json
+articulino.aimodel        # --asset under its own name, a file or a directory
+voices/<id>.safetensors
+```
+
+A `speech.graphs` value names the `.aimodel` file and, after a `#`, the inference function in it:
+`articulino.aimodel#text`, `articulino.aimodel#dit_step`, `articulino.aimodel#decoder`. Without a `#`
+the function is named after the role. The asset must be specialized for the device before it runs,
+which can take minutes, and a consented `prepare` specializes it: until then the provider reports
+`readiness: not_prepared`, and IndeRun prepares it only under `autoDownload` or
+`PrepareRequest(allowDownload: true)`. Core AI needs iOS 27 / macOS 27; below that,
+or on an SDK without it, the provider reports `available: false` with the reason, so routing falls
+back. As with the ONNX runtime, write numbers as words.
 
 ## Streaming
 

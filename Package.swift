@@ -39,6 +39,10 @@ let package = Package(
         .library(
             name: "IndeRunNeuralSpeech",
             targets: ["IndeRunNeuralSpeech"]
+        ),
+        .library(
+            name: "IndeRunCoreAIProviders",
+            targets: ["IndeRunCoreAIProviders"]
         )
     ],
     dependencies: [
@@ -98,9 +102,16 @@ let package = Package(
             dependencies: ["IndeRunCore", "IndeRunContracts"],
             path: "ios/IndeRun/Sources/IndeRunNeuralSpeech"
         ),
+        // Apple Core AI (iOS 27 / macOS 27). Everything Core AI-specific sits behind
+        // `#if canImport(CoreAI)`, so the target builds to a stub on an older Xcode.
+        .target(
+            name: "IndeRunCoreAIProviders",
+            dependencies: ["IndeRunNeuralSpeech", "IndeRunCore", "IndeRunContracts"],
+            path: "ios/IndeRun/Sources/IndeRunCoreAIProviders"
+        ),
         // Consumer-compilation smoke tests. Each depends on exactly one product and
         // proves that product's `@_exported import` chain hands a consumer the types
-        // its own signatures use. IndeRunTests below cannot: it depends on all seven
+        // its own signatures use. IndeRunTests below cannot: it depends on all eight
         // modules directly, which is what hid the missing re-exports until #189.
         // Do not add dependencies to either of these -- the short list is the test.
         .testTarget(
@@ -122,7 +133,8 @@ let package = Package(
                 "IndeRunAppleProviders",
                 "IndeRunOpenAIProviders",
                 "IndeRunOnnxProviders",
-                "IndeRunNeuralSpeech"
+                "IndeRunNeuralSpeech",
+                "IndeRunCoreAIProviders"
             ],
             path: "ios/IndeRun/Tests/IndeRunTests"
         )

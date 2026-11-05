@@ -156,6 +156,28 @@ adb logcat -d -s IndeRunNeuralSpeech
 
 The log line carries the ABI, the audio length and the wall time.
 
+## Core AI module
+
+`IndeRunCoreAIProviders` compiles to a stub on any Xcode whose SDK has no `CoreAI` framework (it first ships in the
+macOS 27 SDK), so the ordinary `swift test` pass and the simulator step never type-check the real path. The step
+`Build the Core AI module with the newest Xcode` in `swift.yml` selects the newest `/Applications/Xcode*.app` with a
+step-scoped `DEVELOPER_DIR` (not `xcode-select -s`, which would switch every later step) and runs
+`swift build --target IndeRunCoreAIProviders --scratch-path .build-coreai`, so the build does not share `.build` with
+the other toolchain. It then runs `swift build --target IndeRunTests` in the same scratch path, which also type-checks
+the Core AI test files against the real framework (SwiftPM refuses `--build-tests` together with `--target`).
+
+The step is `continue-on-error: true`. Until `macos-latest` ships Xcode 27 it only builds the stub, and a newer
+toolchain may fail for reasons unrelated to this module. Make it blocking (drop `continue-on-error`) once `macos-latest`
+has Xcode 27 and the step's `xcodebuild -version` output shows it building the real path.
+
+The gated tests that run a real model are not in CI. Locally, on macOS 27 with Xcode 27:
+
+```bash
+INDERUN_COREAI_MODEL_DIR=<dir written by tools/neural-speech/prepare_coreai_package.py> swift test --filter CoreAI
+```
+
+Without the variable (or below macOS 27) they skip. See [ADR 022](./architecture/decisions/022-core-ai-runtime.md).
+
 ## Pinned actions
 
 Third-party actions (everything except `dtolnay/rust-toolchain`) are pinned to a full

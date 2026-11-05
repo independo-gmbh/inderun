@@ -68,6 +68,34 @@ input `text_mask` and a `Cast(to=BOOL)` node between them, runs the ONNX checker
 `text_ids`, `language` and `text_mask` are all `tensor(int64)`. The cast hands the original consumer the same boolean
 mask, so the outputs are expected to equal the original graph's; no test compares them yet.
 
+## Prepare a Core AI package
+
+```bash
+tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_coreai_package.py \
+  --asset <articulino.aimodel> --config <config.json> \
+  --models <onnx-release-dir> --precision int8 \
+  --voice <prompt.wav>:<voice-id> --out <package-dir> \
+  [--package-id articulino-de-en-coreai] [--function-names text,dit_step,decoder]
+```
+
+The Apple Core AI runtime reads a package whose `model-package.json` has `format` `coreai`, `variant` `coreai` and
+`runtime.minOsVersion` `27.0`. It reads a graph reference as `<file>` or `<file>#<function>`; this tool always writes
+the second form: `speech.graphs.text` is `articulino.aimodel#text` unless `--function-names` renames the three
+functions, in the order text, dit_step, decoder. The voices go through the same pipeline as above (`--models`,
+`--precision`), so the ONNX release is still needed for them.
+
+```text
+<package-dir>/model-package.json        ModelPackage (format coreai, variant coreai, runtime.minOsVersion 27.0)
+<package-dir>/config.json               copied from --config; speech.frontend.assets.config
+<package-dir>/<asset>.aimodel           copied from --asset, a file or a directory, under its own name
+<package-dir>/voices/<voice-id>.safetensors
+```
+
+`integrity.checksums` lists the sha256 of every file above except `model-package.json`; a directory asset contributes
+each contained file under its path relative to the package. The `.aimodel` comes from the coreai-torch export (spike
+0b, see `docs/architecture/decisions/022-core-ai-runtime.md`); this tool does not run the export. The SDK's gated tests
+read the directory from `INDERUN_COREAI_MODEL_DIR`.
+
 ## Voice bundle format
 
 One safetensors file per voice (`prepare_articulino_voice.py` writes it alone, `safetensors_io.py` reads and writes it

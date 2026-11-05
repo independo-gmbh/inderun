@@ -151,6 +151,56 @@ final class NeuralSpeechProviderTests: XCTestCase {
         XCTAssertEqual(capabilities.taskCapabilities?.first?.voices?.count, 3)
     }
 
+    func testNeuralSpeechReportsTheRuntimeNotPreparedHintUntilLoaded() async throws {
+        let runtime = FixtureNeuralSpeechRuntime(
+            options: FixtureNeuralSpeechRuntimeOptions(
+                availability: NeuralSpeechAvailability(available: true, readiness: .notPrepared)
+            )
+        )
+        let provider = makeProvider(runtime: runtime)
+
+        let before = await provider.capabilities(host: host)
+        let task = try XCTUnwrap(before.taskCapabilities?.first)
+        XCTAssertEqual(task.readiness, .notPrepared)
+        XCTAssertEqual(task.voices?.map(\.readiness), [.notPrepared, .notPrepared, .notPrepared])
+
+        try await drainPreparation(provider)
+
+        let after = await provider.capabilities(host: host)
+        XCTAssertNil(after.taskCapabilities?.first?.readiness)
+        XCTAssertEqual(after.taskCapabilities?.first?.voices?.map(\.readiness), [nil, nil, nil])
+    }
+
+    func testNeuralSpeechReportsAnExplicitColdHintOnTheVoices() async throws {
+        let runtime = FixtureNeuralSpeechRuntime(
+            options: FixtureNeuralSpeechRuntimeOptions(availability: NeuralSpeechAvailability(available: true, readiness: .cold))
+        )
+        let capabilities = await makeProvider(runtime: runtime).capabilities(host: host)
+        let task = try XCTUnwrap(capabilities.taskCapabilities?.first)
+        XCTAssertEqual(task.readiness, .cold)
+        XCTAssertEqual(task.voices?.map(\.readiness), [.cold, .cold, .cold])
+    }
+
+    func testNeuralSpeechIgnoresTheHintOfAnUnavailableRuntime() async throws {
+        let runtime = FixtureNeuralSpeechRuntime(
+            options: FixtureNeuralSpeechRuntimeOptions(
+                availability: NeuralSpeechAvailability(available: false, reason: "no model", readiness: .notPrepared)
+            )
+        )
+        let capabilities = await makeProvider(runtime: runtime).capabilities(host: host)
+        XCTAssertFalse(capabilities.available)
+        XCTAssertEqual(capabilities.reason, "no model")
+        XCTAssertNil(capabilities.taskCapabilities?.first?.readiness)
+    }
+
+    func testNeuralSpeechLeavesVoiceReadinessAbsentWithoutAHint() async throws {
+        let provider = makeProvider()
+        let capabilities = await provider.capabilities(host: host)
+        let task = try XCTUnwrap(capabilities.taskCapabilities?.first)
+        XCTAssertEqual(task.readiness, .cold)
+        XCTAssertEqual(task.voices?.map(\.readiness), [nil, nil, nil])
+    }
+
     // MARK: - Runs
 
     func testNeuralSpeechRefusesAnInlineDeliveryAndANonSpeechRequestBeforeCommit() async throws {

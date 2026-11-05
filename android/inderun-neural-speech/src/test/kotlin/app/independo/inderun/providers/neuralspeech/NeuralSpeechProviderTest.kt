@@ -483,6 +483,34 @@ class NeuralSpeechProviderTest {
         assertEquals(3, task.voices?.size)
     }
 
+    @Test
+    fun reportsTheRuntimeNotPreparedHintUntilLoaded() = runTest {
+        val (provider) = provider(
+            FixtureNeuralSpeechRuntimeOptions(
+                availability = NeuralSpeechAvailability(true, readiness = NeuralSpeechReadiness.NotPrepared),
+            ),
+        )
+
+        val task = provider.capabilities(host()).taskCapabilities!!.single()
+        assertEquals(ProviderReadiness.NotPrepared, task.readiness)
+        assertEquals(List(3) { ProviderReadiness.NotPrepared }, task.voices!!.map { it.readiness })
+
+        provider.prepare(prepareContext()).collect()
+
+        val after = provider.capabilities(host()).taskCapabilities!!.single()
+        assertNull(after.readiness)
+        assertEquals(List(3) { null }, after.voices!!.map { it.readiness })
+    }
+
+    @Test
+    fun leavesVoiceReadinessAbsentWithoutAHint() = runTest {
+        val (provider) = provider()
+
+        val task = provider.capabilities(host()).taskCapabilities!!.single()
+        assertEquals(ProviderReadiness.Cold, task.readiness)
+        assertEquals(List(3) { null }, task.voices!!.map { it.readiness })
+    }
+
     // --- refusals before commit --------------------------------------------------------------
 
     @Test

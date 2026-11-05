@@ -309,6 +309,45 @@ describe("NeuralSpeechWebProvider", () => {
     expect(capabilities.taskCapabilities?.[0]?.voices).toHaveLength(3);
   });
 
+  it("reports a runtime's not_prepared hint for the task and every voice until loaded", async () => {
+    const { provider } = createProvider({
+      availability: { available: true, readiness: "not_prepared" }
+    });
+
+    const capabilities = await provider.capabilities(host);
+    const task = capabilities.taskCapabilities?.[0];
+    expect(capabilities.available).toBe(true);
+    expect(task?.readiness).toBe("not_prepared");
+    expect(task?.voices?.map((voice) => voice.readiness)).toEqual([
+      "not_prepared",
+      "not_prepared",
+      "not_prepared"
+    ]);
+
+    for await (const step of provider.prepare({
+      runId: "prep-1",
+      hostServices: host,
+      task: "text_to_speech",
+      signal: new AbortController().signal
+    })) {
+      void step;
+    }
+    const after = await provider.capabilities(host);
+    expect(after.taskCapabilities?.[0]?.readiness).toBeUndefined();
+    expect(after.taskCapabilities?.[0]?.voices?.map((voice) => voice.readiness)).toEqual([
+      undefined,
+      undefined,
+      undefined
+    ]);
+  });
+
+  it("leaves voice readiness absent without a hint", async () => {
+    const { provider } = createProvider();
+    const task = (await provider.capabilities(host)).taskCapabilities?.[0];
+    expect(task?.readiness).toBe("cold");
+    expect(task?.voices?.every((voice) => !("readiness" in voice))).toBe(true);
+  });
+
   it("refuses an inline delivery and a non-speech request before commit", async () => {
     const { provider, runtime } = createProvider();
     const audio = createFixtureAudioOutput();

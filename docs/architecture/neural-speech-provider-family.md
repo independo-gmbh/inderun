@@ -13,13 +13,15 @@ is in [ADR 018](./decisions/018-speech-application-api.md). Playback semantics f
 | Web       | `local.onnx.speech.web`     | `@independo/inderun-web/neural-speech` | Yes      | `audio/wav` |
 | iOS/macOS | `local.onnx.speech.apple`   | `IndeRunNeuralSpeech`                  | Yes      | `audio/wav` |
 | Android   | `local.onnx.speech.android` | `inderun-neural-speech`                | Yes      | `audio/wav` |
+| iOS/macOS | `local.coreai.speech.apple` | `IndeRunCoreAIProviders`               | Yes      | `audio/wav` |
 
 ## Scope
 
 What ships now is the provider on all three SDKs, the runtime seam it delegates to, a deterministic fixture runtime, the
 text frontend and the WAV encoder, and a first real runtime: an ONNX Runtime `SpeechGraphExecutor` (CPU execution
-provider only) composed with the Articulino pipeline, on every SDK (#260 PR 4a). The German text frontend (numbers,
-dates, abbreviations) follows in PR 4b, and Apple Core AI in PR 5. `runtime` stays a required option, not a defaulted
+provider only) composed with the Articulino pipeline, on every SDK (#260 PR 4a), and the Apple Core AI runtime
+(`IndeRunCoreAIProviders`, iOS/macOS 27, [ADR 022](./decisions/022-core-ai-runtime.md)). The German text frontend
+(numbers, dates, abbreviations) follows in PR 4b. `runtime` stays a required option, not a defaulted
 one: the app composes the runtime it wants and passes it in, and the fixture runtime still serves demos and tests.
 
 ## Ids and registration
@@ -34,6 +36,9 @@ registered provider on every request.
 - **Apple.** `NeuralSpeechProvider(options:)` taking a `NeuralSpeechProviderOptions`, with
   `NeuralSpeechProvider.defaultId`.
 - **Android.** `NeuralSpeechProvider(modelPackage, runtime, id, timeoutMs)`, with `DEFAULT_ID` in its companion.
+- **Apple, Core AI.** `makeCoreAINeuralSpeechProvider(options:)` in `IndeRunCoreAIProviders`, with
+  `NeuralSpeechProvider.coreAIDefaultId` (`local.coreai.speech.apple`). It builds the same provider around the composed
+  Core AI runtime, so `runtime` is not passed.
 
 ## Options
 
@@ -43,6 +48,16 @@ registered provider on every request.
 | `modelPackage` | The package. Its `speech` block names the pipeline, graphs, sample rate and voices.                                                          |
 | `runtime`      | Required. Executes the package.                                                                                                              |
 | `timeoutMs`    | Bounds the synthesis until the run commits. A request's `constraints.timeoutMs` wins; zero or less is unbounded. Swift spells it `timeout`. |
+
+`makeCoreAINeuralSpeechProvider` takes `CoreAINeuralSpeechProviderOptions` (`id`, `modelPackage`, `timeout`) plus
+`CoreAINeuralSpeechRuntimeOptions`:
+
+| Runtime option      | Meaning                                                                          |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `noise`             | The noise source of the pipeline; absent uses the pipeline's default.            |
+| `speed`             | Speech speed factor, default 1.0.                                                |
+| `pauseMs`           | Silence after each sentence, default 150.                                        |
+| `deviceMemoryBytes` | Overrides the device memory that `limits.memBytes` is checked against (tests).   |
 
 The budget means what `constraints.timeoutMs` means in the request schema: the time until the run commits, not the
 duration of the audio it plays. It counts from the start of synthesis; the turn wait and the model load do not count.
@@ -63,6 +78,10 @@ rate must equal the package's `speech.sampleRate`; IndeRun never resamples, and 
 The provider consumes (copies or hands to the host) a chunk's samples before the yield returns, so a runtime may reuse
 its buffer afterwards.
 
+`NeuralSpeechAvailability` carries an optional `readiness` hint (`not_prepared` or `cold`) for a runtime whose model
+is not usable yet, for example one that must specialize a model for the device. It is additive: absent means the
+provider's own `cold`.
+
 `synthesize` may be called concurrently: artifact runs do not wait for the playback turn, and two providers may share
 one runtime instance. A runtime must serialize or isolate its own sessions.
 
@@ -71,7 +90,7 @@ A runtime signals a failure with `NeuralSpeechRuntimeError` and a kind (`capabil
 
 `SpeechGraphExecutor` and `SpeechTensor` are the seam beneath a runtime: it loads a package's graph files and runs one
 graph by role. `SpeechTensor` is `f32` or `i64` on every SDK and nothing else. The ORT executor implements the seam
-today and the Core AI executor in PR 5; a pipeline sits on top and produces the chunks. Nothing in the provider calls it.
+and the Core AI executor on Apple; a pipeline sits on top and produces the chunks. Nothing in the provider calls it.
 A `load` replaces the graphs an earlier load left; a pipeline runtime calls it once per successful `prepare` of a
 package (`prepare` is idempotent on success) and again only after a failed one.
 
@@ -130,7 +149,10 @@ failing the capability check of every provider on the engine.
 | `app_managed`  | Yes | Yes               |
 | `filesystem`   | No  | Yes               |
 
-Readiness is `cold` until `prepare` has loaded the model. Voices are one `ProviderVoice` per `speech.voices[]` entry, with
+Readiness is `cold` until `prepare` has loaded the model. While the model is not loaded, a runtime's `readiness` hint
+replaces `cold` on the task and on every voice, so `not_prepared` reaches routing (the planner then skips the package
+without `autoDownload` / `allowDownload`, ADR 019); after a successful `prepare` readiness is absent (`ready`) whatever
+the hint says. Voices are one `ProviderVoice` per `speech.voices[]` entry, with
 all its `locales`, never `networkRequired`. The task's `locales` are the union across voices. IndeRun stores and downloads
 nothing (ADR 019); the developer supplies the package files.
 
@@ -232,10 +254,54 @@ Limitations of this pipeline today:
   `source.ref`.
 - CPU execution provider only. CoreML, NNAPI and WebGPU are not used (see the findings below).
 
-**Preparing a package.** [`tools/neural-speech/`](../../tools/neural-speech/README.md) (Python, not run in CI) takes the upstream ONNX release and a voice recording and writes the package directory
-(`model-package.json`, `config.json`, the three graphs and `voices/<id>.safetensors`), and it generates the fixture. Its
-README has the commands. Real-model tests on each SDK read that directory from `INDERUN_NEURAL_SPEECH_MODEL_DIR` (web,
-Swift) or the instrumentation argument `neuralSpeechModelDir` (Android) and skip when it is absent.
+**Preparing a package.** [`tools/neural-speech/`](../../tools/neural-speech/README.md) (Python, not run in CI) takes the
+upstream ONNX release and a voice recording and writes the package directory (`model-package.json`, `config.json`, the
+three graphs and `voices/<id>.safetensors`), and it generates the fixture. Its README has the commands. Real-model tests
+on each SDK read that directory from `INDERUN_NEURAL_SPEECH_MODEL_DIR` (web, Swift) or the instrumentation argument
+`neuralSpeechModelDir` (Android) and skip when it is absent.
+
+## Core AI runtime
+
+The Apple Core AI runtime ([ADR 022](./decisions/022-core-ai-runtime.md)) runs a `format: "coreai"` package through the
+same Articulino pipeline as the ORT runtimes, with a `CoreAISpeechGraphExecutor` beneath it. It exists only on iOS and
+macOS 27; on an older Xcode the module builds to a stub, and on an older OS it reports `available: false` with
+`Core AI requires iOS 27 / macOS 27`.
+
+- **Graph references.** `speech.graphs` values are `<file>.aimodel` (the function is named after the role) or
+  `<file>.aimodel#<function>`. One `AIModel` is loaded per distinct file and one function per role. The asset name may
+  not contain `#`, and an `.aimodel` may be a file or a directory.
+- **What `availability` checks.** Core AI is available, `format` is `coreai`, the pipeline is `articulino`,
+  `limits.memBytes` fits the device, the package directory resolves, the Articulino metadata is complete (roles,
+  frontend config, voice files) and every graph file is present. It loads and specializes nothing. The order of the
+  checks is in the code comments.
+- **Readiness is the specialization state.** `not_prepared` means some graph file is not yet in `AIModelCache.default`,
+  `cold` means every file is cached, and the provider reports `ready` after a successful `prepare`. Only `prepare`
+  specializes; `synthesize` on a package that is not prepared is refused with `model not prepared: <id@version>`.
+  Before specializing, `prepare` reads each asset's function list and refuses a role whose function is missing
+  (`graph function missing: <role>: <function> in <file>`). After a successful `prepare` the runtime reports `cold`
+  without consulting the cache.
+- **Consent.** `autoDownload` and `prepare({ allowDownload: true })` authorize specialization as they authorize a
+  download (ADR 019, amended by ADR 022): consent for a long preparation, not just for bytes. Without them the planner
+  skips the package.
+- **Cache policy.** The cache keeps Core AI's `.default`, purgeable, policy. After a purge the next `availability` of a
+  runtime that has not prepared the package in this process reports `not_prepared` again and the next consented
+  `prepare` specializes again. Loaded models stay in memory for the session. Specialized artifacts are bound to the
+  device and the OS version.
+- **The package.** [`prepare_coreai_package.py`](../../tools/neural-speech/README.md) writes `model-package.json`
+  (`format` and `variant` `coreai`, `runtime.minOsVersion` `27.0`), `config.json`, the `.aimodel` under its own name
+  and `voices/<id>.safetensors`, with `integrity.checksums` for every file but the manifest. The package ships
+  `bundled` or `app_managed`; IndeRun never downloads it. The gated real-model tests read the directory from
+  `INDERUN_COREAI_MODEL_DIR` and skip without it.
+- **Conversion.** The `.aimodel` comes from the upstream PyTorch checkpoint through Apple's `coreai-torch`
+  (`torch.export` with bounded `Dim`s, `run_decompositions`, one `TorchConverter` entrypoint per role, `to_coreai()`,
+  `save_asset`). The entrypoints are `text`, `dit_step` and `decoder`, and `text_mask` is int64 and cast to bool inside
+  the exported program. The full chain is in ADR 022 section 5.
+- **Device numbers.** The asset hash, the shape bounds, the specialization time and the realtime factor are pending
+  spike 0b; nothing here is measured on a device.
+
+Follow-ups: a typed preparation kind on the contracts, a CI test of a successful `prepare`, and specialization of
+unused `speech.graphs` entries. The code is in
+[`IndeRunCoreAIProviders`](../../ios/IndeRun/Sources/IndeRunCoreAIProviders).
 
 ## Spike findings (desktop and simulator; not device numbers)
 
@@ -284,7 +350,8 @@ existing ONNX modules.
   `articulino/` for the pipeline. The ORT executor and composed runtime are in the same directory and reach
   `onnxruntime-web`, an optional peer dependency, structurally.
 - **Apple.** The `IndeRunNeuralSpeech` target and product (with `Articulino/`). `SpeechWAV` is public in `IndeRunCore`.
-  The ORT executor and composed runtime are in `IndeRunOnnxProviders`.
+  The ORT executor and composed runtime are in `IndeRunOnnxProviders`; the Core AI executor and composed runtime are
+  in `IndeRunCoreAIProviders`.
 - **Android.** The `inderun-neural-speech` Gradle module (with `articulino/`). `SpeechWavEncoder` lives in it. The ORT
   executor and composed runtime are in `inderun-onnx-providers`.
 
@@ -298,6 +365,7 @@ Algorithms, gate ordering, buffering and threading are in code comments next to 
 - Web: [`providers/neural-speech`](../../packages/inderun-web/src/providers/neural-speech)
 - Apple: [`IndeRunNeuralSpeech`](../../ios/IndeRun/Sources/IndeRunNeuralSpeech)
 - Android: [`inderun-neural-speech`](../../android/inderun-neural-speech/src/main/kotlin/app/independo/inderun/providers/neuralspeech)
+- Core AI executor and composed runtime: [`IndeRunCoreAIProviders`](../../ios/IndeRun/Sources/IndeRunCoreAIProviders)
 - ORT executor and composed runtime: the same Web directory, [`IndeRunOnnxProviders`](../../ios/IndeRun/Sources/IndeRunOnnxProviders)
   and [`inderun-onnx-providers`](../../android/inderun-onnx-providers/src/main/kotlin/app/independo/inderun/providers/onnx)
 - Package and voice preparation: [`tools/neural-speech`](../../tools/neural-speech/README.md)

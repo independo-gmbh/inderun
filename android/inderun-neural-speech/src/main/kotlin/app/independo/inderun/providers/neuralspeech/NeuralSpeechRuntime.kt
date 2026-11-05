@@ -8,8 +8,23 @@ import kotlinx.coroutines.flow.Flow
  *
  * @property reason Human-readable detail; the provider surfaces it verbatim when [available] is
  *   false.
+ * @property readiness Optional hint, reported until the provider has loaded the model itself; null
+ *   keeps the provider's own `cold`.
  */
-data class NeuralSpeechAvailability(val available: Boolean, val reason: String? = null)
+data class NeuralSpeechAvailability(
+    val available: Boolean,
+    val reason: String? = null,
+    val readiness: NeuralSpeechReadiness? = null,
+)
+
+/** How ready a runtime's model is before the provider has loaded it (ADR 019). */
+enum class NeuralSpeechReadiness(val rawValue: String) {
+    /** A `prepare` is required before a run can succeed. */
+    NotPrepared("not_prepared"),
+
+    /** A run works, but the first one is slow. */
+    Cold("cold"),
+}
 
 /** One sentence handed to a [NeuralSpeechRuntime]. */
 data class NeuralSpeechSynthesisInput(

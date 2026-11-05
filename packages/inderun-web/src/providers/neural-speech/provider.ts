@@ -229,13 +229,22 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
     }
     if (this.loadFailure !== undefined) return { available: false, reason: this.loadFailure };
 
+    // Until the provider has loaded the model, the runtime's hint (when it gives one) wins over `cold`.
+    const readiness = this.loaded ? undefined : (availability.readiness ?? "cold");
+    const voiceReadiness =
+      this.loaded || availability.readiness === undefined
+        ? {}
+        : { readiness: availability.readiness };
     return {
       available: true,
       taskCapabilities: [
         {
           kind: TASK,
-          voices: pkg.speech.voices.map(toListedVoice),
-          ...(this.loaded ? {} : { readiness: "cold" as const })
+          voices: pkg.speech.voices.map((voice) => ({
+            ...toListedVoice(voice),
+            ...voiceReadiness
+          })),
+          ...(readiness === undefined ? {} : { readiness })
         }
       ]
     };

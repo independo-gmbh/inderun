@@ -220,6 +220,17 @@ matters only to code that names it directly.
 
 `SpeechWAV` is public in `IndeRunCore`.
 
+Apple Core AI runtime and the readiness hint ([ADR 022](./architecture/decisions/022-core-ai-runtime.md)), all additive:
+
+- **Swift: a new product and target `IndeRunCoreAIProviders`.** It holds the Core AI executor and composed runtime
+  (`makeCoreAINeuralSpeechProvider`). Nothing registers it, so an app that does not import it changes nothing.
+- **All SDKs: `NeuralSpeechAvailability.readiness`.** An optional field (`readiness?: "not_prepared" | "cold"` on the
+  Web, `NeuralSpeechReadiness?` on Swift and Kotlin). A custom runtime that does not set it changes nothing.
+  Kotlin's `NeuralSpeechAvailability` is a data class whose constructor, `copy` and `componentN` gained the parameter:
+  source compiles unchanged, but a runtime compiled against an earlier release must be recompiled.
+- **Swift: `ModelPackageDirectory` is a new public type in `IndeRunCore`.** It resolves a package directory and verifies
+  its checksums; the ONNX runtimes now call it instead of their own copy, with unchanged behaviour.
+
 ### Capacitor
 
 The Capacitor bridge is versioned separately and moves to the 0.5 contracts in its own release (#250); the

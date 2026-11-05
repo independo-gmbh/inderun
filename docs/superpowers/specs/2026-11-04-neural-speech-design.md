@@ -245,30 +245,25 @@ scope line, package READMEs.
 ### D. Core AI module (Apple)
 
 - `Package.swift`: target + product `IndeRunCoreAIProviders` at
-  `ios/IndeRun/Sources/IndeRunCoreAIProviders/`, dependencies `["IndeRunNeuralSpeech"]`;
-  platforms unchanged. Files: `Exports.swift` (`@_exported import IndeRunNeuralSpeech`),
-  `CoreAISpeechGraphExecutor.swift` (`#if canImport(CoreAI)` … `@available(iOS 27, macOS 27, *)`;
-  `AIModel(contentsOf:)`, `loadFunction(named: role)`, `InferenceFunction.run(inputs:)`,
-  `NDArray` ↔ `SpeechTensor`), `CoreAIModelLoading.swift` (actor; `AIModel.specialize(contentsOf:)`
-  into `AIModelCache.default`), `CoreAINeuralSpeechProvider.swift`
-  (`makeCoreAINeuralSpeechProvider(options:) -> NeuralSpeechProvider`, id
-  `local.coreai.speech.apple`; in the `#else` branch and on older OS it returns a provider whose
-  `capabilities()` reports `available: false, reason: "Core AI requires iOS 27 / macOS 27"`, so
-  demos compile on any Xcode and route to the system voice on older devices).
-- Readiness: files + OS checked in `capabilities()`; `not_prepared` while `AIModelCache` has no
-  specialized model (verify the cache exposes a lookup), `cold` after specialization, `ready`
-  after the first run. `prepare()` = specialize + load, `fractionCompleted` where the API reports
-  it. ADR 019 ties `not_prepared` to download consent; specialization is compute, not a download,
-  so ADR 022 amends ADR 019 with a "compile" preparation that needs no `allowDownload`.
-  Specialized artifacts are device+OS bound (documented).
-- Conversion: documented, not committed — `docs/architecture/neural-speech-provider-family.md`
-  records the `coreai-torch` steps (`torch.export` → `TorchConverter().to_coreai()` →
-  `save_asset`), after checking `apple/coreai-models` for an existing TTS recipe; the catalog
-  records the resulting `.aimodel` hash. Ships `bundled|app_managed`, never downloaded by IndeRun.
-- CI (`swift.yml`): `canImport` keeps existing steps green; add a step selecting the newest Xcode
-  on the runner and running `swift build --target IndeRunCoreAIProviders`, `continue-on-error`
-  until `macos-latest` has Xcode 27; executor tests skip unless macOS 27 + a model dir env var.
-  `docs/ci.md` updated.
+  `ios/IndeRun/Sources/IndeRunCoreAIProviders/`, dependencies
+  `["IndeRunNeuralSpeech", "IndeRunCore", "IndeRunContracts"]`; platforms unchanged. Files: `CoreAISupport.swift`,
+  `CoreAIGraphReference.swift`, `CoreAITensorBridge.swift`, `CoreAISpeechGraphExecutor.swift`
+  (`#if canImport(CoreAI)` … `@available(iOS 27, macOS 27, *)`; one `AIModel` per distinct file, one function per
+  role), `CoreAINeuralSpeechRuntime.swift` (the composed runtime) and `CoreAINeuralSpeechProvider.swift`
+  (`makeCoreAINeuralSpeechProvider(options:) -> NeuralSpeechProvider`, id `local.coreai.speech.apple`; in the `#else`
+  branch and on older OS the runtime reports `available: false, reason: "Core AI requires iOS 27 / macOS 27"`, so demos
+  compile on any Xcode and route to the system voice on older devices). There is no `CoreAIModelLoading.swift`.
+- Readiness: `not_prepared` while any graph file is missing from `AIModelCache.default`, `cold` once every file is
+  cached, `ready` after `prepare`. Only `prepare` specializes; there is no `fractionCompleted` because the API reports
+  no progress. Specialization does require `autoDownload` / `allowDownload`, which reverses the earlier "needs no
+  allowDownload" sentence of this spec: ADR 022 amends ADR 019 so that consent covers a long preparation, not only a
+  download. Specialized artifacts are device+OS bound (documented).
+- Conversion: the `coreai-torch` chain, the entrypoint names and the `text_mask` dtype are recorded in ADR 022 and in
+  `docs/architecture/neural-speech-provider-family.md`; the asset hash, shape bounds and device numbers are pending
+  spike 0b. Ships `bundled|app_managed`, never downloaded by IndeRun.
+- CI (`swift.yml`): `canImport` keeps existing steps green; a step selects the newest Xcode on the runner and runs
+  `swift build --target IndeRunCoreAIProviders`, `continue-on-error` until `macos-latest` has Xcode 27; executor tests
+  skip unless macOS 27 + `INDERUN_COREAI_MODEL_DIR`. `docs/ci.md` updated.
 
 ### E. Routing, voice selection, fallback (no engine change expected)
 

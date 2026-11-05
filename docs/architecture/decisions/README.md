@@ -19,6 +19,7 @@ New ADRs continue the numbering here.
 | [019](./019-prepare-and-readiness.md)              | Prepare and readiness                  | Accepted |
 | [020](./020-neural-speech-and-model-packages.md)   | Neural speech and model packages       | Accepted |
 | [021](./021-audio-output-host-service.md)          | Audio output host service              | Accepted |
+| [022](./022-core-ai-runtime.md)                    | Apple Core AI speech runtime           | Accepted |
 
 ## Template
 

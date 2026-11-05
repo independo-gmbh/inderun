@@ -184,6 +184,8 @@ public final class NeuralSpeechProvider: StreamingProviderAdapter, PreparablePro
             return Self.unavailable(failure)
         }
 
+        // Until the provider has loaded the model, the runtime's hint (when it gives one) wins over `.cold`.
+        let hint = state.loaded ? nil : availability.readiness.flatMap { ProviderReadiness(rawValue: $0.rawValue) }
         return ProviderDynamicCapabilities(
             available: true,
             taskCapabilities: [
@@ -196,10 +198,11 @@ public final class NeuralSpeechProvider: StreamingProviderAdapter, PreparablePro
                             networkRequired: false,
                             id: voice.id,
                             name: voice.name,
+                            readiness: hint,
                             locales: voice.locales
                         )
                     },
-                    readiness: state.loaded ? nil : .cold
+                    readiness: state.loaded ? nil : (hint ?? .cold)
                 )
             ]
         )
