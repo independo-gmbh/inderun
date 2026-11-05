@@ -261,6 +261,9 @@ Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing 
   — build one voice bundle.
 - `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_coreai_package.py --asset <articulino.aimodel> --config <config.json> --models <onnx-release-dir> --precision int8 --voice <wav>[:<id>] --out <dir>`
   — build an Articulino Core AI model package (the exported `.aimodel`, `config.json`, voices, `model-package.json`).
+- `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 5]` — opt-in: time an
+  ONNX Articulino package on a connected iPhone through the demo app, with a temporary hook the script reverts (needs
+  Xcode and a paired phone; see the README).
 - `tools/neural-speech/.venv/bin/python tools/neural-speech/generate_pipeline_fixture.py` — regenerate
   `contracts/fixtures/speech/articulino-pipeline.json`; the output is deterministic.
 

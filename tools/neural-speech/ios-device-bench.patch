@@ -1,0 +1,93 @@
+diff --git a/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift b/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
+index 127d2c4..2800be6 100644
+--- a/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
++++ b/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
+@@ -1,10 +1,88 @@
+ import SwiftUI
++import Darwin
++import IndeRunOnnxProviders
+ 
+ @main
+ struct IndeRunDemoApp: App {
+     var body: some Scene {
+         WindowGroup {
+             ContentView()
++                .task {
++                    // Applied only by tools/neural-speech/ios_device_bench.sh, which reverts it afterwards.
++                    if ProcessInfo.processInfo.arguments.contains("-inderunDeviceBench") { await DeviceBenchScratch.run() }
++                }
++        }
++    }
++}
++
++/// Times the ONNX Articulino runtime on a device: one `prepare`, then the sentences below for
++/// `-inderunBenchRounds` rounds, into `Documents/bench.txt`.
++enum DeviceBenchScratch {
++    static let sentences: [(locale: String, text: String)] = [
++        ("de-DE", "Ich habe Hunger."),
++        ("de-DE", "Kannst du mir bitte das Wasser geben?"),
++        ("de-DE", "Heute Nachmittag gehen wir gemeinsam in den Park und spielen Fußball."),
++        ("en-US", "I am hungry."),
++        ("en-US", "Could you please hand me the water?"),
++        ("en-US", "This afternoon we are going to the park together to play football."),
++    ]
++
++    static func footprintMB() -> Double {
++        var info = task_vm_info_data_t()
++        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
++        let result = withUnsafeMutablePointer(to: &info) {
++            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
++        }
++        return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : -1
++    }
++
++    static func run() async {
++        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
++        let out = documents.appendingPathComponent("bench.txt")
++        var lines: [String] = []
++        func log(_ line: String) {
++            print("INDERUN-DEVICE-BENCH " + line)
++            lines.append(line)
++            try? lines.joined(separator: "\n").write(to: out, atomically: true, encoding: .utf8)
++        }
++        do {
++            let rounds = Int(UserDefaults.standard.string(forKey: "inderunBenchRounds") ?? "") ?? 3
++            let name = UserDefaults.standard.string(forKey: "inderunBenchPackage") ?? "articulino-package-int8"
++            let directory = documents.appendingPathComponent(name)
++            let data = try Data(contentsOf: directory.appendingPathComponent("model-package.json"))
++            var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
++            json["source"] = ["sourceType": "filesystem", "ref": directory.path]
++            let package = try JSONDecoder().decode(ModelPackage.self, from: JSONSerialization.data(withJSONObject: json))
++            let voiceId = package.speech?.voices.first?.id ?? "prompt"
++            let runtime = OnnxNeuralSpeechRuntime()
++            log("start footprintMB=\(Int(footprintMB())) cpus=\(ProcessInfo.processInfo.activeProcessorCount) os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
++            let prepStart = Date()
++            let prepared = await runtime.prepare(package)
++            log("prepare available=\(prepared.available) reason=\(prepared.reason ?? "-") ms=\(Int(Date().timeIntervalSince(prepStart) * 1000)) footprintMB=\(Int(footprintMB()))")
++            var peak = footprintMB()
++            for round in 1 ... rounds {
++                for (index, sentence) in sentences.enumerated() {
++                    let started = Date()
++                    var firstChunkMs: Double?
++                    var samples = 0
++                    let input = NeuralSpeechSynthesisInput(modelPackage: package, text: sentence.text, locale: sentence.locale, voiceId: voiceId)
++                    for try await chunk in runtime.synthesize(input) {
++                        if firstChunkMs == nil { firstChunkMs = Date().timeIntervalSince(started) * 1000 }
++                        samples += chunk.samples.count
++                    }
++                    let totalMs = Date().timeIntervalSince(started) * 1000
++                    let audioS = Double(samples) / 24000
++                    peak = max(peak, footprintMB())
++                    log(String(
++                        format: "round=%d sentence=%d locale=%@ chars=%d audioS=%.2f firstChunkMs=%.0f totalMs=%.0f rtf=%.3f thermal=%d",
++                        round, index, sentence.locale, sentence.text.count, audioS, firstChunkMs ?? -1, totalMs,
++                        totalMs / 1000 / max(audioS, 0.001), ProcessInfo.processInfo.thermalState.rawValue
++                    ))
++                }
++            }
++            log("end peakFootprintMB=\(Int(peak))")
++        } catch {
++            log("error \(error)")
+         }
+     }
+ }

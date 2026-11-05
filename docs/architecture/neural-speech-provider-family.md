@@ -272,7 +272,7 @@ macOS 27; on an older Xcode the module builds to a stub, and on an older OS it r
   not contain `#`, and an `.aimodel` may be a file or a directory.
 - **What `availability` checks.** Core AI is available, `format` is `coreai`, the pipeline is `articulino`,
   `limits.memBytes` fits the device, the package directory resolves, the Articulino metadata is complete (roles,
-  frontend config, voice files) and every graph file is present. It loads and specializes nothing. The order of the
+  frontend config, voice files), and every graph file, the config file and every voice file are present. It loads and specializes nothing. The order of the
   checks is in the code comments.
 - **Readiness is the specialization state.** `not_prepared` means some graph file is not yet in `AIModelCache.default`,
   `cold` means every file is cached, and the provider reports `ready` after a successful `prepare`. Only `prepare`
@@ -303,11 +303,12 @@ Follow-ups: a typed preparation kind on the contracts, a CI test of a successful
 unused `speech.graphs` entries. The code is in
 [`IndeRunCoreAIProviders`](../../ios/IndeRun/Sources/IndeRunCoreAIProviders).
 
-## Spike findings (desktop and simulator; not device numbers)
+## Spike and device findings
 
 All runs use the int8 package (`text` 26 MB, `dit_step` 28 MB, `decoder` 33 MB), one voice, the sentence "Ich habe
 Hunger." (1.79 s of audio), the CPU execution provider and a model prepared before timing. "x realtime" is audio seconds
-over wall seconds. These numbers say the graphs load and run everywhere; they do not say a phone is fast enough.
+over wall seconds. The desktop, emulator and simulator rows say the graphs load and run everywhere; only the device
+rows say a phone is fast enough.
 
 | Platform and runtime                                   | Load and run          | Wall time for 1.79 s            | Realtime factor |
 | ------------------------------------------------------ | --------------------- | ------------------------------- | --------------- |
@@ -316,13 +317,21 @@ over wall seconds. These numbers say the graphs load and run everywhere; they do
 | Apple, onnxruntime-swift-package-manager 1.24.2, macOS 27.2, debug build | all graphs | 74 ms (provider end to end, `firstChunkMs`) | about 24x |
 | Android, onnxruntime-android 1.31.0, arm64-v8a emulator, API 34 | all graphs  | 187-209 ms                      | about 9x        |
 | iOS simulator, iPhone 17 Pro, iOS 26.2, arm64, onnxruntime-swift-package-manager 1.24.2 | all graphs | 95 ms | about 19x |
-| Real iPhone and midrange Android                       | pending (owner)       | pending (owner)                 | pending (owner) |
+| iPhone 15 (A16), iOS 27.2, onnxruntime-swift-package-manager 1.24.2, demo app Release build | all graphs | 61-79 ms (warm, cold) | about 23-29x; 26-33x over six DE/EN sentences of 1.5-4.4 s |
+| Midrange Android                                       | pending (owner)       | pending (owner)                 | pending (owner) |
 
 - In the reference, `dit_step` dominates (35-64 ms for four steps), then `decoder` (21-38 ms) and `text` (3-9 ms).
 - No ORT operator error occurred on any platform. The fp32 set was run on the desktop only, not on the SDKs.
 - The CoreML execution provider (MLProgram) partitions the graphs into three to five subgraphs and fails to compile one
   (`'mps.matmul' op contracting dimensions differ 1 & 512`), so this PR uses the CPU provider only.
-- The real-phone row is what gates the demo's default model, not this PR.
+- iPhone 15, measured 2026-11-05 over five rounds of six sentences: `prepare` 347 ms, warm wall time 54-139 ms for
+  1.5-4.4 s of audio (realtime factor 0.030-0.038), the first round about 20% slower, thermal state nominal throughout,
+  peak process footprint 233 MB. The pipeline returns one chunk per sentence, so time to first audio equals wall time.
+- Device runs are opt-in and not part of CI: with a phone at hand,
+  [`ios_device_bench.sh`](../../tools/neural-speech/README.md#time-a-package-on-an-iphone) builds the demo app with a
+  temporary benchmark hook, runs it on the phone and reverts the hook. Run it when a model, a runtime or the pipeline
+  changes in a way that could move these numbers.
+- The real-phone rows are what gate the demo's default model.
 
 ## Fixtures
 

@@ -56,9 +56,10 @@ change is needed, and the consent wording in an app's UI should say "prepare" ra
 preparation kind on the contracts ("download" versus "compile") is a recorded follow-up.
 
 Only `prepare` specializes. `availability` and `synthesize` never do: a package that is not prepared is refused by
-`synthesize` with `model not prepared: <id@version>`. An incomplete package (a missing role, a missing frontend config,
-a voice without its file) is refused by the Articulino metadata check before any specialization starts, so a
-minutes-long compile is never spent on a package that cannot run. For the same reason `prepare` reads each asset's
+`synthesize` with `model not prepared: <id@version>`, followed by the last `prepare` failure when there was one. An
+incomplete package (a missing role, a missing frontend config, a voice without its file) is refused by the Articulino
+metadata check, and a config or voice file absent from the directory by `model files missing: <file>`, before any
+specialization starts, so a minutes-long compile is never spent on a package that cannot run. For the same reason `prepare` reads each asset's
 function list (its `AIModelAsset` summary) before specializing and refuses a role whose function the asset does not
 declare.
 

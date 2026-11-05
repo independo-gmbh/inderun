@@ -96,6 +96,24 @@ each contained file under its path relative to the package. The `.aimodel` comes
 0b, see `docs/architecture/decisions/022-core-ai-runtime.md`); this tool does not run the export. The SDK's gated tests
 read the directory from `INDERUN_COREAI_MODEL_DIR`.
 
+## Time a package on an iPhone
+
+An opt-in check for when a phone is at hand; nothing here runs in CI. Swift package tests cannot run on a physical
+device, so the script uses the iOS demo app as the host:
+
+```sh
+tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 5] [--out <file>]
+```
+
+It applies `ios-device-bench.patch` (a launch-argument hook in `IndeRunDemoApp.swift`) to the working tree, builds the
+demo app in Release, installs it over the demo on the phone, copies the package into the app's Documents, runs one
+`prepare` and six German and English sentences per round, and copies the results back. The patch is reverted right
+after the build and again on exit, so the working tree is unchanged. `xcrun devicectl list devices` shows the device
+id. The phone must be paired, unlocked and in Developer Mode, and the demo project needs a signing team. Each result
+line gives the audio length, the time to first chunk, the wall time, the realtime factor and the thermal state; the
+last line gives the peak process footprint. Reinstall the demo from Xcode to drop the hook from the phone, and delete
+the app or its Documents to free the package's space. If the demo's `IndeRunDemoApp.swift` changes, refresh the patch.
+
 ## Voice bundle format
 
 One safetensors file per voice (`prepare_articulino_voice.py` writes it alone, `safetensors_io.py` reads and writes it

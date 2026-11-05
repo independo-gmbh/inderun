@@ -127,6 +127,18 @@ final class CoreAINeuralSpeechRuntimeTests: XCTestCase {
         XCTAssertEqual(cache.calls, 0)
     }
 
+    func testAMissingConfigOrVoiceFileIsRefusedBeforeSpecialization() async throws {
+        for (assets, missing) in [(["voices/v.safetensors"], "config.json"), (["config.json"], "voices/v.safetensors")] {
+            let cache = SpecializationCache()
+            let runtime = makeRuntime(isSpecialized: cache.contains, specialize: cache.specialize)
+            let package = try makePackage(directory: try makeDirectory(assets: assets))
+            for availability in [await runtime.availability(package), await runtime.prepare(package)] {
+                XCTAssertEqual(availability, NeuralSpeechAvailability(available: false, reason: "model files missing: \(missing)"))
+            }
+            XCTAssertEqual(cache.calls, 0, missing)
+        }
+    }
+
     // MARK: - Readiness and consent
 
     func testUnspecializedFilesReportNotPrepared() async throws {
@@ -194,6 +206,15 @@ final class CoreAINeuralSpeechRuntimeTests: XCTestCase {
             prepared, NeuralSpeechAvailability(available: false, reason: "graph function missing: decoder: decoder in articulino.aimodel")
         )
         XCTAssertEqual(cache.calls, 0)
+        let input = NeuralSpeechSynthesisInput(modelPackage: package, text: "Hallo.", locale: "de-DE", voiceId: "v")
+        do {
+            for try await _ in runtime.synthesize(input) {}
+            XCTFail("expected a failure")
+        } catch let error as NeuralSpeechRuntimeError {
+            XCTAssertEqual(
+                error.message, "model not prepared: coreai-fixture@1: graph function missing: decoder: decoder in articulino.aimodel"
+            )
+        }
     }
 
     func testAnAssetWithoutASummarySkipsTheFunctionCheck() async throws {
@@ -307,12 +328,16 @@ final class CoreAINeuralSpeechRuntimeTests: XCTestCase {
         return runtime
     }
 
-    /// A temp package directory holding empty graph files (no `config.json`, no voices).
-    private func makeDirectory(files: [String] = ["text.aimodel", "dit_step.aimodel", "decoder.aimodel"]) throws -> URL {
+    /// A temp package directory holding empty graph, config and voice files: the pipeline step fails
+    /// on the empty `config.json`, after specialization.
+    private func makeDirectory(
+        files: [String] = ["text.aimodel", "dit_step.aimodel", "decoder.aimodel"],
+        assets: [String] = ["config.json", "voices/v.safetensors"]
+    ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("voices"), withIntermediateDirectories: true)
         directories.append(directory)
-        for file in files {
+        for file in files + assets {
             XCTAssertTrue(FileManager.default.createFile(atPath: directory.appendingPathComponent(file).path, contents: Data()))
         }
         return directory

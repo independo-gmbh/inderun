@@ -24,8 +24,8 @@ public struct CoreAINeuralSpeechRuntimeOptions: Sendable {
 
 /// The ``NeuralSpeechRuntime`` for `format: "coreai"` neural speech packages on Apple platforms
 /// (iOS 27 / macOS 27): resolves the package directory as the ONNX runtime does, checks the
-/// Articulino package metadata, the graph references and their files, and runs the Articulino
-/// pipeline through ``CoreAISpeechGraphExecutor``.
+/// Articulino package metadata, the graph references and their files, and that the config and every
+/// voice file exist, and runs the Articulino pipeline through ``CoreAISpeechGraphExecutor``.
 /// One pipeline runtime is built and cached per package id and version.
 ///
 /// A `.aimodel` must be specialized for the device before it loads, which can take minutes. That is
@@ -128,7 +128,14 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
         }
     }
 
+    /// Every outcome, an early refusal included, is remembered for the next `synthesize`.
     public func prepare(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
+        let result = await prepareResolving(modelPackage)
+        await state.finishPrepare(Self.key(modelPackage), result)
+        return result
+    }
+
+    private func prepareResolving(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
         let resolved: Resolved
         switch resolve(modelPackage, verify: true) {
         case let .refused(refusal): return refusal
@@ -146,17 +153,13 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
             await state.finishSpecialization(of: url)
             if case let .failure(error) = outcome {
                 let message = (error as? NeuralSpeechRuntimeError)?.message ?? error.localizedDescription
-                let failed = NeuralSpeechAvailability(available: false, reason: "specialization failed: \(file): \(message)")
-                await state.finishPrepare(resolved.key, failed)
-                return failed
+                return NeuralSpeechAvailability(available: false, reason: "specialization failed: \(file): \(message)")
             }
         }
         guard let runtime = await pipelineRuntime(resolved) else {
             return NeuralSpeechAvailability(available: false, reason: CoreAISupport.unavailableReason)
         }
-        let result = await runtime.prepare(modelPackage)
-        await state.finishPrepare(resolved.key, result)
-        return result
+        return await runtime.prepare(modelPackage)
     }
 
     public func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error> {
@@ -177,7 +180,7 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
 
     /// Records the package as prepared without loading it (tests of the prepared state).
     func markPrepared(_ modelPackage: ModelPackage) async {
-        await state.finishPrepare("\(modelPackage.id)@\(modelPackage.version ?? "")", NeuralSpeechAvailability(available: true))
+        await state.finishPrepare(Self.key(modelPackage), NeuralSpeechAvailability(available: true))
     }
 
     // MARK: - Resolution
@@ -230,8 +233,26 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
             }
             if !files.contains(file) { files.append(file) }
         }
-        let key = "\(modelPackage.id)@\(modelPackage.version ?? "")"
-        return .ready(Resolved(key: key, directory: directory, files: files, references: references))
+        // The pipeline reads the config and every voice file only after specialization, so their
+        // absence is refused here instead.
+        let assets = [speech.frontend?.assets?["config"]].compactMap { $0 } + speech.voices.compactMap(\.file)
+        for file in assets {
+            do {
+                try checkPackageFileName(file)
+            } catch let error as NeuralSpeechRuntimeError {
+                return refused(error.message)
+            } catch {
+                return refused(String(describing: error))
+            }
+            guard FileManager.default.fileExists(atPath: directory.appendingPathComponent(file).path) else {
+                return refused("model files missing: \(file)")
+            }
+        }
+        return .ready(Resolved(key: Self.key(modelPackage), directory: directory, files: files, references: references))
+    }
+
+    private static func key(_ modelPackage: ModelPackage) -> String {
+        "\(modelPackage.id)@\(modelPackage.version ?? "")"
     }
 
     /// Refuses a role whose function the asset does not declare, before minutes of specialization are
