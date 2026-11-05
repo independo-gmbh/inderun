@@ -18,7 +18,7 @@ The contract types this SDK's own signatures take and return — `TaskRequest`, 
 | --- | --- | --- |
 | `@independo/inderun-web` | Applications | `generateText` / `streamText`, `speak` / `generateSpeech` / `listVoices`, `createIndeRunWeb`, the advanced task API (`IndeRun`, `run()` / `stream()` / `checkCapabilities()`), model profiles, contract types, `IndeRunException`, telemetry |
 | `@independo/inderun-web/provider` | Provider authors and host integrators | `ProviderAdapter` and the descriptor/capability types, `ProviderRegistry`, `HostServices` and the browser host services, the `create*` error constructors |
-| `@independo/inderun-web/openai`, `/onnx`, `/system-model`, `/system-speech` | Registering a provider by hand | One provider adapter each |
+| `@independo/inderun-web/openai`, `/onnx`, `/system-model`, `/system-speech`, `/neural-speech` | Registering a provider by hand | One provider adapter each |
 
 The router, the route planner bindings and the Event Gate are engine internals and are not exported. Moving from 0.3?
 See the [migration guide](https://github.com/independo-gmbh/inderun/blob/main/docs/migration.md).
@@ -343,6 +343,39 @@ const runtime: SystemModelRuntime = {
 
 `createFixtureSystemModelRuntime()` provides a deterministic in-memory runtime for tests and
 offline demos.
+
+## On-Device Models: Neural speech
+
+`local.onnx.speech.web` speaks with a developer-supplied neural speech model package, in the browser,
+through the host's audio output or as an `audio/wav` artifact. Pass `neuralSpeech` to the factory, one
+entry per model:
+
+```ts
+import { createIndeRunWeb } from "@independo/inderun-web";
+
+const inderun = createIndeRunWeb({
+  neuralSpeech: [{ modelPackage, runtime }]
+});
+```
+
+The provider id is `local.onnx.speech.web:<modelPackage.id>` unless you pass `id`, so register one
+entry per model. `runtime` is required: the provider does no inference itself, and no runtime that
+runs a real model ships yet. The ONNX Runtime executor and the first pipeline arrive with the next
+release of this programme (#260 PR 4). Until then, inject your own `NeuralSpeechRuntime`, or the
+fixture runtime for demos and tests:
+
+```ts
+import { createFixtureNeuralSpeechRuntime } from "@independo/inderun-web/neural-speech";
+
+const runtime = createFixtureNeuralSpeechRuntime();
+```
+
+It synthesizes a deterministic tone, so a demo exercises routing, playback and cancellation without a
+model. Playback goes through the browser audio output, which needs a user gesture before the first
+sound, as in Chrome; artifact delivery does not. Artifacts are capped at 16 MiB. The seam types, the
+sentence splitter and the WAV encoder are exported from `@independo/inderun-web/neural-speech`. See
+[the family doc](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/neural-speech-provider-family.md)
+in the monorepo.
 
 ## Commands
 

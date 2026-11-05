@@ -66,6 +66,8 @@ dependencies {
     // Speech is opt-in, so this is a test dependency only: the provider's engine runs here
     // because this module is the one wired to the native route core.
     testImplementation(project(":inderun-system-speech-providers"))
+    // Neural speech is opt-in too: the lifecycle catalog runs its provider through this engine.
+    testImplementation(project(":inderun-neural-speech"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.test:core:1.7.0")

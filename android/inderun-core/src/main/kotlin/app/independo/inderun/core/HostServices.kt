@@ -188,8 +188,10 @@ interface AudioOutputSession {
     fun stop()
 
     /**
-     * Milliseconds from [AudioOutputService.open] to the first frame the host observed leaving
-     * the output; `null` until then.
+     * Milliseconds from the start of [AudioOutputService.open] (the instant it was called, before
+     * the output is built or started) to the first frame the host observed leaving the output;
+     * `null` until then. A provider reports `firstAudioMs` = (instant before `open()` was called −
+     * `receivedAt`) + `session.firstAudioMs()`, so a slow open is counted once.
      */
     fun firstAudioMs(): Double?
 }

@@ -1,0 +1,185 @@
+{
+  "$comment": "Scenario catalog for the neural speech provider. Every SDK runs it through its engine (IndeRun + ProviderRegistry) with the fixture runtime and the fixture audio output of ADR 021; the package under test is this file's 'package' (24000 Hz, pipeline 'fixture', voices 'v_de' (de-DE, de-AT) and 'v_en' (en-US)); text is 'Hallo Welt. Wie geht es dir?' (28 characters, 1400 ms with msPerCharacter: 50) unless the setup says otherwise; the profile is [neural, fallback] where 'fallback' is a scripted fake speech provider that records whether it was asked; every wait is bounded by 'timeoutMs'. 'setup' is normative prose and 'expect' is shared data; each SDK registers one handler per 'id' behind a guard test that fails when the handler ids and the ids here differ.",
+  "$expectKeys": {
+    "outcome": "The run's terminal outcome: 'completed', 'cancelled' or 'error'.",
+    "commitCount": "Whether the neural provider committed: 1 when the engine's provenance reports its attempt 'committed', else 0.",
+    "commitAt": "For a direct provider call with a spying commit(): 'sessionsOpened' and 'firstSessionWrites' at the moment commit() was called.",
+    "sessions": "How many audio output sessions the provider opened, and for the first: 'writes' (at least), 'stopped', 'discardedFrames' ('some' or 'none'), 'playedFrames' ('all' = every written frame played).",
+    "fallbackAsked": "Whether the second provider in the profile was asked to run.",
+    "error": "For 'error' outcomes and thrown refusals: 'errorClass' and 'code' (details.code).",
+    "timing": "'durationMsEquals' ('synthesized' = frames / sampleRate * 1000), 'firstChunkDefined', 'firstAudioDefined'. firstChunkMs <= firstAudioMs holds on a real host, but the fixture audio output's virtual clock (advanced only by drain) cannot observe it, so it is not asserted here.",
+    "artifact": "'mediaType', 'byteLengthEquals' ('wav' = 44 + 2 * frames), 'header' (sampleRate, channels, bitsPerSample, dataBytes = 2 * frames).",
+    "runtime": "'synthesizeCalls' (sentences handed to the runtime, exact), 'synthesizeCallsAtMost', 'prepareCalls'.",
+    "order": "For two utterances on one provider: 'secondOpensAfterFirstStops'.",
+    "readiness": "For capabilities_never_load: the readiness the capability check reports 'before' prepare ('cold') and 'after' it (null = absent).",
+    "timeoutMs": "Bounds every wait in the case (a sibling of 'expect' on each case)."
+  },
+  "format": { "sampleRate": 24000, "channels": 1, "encoding": "pcm_s16le" },
+  "package": {
+    "id": "fixture-neural-speech",
+    "version": "1",
+    "format": "onnx",
+    "tasks": [
+      "text_to_speech"
+    ],
+    "source": {
+      "sourceType": "app_managed"
+    },
+    "speech": {
+      "pipeline": "fixture",
+      "sampleRate": 24000,
+      "graphs": {
+        "acoustic": "acoustic.onnx"
+      },
+      "frontend": {
+        "kind": "grapheme"
+      },
+      "voices": [
+        {
+          "id": "v_de",
+          "name": "Fixture German",
+          "locales": [
+            "de-DE",
+            "de-AT"
+          ],
+          "gender": "female"
+        },
+        {
+          "id": "v_en",
+          "name": "Fixture English",
+          "locales": [
+            "en-US"
+          ],
+          "gender": "male"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "playback_commits_before_first_write",
+      "description": "The provider commits after the audio output session is open and before the first write, and a normal playback ends with drain then stop.",
+      "setup": "Direct provider run in playback with a spying commit() that records how many fixture sessions are open and how many writes the first has at the moment it is called; await the result.",
+      "timeoutMs": 5000,
+      "expect": {
+        "commitAt": { "sessionsOpened": 1, "firstSessionWrites": 0 },
+        "sessions": { "count": 1, "first": { "writes": 1, "stopped": true, "discardedFrames": "none", "playedFrames": "all" } },
+        "runtime": { "synthesizeCalls": 2 }
+      }
+    },
+    {
+      "id": "playback_reports_timing",
+      "description": "A playback result reports chunk, first-audio and duration timings from one origin.",
+      "setup": "Same run as playback_commits_before_first_write; read the PlaybackTiming of the result.",
+      "timeoutMs": 5000,
+      "expect": {
+        "timing": { "durationMsEquals": "synthesized", "firstChunkDefined": true, "firstAudioDefined": true }
+      }
+    },
+    {
+      "id": "cancel_while_waiting_plays_nothing",
+      "description": "An utterance cancelled while it waits for the previous one holds its place and plays nothing.",
+      "setup": "Start speak A (text of 60 characters); start speak B; cancel B while A is still writing; await both. The expectation is for B; A completes (outcome completed) and is the only utterance that opens a session.",
+      "timeoutMs": 5000,
+      "expect": {
+        "outcome": "cancelled",
+        "commitCount": 0,
+        "sessions": { "count": 1 }
+      }
+    },
+    {
+      "id": "cancel_mid_stream_stops_audio_once",
+      "description": "Cancelling after commit stops the session once, discards buffered audio and stops consuming the runtime.",
+      "setup": "speak a text of 200 characters with the fixture runtime's delayMs: 5; cancel after the first write; await the terminal. Exactly one terminal event is delivered.",
+      "timeoutMs": 5000,
+      "expect": {
+        "outcome": "cancelled",
+        "commitCount": 1,
+        "sessions": { "count": 1, "first": { "stopped": true, "discardedFrames": "some" } },
+        "runtime": { "synthesizeCallsAtMost": 1 }
+      }
+    },
+    {
+      "id": "missing_audio_output_refuses_before_commit",
+      "description": "A host without audioOutput makes the neural provider refuse before commit, so the fallback runs.",
+      "setup": "Host without audioOutput; speak with the profile [neural, fallback]. The neural commitCount, sessions and the first attempt's provenance rejection are the expectation.",
+      "timeoutMs": 5000,
+      "expect": {
+        "outcome": "completed",
+        "fallbackAsked": true,
+        "commitCount": 0,
+        "sessions": { "count": 0 },
+        "error": { "errorClass": "CapabilityMismatch", "code": "audio_output_unavailable" }
+      }
+    },
+    {
+      "id": "unknown_voice_refused_before_commit",
+      "description": "A bound voice that the package lacks is refused before commit.",
+      "setup": "Direct provider call with a bound voice { id: \"ghost\" }.",
+      "timeoutMs": 5000,
+      "expect": {
+        "error": { "errorClass": "CapabilityMismatch", "code": "voice_not_available" },
+        "commitCount": 0,
+        "sessions": { "count": 0 }
+      }
+    },
+    {
+      "id": "artifact_is_wav_of_the_samples",
+      "description": "An artifact run needs no audio output and returns a WAV of exactly the synthesized samples.",
+      "setup": "generateSpeech the text; read the artifact's bytes. 'dataBytes: 2*frames' and 'byteLengthEquals: wav' are computed from the frames the runtime produced.",
+      "timeoutMs": 5000,
+      "expect": {
+        "outcome": "completed",
+        "commitCount": 1,
+        "sessions": { "count": 0 },
+        "artifact": { "mediaType": "audio/wav", "byteLengthEquals": "wav", "header": { "sampleRate": 24000, "channels": 1, "bitsPerSample": 16, "dataBytes": "2*frames" } }
+      }
+    },
+    {
+      "id": "artifact_over_cap_fails_before_commit",
+      "description": "An artifact larger than the cap fails uncommitted and stops synthesis at the cap.",
+      "setup": "Single-provider profile; generateSpeech with msPerCharacter: 50000 and a 7-character text (350 s, 16.8 MB).",
+      "timeoutMs": 5000,
+      "expect": {
+        "outcome": "error",
+        "error": { "errorClass": "Unavailable", "code": "artifact_too_large" },
+        "commitCount": 0,
+        "sessions": { "count": 0 },
+        "runtime": { "synthesizeCalls": 1 }
+      }
+    },
+    {
+      "id": "interruption_after_commit_fails_without_fallback",
+      "description": "An output interruption after commit is an error and is not retried on the fallback.",
+      "setup": "speak; after the first write the fixture session is interrupted with audio_output_interrupted.",
+      "timeoutMs": 5000,
+      "expect": {
+        "outcome": "error",
+        "error": { "errorClass": "Unavailable", "code": "audio_output_interrupted" },
+        "commitCount": 1,
+        "fallbackAsked": false
+      }
+    },
+    {
+      "id": "utterances_play_one_at_a_time",
+      "description": "Two utterances on one provider never overlap.",
+      "setup": "Two speak calls started back to back on one provider; await both.",
+      "timeoutMs": 5000,
+      "expect": {
+        "outcome": "completed",
+        "sessions": { "count": 2 },
+        "order": { "secondOpensAfterFirstStops": true }
+      }
+    },
+    {
+      "id": "capabilities_never_load",
+      "description": "Capability checks never load the runtime; only prepare does.",
+      "setup": "checkCapabilities twice, then prepare. Before prepare the runtime has had 0 prepare calls and readiness is cold; after, 1 prepare call and readiness is absent.",
+      "timeoutMs": 5000,
+      "expect": {
+        "runtime": { "prepareCalls": 1 },
+        "readiness": { "before": "cold", "after": null }
+      }
+    }
+  ]
+}

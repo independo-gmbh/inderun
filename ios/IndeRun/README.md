@@ -11,6 +11,8 @@ The package is split into public API, core engine, contracts, and provider targe
 - `IndeRunOpenAIProviders` - OpenAI-compatible cloud provider
 - `IndeRunOnnxProviders` - ONNX Runtime provider family member for developer-supplied/custom
   local models (see `docs/architecture/onnx-runtime-provider-family.md`)
+- `IndeRunNeuralSpeech` - neural speech provider for developer-supplied text-to-speech model
+  packages, played through the host's `audioOutput` or returned as `audio/wav`
 
 Requires iOS 16+ / macOS 14+ (raised from iOS 15 / macOS 12 by `IndeRunOnnxProviders`'s
 dependencies: the official ONNX Runtime SPM bindings and `swift-transformers`).
@@ -26,8 +28,8 @@ place.
 Products are a separate question from imports. The `IndeRun` product contains the engine and the
 contract types, and no providers — unlike the Android SDK, where `IndeRun.initialize()` registers
 the on-device provider for you, the Swift initializer takes a registry you built. Add
-`IndeRunAppleProviders`, `IndeRunOpenAIProviders` or `IndeRunOnnxProviders` for the providers you
-intend to register; the usage example below needs the first two.
+`IndeRunAppleProviders`, `IndeRunOpenAIProviders`, `IndeRunOnnxProviders` or `IndeRunNeuralSpeech`
+for the providers you intend to register; the usage example below needs the first two.
 
 ## Usage
 
@@ -116,6 +118,30 @@ tokenization, greedy decoding, no KV-cache reuse). Pass `runtime:` in `OnnxProvi
 supply a different `OnnxGenAiRuntime` implementation, or `createFixtureOnnxRuntime()` for demos
 and tests. See `docs/architecture/onnx-runtime-provider-family.md#apple-implementation` for the
 model IO contract, source-type support, and error mapping.
+
+### Neural speech
+
+```swift
+import IndeRunNeuralSpeech
+
+// A package with tasks: ["text_to_speech"] and a `speech` block (pipeline, graphs, voices).
+let speechPackage = try JSONDecoder().decode(ModelPackage.self, from: packageJSON)
+try registry.register(NeuralSpeechProvider(options: NeuralSpeechProviderOptions(
+    modelPackage: speechPackage,
+    runtime: myRuntime // any NeuralSpeechRuntime; FixtureNeuralSpeechRuntime() for demos and tests
+)))
+let playback = try await inderun.speak(SpeakOptions("Der Bus kommt.", locale: "de-AT"))
+```
+
+`NeuralSpeechProvider` runs a developer-supplied speech model package (its `speech` block names
+the pipeline, graphs and voices) through a `NeuralSpeechRuntime` you pass in: no runtime ships yet,
+so `runtime` is required. Its id is `local.onnx.speech.apple:<modelPackage.id>`, so one provider per
+model registers without clashes. `speak` plays through the host's `audioOutput`
+(`DefaultHostServices.make()` provides one; a host without it refuses before any sound with
+`audio_output_unavailable`, so the run can fall back), one utterance at a time per provider;
+`generateSpeech` returns an `audio/wav` artifact of at most 16 MiB and needs no audio output.
+`prepare()` loads the model ahead of the first call. The package's sources may be `bundled`,
+`programmatic`, `app_managed` or `filesystem`.
 
 ## Streaming
 

@@ -158,8 +158,10 @@ public protocol AudioOutputSession: Sendable {
     /// Ends the session now: discards buffered audio and releases the output. Idempotent, and
     /// nothing renders after it.
     func stop()
-    /// Milliseconds from `open(format:)` to the first frame the host observed leaving the
-    /// output; `nil` until then.
+    /// Milliseconds from the start of `open(format:)` (the instant it was called, before the
+    /// output is built or started) to the first frame the host observed leaving the output; `nil`
+    /// until then. A provider reports `firstAudioMs` = (instant before `open()` was called −
+    /// `receivedAt`) + `session.firstAudioMs()`, so a slow open is counted once.
     func firstAudioMs() -> Double?
 }
 

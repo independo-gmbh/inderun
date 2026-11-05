@@ -355,7 +355,8 @@ describe("createWebAudioOutputService", () => {
     await session.write(new Int16Array(2400));
     expect(session.firstAudioMs()).toBeUndefined();
     fake.advance(1.03);
-    expect(session.firstAudioMs()).toBeCloseTo(30);
+    // Within 0.5 ms: the value includes open()'s own wall-clock time, about 0 here.
+    expect(session.firstAudioMs()).toBeCloseTo(30, 0);
   });
 
   it("prefers outputLatency over baseLatency", async () => {
@@ -365,7 +366,8 @@ describe("createWebAudioOutputService", () => {
     );
     await session.write(new Int16Array(2400));
     fake.advance(0.5);
-    expect(session.firstAudioMs()).toBeCloseTo(70);
+    // Within 0.5 ms: the value includes open()'s own wall-clock time, about 0 here.
+    expect(session.firstAudioMs()).toBeCloseTo(70, 0);
   });
 
   it("firstAudioMs stays undefined when stop lands before the first start", async () => {
@@ -380,6 +382,24 @@ describe("createWebAudioOutputService", () => {
     expect(session.firstAudioMs()).toBeUndefined();
   });
 
+  it("counts the time open() waited for resume() in firstAudioMs", async () => {
+    // A suspended context's currentTime does not advance, so only the wall clock sees the wait.
+    const fake = fakeAudioContext({
+      state: "suspended",
+      resume: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        (fake.context as { state: string }).state = "running";
+      }
+    });
+    const session = await createWebAudioOutputService({ audioContext: () => fake.context }).open(
+      format
+    );
+    await session.write(new Int16Array(2400));
+    fake.advance(0.05);
+    // 100 ms of resume wait plus the 20 ms scheduled start.
+    expect(session.firstAudioMs()).toBeGreaterThanOrEqual(119);
+  });
+
   it("keeps firstAudioMs when stop lands after the first start", async () => {
     const fake = fakeAudioContext({ state: "running" });
     const session = await createWebAudioOutputService({ audioContext: () => fake.context }).open(
@@ -388,7 +408,8 @@ describe("createWebAudioOutputService", () => {
     await session.write(new Int16Array(12000));
     fake.advance(0.3);
     session.stop();
-    expect(session.firstAudioMs()).toBeCloseTo(20);
+    // Within 0.5 ms: the value includes open()'s own wall-clock time, about 0 here.
+    expect(session.firstAudioMs()).toBeCloseTo(20, 0);
   });
 
   describe("when the context stops running after open", () => {

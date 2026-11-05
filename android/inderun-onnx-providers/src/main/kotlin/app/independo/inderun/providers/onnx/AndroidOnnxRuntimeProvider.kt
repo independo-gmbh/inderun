@@ -35,6 +35,7 @@ import app.independo.inderun.core.createCapabilityMismatch
 import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.createTimeout
 import app.independo.inderun.core.createUnavailable
+import app.independo.inderun.core.getModelPackageValidationIssues
 import app.independo.inderun.core.toIndeRunException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException

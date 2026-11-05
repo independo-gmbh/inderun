@@ -7,6 +7,11 @@ public struct ModelPackageValidationIssue: Equatable, Sendable {
     public let path: String
     /// Human-readable description of the problem.
     public let message: String
+
+    public init(path: String, message: String) {
+        self.path = path
+        self.message = message
+    }
 }
 
 /// Minimal structural validation for `ModelPackage`, mirroring the subset of
@@ -17,9 +22,8 @@ public struct ModelPackageValidationIssue: Equatable, Sendable {
 /// `channels` are at least 1, `graphs` and `voices` are non-empty, and every voice lists at least one
 /// locale, each a hyphenated BCP 47 tag). This is a hand-written subset, not a generated JSON Schema
 /// validator (no AJV-equivalent exists in Swift) -- see the ONNX Runtime provider family spec
-/// for the normative field shapes in `contracts/schemas/model-package.schema.json`. Moving this
-/// validator into Core, so every platform shares one implementation, is the first step of the
-/// neural speech provider PR.
+/// for the normative field shapes in `contracts/schemas/model-package.schema.json`. Shared by
+/// every local-model provider.
 public func getModelPackageValidationIssues(_ modelPackage: ModelPackage) -> [ModelPackageValidationIssue] {
     var issues: [ModelPackageValidationIssue] = []
 

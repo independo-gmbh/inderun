@@ -53,6 +53,13 @@ const MAX_SAMPLE_RATE = 48000;
 /** Head start given to the first source of a burst so scheduling never lands in the past. */
 const START_LEAD_SECONDS = 0.02;
 
+/** Wall-clock milliseconds: `performance.now()` where present, else `Date.now()`. */
+function wallClockMs(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
 function abortError(): Error {
   const message = "The audio output was aborted.";
   return typeof DOMException === "undefined"
@@ -100,6 +107,8 @@ class WebAudioOutputSession implements AudioOutputSession {
     private readonly format: AudioOutputFormat,
     private readonly maxLeadSeconds: number,
     private readonly openedAtContextTime: number,
+    /** Wall-clock milliseconds `open()` had spent before this session existed, resume wait included. */
+    private readonly openOverheadMs: number,
     private readonly onEnded: (session: WebAudioOutputSession) => void
   ) {}
 
@@ -205,15 +214,18 @@ class WebAudioOutputSession implements AudioOutputSession {
   }
 
   /**
-   * The web value is the scheduled start plus the output latency the context reports, not a
-   * frame observed leaving the output; Web Audio exposes no such observation.
+   * Counted from the start of `open()`. The web value is the time `open()` spent before the
+   * session existed (wall clock, the resume wait included, because a suspended context's
+   * `currentTime` does not advance) plus the scheduled start and the output latency the context
+   * reports (context clock). It is not a frame observed leaving the output; Web Audio exposes no
+   * such observation.
    */
   firstAudioMs(): number | undefined {
     if (this.firstStart === undefined || this.context.currentTime < this.firstStart) {
       return undefined;
     }
     const latency = this.context.outputLatency ?? this.context.baseLatency ?? 0;
-    return (this.firstStart + latency - this.openedAtContextTime) * 1000;
+    return this.openOverheadMs + (this.firstStart + latency - this.openedAtContextTime) * 1000;
   }
 
   /** Resolves on the next `notify()`, or after `timeoutMs` when given; the timer never outlives it. */
@@ -272,6 +284,8 @@ export function createWebAudioOutputService(
 
   return {
     async open(format: AudioOutputFormat, signal?: AbortSignalLike): Promise<AudioOutputSession> {
+      // The session's firstAudioMs() counts from here, the start of open().
+      const openStartedAt = wallClockMs();
       assertSupportedFormat(format);
       if (signal?.aborted) {
         throw abortError();
@@ -307,6 +321,7 @@ export function createWebAudioOutputService(
         format,
         maxLeadSeconds,
         context.currentTime,
+        wallClockMs() - openStartedAt,
         (ended) => sessions.delete(ended)
       );
       sessions.add(session);

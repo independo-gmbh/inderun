@@ -236,8 +236,10 @@ export interface AudioOutputSession {
    */
   stop(): void;
   /**
-   * Milliseconds from `open()` to the first frame the host observed leaving the output;
-   * `undefined` until then.
+   * Milliseconds from the start of `open()` (the instant it was called, before the output is built
+   * or started) to the first frame the host observed leaving the output; `undefined` until then.
+   * A provider reports `firstAudioMs` = (instant before `open()` was called − `receivedAt`) +
+   * `session.firstAudioMs()`, so a slow open is counted once.
    */
   firstAudioMs(): number | undefined;
 }
