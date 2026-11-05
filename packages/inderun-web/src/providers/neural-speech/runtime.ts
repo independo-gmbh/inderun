@@ -39,16 +39,30 @@ export interface SpeechPackageFiles {
 /**
  * Throws `model file name invalid: <file>` (capability) for a name a package file may not have:
  * empty, absolute (a leading `/` or `\`, or a URL scheme), or with a `..` component, so a package
- * cannot reach outside its directory. Every package file reader and graph executor applies it.
+ * cannot reach outside its directory. A component is also read percent-decoded, because a URL
+ * resolves `%2e%2e` as `..`, and one that decodes to a separator is refused. Every package file
+ * reader and graph executor applies it.
  */
 export function checkPackageFileName(file: string): void {
   if (
     file.length === 0 ||
     /^[/\\]/u.test(file) ||
     /^[a-z][a-z0-9+.-]*:/iu.test(file) ||
-    file.split(/[/\\]/u).includes("..")
+    file.split(/[/\\]/u).some((part) => {
+      const decoded = percentDecoded(part);
+      return part === ".." || decoded === ".." || /[/\\]/u.test(decoded);
+    })
   ) {
     throw new NeuralSpeechRuntimeError("capability", `model file name invalid: ${file}`);
+  }
+}
+
+/** `part` percent-decoded, or as written when it is not valid percent-encoding. */
+function percentDecoded(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
   }
 }
 

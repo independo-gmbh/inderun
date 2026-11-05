@@ -24,7 +24,11 @@ internal class OnnxModelDirectory(private val context: Context) {
         }
     }
 
-    fun resolve(modelPackage: ModelPackage, sourceType: SourceType, cacheKey: String): File {
+    /**
+     * The package's directory. A bundled source is extracted there first unless [extract] is false,
+     * which only names the directory, so a capability check never copies the asset tree.
+     */
+    fun resolve(modelPackage: ModelPackage, sourceType: SourceType, cacheKey: String, extract: Boolean = true): File {
         val ref = modelPackage.source?.ref
         return when (sourceType) {
             SourceType.Bundled -> {
@@ -33,7 +37,7 @@ internal class OnnxModelDirectory(private val context: Context) {
                     context.filesDir,
                     "inderun-onnx-assets/${modelPackage.id}/${cacheKeyDigest(cacheKey)}",
                 )
-                extractAssetDirectory(relative, assetDir)
+                if (extract) extractAssetDirectory(relative, assetDir)
                 assetDir
             }
             SourceType.Filesystem -> {
