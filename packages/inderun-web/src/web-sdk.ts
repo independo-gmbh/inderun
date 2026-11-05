@@ -12,6 +12,10 @@ import {
 } from "./providers/openai/provider.js";
 import { ProviderRegistry, type ProviderRegistrationOptions } from "./core/registry.js";
 import {
+  NeuralSpeechWebProvider,
+  type NeuralSpeechProviderOptions
+} from "./providers/neural-speech/provider.js";
+import {
   SystemModelWebProvider,
   type SystemModelProviderOptions
 } from "./providers/system-model/provider.js";
@@ -48,6 +52,13 @@ export interface CreateIndeRunWebOptions {
    */
   systemSpeech?: SystemSpeechProviderOptions & ProviderRegistrationOptions;
   /**
+   * Neural speech providers registered by the factory, one per developer-supplied speech model
+   * package, each with the runtime that executes it. Every entry gets the id
+   * `local.onnx.speech.web:<modelPackage.id>` unless it sets `id`, so one app can register several
+   * models side by side. Playback needs the host's `audioOutput`; artifacts do not.
+   */
+  neuralSpeech?: (NeuralSpeechProviderOptions & ProviderRegistrationOptions)[];
+  /**
    * Optional browser host service overrides.
    */
   hostServices?: CreateBrowserHostServicesOptions;
@@ -81,8 +92,8 @@ export type OpenAIFactoryOptions = Omit<OpenAIProviderOptions, "model"> & {
  * Creates a Web SDK instance with the configured providers registered.
  *
  * Pass `openAI` for cloud execution, `onnx` for developer-supplied local models, `systemModel` for
- * browser-managed on-device models, or any combination to let routing choose between them; at
- * least one is required.
+ * browser-managed on-device models, `systemSpeech` or `neuralSpeech` for speech, or any combination
+ * to let routing choose between them; at least one is required.
  *
  * Use `openAI.auth = "none"` with a proxy endpoint for production browser apps so the OpenAI API key never ships
  * to the client. Direct OpenAI calls require `allowDirectOpenAIEndpoint` and should resolve credentials through
@@ -91,9 +102,15 @@ export type OpenAIFactoryOptions = Omit<OpenAIProviderOptions, "model"> & {
  * @param options - Provider configuration and optional host service overrides.
  */
 export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
-  if (!options.openAI && !options.onnx && !options.systemModel && !options.systemSpeech) {
+  if (
+    !options.openAI &&
+    !options.onnx &&
+    !options.systemModel &&
+    !options.systemSpeech &&
+    !options.neuralSpeech?.length
+  ) {
     throw new Error(
-      "createIndeRunWeb requires at least one provider configuration (openAI, onnx, systemModel, and/or systemSpeech)."
+      "createIndeRunWeb requires at least one provider configuration (openAI, onnx, systemModel, systemSpeech, and/or neuralSpeech)."
     );
   }
 
@@ -120,6 +137,10 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
 
   if (options.systemSpeech) {
     registry.register(new SystemSpeechWebProvider(options.systemSpeech), options.systemSpeech);
+  }
+
+  for (const neuralSpeech of options.neuralSpeech ?? []) {
+    registry.register(new NeuralSpeechWebProvider(neuralSpeech), neuralSpeech);
   }
 
   return new IndeRun(registry, createBrowserHostServices(options.hostServices), {

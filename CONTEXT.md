@@ -40,7 +40,9 @@ OpenAI-compatible provider streams on all three platforms. Apple Foundation
 Models and Android ML Kit GenAI stream on-device; the remaining local/platform
 provider families (ONNX Runtime, web system-model) do not stream yet.
 Text-to-speech is implemented through `speak()` / `generateSpeech()` /
-`listVoices()` and the system speech providers on all three platforms (ADR 018).
+`listVoices()` and the system speech providers on all three platforms (ADR 018). A neural speech provider family
+(`local.onnx.speech.*`, runtime seam, fixture runtime) exists on all three SDKs; its ONNX executor and the first model
+pipeline follow (ADR 020, ADR 021).
 Mode 3 `openSession()` / realtime sessions remain unimplemented.
 
 Out of scope now:

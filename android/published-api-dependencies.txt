@@ -28,6 +28,10 @@ inderun-mlkit-providers compile app.independo.inderun:inderun-core
 inderun-mlkit-providers compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-mlkit-providers compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-mlkit-providers runtime com.google.mlkit:genai-prompt
+inderun-neural-speech compile app.independo.inderun:inderun-contracts
+inderun-neural-speech compile app.independo.inderun:inderun-core
+inderun-neural-speech compile org.jetbrains.kotlin:kotlin-stdlib
+inderun-neural-speech compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-onnx-providers compile app.independo.inderun:inderun-contracts
 inderun-onnx-providers compile app.independo.inderun:inderun-core
 inderun-onnx-providers compile org.jetbrains.kotlin:kotlin-stdlib

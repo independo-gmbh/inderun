@@ -1,0 +1,97 @@
+{
+  "$comment": "Text frontend vectors shared by the three neural speech providers. 'sentences' is the sentence rule's output for 'text'; 'tokens' is the grapheme tokenizer's output per sentence over 'vocab' (lowercased NFC code points; code points absent from the vocab are dropped). Pipeline-specific normalizers (numbers, abbreviations) are not covered here; 'z.B. Hallo' splits after 'B.' by design.",
+  "vocab": {
+    "0": 39, "1": 40, "2": 41, "3": 42, "4": 43, "5": 44, "6": 45, "7": 46,
+    "8": 47, "9": 48, " ": 1, "a": 2, "b": 3, "c": 4, "d": 5, "e": 6,
+    "f": 7, "g": 8, "h": 9, "i": 10, "j": 11, "k": 12, "l": 13, "m": 14,
+    "n": 15, "o": 16, "p": 17, "q": 18, "r": 19, "s": 20, "t": 21, "u": 22,
+    "v": 23, "w": 24, "x": 25, "y": 26, "z": 27, "ä": 28, "ö": 29, "ü": 30,
+    "ß": 31, "é": 32, ".": 33, ",": 34, "!": 35, "?": 36, "'": 37, "-": 38
+  },
+  "cases": [
+    {
+      "id": "two_sentences",
+      "text": "Hallo Welt. Wie geht es dir?",
+      "sentences": ["Hallo Welt.", "Wie geht es dir?"],
+      "tokens": [[9, 2, 13, 13, 16, 1, 24, 6, 13, 21, 33], [24, 10, 6, 1, 8, 6, 9, 21, 1, 6, 20, 1, 5, 10, 19, 36]]
+    },
+    {
+      "id": "no_terminator",
+      "text": "Guten Morgen",
+      "sentences": ["Guten Morgen"],
+      "tokens": [[8, 22, 21, 6, 15, 1, 14, 16, 19, 8, 6, 15]]
+    },
+    {
+      "id": "whitespace_collapsed",
+      "text": "  Hallo   Welt .  ",
+      "sentences": ["Hallo Welt ."],
+      "tokens": [[9, 2, 13, 13, 16, 1, 24, 6, 13, 21, 1, 33]]
+    },
+    {
+      "id": "newline_splits",
+      "text": "Erste Zeile\nZweite Zeile",
+      "sentences": ["Erste Zeile", "Zweite Zeile"],
+      "tokens": [[6, 19, 20, 21, 6, 1, 27, 6, 10, 13, 6], [27, 24, 6, 10, 21, 6, 1, 27, 6, 10, 13, 6]]
+    },
+    {
+      "id": "terminator_run",
+      "text": "Wirklich?! Ja... Nein!",
+      "sentences": ["Wirklich?!", "Ja...", "Nein!"],
+      "tokens": [[24, 10, 19, 12, 13, 10, 4, 9, 36, 35], [11, 2, 33, 33, 33], [15, 6, 10, 15, 35]]
+    },
+    {
+      "id": "abbreviation_splits",
+      "text": "z.B. Hallo",
+      "sentences": ["z.B.", "Hallo"],
+      "tokens": [[27, 33, 3, 33], [9, 2, 13, 13, 16]]
+    },
+    {
+      "id": "umlauts_and_sharp_s",
+      "text": "Größe über Straße.",
+      "sentences": ["Größe über Straße."],
+      "tokens": [[8, 19, 29, 31, 6, 1, 30, 3, 6, 19, 1, 20, 21, 19, 2, 31, 6, 33]]
+    },
+    {
+      "id": "unknown_code_points_dropped",
+      "text": "Hallo 🙂 Welt!",
+      "sentences": ["Hallo 🙂 Welt!"],
+      "tokens": [[9, 2, 13, 13, 16, 1, 1, 24, 6, 13, 21, 35]]
+    },
+    {
+      "id": "nfc_composed",
+      "text": "e\u0301tude",
+      "sentences": ["étude"],
+      "tokens": [[32, 21, 22, 5, 6]]
+    },
+    {
+      "id": "empty_text",
+      "text": "",
+      "sentences": [],
+      "tokens": []
+    },
+    {
+      "id": "only_whitespace",
+      "text": " \n ",
+      "sentences": [],
+      "tokens": []
+    },
+    {
+      "id": "digits_kept",
+      "text": "Um 7 Uhr 30.",
+      "sentences": ["Um 7 Uhr 30."],
+      "tokens": [[22, 14, 1, 46, 1, 22, 9, 19, 1, 42, 39, 33]]
+    },
+    {
+      "id": "nbsp_is_whitespace",
+      "text": "Hallo\u00a0Welt.",
+      "sentences": ["Hallo Welt."],
+      "tokens": [[9, 2, 13, 13, 16, 1, 24, 6, 13, 21, 33]]
+    },
+    {
+      "id": "nel_is_not_whitespace",
+      "text": "Hallo\u0085Welt.",
+      "sentences": ["Hallo\u0085Welt."],
+      "tokens": [[9, 2, 13, 13, 16, 24, 6, 13, 21, 33]]
+    }
+  ]
+}

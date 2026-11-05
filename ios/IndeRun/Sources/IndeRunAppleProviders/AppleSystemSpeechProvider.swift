@@ -322,7 +322,7 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
         let rendered = try await runtime.render(text: text, voice: voice, maxBytes: Self.maxRenderedBytes)
         let writer = artifacts.create(spec: ArtifactSpec(mediaType: Self.mediaType, durationMs: rendered.durationMs))
         do {
-            try writer.write(SpeechWAV.encode(rendered))
+            try writer.write(SpeechWAV.encode(samples: rendered.samples, sampleRate: rendered.sampleRate))
             return TaskOutput(artifact: try writer.finish(), speech: Self.used(voice))
         } catch {
             writer.abort()

@@ -26,7 +26,8 @@ is absent, the provider that depends on it reports or refuses before it commits,
 target instead of failing mid-run: a missing streaming HTTP client gives `streamingAvailable: false`, a missing
 artifact destination gives `artifact_destination_unsupported`, and a missing audio output gives
 `audio_output_unavailable`. Artifact destinations are described in [ADR 017](./decisions/017-media-artifacts.md) and
-audio output in [ADR 021](./decisions/021-audio-output-host-service.md).
+audio output in [ADR 021](./decisions/021-audio-output-host-service.md). The
+[neural speech family](./neural-speech-provider-family.md) is the first consumer of `audioOutput`.
 
 ## Execution Model
 

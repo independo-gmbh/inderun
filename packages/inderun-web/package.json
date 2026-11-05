@@ -66,6 +66,10 @@
     "./system-speech": {
       "types": "./dist/system-speech.d.ts",
       "default": "./dist/system-speech.js"
+    },
+    "./neural-speech": {
+      "types": "./dist/neural-speech.d.ts",
+      "default": "./dist/neural-speech.js"
     }
   },
   "files": [

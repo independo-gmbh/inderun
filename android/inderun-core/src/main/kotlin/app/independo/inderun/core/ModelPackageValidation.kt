@@ -1,4 +1,4 @@
-package app.independo.inderun.providers.onnx
+package app.independo.inderun.core
 
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.SpeechModelPackage
@@ -10,15 +10,14 @@ data class ModelPackageValidationIssue(val path: String, val message: String)
 /**
  * Minimal structural validation for [ModelPackage], mirroring the subset of
  * `getModelPackageValidationIssues` (`packages/contracts/src/validators.ts`, ported to Swift in
- * `OnnxRuntimeAppleProvider`'s `ModelPackageValidation.swift`) that the provider's capability gate
+ * `ModelPackageValidation.swift` in `IndeRunCore`) that the provider's capability gate
  * needs: the `id` required field, the inline-secret-key rule, the `source.ref` URL-userinfo
  * rule, and the speech rules (`speech` is required when `tasks` contains `text_to_speech`, voice
  * ids are unique within it, and the structural rules: `sampleRate` and `channels` are at least 1,
  * `graphs` and `voices` are non-empty, and every voice lists at least one locale, each a hyphenated
  * BCP 47 tag). This is a hand-written subset, not a generated JSON Schema validator -- see the ONNX
  * Runtime provider family spec for the normative field shapes in
- * `contracts/schemas/model-package.schema.json`. Moving this validator into Core, so every platform
- * shares one implementation, is the first step of the neural speech provider PR.
+ * `contracts/schemas/model-package.schema.json`. Shared by every local-model provider.
  */
 fun getModelPackageValidationIssues(modelPackage: ModelPackage): List<ModelPackageValidationIssue> {
     val issues = mutableListOf<ModelPackageValidationIssue>()

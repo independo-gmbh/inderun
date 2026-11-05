@@ -53,10 +53,10 @@ is a flagged follow-up and is not built.
 
 ### 3. The timing origin
 
-`firstAudioMs()` counts from `open()`. It is the host's observation of the first frame leaving the output; the web
-service can only report the scheduled start plus the output latency the browser states. The provider converts it to the
-request-received origin that ADR 020 section 3 defines before it reports `PlaybackTiming.firstAudioMs`. The value is
-`undefined` until a frame has been observed.
+`firstAudioMs()` counts from the start of `open()`, the instant it was called. It is the host's observation of the first
+frame leaving the output; the web service can only report the time `open()` spent plus the scheduled start and the
+output latency the browser states. The provider converts it to the request-received origin that ADR 020 section 3
+defines before it reports `PlaybackTiming.firstAudioMs`. The value is `undefined` until a frame has been observed.
 
 ### 4. Audio session and focus stay app-owned
 

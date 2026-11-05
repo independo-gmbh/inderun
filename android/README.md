@@ -11,6 +11,9 @@ Android workspace for the IndeRun SDK, host services, provider adapters, and dem
 - `inderun-openai-providers` - OpenAI-compatible cloud provider
 - `inderun-onnx-providers` - ONNX Runtime provider for developer-supplied local models
   (`local.onnx.genai.android`)
+- `inderun-neural-speech` - neural text-to-speech with a developer-supplied speech model package
+  (`local.onnx.speech.android:<package id>`), played through the host's audio output or written as
+  `audio/wav`; registered explicitly, with a `NeuralSpeechRuntime` the app supplies
 - `inderun-system-speech-providers` - system text-to-speech through `android.speech.tts.TextToSpeech`
   (`android_system_speech`), registered explicitly
 - `inderun-demo-app` - demo app for reviewing the Mode 1, Mode 2 and speech flows

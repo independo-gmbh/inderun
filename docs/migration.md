@@ -191,6 +191,27 @@ Apple and Android default bundles now include one, so nothing changes for an app
 `createBrowserHostServices` accepts `audioOutput` to replace the default, and the Kotlin
 `HostServicesFactory.create(context)` signature is unchanged.
 
+### Neural speech provider family
+
+Additive, except for one Kotlin import below. The neural speech family
+([ADR 020](./architecture/decisions/020-neural-speech-and-model-packages.md),
+[family doc](./architecture/neural-speech-provider-family.md)) adds a Web subpath `@independo/inderun-web/neural-speech`
+with a `neuralSpeech` option on `createIndeRunWeb`, a Swift product and target `IndeRunNeuralSpeech`, and a Kotlin Gradle
+module `inderun-neural-speech`. Nothing registers it by default, so an app that does not use it changes nothing. No
+runtime that runs a real model ships yet; the provider takes an injected `runtime`.
+
+The model package validator moved into Core on Swift and Kotlin, so the ONNX and neural speech families share one. This
+matters only to code that names it directly.
+
+- **Kotlin: a source break.** `getModelPackageValidationIssues` and `ModelPackageValidationIssue` moved from
+  `app.independo.inderun.providers.onnx` to `app.independo.inderun.core`. A consumer of `inderun-onnx-providers` that
+  imports either from the old package changes the import; no dependency changes, because `inderun-onnx-providers`
+  already exposes `inderun-core` as an `api` dependency.
+- **Swift: source-compatible.** Both moved from `IndeRunOnnxProviders` to `IndeRunCore`. `IndeRunOnnxProviders`
+  re-exports `IndeRunCore`, so code that imports `IndeRunOnnxProviders` still compiles unchanged.
+
+`SpeechWAV` is public in `IndeRunCore`.
+
 ### Capacitor
 
 The Capacitor bridge is versioned separately and moves to the 0.5 contracts in its own release (#250); the

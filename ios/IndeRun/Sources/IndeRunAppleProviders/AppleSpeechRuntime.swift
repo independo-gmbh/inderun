@@ -61,33 +61,6 @@ protocol AppleSpeechRuntime: Sendable {
     func render(text: String, voice: AppleSpeechVoice, maxBytes: Int) async throws -> RenderedSpeech
 }
 
-/// A canonical 44-byte RIFF/WAVE header (PCM, mono, 16-bit) followed by the samples.
-enum SpeechWAV {
-    static func encode(_ speech: RenderedSpeech) -> Data {
-        var data = Data()
-        func append(_ string: String) { data.append(contentsOf: Array(string.utf8)) }
-        func append32(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
-        func append16(_ value: UInt16) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
-
-        let byteRate = UInt32(speech.sampleRate * 2)
-        append("RIFF")
-        append32(UInt32(36 + speech.samples.count))
-        append("WAVE")
-        append("fmt ")
-        append32(16)
-        append16(1) // PCM
-        append16(1) // mono
-        append32(UInt32(speech.sampleRate))
-        append32(byteRate)
-        append16(2) // block align
-        append16(16) // bits per sample
-        append("data")
-        append32(UInt32(speech.samples.count))
-        data.append(speech.samples)
-        return data
-    }
-}
-
 /// The one synthesizer playback uses, created at the first utterance. A new synthesizer loads its
 /// voice again, which held the first word back by over a second on an iPhone.
 ///

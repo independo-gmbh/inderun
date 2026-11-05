@@ -35,6 +35,10 @@ let package = Package(
         .library(
             name: "IndeRunOnnxProviders",
             targets: ["IndeRunOnnxProviders"]
+        ),
+        .library(
+            name: "IndeRunNeuralSpeech",
+            targets: ["IndeRunNeuralSpeech"]
         )
     ],
     dependencies: [
@@ -88,9 +92,14 @@ let package = Package(
             ],
             path: "ios/IndeRun/Sources/IndeRunOnnxProviders"
         ),
+        .target(
+            name: "IndeRunNeuralSpeech",
+            dependencies: ["IndeRunCore", "IndeRunContracts"],
+            path: "ios/IndeRun/Sources/IndeRunNeuralSpeech"
+        ),
         // Consumer-compilation smoke tests. Each depends on exactly one product and
         // proves that product's `@_exported import` chain hands a consumer the types
-        // its own signatures use. IndeRunTests below cannot: it depends on all six
+        // its own signatures use. IndeRunTests below cannot: it depends on all seven
         // modules directly, which is what hid the missing re-exports until #189.
         // Do not add dependencies to either of these -- the short list is the test.
         .testTarget(
@@ -111,7 +120,8 @@ let package = Package(
                 "IndeRunCore",
                 "IndeRunAppleProviders",
                 "IndeRunOpenAIProviders",
-                "IndeRunOnnxProviders"
+                "IndeRunOnnxProviders",
+                "IndeRunNeuralSpeech"
             ],
             path: "ios/IndeRun/Tests/IndeRunTests"
         )

@@ -11,8 +11,8 @@ A single repository-wide version is applied to every artifact on each release.
 | Channel | Artifacts | Registry |
 | --- | --- | --- |
 | npm | `@independo/inderun-contracts`, `@independo/inderun-route-core-wasm`, `@independo/inderun-web` | npmjs.com (public, provenance) |
-| Swift Package Manager | `IndeRun` (products: `IndeRun`, `IndeRunCore`, `IndeRunContracts`, `IndeRunAppleProviders`, `IndeRunOpenAIProviders`) | git tag `vX.Y.Z` on this repo |
-| Maven Central | `app.independo.inderun:inderun-contracts` / `-core` / `-kotlin` / `-mlkit-providers` / `-openai-providers` | Maven Central (Sonatype Central Portal) |
+| Swift Package Manager | `IndeRun` (products: `IndeRunContracts`, `IndeRun`, `IndeRunCore`, `IndeRunAppleProviders`, `IndeRunOpenAIProviders`, `IndeRunOnnxProviders`, `IndeRunNeuralSpeech`) | git tag `vX.Y.Z` on this repo |
+| Maven Central | `app.independo.inderun:inderun-contracts` / `-core` / `-kotlin` / `-mlkit-providers` / `-openai-providers` / `-onnx-providers` / `-system-speech-providers` / `-neural-speech` | Maven Central (Sonatype Central Portal) |
 
 **Published separately:** `@independo/capacitor-inderun`. CocoaPods is being deprecated and
 Capacitor 8 defaults to SwiftPM, and a repo can only expose one SwiftPM package at its root
