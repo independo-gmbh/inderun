@@ -12,6 +12,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 jni = { version = "0.22.4", optional = true }
+fancy-regex = { version = "0.20", optional = true }
 
 # wasm-bindgen's entry point in src/ffi.rs is cfg-gated to wasm; gating the
 # dependency too keeps it out of every other target's build.
@@ -19,7 +20,7 @@ jni = { version = "0.22.4", optional = true }
 wasm-bindgen = "0.2"
 
 [features]
-default = []
+default = ["speech-text"]
 # Compiles the JNI entry point in src/ffi.rs. A feature rather than a
 # `cfg(target_os = "android")` gate because the JVM unit tests in android/ load a
 # host-built library: with a target gate the symbol would exist only in the
@@ -28,3 +29,7 @@ default = []
 # missed in the direction that matters.
 jni-bindings = ["dep:jni"]
 
+# The German speech text frontend (`normalize_speech_text`) and the regex engine it needs. On by
+# default; the Web build turns it off for the planner module, so apps that only route do not
+# download the regex tables, and builds it again on its own for the speech module.
+speech-text = ["dep:fancy-regex"]

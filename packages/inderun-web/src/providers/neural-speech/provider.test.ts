@@ -4,6 +4,7 @@ import type {
   ModelPackage,
   TaskRequest
 } from "@independo/inderun-contracts";
+import { normalizeSpeechText } from "@independo/inderun-route-core-wasm";
 import { describe, expect, it } from "vitest";
 
 import { ArtifactStore, type ArtifactSink } from "../../core/artifacts.js";
@@ -19,7 +20,12 @@ import {
   type FixtureNeuralSpeechRuntimeOptions
 } from "./fixture-runtime.js";
 import { NeuralSpeechWebProvider, type NeuralSpeechProviderOptions } from "./provider.js";
-import type { NeuralSpeechRuntime, NeuralSpeechSynthesisInput, PcmChunk } from "./runtime.js";
+import {
+  NeuralSpeechRuntimeError,
+  type NeuralSpeechRuntime,
+  type NeuralSpeechSynthesisInput,
+  type PcmChunk
+} from "./runtime.js";
 
 const PACKAGE: ModelPackage = {
   id: "fixture-tts",
@@ -608,4 +614,143 @@ describe("NeuralSpeechWebProvider", () => {
     expect(spy.aborts()).toBe(1);
     expect(commitCount()).toBe(0);
   });
+});
+
+describe("NeuralSpeechWebProvider text normalization", () => {
+  function normalizingRuntime() {
+    const runtime = createFixtureNeuralSpeechRuntime();
+    const hooked: NeuralSpeechRuntime & { calls: { text: string; locale: string }[] } = {
+      calls: [],
+      availability: (pkg) => runtime.availability(pkg),
+      prepare: (pkg) => runtime.prepare(pkg),
+      synthesize: (input) => runtime.synthesize(input),
+      async normalizeText(_pkg, text, locale) {
+        hooked.calls.push({ text, locale });
+        return normalizeSpeechText(text, locale);
+      }
+    };
+    return { hooked, runtime };
+  }
+
+  async function speak(
+    runtime: NeuralSpeechRuntime,
+    text: string,
+    locale: string,
+    pkg: ModelPackage = PACKAGE
+  ) {
+    const provider = new NeuralSpeechWebProvider({ modelPackage: pkg, runtime });
+    const { context } = runContext(host);
+    await provider.run(
+      speechRequest({ speech: { text, locale }, delivery: { mode: "artifact" } }),
+      context
+    );
+  }
+
+  it("normalizes the whole text before it is split into sentences", async () => {
+    const { hooked, runtime } = normalizingRuntime();
+    await speak(hooked, "Am 3. Mai, z. B. um 14:30 Uhr.", "de-DE");
+    expect(runtime.synthesized.map((s) => s.text)).toEqual([
+      "Am dritten Mai, zum Beispiel um vierzehn Uhr dreißig."
+    ]);
+    expect(hooked.calls).toHaveLength(1);
+  });
+
+  it("speaks the voice's locale when the request's language differs", async () => {
+    const { hooked, runtime } = normalizingRuntime();
+    const onlyDe: ModelPackage = {
+      ...PACKAGE,
+      speech: {
+        ...(PACKAGE.speech as NonNullable<ModelPackage["speech"]>),
+        voices: [{ id: "v_de", name: "German", locales: ["de-DE"] }]
+      }
+    };
+    await speak(hooked, "Am 3.1.2026.", "de-AT", onlyDe);
+    expect(runtime.synthesized.map((s) => s.text)).toEqual([
+      "Am dritten Jänner zweitausendsechsundzwanzig."
+    ]);
+    expect(hooked.calls[0]?.locale).toBe("de-AT");
+  });
+
+  it("uses the voice's locale when the languages differ", async () => {
+    const { hooked } = normalizingRuntime();
+    await speak(hooked, "Am 3. Mai.", "en-US", {
+      ...PACKAGE,
+      speech: {
+        ...(PACKAGE.speech as NonNullable<ModelPackage["speech"]>),
+        voices: [{ id: "v_de", name: "German", locales: ["de-DE"] }]
+      }
+    });
+    expect(hooked.calls[0]?.locale).toBe("de-DE");
+  });
+
+  it("hands the text over unchanged to a runtime without the hook", async () => {
+    const runtime = createFixtureNeuralSpeechRuntime();
+    await speak(runtime, "Es ist 14:30 Uhr.", "de-DE");
+    expect(runtime.synthesized.map((s) => s.text)).toEqual(["Es ist 14:30 Uhr."]);
+  });
+
+  it("fails Unavailable before any audio when the normalization hook is unavailable", async () => {
+    const runtime = createFixtureNeuralSpeechRuntime();
+    const hooked: NeuralSpeechRuntime = {
+      availability: (pkg) => runtime.availability(pkg),
+      prepare: (pkg) => runtime.prepare(pkg),
+      synthesize: (input) => runtime.synthesize(input),
+      normalizeText() {
+        throw new NeuralSpeechRuntimeError("unavailable", "speech text frontend unavailable: boom");
+      }
+    };
+    const provider = new NeuralSpeechWebProvider({ modelPackage: PACKAGE, runtime: hooked });
+    const audio = createFixtureAudioOutput();
+    const { context, commitCount } = runContext({ ...host, audioOutput: audio.service });
+
+    const error = await rejection(provider.run(speechRequest(), context));
+
+    expect(error.errorClass).toBe("Unavailable");
+    expect(commitCount()).toBe(0);
+    expect(audio.sessions).toHaveLength(0);
+    expect(runtime.synthesized).toHaveLength(0);
+  });
+
+  for (const mode of ["playback", "artifact"] as const) {
+    it(`ends as a cancellation when the normalization hook fails after the run was cancelled (${mode})`, async () => {
+      const runtime = createFixtureNeuralSpeechRuntime();
+      let reject!: (error: unknown) => void;
+      let started!: () => void;
+      const hookStarted = new Promise<void>((resolve) => (started = resolve));
+      const hooked: NeuralSpeechRuntime = {
+        availability: (pkg) => runtime.availability(pkg),
+        prepare: (pkg) => runtime.prepare(pkg),
+        synthesize: (input) => runtime.synthesize(input),
+        normalizeText() {
+          started();
+          return new Promise<string>((_resolve, rej) => (reject = rej));
+        }
+      };
+      const provider = new NeuralSpeechWebProvider({ modelPackage: PACKAGE, runtime: hooked });
+      const audio = createFixtureAudioOutput();
+      const { context, commitCount } = runContext({ ...host, audioOutput: audio.service });
+      const controller = new AbortController();
+
+      const events: unknown[] = [];
+      let failure: unknown;
+      const consumed = (async () => {
+        for await (const event of provider.stream(
+          speechRequest(mode === "artifact" ? { delivery: { mode: "artifact" } } : {}),
+          { ...context, signal: controller.signal }
+        )) {
+          events.push(event);
+        }
+      })().catch((error: unknown) => (failure = error));
+      await hookStarted;
+      controller.abort();
+      reject(new NeuralSpeechRuntimeError("unavailable", "speech text frontend unavailable"));
+      await consumed;
+
+      expect(failure).toBeUndefined();
+      expect(events).toEqual([]);
+      expect(commitCount()).toBe(0);
+      expect(audio.sessions).toHaveLength(0);
+      expect(runtime.synthesized).toHaveLength(0);
+    });
+  }
 });

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { beforeEach } from "vitest";
-import { initSharedCore } from "@independo/inderun-route-core-wasm";
+import { initSharedCore, initSpeechText } from "@independo/inderun-route-core-wasm";
 
 /**
  * Boots the real shared Rust route core for every suite, so the tests exercise
@@ -21,10 +21,18 @@ const WASM_PATH = new URL(
   import.meta.url
 );
 
+const SPEECH_WASM_PATH = new URL(
+  "../../../inderun-route-core-wasm/generated/inderun_speech_text_bg.wasm",
+  import.meta.url
+);
+
 const wasmBytes = await readFile(WASM_PATH);
+const speechWasmBytes = await readFile(SPEECH_WASM_PATH);
 
 await initSharedCore(wasmBytes);
+await initSpeechText(speechWasmBytes);
 
 beforeEach(async () => {
   await initSharedCore(wasmBytes);
+  await initSpeechText(speechWasmBytes);
 });

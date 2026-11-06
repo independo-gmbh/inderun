@@ -13,7 +13,7 @@ truth for exact steps. This table describes only what each one covers.
 - `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs. A second job, `Android emulator speech`, runs the real-speech corpus on an emulator; see "Real speech on an emulator" below.
 - The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
-- `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFramework and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
+- `Route core (Apple) refresh` (`route-core-apple-refresh.yml`): on a failed `Swift` run for a `dependabot/cargo/**` branch, rebuilds the committed XCFrameworks and pushes it onto the PR. See "Rebuilding the XCFramework for Dependabot" below.
 - `Maven Publish` (`maven-publish.yml`): on a published GitHub release — prereleases included — publishes the Android library modules to Maven Central. The version comes from the tag (passed as `-PinderunVersion`), not from `android/gradle.properties`, because semantic-release only commits the version bump on stable releases. Prereleases are published because the Capacitor bridge consumes these artifacts from Maven Central and would otherwise have no `-dev.N` line to develop against, unlike npm and SwiftPM. `workflow_dispatch` takes optional `ref` and `version` inputs for a manual re-run.
 - `CodeQL` (`codeql.yml`): runs GitHub code scanning (advanced setup) across `swift`, `java-kotlin`, `rust`, `javascript-typescript`, and `actions`. The compiled languages use explicit `build-mode: manual` steps — `swift build` from the repository root (the SwiftPM manifest is `Package.swift` at the root; sources under `ios/IndeRun`) and `./gradlew assembleDebug` in `android` (with JDK 21, Node, the Rust toolchain, and the Android SDK/NDK provisioned) — so the autobuilder can't misdetect one of the demo/sample apps. `rust`, `javascript-typescript`, and `actions` use `build-mode: none`. `pull_request` trigger is `main`-only; `dev` is covered by the weekly schedule instead (see Code Scanning below). `workflow_dispatch` starts a run on demand.
 
@@ -194,11 +194,10 @@ which is the point of using it, so pinning it to a SHA would defeat the purpose.
 
 ## Rebuilding the XCFramework for Dependabot
 
-Every Cargo bump makes the committed `InderunRouteCoreFFI.xcframework` stale, because its
-provenance manifest hashes `Cargo.lock` and the binary in git was linked against the previous
-dependency set. That is a real failure, not a false alarm — but Dependabot cannot produce a
-macOS artifact, so without help every cargo PR lands red and waits for someone to run
-`pnpm build:route-core-apple` locally.
+Every Cargo bump makes the committed `InderunRouteCoreFFI.xcframework` and `InderunSpeechTextFFI.xcframework` stale,
+because each provenance manifest hashes `Cargo.lock` and the binary in git was linked against the previous dependency
+set. That is a real failure, not a false alarm — but Dependabot cannot produce a macOS artifact, so without help every
+cargo PR lands red and waits for someone to run `pnpm build:route-core-apple` locally.
 
 `route-core-apple-refresh.yml` makes that commit instead. Three things about it are load-bearing:
 
@@ -322,6 +321,9 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   `wasm-bindgen --target web`. Freshness is left to cargo, which fingerprints every effective
   input (sources, workspace manifest, lockfile, rustc version); only the wasm-bindgen step is
   skipped, and only when the existing bindings are newer than the `.wasm` cargo just produced.
+  It builds two artifacts per run: the planner (`--no-default-features`, `inderun_route_core.*`) and
+  the German speech text module (`--features speech-text`, `inderun_speech_text.*`, its own cargo
+  target directory), so routing-only apps do not download the speech module's regex engine.
   A hand-rolled mtime check over crate sources alone would serve stale bindings after a
   dependency bump. Both `pnpm build` and `pnpm test:js` call it, and `javascript.yml`/`release.yml`
   run it as an explicit step so a missing toolchain fails visibly. Since the Web SDK has no
@@ -336,7 +338,7 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   cargo bump cannot leave the CLI pin behind (#192).
 - `pnpm build:route-core-apple` (`scripts/build-route-core-apple.mjs`) is the equivalent for the
   Apple platforms: it cross-compiles the route core for iOS device, iOS simulator, and macOS,
-  and packages the results into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`.
+  and packages the results into two XCFrameworks under `ios/IndeRun/Frameworks/`: `InderunRouteCoreFFI.xcframework` (the planner, `--no-default-features`) and `InderunSpeechTextFFI.xcframework` (the German speech text normalizer, `--no-default-features --features speech-text`, built in its own cargo target directory). They are separate so an app that never uses neural speech does not carry the normalizer.
   Freshness is delegated to cargo for the same reason as the WASM build; only the packaging
   step is skipped, and `--force` disables even that. Unlike the WASM bindings that XCFramework
   **is committed** — SwiftPM has no publish step, so consumers get whatever the git tag
@@ -359,6 +361,12 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   `:inderun-kotlin`'s unit tests. Those tests reach the planner through the same
   `System.loadLibrary` call the Android runtime makes, so the JNI boundary itself is under test
   rather than only the two halves of the wire format.
+  - `--speech-text` builds a second library from the same crate, `libinderun_speech_text` (`--no-default-features
+    --features speech-text,jni-bindings`, its own cargo target directory, soname/install name set to its own file name),
+    packaged by `:inderun-neural-speech` the same way; `libinderun_route_core` is built planner-only so apps that do not
+    use neural speech do not carry the normalizer. The script checks that the planner library lacks the speech JNI
+    symbol and that the speech library has it. The host build of the speech library goes on `java.library.path` for
+    `:inderun-neural-speech` and `:inderun-onnx-providers`.
   - These binaries are **not** committed, unlike the Apple XCFramework. Android consumers
     resolve `app.independo.inderun:inderun-core` from Maven Central, where `maven-publish.yml`
     builds the AAR — there is no equivalent of SwiftPM's "the git tag is the artifact", so
@@ -375,13 +383,13 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   consumers run, and reviewing the Rust source says nothing about whether that binary came from
   it. Rust builds are not byte-reproducible, so rebuild-and-diff cannot answer the question.
   Two mechanisms answer it together:
-  - `ios/IndeRun/Frameworks/InderunRouteCoreFFI.provenance.json`, written by the build script,
+  - `ios/IndeRun/Frameworks/InderunRouteCoreFFI.provenance.json` and `InderunSpeechTextFFI.provenance.json`, written by the build script,
     records the pinned compiler plus SHA-256 hashes of every source the artifact was built from
     (crate sources and manifest, workspace manifest, lockfile, toolchain pin, the packaged C
     header, and the build scripts themselves) and of every file inside the XCFramework.
     `pnpm verify:route-core-apple` (`scripts/verify-route-core-apple.mjs`) recomputes all of it
     and additionally checks each slice with `lipo`/`otool`/`nm`/`plutil`: architectures, Mach-O
-    platform, deployment target, the two exported FFI symbols, the `@rpath` install name, and
+    platform, deployment target, each framework's exported FFI symbols (planner: `_inderun_plan_route_json`, `_inderun_free_string`; speech text: `_inderun_normalize_speech_text`, `_inderun_speech_text_free`, with the planner framework asserted _not_ to export the normalizer), the `@rpath` install name, and
     that nothing beyond `libSystem` is linked. It runs in `swift.yml` **before** anything is
     rebuilt, so the committed artifact is what is under test, and `release.yml` gates the
     release job on it — the tag is the Swift distribution channel, and nothing downstream
@@ -419,8 +427,9 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   into the XCFramework's provenance manifest and editing even a comment would invalidate the
   committed artifact and require a rebuild. This section is the accurate one.
 - `packages/inderun-route-core-wasm/generated/` is intentionally not checked in, with one
-  exception: `inderun_route_core.d.ts` is a hand-written stub tracked in git so `tsc` can
-  resolve the package's literal `import("../generated/inderun_route_core.js")` without
+  exception: `inderun_route_core.d.ts` and `inderun_speech_text.d.ts` are stubs tracked in git so
+  `tsc` can resolve the package's literal `import("../generated/inderun_route_core.js")` (and the
+  speech module's) without
   requiring the Rust/wasm-bindgen toolchain locally. The `wasm-bindgen --target web` step
   overwrites it with the real generated bindings during the build; the stub is not meant to be
   committed back and should only be hand-updated if the Rust route-core API changes.

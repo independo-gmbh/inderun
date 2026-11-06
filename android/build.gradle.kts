@@ -19,7 +19,8 @@ plugins {
 // tests reach the real planner through the same `System.loadLibrary` call the
 // Android runtime uses -- see SharedCoreRoutePlanner -- so they only need the
 // library on `java.library.path`. Registered on the root project because two
-// modules' tests route: :inderun-core and :inderun-kotlin.
+// modules' tests route: :inderun-core and :inderun-kotlin. The speech text library is built
+// into the same directory.
 val routeCoreHostDir = File(rootProject.projectDir.parentFile, "target/route-core-host")
 
 // The cross-SDK conformance vectors and the schemas some tests walk live outside
@@ -35,6 +36,16 @@ val buildRouteCoreHost = tasks.register<Exec>("buildRouteCoreHost") {
     workingDir = rootProject.projectDir.parentFile
     commandLine("node", "scripts/build-route-core-android.mjs", "--host")
     // Freshness is cargo's job; see the same note in inderun-core/build.gradle.kts.
+    outputs.upToDateWhen { false }
+}
+
+// The speech text normalizer is its own library (libinderun_speech_text), built from the same
+// crate with a different feature set; only the neural speech modules' tests load it.
+val buildSpeechTextHost = tasks.register<Exec>("buildSpeechTextHost") {
+    group = "verification"
+    description = "Builds the speech text library for this machine, for the JVM unit tests."
+    workingDir = rootProject.projectDir.parentFile
+    commandLine("node", "scripts/build-route-core-android.mjs", "--host", "--speech-text")
     outputs.upToDateWhen { false }
 }
 
@@ -78,8 +89,10 @@ subprojects {
         // is a test dependency, not a nicety.
         // Prepended rather than replacing java.library.path: Robolectric resolves
         // its own native dependencies through the inherited value.
-        if (project.name == "inderun-core" || project.name == "inderun-kotlin") {
-            dependsOn(buildRouteCoreHost)
+        val needsRouteCore = project.name in setOf("inderun-core", "inderun-kotlin")
+        val needsSpeechText = project.name in setOf("inderun-neural-speech", "inderun-onnx-providers")
+        if (needsRouteCore || needsSpeechText) {
+            dependsOn(if (needsRouteCore) buildRouteCoreHost else buildSpeechTextHost)
             systemProperty(
                 "java.library.path",
                 listOfNotNull(

@@ -1,0 +1,12 @@
+The German text frontend in this directory is a Rust port of parts of
+Articulino-DE-EN-Realtime-Stream-TTS, Copyright 2026 eigenhand,
+Licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+
+Ported or copied from that project:
+  - frontend/german.py
+  - frontend/data/abbreviations.json
+  - frontend/data/units.json
+
+The rules and tables arrive with the modules that use them. The German number
+words in number_words.rs are written from scratch to follow the convention the
+upstream model was trained with.

@@ -162,6 +162,12 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
         return await runtime.prepare(modelPackage)
     }
 
+    /// Forwards to the Articulino hook; any other pipeline keeps the text (it is refused at `availability`).
+    public func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String {
+        guard modelPackage.speech?.pipeline == "articulino" else { return text }
+        return ArticulinoRuntime.normalizeText(modelPackage, text: text, locale: locale)
+    }
+
     public func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error> {
         ComposedNeuralSpeechRuntime.stream { continuation in
             switch self.resolve(input.modelPackage, verify: false) {

@@ -338,7 +338,7 @@ class NeuralSpeechProvider(
         )
         val voice = resolveVoice(speech, attempt.voice, synthesis.runId)
         ensureLoaded(synthesis.runId)
-        val chunks = SentenceChunks(currentCoroutineContext(), sentencesOf(speech.text, synthesis.runId), voice, synthesis)
+        val chunks = SentenceChunks(currentCoroutineContext(), sentencesOf(speech.text, voice.spokenLocale, synthesis.runId), voice, synthesis)
 
         // The session measures firstAudioMs() from the start of its own open(), so the shift to the
         // request-received origin counts from the instant before the call, not from its return.
@@ -429,7 +429,7 @@ class NeuralSpeechProvider(
     private suspend fun writeArtifact(speech: SpeechInput, attempt: Attempt, synthesis: Synthesis): TaskOutput {
         val voice = resolveVoice(speech, attempt.voice, synthesis.runId)
         ensureLoaded(synthesis.runId)
-        val chunks = SentenceChunks(currentCoroutineContext(), sentencesOf(speech.text, synthesis.runId), voice, synthesis)
+        val chunks = SentenceChunks(currentCoroutineContext(), sentencesOf(speech.text, voice.spokenLocale, synthesis.runId), voice, synthesis)
 
         val parts = mutableListOf<ShortArray>()
         var frames = 0L
@@ -496,11 +496,30 @@ class NeuralSpeechProvider(
                 ?: voices.firstOrNull { candidate -> candidate.locales.any { sameLanguage(it, speech.locale) } }
                 ?: voices.first()
         }
-        return ResolvedVoice(voice, localeFor(voice, speech.locale), speechPackage.sampleRate.toInt())
+        val locale = localeFor(voice, speech.locale)
+        // The tag the text is spoken in: the request's own (de-AT) while the voice speaks its
+        // language, else the voice's first locale.
+        val spokenLocale = if (voice.locales.any { sameLanguage(it, speech.locale) }) speech.locale else voice.locales.firstOrNull() ?: locale
+        return ResolvedVoice(voice, locale, spokenLocale, speechPackage.sampleRate.toInt())
     }
 
-    private fun sentencesOf(text: String, runId: String): List<String> = SpeechTextFrontend.splitSentences(text).ifEmpty {
-        throw createCapabilityMismatch("The text has nothing to say.", runId, id)
+    /**
+     * The runtime's pre-split hook runs once on the whole text, then the shared splitter. A hook
+     * failure goes through the runtime-error mapping, unless the run was cancelled meanwhile: then
+     * it is the cancel, as in the synthesis path.
+     */
+    private suspend fun sentencesOf(text: String, spokenLocale: String, runId: String): List<String> {
+        val normalized = try {
+            runtime.normalizeText(modelPackage, text, spokenLocale)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            currentCoroutineContext().ensureActive()
+            throw mapRuntimeError(error, runId)
+        }
+        return SpeechTextFrontend.splitSentences(normalized).ifEmpty {
+            throw createCapabilityMismatch("The text has nothing to say.", runId, id)
+        }
     }
 
     /**
@@ -754,7 +773,7 @@ private class Synthesis(
 )
 
 /** The package voice that speaks, the tag it speaks for the request, and the package's rate. */
-private class ResolvedVoice(val voice: SpeechModelVoice, val locale: String, val sampleRate: Int) {
+private class ResolvedVoice(val voice: SpeechModelVoice, val locale: String, val spokenLocale: String, val sampleRate: Int) {
     /** The locale and voice actually used, as the run's output reports them. */
     val output: SpeechOutput get() = SpeechOutput(locale = locale, voice = SpeechOutputVoice(id = voice.id, name = voice.name))
 }

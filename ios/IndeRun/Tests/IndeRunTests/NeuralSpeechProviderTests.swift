@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 @testable import IndeRunCore
-import IndeRunNeuralSpeech
+@testable import IndeRunNeuralSpeech
 
 /// Unit tests of `NeuralSpeechProvider` and its fixture runtime. Mirrors `provider.test.ts` and
 /// `fixture-runtime.test.ts`; the cross-SDK lifecycle lives in
@@ -508,6 +508,100 @@ final class NeuralSpeechProviderTests: XCTestCase {
         XCTAssertEqual(runtime.prepareCalls, 1)
     }
 
+    // MARK: - Text normalization hook
+
+    func testNeuralSpeechNormalizesTheWholeTextOnceBeforeItIsSplitIntoSentences() async throws {
+        let runtime = NormalizingRuntime { text, _ in SharedCoreSpeechText.normalize(text, locale: "de-DE") }
+        let provider = makeProvider(runtime: runtime)
+        let context = RunContext(runId: "run-1", hostServices: hostWith(FixtureAudioOutputService()), commit: { true })
+
+        _ = try await provider.run(
+            request: speechRequest(text: "Am 3. Mai, z. B. um 14:30 Uhr.", locale: "de-DE"),
+            context: context
+        )
+
+        XCTAssertEqual(runtime.hookLocales, ["de-DE"])
+        XCTAssertEqual(runtime.hookTexts, ["Am 3. Mai, z. B. um 14:30 Uhr."])
+        XCTAssertEqual(runtime.fixture.synthesized.map(\.text), ["Am dritten Mai, zum Beispiel um vierzehn Uhr dreißig."])
+    }
+
+    func testNeuralSpeechNormalizesAnArtifactRunToo() async throws {
+        let runtime = NormalizingRuntime { text, _ in SharedCoreSpeechText.normalize(text, locale: "de-DE") }
+        let provider = makeProvider(runtime: runtime)
+        let context = RunContext(runId: "run-1", hostServices: host, commit: { true })
+
+        _ = try await provider.run(
+            request: speechRequest(mode: .artifact, text: "Am 3. Mai, z. B. um 14:30 Uhr.", locale: "de-DE"),
+            context: context
+        )
+
+        XCTAssertEqual(runtime.fixture.synthesized.map(\.text), ["Am dritten Mai, zum Beispiel um vierzehn Uhr dreißig."])
+    }
+
+    func testNeuralSpeechPassesTheRequestsRegionalLocaleWhileTheVoiceSpeaksItsLanguage() async throws {
+        let onlyGerman = try decodePackage(packageJSON(voices: [#"{"id": "v_de", "name": "German", "locales": ["de-DE"]}"#]))
+        let runtime = NormalizingRuntime { text, locale in SharedCoreSpeechText.normalize(text, locale: locale) }
+        let provider = NeuralSpeechProvider(options: NeuralSpeechProviderOptions(modelPackage: onlyGerman, runtime: runtime))
+        let context = RunContext(runId: "run-1", hostServices: hostWith(FixtureAudioOutputService()), commit: { true })
+
+        _ = try await provider.run(request: speechRequest(text: "Am 3.1.2026.", locale: "de-AT"), context: context)
+
+        XCTAssertEqual(runtime.hookLocales, ["de-AT"])
+        XCTAssertEqual(runtime.fixture.synthesized.map(\.text), ["Am dritten Jänner zweitausendsechsundzwanzig."])
+    }
+
+    func testNeuralSpeechPassesTheVoicesLocaleWhenNoVoiceSharesTheRequestsLanguage() async throws {
+        let onlyGerman = try decodePackage(
+            packageJSON(voices: [#"{"id": "v_de", "name": "German", "locales": ["de-DE", "de-AT"]}"#])
+        )
+        let runtime = NormalizingRuntime { text, _ in text }
+        let provider = NeuralSpeechProvider(options: NeuralSpeechProviderOptions(modelPackage: onlyGerman, runtime: runtime))
+        let context = RunContext(runId: "run-1", hostServices: hostWith(FixtureAudioOutputService()), commit: { true })
+
+        _ = try await provider.run(request: speechRequest(text: "Bonjour.", locale: "fr-FR"), context: context)
+
+        XCTAssertEqual(runtime.hookLocales, ["de-DE"])
+    }
+
+    func testNeuralSpeechTakesTheCancellationPathWhenTheRunIsCancelledDuringTheHook() async throws {
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let runtime = NormalizingRuntime { text, _ in
+            entered.signal()
+            release.wait()
+            return text
+        }
+        let provider = makeProvider(runtime: runtime)
+        let audio = FixtureAudioOutputService()
+        let commits = CommitCounter()
+        let context = RunContext(runId: "run-1", hostServices: hostWith(audio), commit: commits.commit)
+
+        let run = Task { try await provider.run(request: speechRequest(text: "Hallo Welt.", locale: "de-DE"), context: context) }
+        try await waitUntil(ms: 2000, "hook entered") { !runtime.hookTexts.isEmpty }
+        run.cancel()
+        release.signal()
+
+        do {
+            _ = try await bounded(ms: 2000, "run") { try await run.value }
+            XCTFail("expected the run to end as a cancellation")
+        } catch is CancellationError {
+            // expected
+        }
+        XCTAssertEqual(commits.count, 0)
+        XCTAssertTrue(audio.sessions.isEmpty)
+        XCTAssertTrue(runtime.fixture.synthesized.isEmpty)
+    }
+
+    func testNeuralSpeechHandsTheTextOverUnchangedToARuntimeWithoutTheHook() async throws {
+        let runtime = FixtureNeuralSpeechRuntime()
+        let provider = makeProvider(runtime: runtime)
+        let context = RunContext(runId: "run-1", hostServices: hostWith(FixtureAudioOutputService()), commit: { true })
+
+        _ = try await provider.run(request: speechRequest(text: "Es sind 3 Mai.", locale: "de-DE"), context: context)
+
+        XCTAssertEqual(runtime.synthesized.map(\.text), ["Es sind 3 Mai."])
+    }
+
     // MARK: - Helpers
 
     private let host = HostServices(connectivity: MockConnectivityService(), clock: MockClockService())
@@ -572,16 +666,57 @@ private func decodePackage(_ json: String) throws -> ModelPackage {
     try JSONDecoder().decode(ModelPackage.self, from: Data(json.utf8))
 }
 
-private func speechRequest(mode: OutputDelivery = .playback, text: String = "Hallo Welt.", timeoutMs: Int? = nil) -> TaskRequest {
+private func speechRequest(
+    mode: OutputDelivery = .playback,
+    text: String = "Hallo Welt.",
+    timeoutMs: Int? = nil,
+    locale: String = "de-AT"
+) -> TaskRequest {
     TaskRequest(
         task: TaskDescriptor(kind: .textToSpeech),
         constraints: timeoutMs.map { TaskRequestConstraints(timeoutMs: $0) },
-        speech: SpeechInput(locale: "de-AT", localeMatch: nil, text: text, voice: nil),
+        speech: SpeechInput(locale: locale, localeMatch: nil, text: text, voice: nil),
         delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: mode)
     )
 }
 
 // MARK: - Test doubles
+
+/// A fixture runtime with the pre-split hook; records what the provider handed it.
+private final class NormalizingRuntime: NeuralSpeechRuntime, @unchecked Sendable {
+    let fixture = FixtureNeuralSpeechRuntime()
+    private let transform: @Sendable (String, String) -> String
+    private let lock = NSLock()
+    private var texts: [String] = []
+    private var locales: [String] = []
+
+    init(_ transform: @escaping @Sendable (String, String) -> String) {
+        self.transform = transform
+    }
+
+    var hookTexts: [String] { lock.withLock { texts } }
+    var hookLocales: [String] { lock.withLock { locales } }
+
+    func availability(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
+        await fixture.availability(modelPackage)
+    }
+
+    func prepare(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
+        await fixture.prepare(modelPackage)
+    }
+
+    func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error> {
+        fixture.synthesize(input)
+    }
+
+    func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String {
+        lock.withLock {
+            texts.append(text)
+            locales.append(locale)
+        }
+        return transform(text, locale)
+    }
+}
 
 /// Counts `commit()` calls and always commits.
 private final class CommitCounter: @unchecked Sendable {
