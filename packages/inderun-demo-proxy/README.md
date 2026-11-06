@@ -11,7 +11,22 @@ own authenticated connection to OpenAI without shipping the key in client code.
 ## Routes
 
 - `POST /api/inderun/openai-responses`
+- `GET /assets?url=<encoded url>`
 - `GET /health`
+
+### `GET /assets`
+
+Relays the model and voice files of the web Voices lab. GitHub's release download answers `302`
+without `Access-Control-Allow-Origin`, so the browser cannot fetch them itself. The proxy follows
+the redirect server-side and streams the body (never buffered) with `Content-Type`, `Content-Length`
+when known, and the configured CORS origin.
+
+- Allowlist: every `files[].url` and `voices[].file.url` of
+  `contracts/fixtures/speech/neural-model-catalog.json`, loaded once at start-up and matched
+  exactly (no prefix matching). Anything else answers `403` without an upstream call.
+- No client header (cookies, authorization, ...) is ever forwarded upstream.
+- Upstream `404` answers `404` (`asset not published yet (HTTP 404)`); other upstream failures `502`.
+- Only `GET` is accepted.
 
 ## Configuration
 
@@ -21,6 +36,7 @@ own authenticated connection to OpenAI without shipping the key in client code.
 - `INDERUN_DEMO_PROXY_HOST`
 - `INDERUN_DEMO_PROXY_PORT`
 - `INDERUN_DEMO_PROXY_CORS_ORIGIN`
+- `INDERUN_DEMO_PROXY_ASSET_CATALOG` (optional path overriding the catalog the `/assets` allowlist is read from)
 
 ## Commands
 

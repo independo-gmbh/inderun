@@ -71,6 +71,22 @@ class DemoViewModelTest {
     }
 
     @Test
+    fun voicesLab_isOffByDefaultAndTheChoiceIsPersisted() = runTest {
+        val store = FakeSettingsStore()
+        val viewModel = DemoViewModel(store, FakeRuntime(), FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.voicesLabEnabled)
+        assertFalse(store.load().voicesLabEnabled)
+
+        viewModel.updateVoicesLabEnabled(true)
+
+        assertTrue(viewModel.uiState.value.voicesLabEnabled)
+        assertTrue(store.load().voicesLabEnabled)
+        val reloaded = DemoViewModel(store, FakeRuntime(), FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        assertTrue(reloaded.uiState.value.voicesLabEnabled)
+    }
+
+    @Test
     fun canRun_requiresNonBlankPrompt() = runTest {
         val viewModel = DemoViewModel(FakeSettingsStore(), FakeRuntime(), FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
         advanceUntilIdle()
