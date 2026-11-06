@@ -8,7 +8,8 @@
  *
  * This header is packaged into the XCFramework built by
  * `scripts/build-route-core-apple.mjs` and is how the Swift SDK reaches the
- * planner. Android uses the JNI entry point instead and does not need it.
+ * planner. The speech text normalizer has its own header and framework
+ * (`inderun_speech_text.h`); the two never declare the same symbol. Android uses the JNI entry point instead and does not need it.
  */
 
 #ifndef INDERUN_ROUTE_CORE_H

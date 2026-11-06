@@ -340,7 +340,7 @@ public final class NeuralSpeechProvider: StreamingProviderAdapter, PreparablePro
         try await ensureLoaded(runId: synthesis.runId)
         let chunks = SentenceChunks(
             provider: self,
-            sentences: try sentences(of: speech.text, runId: synthesis.runId),
+            sentences: try sentences(of: speech.text, spokenLocale: resolved.spokenLocale, runId: synthesis.runId),
             voice: resolved,
             synthesis: synthesis
         )
@@ -418,7 +418,7 @@ public final class NeuralSpeechProvider: StreamingProviderAdapter, PreparablePro
         try await ensureLoaded(runId: synthesis.runId)
         let chunks = SentenceChunks(
             provider: self,
-            sentences: try sentences(of: speech.text, runId: synthesis.runId),
+            sentences: try sentences(of: speech.text, spokenLocale: resolved.spokenLocale, runId: synthesis.runId),
             voice: resolved,
             synthesis: synthesis
         )
@@ -488,11 +488,24 @@ public final class NeuralSpeechProvider: StreamingProviderAdapter, PreparablePro
                 details: ["code": JSONAny("voice_not_available")]
             )
         }
-        return ResolvedVoice(voice: voice, locale: Self.locale(for: voice, requested: speech.locale), sampleRate: speechPackage.sampleRate)
+        let spokenLocale = voice.locales.contains { Self.sameLanguage($0, speech.locale) }
+            ? speech.locale
+            : voice.locales.first ?? speech.locale
+        return ResolvedVoice(
+            voice: voice,
+            locale: Self.locale(for: voice, requested: speech.locale),
+            spokenLocale: spokenLocale,
+            sampleRate: speechPackage.sampleRate
+        )
     }
 
-    private func sentences(of text: String, runId: String) throws -> [String] {
-        let sentences = SpeechTextFrontend.splitSentences(text)
+    /// The runtime's pre-split hook runs once on the whole text, then the shared splitter. The hook
+    /// cannot fail, but a run cancelled meanwhile takes the cancellation path before any sentence is
+    /// handed on, as the synthesis path does.
+    private func sentences(of text: String, spokenLocale: String, runId: String) throws -> [String] {
+        let normalized = runtime.normalizeText(modelPackage, text: text, locale: spokenLocale)
+        try Task.checkCancellation()
+        let sentences = SpeechTextFrontend.splitSentences(normalized)
         guard !sentences.isEmpty else {
             throw createCapabilityMismatch(message: "The text has nothing to say.", runId: runId, providerId: id)
         }
@@ -601,6 +614,8 @@ private struct Attempt {
 private struct ResolvedVoice {
     let voice: SpeechModelVoice
     let locale: String
+    /// The locale the voice speaks: the request's when the voice speaks its language, else the voice's first.
+    let spokenLocale: String
     let sampleRate: Int
 
     /// The locale and voice actually used, as the run's output reports them.

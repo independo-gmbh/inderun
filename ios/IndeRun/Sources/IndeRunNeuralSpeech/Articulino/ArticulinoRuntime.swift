@@ -54,6 +54,25 @@ public final class ArticulinoRuntime: NeuralSpeechRuntime {
     /// Largest element count of one tensor a pipeline allocates (the Kotlin array limit, on every SDK).
     private static let maxTensorElements = Int(Int32.max)
 
+    /// The pre-split hook of every composed runtime that runs this pipeline: a grapheme frontend reads
+    /// letters, so numbers, dates and abbreviations go through the shared core first; any other
+    /// frontend gets the text unchanged.
+    public static func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String {
+        guard modelPackage.speech?.frontend?.kind == .grapheme, isGerman(locale) else { return text }
+        return SharedCoreSpeechText.normalize(text, locale: locale)
+    }
+
+    /// True when the language subtag of `locale` is `de` (case-insensitive, `-` or `_` separated), the
+    /// core's own rule; other text never crosses the C string boundary, which cannot carry a NUL.
+    private static func isGerman(_ locale: String) -> Bool {
+        locale.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "-" || $0 == "_" })
+            .first?.lowercased() == "de"
+    }
+
+    public func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String {
+        Self.normalizeText(modelPackage, text: text, locale: locale)
+    }
+
     private struct Voice: Sendable {
         let voiceTokens: SpeechTensor
         let voiceVector: SpeechTensor

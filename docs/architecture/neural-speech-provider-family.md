@@ -21,8 +21,9 @@ What ships now is the provider on all three SDKs, the runtime seam it delegates 
 text frontend and the WAV encoder, and a first real runtime: an ONNX Runtime `SpeechGraphExecutor` (CPU execution
 provider only) composed with the Articulino pipeline, on every SDK (#260 PR 4a), and the Apple Core AI runtime
 (`IndeRunCoreAIProviders`, iOS/macOS 27, [ADR 022](./decisions/022-core-ai-runtime.md)). The German text frontend
-(numbers, dates, abbreviations) follows in PR 4b. `runtime` stays a required option, not a defaulted
-one: the app composes the runtime it wants and passes it in, and the fixture runtime still serves demos and tests.
+(numbers, dates, abbreviations; [ADR 023](./decisions/023-german-text-frontend.md)) ships with it. `runtime` stays a
+required option, not a defaulted one: the app composes the runtime it wants and passes it in, and the fixture runtime
+still serves demos and tests.
 
 ## Ids and registration
 
@@ -72,6 +73,8 @@ back.
 
 The provider does no inference. It delegates to a `NeuralSpeechRuntime` with three members: `availability(package)`,
 `prepare(package)` and `synthesize(input)`, which is called once per sentence and returns that sentence's `PcmChunk`s.
+An optional fourth member, `normalizeText(package, text, locale)`, rewrites the whole request text before it is split
+(identity by default; it may be asynchronous on the Web).
 A chunk is mono 16-bit PCM with its `sampleRate` and an `isLast` flag set on the final chunk of a sentence. The chunk's
 rate must equal the package's `speech.sampleRate`; IndeRun never resamples, and a chunk with another rate is `Internal`.
 
@@ -211,10 +214,11 @@ from the audio output, not from this family.
 ## The text frontend
 
 Text is split into sentences, each of which is one `synthesize` call, so the first sentence plays while later ones are
-still synthesizing. The rule is the same on every SDK and pinned by a shared fixture: split at newlines and after a run of
-`.`, `!`, `?` or `…` that is followed by whitespace or the end of the text. "Whitespace" is exactly the ECMAScript `\s`
-set on every SDK, not the platform's own notion. There is no abbreviation handling, so `z.B. Hallo` is two sentences.
-Normalizers that expand numbers or abbreviations belong to a pipeline; the German one arrives with PR 4b.
+still synthesizing. The rule is the same on every SDK and pinned by a shared fixture: split at newlines and after a run
+of `.`, `!`, `?` or `…` that is followed by whitespace or the end of the text. "Whitespace" is exactly the ECMAScript
+`\s` set on every SDK, not the platform's own notion. German text is normalized before the split (numbers, dates,
+abbreviations and units are written out, so the period of `z. B.` no longer ends a sentence); see [ADR
+023](./decisions/023-german-text-frontend.md). The runtime's `normalizeText` does it, and other locales pass unchanged.
 
 `GraphemeTokenizer` lowercases a sentence in NFC form, maps each code point through the package vocabulary and drops code
 points the vocabulary lacks.
@@ -246,8 +250,8 @@ by [`articulino-pipeline.json`](../../contracts/fixtures/speech/articulino-pipel
 
 Limitations of this pipeline today:
 
-- No normalizer. Digits are charset letters and reach the model unspelled, so write numbers as words until the German
-  frontend (PR 4b). English has no frontend upstream either.
+- German text is normalized ([ADR 023](./decisions/023-german-text-frontend.md)); English has no frontend upstream
+  either, so digits in other locales reach the model unspelled. Markup, URLs and phone numbers are not handled.
 - Latency is sentence-level: the first audio is available only after a whole sentence is synthesized.
 - Outlier retry and rate equalisation beyond the bundle's `letter_rate` are not implemented.
 - The composed runtimes have no `close()`; sessions live as long as the runtime, and the cache key (`id@version`) ignores

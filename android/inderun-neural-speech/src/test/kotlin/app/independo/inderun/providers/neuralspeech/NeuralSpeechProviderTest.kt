@@ -64,6 +64,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /** A recording audio output whose writes return at once, unless [writeDelayMs] or [holdDrain] say otherwise. */
 private class RecordingAudioOutput(
@@ -240,6 +242,28 @@ private class ThrowingAvailabilityRuntime : NeuralSpeechRuntime {
     override fun synthesize(input: NeuralSpeechSynthesisInput): Flow<PcmChunk> = fixture.synthesize(input)
 }
 
+/** The fixture runtime with a pre-split text hook; [hook] sees the locale the text is spoken in. */
+private class NormalizingRuntime(
+    private val hook: (text: String, locale: String) -> String,
+) : NeuralSpeechRuntime {
+    val fixture = FixtureNeuralSpeechRuntime()
+    val hookLocales = mutableListOf<String>()
+
+    override suspend fun availability(modelPackage: ModelPackage) = fixture.availability(modelPackage)
+
+    override suspend fun prepare(modelPackage: ModelPackage) = fixture.prepare(modelPackage)
+
+    override fun synthesize(input: NeuralSpeechSynthesisInput): Flow<PcmChunk> = fixture.synthesize(input)
+
+    override fun normalizeText(modelPackage: ModelPackage, text: String, locale: String): String {
+        hookLocales += locale
+        return hook(text, locale)
+    }
+}
+
+// Robolectric, like every test of this module that reaches the native library: a plain test and
+// a Robolectric one would load it in different class loaders, and the JVM refuses the second.
+@RunWith(RobolectricTestRunner::class)
 class NeuralSpeechProviderTest {
     private val voices = listOf(
         SpeechModelVoice(id = "v_de", name = "Fixture German", locales = listOf("de-DE", "de-AT"), gender = VoiceGender.Female),
@@ -825,5 +849,130 @@ class NeuralSpeechProviderTest {
         assertEquals(0, artifacts.finishCalls)
         assertEquals(1, artifacts.aborts)
         assertEquals(0, commits.count)
+    }
+
+    // --- pre-split text hook -------------------------------------------------------------------
+
+    private fun speechRequest(locale: String, text: String, delivery: OutputDelivery = OutputDelivery.Playback) = TaskRequest(
+        schemaVersion = SchemaVersion.V1_0,
+        task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
+        speech = SpeechInput(locale = locale, text = text),
+        delivery = OutputDeliveryRequest(mode = delivery),
+    )
+
+    @Test
+    fun normalizesTheWholeTextOnceBeforeItIsSplitIntoSentences() = runTest {
+        val runtime = NormalizingRuntime { text, locale -> SharedCoreSpeechText.normalize(text, locale) }
+
+        NeuralSpeechProvider(pkg, runtime).run(
+            speechRequest("de-DE", "Am 3. Mai, z. B. um 14:30 Uhr."),
+            runContext(RecordingAudioOutput()),
+        )
+
+        assertEquals(listOf("de-DE"), runtime.hookLocales)
+        assertEquals(
+            listOf("Am dritten Mai, zum Beispiel um vierzehn Uhr dreißig."),
+            runtime.fixture.synthesized.map { it.text },
+        )
+    }
+
+    @Test
+    fun normalizesAnArtifactRunToo() = runTest {
+        val runtime = NormalizingRuntime { text, locale -> SharedCoreSpeechText.normalize(text, locale) }
+
+        NeuralSpeechProvider(pkg, runtime).run(
+            speechRequest("de-DE", "Am 3. Mai, z. B. um 14:30 Uhr.", OutputDelivery.Artifact),
+            runContext().copy(artifacts = ArtifactSink.standalone()),
+        )
+
+        assertEquals(
+            listOf("Am dritten Mai, zum Beispiel um vierzehn Uhr dreißig."),
+            runtime.fixture.synthesized.map { it.text },
+        )
+    }
+
+    @Test
+    fun passesTheRequestsRegionalLocaleWhileTheVoiceSpeaksItsLanguage() = runTest {
+        val onlyGerman = pkg.copy(
+            speech = pkg.speech!!.copy(voices = listOf(SpeechModelVoice(id = "v_de", name = "German", locales = listOf("de-DE")))),
+        )
+        val runtime = NormalizingRuntime { text, locale -> SharedCoreSpeechText.normalize(text, locale) }
+
+        NeuralSpeechProvider(onlyGerman, runtime).run(
+            speechRequest("de-AT", "Am 3.1.2026."),
+            runContext(RecordingAudioOutput()),
+        )
+
+        assertEquals(listOf("de-AT"), runtime.hookLocales)
+        assertEquals(listOf("Am dritten Jänner zweitausendsechsundzwanzig."), runtime.fixture.synthesized.map { it.text })
+    }
+
+    @Test
+    fun passesTheVoicesLocaleWhenNoVoiceSharesTheRequestsLanguage() = runTest {
+        val onlyGerman = pkg.copy(
+            speech = pkg.speech!!.copy(voices = listOf(SpeechModelVoice(id = "v_de", name = "German", locales = listOf("de-DE", "de-AT")))),
+        )
+        val runtime = NormalizingRuntime { text, _ -> text }
+
+        NeuralSpeechProvider(onlyGerman, runtime).run(
+            speechRequest("fr-FR", "Bonjour."),
+            runContext(RecordingAudioOutput()),
+        )
+
+        assertEquals(listOf("de-DE"), runtime.hookLocales)
+    }
+
+    @Test
+    fun aRuntimeWithoutTheHookGetsTheTextUnchanged() = runTest {
+        val (provider, runtime) = provider()
+
+        provider.run(speechRequest("de-DE", "Hallo Welt."), runContext(RecordingAudioOutput()))
+
+        assertEquals(listOf("Hallo Welt."), runtime.synthesized.map { it.text })
+    }
+
+    @Test
+    fun anUnavailableHookFailsTheRunBeforeAudioOpensOrCommits() = runTest {
+        val runtime = NormalizingRuntime { _, _ ->
+            throw NeuralSpeechRuntimeError(NeuralSpeechRuntimeErrorKind.Unavailable, "speech text frontend unavailable: no library")
+        }
+        val output = RecordingAudioOutput()
+        val commits = Commits()
+
+        val error = refusal { NeuralSpeechProvider(pkg, runtime).run(speechRequest("de-DE", "Hallo."), runContext(output, commits)) }
+
+        assertEquals(IndeRunErrorClass.Unavailable, error.errorClass)
+        assertTrue(output.sessions.isEmpty())
+        assertEquals(0, commits.count)
+        assertTrue(runtime.fixture.synthesized.isEmpty())
+    }
+
+    @Test
+    fun aHookThatThrowsAfterTheRunWasCancelledTakesTheCancellationPath() = runTest {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val runtime = NormalizingRuntime { _, _ ->
+            release.await()
+            throw NeuralSpeechRuntimeError(NeuralSpeechRuntimeErrorKind.Unavailable, "late failure")
+        }
+        val provider = NeuralSpeechProvider(pkg, runtime)
+        val output = RecordingAudioOutput()
+        val commits = Commits()
+        var failure: Throwable? = null
+        val job = launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                provider.run(speechRequest("de-DE", "Hallo."), runContext(output, commits))
+            } catch (error: Throwable) {
+                failure = error
+            }
+        }
+        while (runtime.hookLocales.isEmpty()) delay(5)
+        job.cancel()
+        release.countDown()
+        job.join()
+
+        assertTrue(failure is kotlinx.coroutines.CancellationException)
+        assertTrue(output.sessions.isEmpty())
+        assertEquals(0, commits.count)
+        assertTrue(runtime.fixture.synthesized.isEmpty())
     }
 }

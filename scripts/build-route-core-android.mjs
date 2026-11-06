@@ -23,12 +23,21 @@
  * `cfg(target_os = "android")` gate; see rust/inderun-route-core/Cargo.toml. That
  * is what lets the host build export the same symbol.
  *
+ * The route core is built twice from the same crate, so an app pays only for what it uses:
+ *
+ * - default: `libinderun_route_core.so`, the planner only (`--no-default-features --features
+ *   jni-bindings`), packaged by `:inderun-core`.
+ * - `--speech-text`: `libinderun_speech_text.so`, the German speech text normalizer
+ *   (`--no-default-features --features speech-text,jni-bindings`), packaged by
+ *   `:inderun-neural-speech`. It has its own cargo target directory and its soname / install
+ *   name is set to its own file name, so the Android linker never confuses the two libraries.
+ *
  * Freshness is delegated to cargo, for the same reason as the WASM and Apple
  * builds: cargo fingerprints every effective input, and re-deriving that list
  * here would skip rebuilds after, say, a dependency bump.
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pinnedRustcPath, pinnedToolchain } from "./rust-toolchain.mjs";
@@ -42,7 +51,18 @@ const host = process.argv.includes("--host");
 // declares fails at install time on older devices rather than at build time.
 const MIN_SDK = 26;
 
-const LIBRARY = "libinderun_route_core.so";
+const speechText = process.argv.includes("--speech-text");
+
+// The crate always compiles to libinderun_route_core; the speech build renames the copy.
+const CRATE_LIBRARY = "libinderun_route_core";
+const OUTPUT_NAME = speechText ? "inderun_speech_text" : "inderun_route_core";
+const LIBRARY = `lib${OUTPUT_NAME}.so`;
+const FEATURES = speechText ? "speech-text,jni-bindings" : "jni-bindings";
+// A separate target directory keeps the two feature sets from invalidating each other's cache.
+const targetDir = join(repoRoot, "target", speechText ? "speech-text" : "");
+const cargoEnv = speechText ? { CARGO_TARGET_DIR: targetDir } : {};
+// `cargo rustc` hands the linker flag to the library crate only, not to build scripts.
+const soname = (flag) => ["--", "-C", `link-arg=${flag}`];
 const NDK_VERSION = "27.2.12479018";
 
 /**
@@ -64,7 +84,9 @@ const abis = [
  */
 const outFlag = process.argv.indexOf("--out");
 const jniLibsDir =
-  outFlag === -1 ? join(repoRoot, "target", "route-core-jnilibs") : process.argv[outFlag + 1];
+  outFlag === -1
+    ? join(repoRoot, "target", speechText ? "speech-text-jnilibs" : "route-core-jnilibs")
+    : process.argv[outFlag + 1];
 const hostLibDir = join(repoRoot, "target", "route-core-host");
 
 const toolchain = pinnedToolchain();
@@ -137,6 +159,22 @@ function homeDir() {
   return process.env.HOME ?? "";
 }
 
+/**
+ * The planner library must stay planner-only and the speech library must carry the normalizer:
+ * the JNI symbol is in the binary's dynamic symbol table exactly when the feature was compiled in,
+ * so a byte search for it is an honest, toolchain-free check that the feature sets did not mix.
+ */
+function checkSpeechSymbol(file) {
+  const present = readFileSync(file).includes("SharedCoreSpeechText_normalizeNative");
+  if (present !== speechText) {
+    console.error(
+      `\n[build-route-core-android] ${file} ${present ? "exports" : "lacks"} the speech text JNI ` +
+        `symbol; ${LIBRARY} must ${speechText ? "" : "not "}carry it.`
+    );
+    process.exit(1);
+  }
+}
+
 let rustcPath;
 try {
   // Resolved explicitly so the build cannot pick up whatever rustc happens to be
@@ -150,24 +188,42 @@ try {
 if (host) {
   // Debug profile: this library is only ever loaded by unit tests, and the
   // release profile's fat LTO would add minutes to every `./gradlew test`.
+  const extension = process.platform === "darwin" ? "dylib" : "so";
+  const hostName = `lib${OUTPUT_NAME}.${extension}`;
+  const nameFlag =
+    process.platform === "darwin"
+      ? `-Wl,-install_name,@rpath/${hostName}`
+      : `-Wl,-soname,${hostName}`;
   run(
     "rustup",
-    ["run", toolchain, "cargo", "build", "-p", "inderun_route_core", "--features", "jni-bindings"],
-    { env: { ...process.env, RUSTC: rustcPath } }
+    [
+      "run",
+      toolchain,
+      "cargo",
+      "rustc",
+      "-p",
+      "inderun_route_core",
+      "--lib",
+      "--no-default-features",
+      "--features",
+      FEATURES,
+      ...soname(nameFlag)
+    ],
+    { env: { ...process.env, ...cargoEnv, RUSTC: rustcPath } }
   );
 
-  const extension = process.platform === "darwin" ? "dylib" : "so";
-  const built = join(repoRoot, "target", "debug", `libinderun_route_core.${extension}`);
+  const built = join(targetDir, "debug", `${CRATE_LIBRARY}.${extension}`);
   mkdirSync(hostLibDir, { recursive: true });
   // Copied to a directory of its own so Gradle can put exactly this on
   // java.library.path without also exposing the rest of target/debug.
-  copyFileSync(built, join(hostLibDir, `libinderun_route_core.${extension}`));
+  copyFileSync(built, join(hostLibDir, hostName));
+  checkSpeechSymbol(join(hostLibDir, hostName));
   console.log(`[build-route-core-android] Wrote ${hostLibDir}`);
   process.exit(0);
 }
 
 const toolchainBin = ndkToolchainBin();
-const env = { ...process.env, RUSTC: rustcPath };
+const env = { ...process.env, ...cargoEnv, RUSTC: rustcPath };
 for (const { clang, rustTarget } of abis) {
   const linker = join(toolchainBin, `${clang}${MIN_SDK}-clang`);
   if (!existsSync(linker)) {
@@ -186,15 +242,18 @@ for (const { abi, rustTarget } of abis) {
       "run",
       toolchain,
       "cargo",
-      "build",
+      "rustc",
       "-p",
       "inderun_route_core",
+      "--lib",
+      "--no-default-features",
       "--features",
-      "jni-bindings",
+      FEATURES,
       "--profile",
       "android",
       "--target",
-      rustTarget
+      rustTarget,
+      ...soname(`-Wl,-soname,${LIBRARY}`)
     ],
     { env }
   );
@@ -202,9 +261,10 @@ for (const { abi, rustTarget } of abis) {
   const destination = join(jniLibsDir, abi);
   mkdirSync(destination, { recursive: true });
   copyFileSync(
-    join(repoRoot, "target", rustTarget, "android", LIBRARY),
+    join(targetDir, rustTarget, "android", `${CRATE_LIBRARY}.so`),
     join(destination, LIBRARY)
   );
+  checkSpeechSymbol(join(destination, LIBRARY));
 }
 
 console.log(`[build-route-core-android] Wrote ${jniLibsDir}`);

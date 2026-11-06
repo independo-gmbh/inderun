@@ -9,6 +9,12 @@ binding for Android, and a WASM binding for the web. The exact exported symbols
 and their signatures are defined in `src/lib.rs` — refer to the source rather
 than duplicating the list here.
 
+The crate also hosts speech text normalization (`normalize_speech_text`, German locales; see
+[ADR 023](../../docs/architecture/decisions/023-german-text-frontend.md)) behind the Cargo feature `speech-text`, on by
+default. The planner artifacts that every app loads (the WASM planner, `libinderun_route_core`, `InderunRouteCoreFFI`) are
+built without it; neural speech loads separate artifacts that include it (`inderun_speech_text`,
+`libinderun_speech_text`, `InderunSpeechTextFFI`).
+
 ## Commands
 
 ```sh

@@ -1,4 +1,5 @@
 import type { ModelPackage } from "@independo/inderun-contracts";
+import { normalizeSpeechText } from "@independo/inderun-route-core-wasm";
 
 import {
   NeuralSpeechRuntimeError,
@@ -414,6 +415,25 @@ export function createArticulinoRuntime(options: ArticulinoRuntimeOptions): Neur
   return {
     availability: async (pkg) => availability(pkg),
     prepare,
-    synthesize
+    synthesize,
+    async normalizeText(pkg, text, locale) {
+      if (pkg.speech?.frontend?.kind !== "grapheme" || !isGerman(locale)) return text;
+      try {
+        return await normalizeSpeechText(text, locale);
+      } catch (error) {
+        // The speech text module failed to load or start: nothing has been output yet, so the
+        // run is unavailable (and may fall back), not an internal error.
+        throw new NeuralSpeechRuntimeError(
+          "unavailable",
+          `speech text frontend unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          error
+        );
+      }
+    }
   };
+}
+
+/** True when the language subtag of `locale` is `de` (case-insensitive, `-` or `_` separated). */
+function isGerman(locale: string): boolean {
+  return (locale.split(/[-_]/)[0] ?? "").toLowerCase() === "de";
 }

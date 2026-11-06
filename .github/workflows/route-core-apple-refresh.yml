@@ -130,7 +130,9 @@ jobs:
         run: |
           set -euo pipefail
           git add ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework \
-                  ios/IndeRun/Frameworks/InderunRouteCoreFFI.provenance.json
+                  ios/IndeRun/Frameworks/InderunRouteCoreFFI.provenance.json \
+                  ios/IndeRun/Frameworks/InderunSpeechTextFFI.xcframework \
+                  ios/IndeRun/Frameworks/InderunSpeechTextFFI.provenance.json
           if git diff --cached --quiet; then
             echo "The provenance check failed but the rebuild changed nothing; not committing."
             exit 1
@@ -141,7 +143,7 @@ jobs:
                      -m 'The XCFramework is committed and its provenance manifest hashes Cargo.lock, so a Cargo bump leaves the binary in git built from the previous dependency set.'
           git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH}"
           {
-            echo "Rebuilt \`InderunRouteCoreFFI.xcframework\` and pushed it to \`${BRANCH}\`."
+            echo "Rebuilt \`InderunRouteCoreFFI.xcframework\` and \`InderunSpeechTextFFI.xcframework\` and pushed them to \`${BRANCH}\`."
             if [ "$USING_PAT" != "true" ]; then
               echo
               echo "> Pushed with \`GITHUB_TOKEN\`, which does not start workflow runs."
