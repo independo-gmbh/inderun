@@ -19,7 +19,30 @@
 		A10000000000000000000007 /* IndeRunAppleProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000034 /* IndeRunAppleProviders */; };
 		A10000000000000000000008 /* IndeRunOpenAIProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000035 /* IndeRunOpenAIProviders */; };
 		A10000000000000000000009 /* IndeRunOnnxProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000036 /* IndeRunOnnxProviders */; };
+		A20000000000000000000012 /* NeuralCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* NeuralCatalog.swift */; };
+		A20000000000000000000022 /* DemoNeuralModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* DemoNeuralModelDownloader.swift */; };
+		A20000000000000000000032 /* VoicesLabViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000031 /* VoicesLabViewModel.swift */; };
+		A20000000000000000000042 /* VoicesLabScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000041 /* VoicesLabScreen.swift */; };
+		A20000000000000000000052 /* AppleVoicesLabRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000051 /* AppleVoicesLabRuntime.swift */; };
+		A20000000000000000000062 /* neural-model-catalog.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* neural-model-catalog.json */; };
+		A20000000000000000000072 /* utterance-corpus.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000071 /* utterance-corpus.json */; };
+		A20000000000000000000082 /* catalog-to-package.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000081 /* catalog-to-package.json */; };
+		A20000000000000000000092 /* NeuralCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000091 /* NeuralCatalogTests.swift */; };
+		A200000000000000000000A2 /* NeuralDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000000000000A1 /* NeuralDownloaderTests.swift */; };
+		A200000000000000000000B2 /* VoicesLabViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000000000000B1 /* VoicesLabViewModelTests.swift */; };
+		A200000000000000000000C2 /* catalog-to-package.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000081 /* catalog-to-package.json */; };
+		A2FFFFFFFFFFFFFFFFFFFF02 /* URLSessionTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2FFFFFFFFFFFFFFFFFFFF01 /* URLSessionTransportTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A20000000000000000000116 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000050;
+			remoteInfo = IndeRunDemo;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000010 /* IndeRunDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IndeRunDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -30,6 +53,19 @@
 		A10000000000000000000013 /* DemoViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoViewModel.swift; sourceTree = "<group>"; };
 		A10000000000000000000014 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		A10000000000000000000015 /* DemoOnnxModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoOnnxModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* NeuralCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeuralCatalog.swift; sourceTree = "<group>"; };
+		A20000000000000000000021 /* DemoNeuralModelDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoNeuralModelDownloader.swift; sourceTree = "<group>"; };
+		A20000000000000000000031 /* VoicesLabViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicesLabViewModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000041 /* VoicesLabScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicesLabScreen.swift; sourceTree = "<group>"; };
+		A20000000000000000000051 /* AppleVoicesLabRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleVoicesLabRuntime.swift; sourceTree = "<group>"; };
+		A20000000000000000000061 /* neural-model-catalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = neural-model-catalog.json; path = ../../../contracts/fixtures/speech/neural-model-catalog.json; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000071 /* utterance-corpus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = utterance-corpus.json; path = ../../../contracts/fixtures/speech/utterance-corpus.json; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000081 /* catalog-to-package.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = catalog-to-package.json; path = ../../../contracts/fixtures/speech/catalog-to-package.json; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000091 /* NeuralCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeuralCatalogTests.swift; sourceTree = "<group>"; };
+		A200000000000000000000A1 /* NeuralDownloaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeuralDownloaderTests.swift; sourceTree = "<group>"; };
+		A200000000000000000000B1 /* VoicesLabViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicesLabViewModelTests.swift; sourceTree = "<group>"; };
+		A200000000000000000000D1 /* IndeRunDemoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = IndeRunDemoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2FFFFFFFFFFFFFFFFFFFF01 /* URLSessionTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSessionTransportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,7 +82,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A20000000000000000000102 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A20000000000000000000115 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000050 /* IndeRunDemo */;
+			targetProxy = A20000000000000000000116 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXGroup section */
 		A10000000000000000000040 = {
@@ -54,6 +105,8 @@
 			children = (
 				A10000000000000000000041 /* IndeRunDemo */,
 				A10000000000000000000042 /* Products */,
+				A200000000000000000000F1 /* Resources */,
+				A200000000000000000000E1 /* IndeRunDemoTests */,
 				A10000000000000000000014 /* README.md */,
 			);
 			sourceTree = "<group>";
@@ -67,6 +120,11 @@
 				A10000000000000000000017 /* SpeechScreen.swift */,
 				A10000000000000000000013 /* DemoViewModel.swift */,
 				A10000000000000000000015 /* DemoOnnxModel.swift */,
+				A20000000000000000000011 /* NeuralCatalog.swift */,
+				A20000000000000000000021 /* DemoNeuralModelDownloader.swift */,
+				A20000000000000000000031 /* VoicesLabViewModel.swift */,
+				A20000000000000000000041 /* VoicesLabScreen.swift */,
+				A20000000000000000000051 /* AppleVoicesLabRuntime.swift */,
 			);
 			path = IndeRunDemo;
 			sourceTree = "<group>";
@@ -75,8 +133,30 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000010 /* IndeRunDemo.app */,
+				A200000000000000000000D1 /* IndeRunDemoTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A200000000000000000000F1 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000061 /* neural-model-catalog.json */,
+				A20000000000000000000071 /* utterance-corpus.json */,
+				A20000000000000000000081 /* catalog-to-package.json */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		A200000000000000000000E1 /* IndeRunDemoTests */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000091 /* NeuralCatalogTests.swift */,
+				A200000000000000000000A1 /* NeuralDownloaderTests.swift */,
+				A200000000000000000000B1 /* VoicesLabViewModelTests.swift */,
+				A2FFFFFFFFFFFFFFFFFFFF01 /* URLSessionTransportTests.swift */,
+			);
+			path = IndeRunDemoTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -107,6 +187,26 @@
 			productReference = A10000000000000000000010 /* IndeRunDemo.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A20000000000000000000111 /* IndeRunDemoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000000000000000000112 /* Build configuration list for PBXNativeTarget "IndeRunDemoTests" */;
+			buildPhases = (
+				A20000000000000000000101 /* Sources */,
+				A20000000000000000000102 /* Frameworks */,
+				A20000000000000000000103 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A20000000000000000000115 /* PBXTargetDependency */,
+			);
+			name = IndeRunDemoTests;
+			packageProductDependencies = (
+			);
+			productName = IndeRunDemoTests;
+			productReference = A200000000000000000000D1 /* IndeRunDemoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -119,6 +219,10 @@
 				TargetAttributes = {
 					A10000000000000000000050 = {
 						CreatedOnToolsVersion = 26.0;
+					};
+					A20000000000000000000111 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = A10000000000000000000050;
 					};
 				};
 			};
@@ -140,6 +244,7 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000000050 /* IndeRunDemo */,
+				A20000000000000000000111 /* IndeRunDemoTests */,
 			);
 		};
 /* End PBXProject section */
@@ -149,6 +254,16 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A20000000000000000000062 /* neural-model-catalog.json in Resources */,
+				A20000000000000000000072 /* utterance-corpus.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000000000000000000103 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A200000000000000000000C2 /* catalog-to-package.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -165,6 +280,22 @@
 				A1000000000000000000000C /* SpeechScreen.swift in Sources */,
 				A10000000000000000000003 /* DemoViewModel.swift in Sources */,
 				A1000000000000000000000A /* DemoOnnxModel.swift in Sources */,
+				A20000000000000000000012 /* NeuralCatalog.swift in Sources */,
+				A20000000000000000000022 /* DemoNeuralModelDownloader.swift in Sources */,
+				A20000000000000000000032 /* VoicesLabViewModel.swift in Sources */,
+				A20000000000000000000042 /* VoicesLabScreen.swift in Sources */,
+				A20000000000000000000052 /* AppleVoicesLabRuntime.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000000000000000000101 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A20000000000000000000092 /* NeuralCatalogTests.swift in Sources */,
+				A200000000000000000000A2 /* NeuralDownloaderTests.swift in Sources */,
+				A200000000000000000000B2 /* VoicesLabViewModelTests.swift in Sources */,
+				A2FFFFFFFFFFFFFFFFFFFF02 /* URLSessionTransportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -180,9 +311,13 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -263,6 +398,54 @@
 			};
 			name = Release;
 		};
+		A20000000000000000000113 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CAUN24P4HP;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.independo.inderun.demo.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/IndeRunDemo.app/IndeRunDemo";
+			};
+			name = Debug;
+		};
+		A20000000000000000000114 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = CAUN24P4HP;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.independo.inderun.demo.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/IndeRunDemo.app/IndeRunDemo";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -280,6 +463,15 @@
 			buildConfigurations = (
 				A10000000000000000000080 /* Debug */,
 				A10000000000000000000081 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A20000000000000000000112 /* Build configuration list for PBXNativeTarget "IndeRunDemoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000000000000000000113 /* Debug */,
+				A20000000000000000000114 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

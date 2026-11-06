@@ -8,3 +8,4 @@ export {
 export { resolveDemoProxyConfig, type DemoProxyConfig } from "./config.js";
 export { handleProxyRequest, type DemoProxyRequestOptions } from "./handler.js";
 export { createDemoProxyServer } from "./server.js";
+export { handleAssetRequest, loadAssetAllowlist, type AssetRequestOptions } from "./assets.js";

@@ -103,6 +103,32 @@ and `generateSpeech()`. It never touches `speechSynthesis` and never branches on
   only, so the panel says so and the button stays disabled.
 - The status line is a live region. Stop takes focus while speech plays, and focus returns to Speak afterwards.
 
+## Voices lab (opt-in)
+
+Set `VITE_INDERUN_VOICES_LAB=1` (for example `VITE_INDERUN_VOICES_LAB=1 pnpm --filter @independo/inderun-web-demo dev`)
+to add a **Voices lab** panel below Speech. Without the flag nothing of it is loaded, fetched or registered.
+
+- It downloads the Articulino neural speech model and seven demo voices from
+  [`neural-model-catalog.json`](../../contracts/fixtures/speech/neural-model-catalog.json) into the browser's Origin
+  Private File System (`voices-lab/<model>/<version>/`), after a consent step that shows the size (about 113 MB) and the
+  licences. Every file is checked against its sha256 and size; a mismatch deletes the file
+  (`checksum mismatch: <path>`), and a retry resumes with the verified files, and **Cancel download** stops it and keeps them. The browser is asked to keep the storage
+  (`navigator.storage.persist()`, best effort). Browsers without OPFS get "This browser cannot store models".
+- Pick a language (de-DE, de-AT, en-US, en-GB), a model (or **OS TTS (control)**), a voice and a preset text from the
+  utterance corpus, then **Speak**, **Stop**, **Repeat** or **A/B** (neural, then the OS voice). The status card shows
+  provider, model and variant, the `text.onnx` checksum, voice, resolved locale, locality, runtime and delivery. The
+  Core AI entry is listed as unavailable (no `.aimodel` exists yet).
+- Requests go through the model profile `voices-lab:<model>` (`[neural provider, web_system_speech]`) on a lab engine
+  that is rebuilt after each install; the control uses the demo's own engine.
+- Hugging Face files are fetched directly. **The demo proxy must be running for the GitHub release assets** (the voices
+  and `text.onnx`): GitHub sends no CORS headers, so the browser calls the proxy's `GET /assets?url=...` route (see
+  [`@independo/inderun-demo-proxy`](../inderun-demo-proxy/README.md)). With the Vite dev server the page calls
+  `/api/inderun/assets`, which is forwarded to the proxy's `/assets`; with an absolute `VITE_INDERUN_DEMO_PROXY_URL` the
+  origin's `/assets` is used (`VITE_INDERUN_DEMO_ASSETS_URL` overrides both) and the proxy's
+  `INDERUN_DEMO_PROXY_CORS_ORIGIN` must allow the page.
+- Those assets answer 404 ("asset not published yet") until the `neural-speech-assets-1` release is published.
+- onnxruntime-web runs the model; it is a dependency of this demo only for the lab (`load` is passed to the SDK).
+
 ## Configuration
 
 | Env var                              | Effect                                                                        |
@@ -111,6 +137,8 @@ and `generateSpeech()`. It never touches `speechSynthesis` and never branches on
 | `VITE_INDERUN_ONNX_MODEL_PACKAGE_ID` | Model package id the ONNX target declares (default `inderun-demo-fixture`)    |
 | `VITE_INDERUN_OPENAI_MODEL`          | Cloud model the browser registers as `openai:<model>` (default `gpt-5.2`)     |
 | `VITE_INDERUN_DEMO_PROXY_URL`        | Proxy endpoint for the cloud target (default `/api/inderun/openai-responses`) |
+| `VITE_INDERUN_VOICES_LAB`            | `1` switches the Voices lab on (default off)                                  |
+| `VITE_INDERUN_DEMO_ASSETS_URL`       | Overrides the proxy's `/assets` URL the lab downloads release assets through  |
 
 The Vite dev server forwards `/api/inderun` to the demo proxy on `127.0.0.1:8787`. The proxy owns
 the upstream endpoint, model and key (`OPENAI_API_KEY`, `INDERUN_OPENAI_ENDPOINT_URL`,

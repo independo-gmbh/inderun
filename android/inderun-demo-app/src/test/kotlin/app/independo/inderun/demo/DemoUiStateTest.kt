@@ -33,3 +33,12 @@ class DemoUiStateTest {
         assertTrue(DemoUiState(prompt = "Tell me a story.").canStream)
     }
 }
+
+class MegabytesTest {
+    @Test
+    fun megabytes_isWholeDecimalMegabytesRoundedHalfUp() {
+        org.junit.Assert.assertEquals("113 MB", megabytes(113_011_812L))
+        org.junit.Assert.assertEquals("1 MB", megabytes(500_000L))
+        org.junit.Assert.assertEquals("0 MB", megabytes(499_999L))
+    }
+}

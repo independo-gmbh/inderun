@@ -333,6 +333,28 @@ rows say a phone is fast enough.
   changes in a way that could move these numbers.
 - The real-phone rows are what gate the demo's default model.
 
+## Demo: Voices lab
+
+The web, Android and iOS demos carry an opt-in Voices lab (off by default: `VITE_INDERUN_VOICES_LAB=1` on the web, a
+settings toggle on Android, a toggle on the iOS Speech tab). It lets a developer download a neural model and its voices
+on a device and speak through this family, with the package the app builds from the catalog rather than a hand-prepared
+directory. The lab is a demo, not SDK surface: nothing in the SDKs changes for it.
+
+- **Catalog.** [`neural-model-catalog.json`](../../contracts/fixtures/speech/neural-model-catalog.json) lists the
+  entries, their files and voices, checksums and review status. Every download asks for consent and is verified against
+  the catalog's checksums. The entry-to-`ModelPackage` mapping is pinned by
+  [`catalog-to-package.json`](../../contracts/fixtures/speech/catalog-to-package.json) and run by each demo
+  ([speech-conformance.md](../speech-conformance.md)). The Core AI entry stays `manual_install` until its conversion
+  record exists.
+- **Assets.** The upstream weights are fetched from Hugging Face at a pinned revision. The derived `text.onnx` and the
+  seven voices are built by
+  [`build_demo_assets.py`](../../tools/neural-speech/README.md) and hosted in the GitHub release
+  `neural-speech-assets-1`, which the repository owner publishes. GitHub sends no CORS headers, so the web demo fetches
+  those files through the [demo proxy](../../packages/inderun-demo-proxy/README.md) `GET /assets` route and stores them
+  in OPFS.
+- **Demos.** [Web](../../packages/inderun-web-demo/README.md), [Android](../../android/inderun-demo-app/README.md) and
+  [iOS](../../ios/SampleApps/IndeRunDemo/README.md) describe how to enable and use it.
+
 ## Fixtures
 
 Three shared catalogs pin behaviour across the SDKs, listed in [speech-conformance.md](../speech-conformance.md):

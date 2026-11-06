@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
-    "@independo/inderun-web": "workspace:^"
+    "@independo/inderun-web": "workspace:^",
+    "onnxruntime-web": "^1.31.1"
   },
   "devDependencies": {
     "happy-dom": "^21.0.4",

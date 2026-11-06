@@ -46,6 +46,7 @@ internal class DemoViewModel(
                 cloudEndpointUrl = settings.endpointUrl,
                 cloudModel = settings.model,
                 onnxModelSelection = settings.onnxModelSelection,
+                voicesLabEnabled = settings.voicesLabEnabled,
             )
         },
     )
@@ -90,6 +91,15 @@ internal class DemoViewModel(
     fun updateCloudModel(model: String) {
         _uiState.update { state ->
             val updatedState = state.copy(cloudModel = model, result = null, error = null, stream = null)
+            settingsStore.save(updatedState.toSettings())
+            updatedState
+        }
+    }
+
+    /** The Voices lab is opt-in (#260): the screen section, catalog read and providers exist only while this is on. */
+    fun updateVoicesLabEnabled(enabled: Boolean) {
+        _uiState.update { state ->
+            val updatedState = state.copy(voicesLabEnabled = enabled)
             settingsStore.save(updatedState.toSettings())
             updatedState
         }

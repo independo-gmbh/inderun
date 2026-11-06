@@ -117,6 +117,30 @@ The app never touches `TextToSpeech`. Record device results in
 [docs/verification/system-speech.md](../../docs/verification/system-speech.md). The automated
 real-speech checks are `./gradlew :inderun-kotlin:connectedAndroidTest`.
 
+## Voices lab (opt-in, #260)
+
+Switch **Voices lab** on at the bottom of the screen (persisted in the app's settings; off by
+default). Off, the app reads no catalog, registers no neural provider and touches no storage.
+
+On, the lab reads `neural-model-catalog.json` (copied from `contracts/fixtures/speech/` into the
+app's assets at build time) and offers the Articulino model with seven own voices. **Download model**
+first asks for consent, showing the total size and the model and voice licences; only then does it
+fetch the files directly from Hugging Face and the GitHub release `neural-speech-assets-1` into
+`filesDir/voices-lab/<entry>/<version>/`. Every file's size and sha256 are checked (a mismatch
+deletes it and fails with `checksum mismatch: <path>`); a retry skips files that already verify.
+Pick a language, voice and preset text, then **Speak**, **Stop**, **Repeat**, or **A/B** (neural
+voice, then the OS voice as control). The status card names the provider that actually spoke and
+says "fell back to OS voice" when the neural model did not.
+
+The release assets are published by the owner: until `neural-speech-assets-1` exists, downloads of
+the derived files (`text.onnx`, the voices) fail with "asset not published yet (HTTP 404)". The Core
+AI entry is iOS/macOS only and shows as unavailable here.
+
+Files: `NeuralCatalog.kt` (catalog and the `ModelPackage` mapping), `DemoNeuralModelDownloader.kt`,
+`VoicesLabViewModel.kt`, `VoicesLabScreen.kt`, and `AndroidVoicesLabRuntime` in
+`AndroidDemoRuntime.kt` (system speech plus one neural provider per installed model, and the profile
+`voices-lab:<entry id>` = `[neural provider, android_system_speech]`).
+
 ## Demo Proxy Setup
 
 The sample app never embeds OpenAI credentials in `TaskRequest`. For cloud testing, the intended

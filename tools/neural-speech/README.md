@@ -96,6 +96,27 @@ each contained file under its path relative to the package. The `.aimodel` comes
 0b, see `docs/architecture/decisions/022-core-ai-runtime.md`); this tool does not run the export. The SDK's gated tests
 read the directory from `INDERUN_COREAI_MODEL_DIR`.
 
+## Build the demo assets
+
+`build_demo_assets.py` builds the derived files of the Voices lab catalog
+(`contracts/fixtures/speech/neural-model-catalog.json`) from the upstream release and the seven committed seeds in
+`voice-seeds/` (see its README); no recordings are needed:
+
+```bash
+tools/neural-speech/.venv/bin/python tools/neural-speech/build_demo_assets.py --models <onnx-release-dir> \
+  --seeds tools/neural-speech/voice-seeds --out <dir>
+```
+
+It writes `<out>/text.onnx` (the int8 `text` graph with an int64 `text_mask`), `<out>/<id>.safetensors` for every
+seed and `<out>/SHA256SUMS`, and copies the upstream `LICENSE` and `NOTICE` from `--models` into `<out>`
+(Apache-2.0 redistribution; the tool refuses when either is missing), and writes each file's `url`, `sha256` and `bytes` into the `articulino-de-en-int8`
+entry. The upstream files of that entry (`config.json`, `dit_step.onnx`, `decoder.onnx`) stay pinned by hand to the
+Hugging Face revision. The seeds and the catalog's voice ids must match. Last it prints the `gh release create
+neural-speech-assets-1 ...` command that lists every output file (licence files included). Its `--notes` state the modification (the
+`text_mask` input of `text.onnx` changed from bool to int64, upstream revision, Apache-2.0, NOTICE included) and it
+passes `--latest=false`, so the release never becomes the repository's latest. Uploading is the owner's step: the tool never
+creates a release, tag or upload. Until the release exists, a demo download of these files answers HTTP 404.
+
 ## Time a package on an iPhone
 
 An opt-in check for when a phone is at hand; nothing here runs in CI. Swift package tests cannot run on a physical

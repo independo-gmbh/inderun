@@ -57,6 +57,8 @@ internal data class DemoSettings(
     val endpointUrl: String,
     val model: String,
     val onnxModelSelection: DemoOnnxModelSelection,
+    /** The opt-in Voices lab (#260). Off: no catalog read, no provider registration. */
+    val voicesLabEnabled: Boolean = false,
 )
 
 internal data class AttemptMetadata(
@@ -143,6 +145,7 @@ internal data class DemoUiState(
     val isSpeaking: Boolean = false,
     val canStopSpeaking: Boolean = false,
     val speechOutcome: String? = null,
+    val voicesLabEnabled: Boolean = false,
 ) {
     val selectedSpeechVoice: SpeechVoiceInfo?
         get() = speechVoices.firstOrNull { it.id == speechVoiceId }
@@ -178,5 +181,6 @@ internal data class DemoUiState(
         endpointUrl = cloudEndpointUrl,
         model = cloudModel,
         onnxModelSelection = onnxModelSelection,
+        voicesLabEnabled = voicesLabEnabled,
     )
 }

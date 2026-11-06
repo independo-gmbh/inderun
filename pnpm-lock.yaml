@@ -131,6 +131,9 @@ importers:
       '@independo/inderun-web':
         specifier: workspace:^
         version: link:../inderun-web
+      onnxruntime-web:
+        specifier: ^1.31.1
+        version: 1.31.1
     devDependencies:
       happy-dom:
         specifier: ^21.0.4
