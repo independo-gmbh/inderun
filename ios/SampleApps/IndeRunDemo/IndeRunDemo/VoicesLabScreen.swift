@@ -49,7 +49,7 @@ struct VoicesLabScreen: View {
     private func modelSection(_ state: VoicesLabState) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Model").font(.headline)
-            Picker("Model", selection: Binding(get: { state.selected }, set: lab.selectModel)) {
+            Picker("Model", selection: Binding(get: { state.selected }, set: { lab.selectModel($0) })) {
                 ForEach(state.installable) { entry in
                     Text(state.installedIds.contains(entry.id) ? "\(entry.id) (installed)" : entry.id).tag(entry.id)
                 }
@@ -98,7 +98,7 @@ struct VoicesLabScreen: View {
     private func textSection(_ state: VoicesLabState) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Text").font(.headline)
-            TextField("Text to speak", text: Binding(get: { state.text }, set: lab.updateText), axis: .vertical)
+            TextField("Text to speak", text: Binding(get: { state.text }, set: { lab.updateText($0) }), axis: .vertical)
                 .textFieldStyle(.roundedBorder)
             if !state.presets.isEmpty {
                 Menu("Presets") {
@@ -114,12 +114,12 @@ struct VoicesLabScreen: View {
     private func voiceSection(_ state: VoicesLabState) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Language and voice").font(.headline)
-            Picker("Language", selection: Binding(get: { state.locale }, set: lab.updateLocale)) {
+            Picker("Language", selection: Binding(get: { state.locale }, set: { lab.updateLocale($0) })) {
                 ForEach(VoicesLabViewModel.languages, id: \.self) { Text($0).tag($0) }
             }
             .pickerStyle(.menu)
             .buttonStyle(.bordered)
-            Picker("Voice", selection: Binding(get: { state.voiceKey }, set: lab.selectVoice)) {
+            Picker("Voice", selection: Binding(get: { state.voiceKey }, set: { lab.selectVoice($0) })) {
                 Text("Automatic").tag(String?.none)
                 ForEach(state.currentVoices) { voice in
                     Text(voice.name).tag(voice.key as String?)
