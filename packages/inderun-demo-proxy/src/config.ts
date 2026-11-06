@@ -12,6 +12,12 @@ export interface DemoProxyConfig {
   host: string;
   port: number;
   corsOrigin: string;
+  /** Exact URLs the `/assets` route may fetch. Defaults to the catalog's file and voice URLs. */
+  assetAllowlist?: ReadonlySet<string>;
+  /** Path to `neural-model-catalog.json`; read once at start-up. */
+  assetCatalogPath?: string;
+  /** Injected in tests so `/assets` never reaches the network. */
+  assetFetch?: typeof fetch;
 }
 
 export function resolveDemoProxyConfig(env: NodeJS.ProcessEnv = process.env): DemoProxyConfig {
@@ -21,7 +27,8 @@ export function resolveDemoProxyConfig(env: NodeJS.ProcessEnv = process.env): De
     model: getNonEmpty(env.INDERUN_OPENAI_MODEL) ?? DEFAULT_OPENAI_MODEL,
     host: getNonEmpty(env.INDERUN_DEMO_PROXY_HOST) ?? DEFAULT_DEMO_PROXY_HOST,
     port: parsePort(env.INDERUN_DEMO_PROXY_PORT),
-    corsOrigin: getNonEmpty(env.INDERUN_DEMO_PROXY_CORS_ORIGIN) ?? "*"
+    corsOrigin: getNonEmpty(env.INDERUN_DEMO_PROXY_CORS_ORIGIN) ?? "*",
+    assetCatalogPath: getNonEmpty(env.INDERUN_DEMO_PROXY_ASSET_CATALOG)
   };
 }
 

@@ -31,6 +31,7 @@ internal class SharedPreferencesDemoSettingsStore(
             endpointUrl = endpointUrl,
             model = model,
             onnxModelSelection = onnxModelSelection,
+            voicesLabEnabled = preferences.getBoolean(KEY_VOICES_LAB, false),
         )
     }
 
@@ -39,6 +40,7 @@ internal class SharedPreferencesDemoSettingsStore(
             .putString(KEY_ENDPOINT_URL, settings.endpointUrl.trim())
             .putString(KEY_MODEL, settings.model.trim())
             .putString(KEY_ONNX_MODEL_SELECTION, settings.onnxModelSelection.name)
+            .putBoolean(KEY_VOICES_LAB, settings.voicesLabEnabled)
             .apply()
     }
 
@@ -46,5 +48,6 @@ internal class SharedPreferencesDemoSettingsStore(
         const val KEY_ENDPOINT_URL = "cloud_endpoint_url"
         const val KEY_MODEL = "cloud_model"
         const val KEY_ONNX_MODEL_SELECTION = "onnx_model_selection"
+        const val KEY_VOICES_LAB = "voices_lab_enabled"
     }
 }

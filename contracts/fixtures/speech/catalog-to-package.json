@@ -1,0 +1,543 @@
+{
+  "$comment": "Pins catalogEntryToModelPackage(entry, ref): each case is a catalog entry, the install ref, and the exact ModelPackage the mapping must produce (source app_managed, integrity.checksums keyed by file path, voices carry their file path). Run by packages/contracts/src/neural-model-catalog.test.ts and by each demo (Voices lab).",
+  "cases": [
+    {
+      "id": "onnx_entry_all_voices",
+      "entry": {
+        "id": "articulino-de-en-int8",
+        "family": "articulino",
+        "pipeline": "articulino",
+        "version": "1",
+        "variant": "onnx-int8",
+        "license": {
+          "spdx": "Apache-2.0",
+          "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX",
+          "restrictions": "none",
+          "attribution": "Articulino-DE-EN-Realtime-Stream-TTS, Copyright 2026 eigenhand, Apache License 2.0. Trained on Emilia-YODAS (German subset; Haorui He et al., Amphion; built on YODAS), Hi-Fi TTS 2 (selected English chapters; Ryan Langman et al., NVIDIA) and CML-TTS German (Frederico S. Oliveira et al.), all CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); also Mozilla Common Voice 27.0 German, Thorsten-Voice and HUI-Audio-Corpus-German (no attribution required). See the upstream NOTICE."
+        },
+        "review": {
+          "status": "benchmark_only",
+          "notes": "legal sign-off pending (#260)"
+        },
+        "runtime": {
+          "format": "onnx",
+          "platforms": [
+            "web",
+            "ios",
+            "macos",
+            "android"
+          ],
+          "minOsVersion": null
+        },
+        "sampleRate": 24000,
+        "speech": {
+          "pipeline": "articulino",
+          "sampleRate": 24000,
+          "channels": 1,
+          "graphs": {
+            "text": "text.onnx",
+            "dit_step": "dit_step.onnx",
+            "decoder": "decoder.onnx"
+          },
+          "frontend": {
+            "kind": "grapheme",
+            "assets": {
+              "config": "config.json"
+            }
+          }
+        },
+        "files": [
+          {
+            "role": "config",
+            "path": "config.json",
+            "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX/resolve/a760ce8d513534111c7679751869fa4c45ef0e54/config.json",
+            "sha256": "407b7553796634d21367546508755763349cf7ee6561842f07bc9d18f7b3ce44",
+            "bytes": 780
+          },
+          {
+            "role": "graph:text",
+            "path": "text.onnx",
+            "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/text.onnx",
+            "sha256": "46579b18a4145b4a579ee56c8bd1558def8bbed158ad79a9548422f01012fb05",
+            "bytes": 27059754
+          },
+          {
+            "role": "graph:dit_step",
+            "path": "dit_step.onnx",
+            "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX/resolve/a760ce8d513534111c7679751869fa4c45ef0e54/int8/dit_step.onnx",
+            "sha256": "19717038305529f9462814929b1ce191e0d4542d1bb0ba68cb2f247dd5179cea",
+            "bytes": 29418605
+          },
+          {
+            "role": "graph:decoder",
+            "path": "decoder.onnx",
+            "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX/resolve/a760ce8d513534111c7679751869fa4c45ef0e54/int8/decoder.onnx",
+            "sha256": "38226532081f6ab1548e243fd5e83943ef0de60a9bbc266f6c48fe972a066685",
+            "bytes": 34280933
+          }
+        ],
+        "voices": [
+          {
+            "id": "de-at-m-1",
+            "name": "Austrian German man 1",
+            "locales": [
+              "de-AT",
+              "de-DE",
+              "en-US"
+            ],
+            "gender": "male",
+            "file": {
+              "path": "voices/de-at-m-1.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/de-at-m-1.safetensors",
+              "sha256": "962924929b3272bbc15d90d7d9dddef02a30d39f6abf5c0afda880639b16f23c",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          },
+          {
+            "id": "de-at-m-1-alt",
+            "name": "Austrian German man 1 (alternative take)",
+            "locales": [
+              "de-AT",
+              "de-DE",
+              "en-US"
+            ],
+            "gender": "male",
+            "file": {
+              "path": "voices/de-at-m-1-alt.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/de-at-m-1-alt.safetensors",
+              "sha256": "6e9f0cb9ee50d35add058679c34c5af9d65333c75f61245b76d00b4b429a8b8f",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          },
+          {
+            "id": "de-at-m-2",
+            "name": "Austrian German man 2",
+            "locales": [
+              "de-AT",
+              "de-DE",
+              "en-US"
+            ],
+            "gender": "male",
+            "file": {
+              "path": "voices/de-at-m-2.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/de-at-m-2.safetensors",
+              "sha256": "5f375cdf41ac412aa6d370b5d70edb46b30d77eba9ed79a8b77b53a20498672f",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          },
+          {
+            "id": "de-de-f-1",
+            "name": "German woman 1",
+            "locales": [
+              "de-DE",
+              "de-AT",
+              "en-US"
+            ],
+            "gender": "female",
+            "file": {
+              "path": "voices/de-de-f-1.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/de-de-f-1.safetensors",
+              "sha256": "f0e7357da8e92cc825adf00b6f7aa84dc86969a819e3ff9620f608b8a26ab88b",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          },
+          {
+            "id": "de-de-f-2",
+            "name": "German woman 2",
+            "locales": [
+              "de-DE",
+              "de-AT",
+              "en-US"
+            ],
+            "gender": "female",
+            "file": {
+              "path": "voices/de-de-f-2.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/de-de-f-2.safetensors",
+              "sha256": "c9bbecf349fec2e3c0a56dd7056241b5d6c821368d555613369eb6ffef529a64",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          },
+          {
+            "id": "de-de-f-3",
+            "name": "German woman 3",
+            "locales": [
+              "de-DE",
+              "de-AT",
+              "en-US"
+            ],
+            "gender": "female",
+            "file": {
+              "path": "voices/de-de-f-3.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/de-de-f-3.safetensors",
+              "sha256": "72faf456be9f4487e2fcf75356aa9997e97e4b23cdfcfb59bc4a9c9c5e7efc6f",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          },
+          {
+            "id": "en-us-f-1",
+            "name": "American English woman 1",
+            "locales": [
+              "en-US",
+              "de-DE",
+              "de-AT"
+            ],
+            "gender": "female",
+            "file": {
+              "path": "voices/en-us-f-1.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/en-us-f-1.safetensors",
+              "sha256": "e9c5f1145469788677418592d2f739a545a07c3d645e606f81648b6498dc2224",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          }
+        ]
+      },
+      "ref": "voices-lab/articulino-de-en-int8/1",
+      "expected": {
+        "id": "articulino-de-en-int8",
+        "version": "1",
+        "format": "onnx",
+        "variant": "onnx-int8",
+        "tasks": [
+          "text_to_speech"
+        ],
+        "license": {
+          "spdx": "Apache-2.0",
+          "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX",
+          "restrictions": "none",
+          "attribution": "Articulino-DE-EN-Realtime-Stream-TTS, Copyright 2026 eigenhand, Apache License 2.0. Trained on Emilia-YODAS (German subset; Haorui He et al., Amphion; built on YODAS), Hi-Fi TTS 2 (selected English chapters; Ryan Langman et al., NVIDIA) and CML-TTS German (Frederico S. Oliveira et al.), all CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); also Mozilla Common Voice 27.0 German, Thorsten-Voice and HUI-Audio-Corpus-German (no attribution required). See the upstream NOTICE."
+        },
+        "source": {
+          "sourceType": "app_managed",
+          "ref": "voices-lab/articulino-de-en-int8/1"
+        },
+        "speech": {
+          "pipeline": "articulino",
+          "sampleRate": 24000,
+          "channels": 1,
+          "graphs": {
+            "text": "text.onnx",
+            "dit_step": "dit_step.onnx",
+            "decoder": "decoder.onnx"
+          },
+          "frontend": {
+            "kind": "grapheme",
+            "assets": {
+              "config": "config.json"
+            }
+          },
+          "voices": [
+            {
+              "id": "de-at-m-1",
+              "name": "Austrian German man 1",
+              "locales": [
+                "de-AT",
+                "de-DE",
+                "en-US"
+              ],
+              "gender": "male",
+              "file": "voices/de-at-m-1.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            },
+            {
+              "id": "de-at-m-1-alt",
+              "name": "Austrian German man 1 (alternative take)",
+              "locales": [
+                "de-AT",
+                "de-DE",
+                "en-US"
+              ],
+              "gender": "male",
+              "file": "voices/de-at-m-1-alt.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            },
+            {
+              "id": "de-at-m-2",
+              "name": "Austrian German man 2",
+              "locales": [
+                "de-AT",
+                "de-DE",
+                "en-US"
+              ],
+              "gender": "male",
+              "file": "voices/de-at-m-2.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            },
+            {
+              "id": "de-de-f-1",
+              "name": "German woman 1",
+              "locales": [
+                "de-DE",
+                "de-AT",
+                "en-US"
+              ],
+              "gender": "female",
+              "file": "voices/de-de-f-1.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            },
+            {
+              "id": "de-de-f-2",
+              "name": "German woman 2",
+              "locales": [
+                "de-DE",
+                "de-AT",
+                "en-US"
+              ],
+              "gender": "female",
+              "file": "voices/de-de-f-2.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            },
+            {
+              "id": "de-de-f-3",
+              "name": "German woman 3",
+              "locales": [
+                "de-DE",
+                "de-AT",
+                "en-US"
+              ],
+              "gender": "female",
+              "file": "voices/de-de-f-3.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            },
+            {
+              "id": "en-us-f-1",
+              "name": "American English woman 1",
+              "locales": [
+                "en-US",
+                "de-DE",
+                "de-AT"
+              ],
+              "gender": "female",
+              "file": "voices/en-us-f-1.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            }
+          ]
+        },
+        "integrity": {
+          "checksums": {
+            "config.json": "sha256:407b7553796634d21367546508755763349cf7ee6561842f07bc9d18f7b3ce44",
+            "text.onnx": "sha256:46579b18a4145b4a579ee56c8bd1558def8bbed158ad79a9548422f01012fb05",
+            "dit_step.onnx": "sha256:19717038305529f9462814929b1ce191e0d4542d1bb0ba68cb2f247dd5179cea",
+            "decoder.onnx": "sha256:38226532081f6ab1548e243fd5e83943ef0de60a9bbc266f6c48fe972a066685",
+            "voices/de-at-m-1.safetensors": "sha256:962924929b3272bbc15d90d7d9dddef02a30d39f6abf5c0afda880639b16f23c",
+            "voices/de-at-m-1-alt.safetensors": "sha256:6e9f0cb9ee50d35add058679c34c5af9d65333c75f61245b76d00b4b429a8b8f",
+            "voices/de-at-m-2.safetensors": "sha256:5f375cdf41ac412aa6d370b5d70edb46b30d77eba9ed79a8b77b53a20498672f",
+            "voices/de-de-f-1.safetensors": "sha256:f0e7357da8e92cc825adf00b6f7aa84dc86969a819e3ff9620f608b8a26ab88b",
+            "voices/de-de-f-2.safetensors": "sha256:c9bbecf349fec2e3c0a56dd7056241b5d6c821368d555613369eb6ffef529a64",
+            "voices/de-de-f-3.safetensors": "sha256:72faf456be9f4487e2fcf75356aa9997e97e4b23cdfcfb59bc4a9c9c5e7efc6f",
+            "voices/en-us-f-1.safetensors": "sha256:e9c5f1145469788677418592d2f739a545a07c3d645e606f81648b6498dc2224"
+          }
+        }
+      }
+    },
+    {
+      "id": "single_voice_entry",
+      "entry": {
+        "id": "articulino-de-en-int8-single",
+        "family": "articulino",
+        "pipeline": "articulino",
+        "version": "1",
+        "variant": "onnx-int8",
+        "license": {
+          "spdx": "Apache-2.0",
+          "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX",
+          "restrictions": "none",
+          "attribution": "Articulino-DE-EN-Realtime-Stream-TTS, Copyright 2026 eigenhand, Apache License 2.0. Trained on Emilia-YODAS (German subset; Haorui He et al., Amphion; built on YODAS), Hi-Fi TTS 2 (selected English chapters; Ryan Langman et al., NVIDIA) and CML-TTS German (Frederico S. Oliveira et al.), all CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); also Mozilla Common Voice 27.0 German, Thorsten-Voice and HUI-Audio-Corpus-German (no attribution required). See the upstream NOTICE."
+        },
+        "review": {
+          "status": "benchmark_only",
+          "notes": "legal sign-off pending (#260)"
+        },
+        "runtime": {
+          "format": "onnx",
+          "platforms": [
+            "web",
+            "ios",
+            "macos",
+            "android"
+          ],
+          "minOsVersion": null
+        },
+        "sampleRate": 24000,
+        "speech": {
+          "pipeline": "articulino",
+          "sampleRate": 24000,
+          "channels": 1,
+          "graphs": {
+            "text": "text.onnx",
+            "dit_step": "dit_step.onnx",
+            "decoder": "decoder.onnx"
+          },
+          "frontend": {
+            "kind": "grapheme",
+            "assets": {
+              "config": "config.json"
+            }
+          }
+        },
+        "files": [
+          {
+            "role": "config",
+            "path": "config.json",
+            "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX/resolve/a760ce8d513534111c7679751869fa4c45ef0e54/config.json",
+            "sha256": "407b7553796634d21367546508755763349cf7ee6561842f07bc9d18f7b3ce44",
+            "bytes": 780
+          },
+          {
+            "role": "graph:text",
+            "path": "text.onnx",
+            "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/text.onnx",
+            "sha256": "46579b18a4145b4a579ee56c8bd1558def8bbed158ad79a9548422f01012fb05",
+            "bytes": 27059754
+          },
+          {
+            "role": "graph:dit_step",
+            "path": "dit_step.onnx",
+            "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX/resolve/a760ce8d513534111c7679751869fa4c45ef0e54/int8/dit_step.onnx",
+            "sha256": "19717038305529f9462814929b1ce191e0d4542d1bb0ba68cb2f247dd5179cea",
+            "bytes": 29418605
+          },
+          {
+            "role": "graph:decoder",
+            "path": "decoder.onnx",
+            "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX/resolve/a760ce8d513534111c7679751869fa4c45ef0e54/int8/decoder.onnx",
+            "sha256": "38226532081f6ab1548e243fd5e83943ef0de60a9bbc266f6c48fe972a066685",
+            "bytes": 34280933
+          }
+        ],
+        "voices": [
+          {
+            "id": "de-de-f-1",
+            "name": "German woman 1",
+            "locales": [
+              "de-DE",
+              "de-AT",
+              "en-US"
+            ],
+            "gender": "female",
+            "file": {
+              "path": "voices/de-de-f-1.safetensors",
+              "url": "https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-1/de-de-f-1.safetensors",
+              "sha256": "f0e7357da8e92cc825adf00b6f7aa84dc86969a819e3ff9620f608b8a26ab88b",
+              "bytes": 3178820
+            },
+            "license": {
+              "spdx": "LicenseRef-Independo-Demo-Voices",
+              "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+            }
+          }
+        ]
+      },
+      "ref": "voices-lab/articulino-de-en-int8-single/1",
+      "expected": {
+        "id": "articulino-de-en-int8-single",
+        "version": "1",
+        "format": "onnx",
+        "variant": "onnx-int8",
+        "tasks": [
+          "text_to_speech"
+        ],
+        "license": {
+          "spdx": "Apache-2.0",
+          "url": "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS-ONNX",
+          "restrictions": "none",
+          "attribution": "Articulino-DE-EN-Realtime-Stream-TTS, Copyright 2026 eigenhand, Apache License 2.0. Trained on Emilia-YODAS (German subset; Haorui He et al., Amphion; built on YODAS), Hi-Fi TTS 2 (selected English chapters; Ryan Langman et al., NVIDIA) and CML-TTS German (Frederico S. Oliveira et al.), all CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); also Mozilla Common Voice 27.0 German, Thorsten-Voice and HUI-Audio-Corpus-German (no attribution required). See the upstream NOTICE."
+        },
+        "source": {
+          "sourceType": "app_managed",
+          "ref": "voices-lab/articulino-de-en-int8-single/1"
+        },
+        "speech": {
+          "pipeline": "articulino",
+          "sampleRate": 24000,
+          "channels": 1,
+          "graphs": {
+            "text": "text.onnx",
+            "dit_step": "dit_step.onnx",
+            "decoder": "decoder.onnx"
+          },
+          "frontend": {
+            "kind": "grapheme",
+            "assets": {
+              "config": "config.json"
+            }
+          },
+          "voices": [
+            {
+              "id": "de-de-f-1",
+              "name": "German woman 1",
+              "locales": [
+                "de-DE",
+                "de-AT",
+                "en-US"
+              ],
+              "gender": "female",
+              "file": "voices/de-de-f-1.safetensors",
+              "license": {
+                "spdx": "LicenseRef-Independo-Demo-Voices",
+                "restrictions": "demo and evaluation use; consented speakers; legal sign-off pending (#260)"
+              }
+            }
+          ]
+        },
+        "integrity": {
+          "checksums": {
+            "config.json": "sha256:407b7553796634d21367546508755763349cf7ee6561842f07bc9d18f7b3ce44",
+            "text.onnx": "sha256:46579b18a4145b4a579ee56c8bd1558def8bbed158ad79a9548422f01012fb05",
+            "dit_step.onnx": "sha256:19717038305529f9462814929b1ce191e0d4542d1bb0ba68cb2f247dd5179cea",
+            "decoder.onnx": "sha256:38226532081f6ab1548e243fd5e83943ef0de60a9bbc266f6c48fe972a066685",
+            "voices/de-de-f-1.safetensors": "sha256:f0e7357da8e92cc825adf00b6f7aa84dc86969a819e3ff9620f608b8a26ab88b"
+          }
+        }
+      }
+    }
+  ]
+}

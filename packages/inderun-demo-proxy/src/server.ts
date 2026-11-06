@@ -3,10 +3,13 @@ import { once } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveDemoProxyConfig, type DemoProxyConfig } from "./config.js";
+import { handleAssetRequest, loadAssetAllowlist } from "./assets.js";
 import { handleProxyRequest, jsonResponse } from "./handler.js";
 import { DEMO_PROXY_PATH } from "./shared.js";
 
 export function createDemoProxyServer(config: DemoProxyConfig = resolveDemoProxyConfig()): Server {
+  const assetAllowlist = config.assetAllowlist ?? safeLoadAllowlist(config.assetCatalogPath);
+
   return createServer(async (req, res) => {
     const pathname = (req.url ?? "").split("?")[0];
 
@@ -30,6 +33,47 @@ export function createDemoProxyServer(config: DemoProxyConfig = resolveDemoProxy
         }),
         config
       );
+      return;
+    }
+
+    if (pathname === "/assets") {
+      logRequest(req, pathname);
+      try {
+        if (req.method !== "GET") {
+          // Checked before building a Request: it throws on TRACE/TRACK.
+          await writeNodeResponse(
+            res,
+            jsonResponse(405, { error: { message: "Only GET is supported." } }, { Allow: "GET" }),
+            config
+          );
+          return;
+        }
+        const controller = new AbortController();
+        res.once("close", () => controller.abort());
+        // Only the URL is read from the incoming request; its headers are dropped here.
+        const request = new Request(new URL(req.url ?? "/assets", "http://localhost"), {
+          method: "GET",
+          signal: controller.signal
+        });
+        await writeNodeResponse(
+          res,
+          await handleAssetRequest(request, {
+            allowlist: assetAllowlist,
+            fetchImpl: config.assetFetch
+          }),
+          config
+        );
+      } catch {
+        if (!res.headersSent) {
+          await writeNodeResponse(
+            res,
+            jsonResponse(500, { error: { message: "Asset relay failed." } }),
+            config
+          );
+        } else {
+          res.destroy();
+        }
+      }
       return;
     }
 
@@ -69,6 +113,15 @@ export function createDemoProxyServer(config: DemoProxyConfig = resolveDemoProxy
       );
     }
   });
+}
+
+function safeLoadAllowlist(catalogPath?: string): ReadonlySet<string> {
+  try {
+    return loadAssetAllowlist(catalogPath);
+  } catch (error) {
+    console.warn(`[IndeRun demo proxy] /assets disabled, catalog unreadable: ${String(error)}`);
+    return new Set();
+  }
 }
 
 function logRequest(req: IncomingMessage, pathname: string): void {

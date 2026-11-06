@@ -26,6 +26,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,6 +61,8 @@ internal fun DemoScreen(
     onSpeakClick: () -> Unit = {},
     onStopSpeakingClick: () -> Unit = {},
     onSynthesizeClick: () -> Unit = {},
+    onVoicesLabEnabledChange: (Boolean) -> Unit = {},
+    voicesLab: @Composable () -> Unit = {},
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -165,6 +168,9 @@ internal fun DemoScreen(
                 onStopClick = onStopSpeakingClick,
                 onSynthesizeClick = onSynthesizeClick,
             )
+
+            VoicesLabSwitch(enabled = uiState.voicesLabEnabled, onEnabledChange = onVoicesLabEnabledChange)
+            if (uiState.voicesLabEnabled) voicesLab()
 
             RoutingDecisionSection(uiState.lastRouteDecision)
             LimitationsSection()
@@ -485,7 +491,7 @@ private fun LimitationsSection() {
 }
 
 @Composable
-private fun Section(
+internal fun Section(
     title: String,
     content: @Composable () -> Unit,
 ) {
@@ -608,5 +614,19 @@ private fun DemoScreenPreview() {
             onStreamClick = {},
             onCancelStreamClick = {},
         )
+    }
+}
+
+@Composable
+private fun VoicesLabSwitch(enabled: Boolean, onEnabledChange: (Boolean) -> Unit) {
+    Section(title = "Voices lab") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            Text(
+                text = "Opt-in lab for neural speech voices. Off by default; nothing is read or downloaded until it is on.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

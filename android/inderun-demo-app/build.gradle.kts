@@ -3,6 +3,35 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// The Voices lab reads the model catalog and the utterance corpus (#260) as assets, so the app sees
+// the same files the Swift and JS suites read from the repository. Only those two are packaged.
+abstract class CopyVoicesLabAssets : DefaultTask() {
+    @get:InputDirectory
+    abstract val source: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        out.mkdirs()
+        listOf("neural-model-catalog.json", "utterance-corpus.json").forEach {
+            source.get().asFile.resolve(it).copyTo(out.resolve(it))
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val copyAssets = tasks.register<CopyVoicesLabAssets>("copyVoicesLabAssets${variant.name.replaceFirstChar { it.uppercase() }}") {
+            source.set(File(rootProject.projectDir.parentFile, "contracts/fixtures/speech"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(copyAssets, CopyVoicesLabAssets::outputDir)
+    }
+}
+
 android {
     namespace = "app.independo.inderun.demo"
     compileSdk = 37
