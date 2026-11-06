@@ -1,0 +1,4 @@
+framework module InderunSpeechTextFFI {
+    umbrella header "inderun_speech_text.h"
+    export *
+}

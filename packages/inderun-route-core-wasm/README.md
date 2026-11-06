@@ -10,16 +10,36 @@ WebAssembly wrapper around the shared Rust route-planning core.
 
 The generated WASM and JS bindings are not checked in. Build them from the repository root when needed.
 
+## Exports
+
+- `initSharedCore(moduleOrPath?)` loads the module; the other exports call it on first use.
+- `planRouteJson(inputJson)` plans a route (JSON in, JSON out).
+- `normalizeSpeechText(text, locale)` rewrites speech text into its spoken form (numbers, dates,
+  times, abbreviations in words). Only German locales are rewritten; any other locale returns the
+  text unchanged. The neural speech provider calls it before sentence splitting.
+- `initSpeechText(moduleOrPath?)` is `initSharedCore`'s counterpart for the speech text module.
+
+The package ships two WASM modules. `planRouteJson` uses the small planner module
+(`inderun_route_core_bg.wasm`); `normalizeSpeechText` uses a second one
+(`inderun_speech_text_bg.wasm`, several times larger because of its regex engine) that is fetched
+only on first use, so apps that never speak German text do not download it. A host that self-hosts
+the assets (see below) must serve both.
+
 ## Generate
 
 ```sh
-RUSTC="$(rustup which rustc --toolchain stable)" \
-  rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown
-
+RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable \
+  cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features
 wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
-  --target web \
-  --out-dir packages/inderun-route-core-wasm/generated \
+  --target web --out-dir packages/inderun-route-core-wasm/generated \
   --out-name inderun_route_core
+
+RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable \
+  cargo build -p inderun_route_core --target wasm32-unknown-unknown \
+  --no-default-features --features speech-text --target-dir target/wasm-speech-text
+wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
+  --target web --out-dir packages/inderun-route-core-wasm/generated \
+  --out-name inderun_speech_text
 
 pnpm --filter @independo/inderun-route-core-wasm build
 ```

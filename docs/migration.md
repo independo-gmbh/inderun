@@ -231,6 +231,19 @@ Apple Core AI runtime and the readiness hint ([ADR 022](./architecture/decisions
 - **Swift: `ModelPackageDirectory` is a new public type in `IndeRunCore`.** It resolves a package directory and verifies
   its checksums; the ONNX runtimes now call it instead of their own copy, with unchanged behaviour.
 
+German text frontend ([ADR 023](./architecture/decisions/023-german-text-frontend.md)), all additive:
+
+- **All SDKs: an optional `normalizeText` on `NeuralSpeechRuntime`.** TypeScript: an optional member that may return a
+  Promise. Swift: a protocol-extension default. Kotlin: a default method. A custom runtime that does not implement it
+  changes nothing.
+- **Web: `normalizeSpeechText` and `initSpeechText` in `@independo/inderun-route-core-wasm`,** backed by a second
+  generated module, `inderun_speech_text`, loaded lazily. Hosts that serve the wasm from a custom path also need
+  `initSpeechText(moduleOrPath)` for `inderun_speech_text_bg.wasm`; the planner's `initSharedCore` path does not cover
+  it.
+- **Android: `libinderun_speech_text.so` in the `inderun-neural-speech` AAR.** The `inderun-core` library stays
+  planner-only.
+- **Apple: a second binary target, `InderunSpeechTextFFI.xcframework`,** linked only by `IndeRunNeuralSpeech`.
+
 ### Capacitor
 
 The Capacitor bridge is versioned separately and moves to the 0.5 contracts in its own release (#250); the

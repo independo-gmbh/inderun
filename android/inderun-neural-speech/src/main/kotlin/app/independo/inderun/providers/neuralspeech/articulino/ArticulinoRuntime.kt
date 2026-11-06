@@ -3,6 +3,7 @@
 
 package app.independo.inderun.providers.neuralspeech.articulino
 
+import app.independo.inderun.contracts.FrontendKind
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.providers.neuralspeech.NeuralSpeechAvailability
 import app.independo.inderun.providers.neuralspeech.NeuralSpeechRuntime
@@ -11,6 +12,7 @@ import app.independo.inderun.providers.neuralspeech.NeuralSpeechRuntimeErrorKind
 import app.independo.inderun.providers.neuralspeech.NeuralSpeechSynthesisInput
 import app.independo.inderun.providers.neuralspeech.PcmChunk
 import app.independo.inderun.providers.neuralspeech.Safetensors
+import app.independo.inderun.providers.neuralspeech.SharedCoreSpeechText
 import app.independo.inderun.providers.neuralspeech.SpeechGraphExecutor
 import app.independo.inderun.providers.neuralspeech.SpeechPackageFiles
 import app.independo.inderun.providers.neuralspeech.SpeechTensor
@@ -40,6 +42,7 @@ data class ArticulinoRuntimeOptions(
     val speed: Float = 1.0f,
     val pauseMs: Int = 150,
     val maxLetters: Int = 180,
+    internal val textNormalizer: (text: String, locale: String) -> String = SharedCoreSpeechText::normalize,
 )
 
 /**
@@ -88,6 +91,31 @@ class ArticulinoRuntime(private val options: ArticulinoRuntimeOptions) : NeuralS
         is Outcome.Ready -> NeuralSpeechAvailability(true)
         is Outcome.Failed -> NeuralSpeechAvailability(false, outcome.reason)
     }
+
+    /**
+     * Spells out numbers, dates and abbreviations for a grapheme frontend through the shared route
+     * core; any other frontend gets the text unchanged. A failure to reach the core (a missing
+     * native library, a failed JNI call) is `Unavailable`.
+     */
+    override fun normalizeText(modelPackage: ModelPackage, text: String, locale: String): String {
+        if (modelPackage.speech?.frontend?.kind != FrontendKind.Grapheme || !isGerman(locale)) return text
+        return try {
+            options.textNormalizer(text, locale)
+        } catch (error: Exception) {
+            throw frontendUnavailable(error)
+        } catch (error: LinkageError) {
+            throw frontendUnavailable(error)
+        }
+    }
+
+    /** True when the language subtag of [locale] is `de` (case-insensitive, `-` or `_` separated). */
+    private fun isGerman(locale: String): Boolean = locale.split('-', '_').first().equals("de", ignoreCase = true)
+
+    private fun frontendUnavailable(error: Throwable) = NeuralSpeechRuntimeError(
+        NeuralSpeechRuntimeErrorKind.Unavailable,
+        "speech text frontend unavailable: ${error.message ?: error.toString()}",
+        error,
+    )
 
     override fun synthesize(input: NeuralSpeechSynthesisInput): Flow<PcmChunk> = flow {
         emit(synthesizeSentence(input))

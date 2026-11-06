@@ -10,6 +10,9 @@ import app.independo.inderun.providers.neuralspeech.NeuralSpeechRuntimeError
 import app.independo.inderun.providers.neuralspeech.NeuralSpeechRuntimeErrorKind
 import app.independo.inderun.providers.neuralspeech.NeuralSpeechSynthesisInput
 import app.independo.inderun.providers.neuralspeech.PcmChunk
+import app.independo.inderun.providers.neuralspeech.SpeechGraphExecutor
+import app.independo.inderun.providers.neuralspeech.SpeechPackageFiles
+import app.independo.inderun.providers.neuralspeech.SpeechTensor
 import app.independo.inderun.providers.neuralspeech.articulino.ArticulinoRuntime
 import app.independo.inderun.providers.neuralspeech.articulino.ArticulinoRuntimeOptions
 import app.independo.inderun.providers.neuralspeech.articulino.NoiseSource
@@ -80,6 +83,13 @@ class OnnxNeuralSpeechRuntime(
         }
     }
 
+    /** The Articulino pipeline's text hook; no model is loaded for it. Other pipelines get the text unchanged. */
+    override fun normalizeText(modelPackage: ModelPackage, text: String, locale: String): String = if (modelPackage.speech?.pipeline == "articulino") {
+        ARTICULINO_TEXT.normalizeText(modelPackage, text, locale)
+    } else {
+        text
+    }
+
     private suspend fun resolve(modelPackage: ModelPackage, verify: Boolean, extract: Boolean): Resolution {
         val pipeline = modelPackage.speech?.pipeline
         if (pipeline != "articulino") {
@@ -128,4 +138,21 @@ class OnnxNeuralSpeechRuntime(
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
         return ActivityManager.MemoryInfo().also { manager.getMemoryInfo(it) }.totalMem
     }
+
+    private companion object {
+        /** Stateless for [ArticulinoRuntime.normalizeText]: it never touches the executor or the files. */
+        val ARTICULINO_TEXT = ArticulinoRuntime(ArticulinoRuntimeOptions(executor = NoGraphs, files = NoFiles))
+    }
+}
+
+private object NoGraphs : SpeechGraphExecutor {
+    override suspend fun load(graphs: Map<String, String>) = error("not used")
+
+    override suspend fun run(role: String, inputs: Map<String, SpeechTensor>): Map<String, SpeechTensor> = error("not used")
+
+    override fun close() = Unit
+}
+
+private object NoFiles : SpeechPackageFiles {
+    override suspend fun read(file: String): ByteArray = error("not used")
 }

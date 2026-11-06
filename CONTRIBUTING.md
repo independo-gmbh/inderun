@@ -43,20 +43,27 @@ Then generate the bindings:
 
 ```sh
 RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable \
-  cargo build -p inderun_route_core --target wasm32-unknown-unknown
+  cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features
 wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
   --target web --out-dir packages/inderun-route-core-wasm/generated \
   --out-name inderun_route_core
+
+RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable \
+  cargo build -p inderun_route_core --target wasm32-unknown-unknown \
+  --no-default-features --features speech-text --target-dir target/wasm-speech-text
+wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm \
+  --target web --out-dir packages/inderun-route-core-wasm/generated \
+  --out-name inderun_speech_text
 ```
 
-Re-run both commands whenever the Rust core changes.
+Re-run these commands (or `pnpm build:wasm`, which does both) whenever the Rust core changes.
 
-`wasm-bindgen` also overwrites `generated/inderun_route_core.d.ts`, which is checked in as a hand-written
-stub so `tsc` resolves without the Rust toolchain. The regenerated file drops that stub's explanatory
+`wasm-bindgen` also overwrites `generated/inderun_route_core.d.ts` and `inderun_speech_text.d.ts`, which are checked in as stubs so `tsc` resolves without the Rust toolchain. The regenerated file drops that stub's explanatory
 header, so revert it before committing unless the route-core API actually changed:
 
 ```sh
-git checkout -- packages/inderun-route-core-wasm/generated/inderun_route_core.d.ts
+git checkout -- packages/inderun-route-core-wasm/generated/inderun_route_core.d.ts \
+  packages/inderun-route-core-wasm/generated/inderun_speech_text.d.ts
 ```
 
 ### Android

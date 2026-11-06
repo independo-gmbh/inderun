@@ -71,6 +71,13 @@ let package = Package(
             name: "InderunRouteCoreFFI",
             path: "ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework"
         ),
+        // The German speech text normalizer, from the same crate with the `speech-text` feature
+        // and committed for the same reason. Separate from the planner so only the neural speech
+        // module carries it. See scripts/build-route-core-apple.mjs.
+        .binaryTarget(
+            name: "InderunSpeechTextFFI",
+            path: "ios/IndeRun/Frameworks/InderunSpeechTextFFI.xcframework"
+        ),
         .target(
             name: "IndeRunCore",
             dependencies: ["IndeRunContracts", "InderunRouteCoreFFI"],
@@ -99,7 +106,7 @@ let package = Package(
         ),
         .target(
             name: "IndeRunNeuralSpeech",
-            dependencies: ["IndeRunCore", "IndeRunContracts"],
+            dependencies: ["IndeRunCore", "IndeRunContracts", "InderunSpeechTextFFI"],
             path: "ios/IndeRun/Sources/IndeRunNeuralSpeech"
         ),
         // Apple Core AI (iOS 27 / macOS 27). Everything Core AI-specific sits behind

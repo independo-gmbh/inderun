@@ -105,7 +105,11 @@ The Gradle build produces the library itself, so it is a build dependency of thi
   cross-compiles the four Android ABIs into `jniLibs`. Additionally needs the Android NDK.
 
 `scripts/build-route-core-android.mjs` prints the exact install commands when a toolchain is
-missing. The compiled libraries are not committed — CI builds the AAR that goes to Maven
+missing. The same script with `--speech-text` builds a second library, `libinderun_speech_text`
+(the German speech text normalizer), which `:inderun-neural-speech` packages and loads; it is kept out
+of `libinderun_route_core` so apps that do not use neural speech do not carry it (about 1.6 MB per
+ABI). The unit tests of `:inderun-neural-speech` and `:inderun-onnx-providers` put its host build on
+`java.library.path`. The compiled libraries are not committed — CI builds the AAR that goes to Maven
 Central. See [docs/ci.md](../docs/ci.md).
 
 ## Commands

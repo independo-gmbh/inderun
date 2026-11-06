@@ -290,7 +290,9 @@ pnpm build:route-core-apple
 
 That needs `rustup` (which installs the pinned toolchain from `rust-toolchain.toml` on demand,
 along with the five Apple targets) and the Xcode command line tools. Commit the regenerated
-`InderunRouteCoreFFI.provenance.json` alongside the framework.
+`InderunRouteCoreFFI.provenance.json` alongside the framework. The same command also builds
+`InderunSpeechTextFFI.xcframework` (the German speech text normalizer, linked only by
+`IndeRunNeuralSpeech`); commit its manifest too.
 
 Because the framework is an executable in git, CI does not take it on trust:
 

@@ -110,6 +110,13 @@ export interface NeuralSpeechRuntime {
   availability(pkg: ModelPackage): Promise<NeuralSpeechAvailability>;
   prepare(pkg: ModelPackage): Promise<NeuralSpeechAvailability>;
   synthesize(input: NeuralSpeechSynthesisInput): AsyncIterable<PcmChunk>;
+  /**
+   * Optional pre-split hook: rewrites a request's text into its spoken form. The provider calls
+   * it once per request on the whole text, before sentence splitting, with the locale the text is
+   * spoken in (the request's when its language is the voice's, else the voice's). The default,
+   * a runtime without the hook, is no normalization.
+   */
+  normalizeText?(pkg: ModelPackage, text: string, locale: string): string | Promise<string>;
 }
 
 /**

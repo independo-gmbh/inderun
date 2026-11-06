@@ -20,6 +20,7 @@ New ADRs continue the numbering here.
 | [020](./020-neural-speech-and-model-packages.md)   | Neural speech and model packages       | Accepted |
 | [021](./021-audio-output-host-service.md)          | Audio output host service              | Accepted |
 | [022](./022-core-ai-runtime.md)                    | Apple Core AI speech runtime           | Accepted |
+| [023](./023-german-text-frontend.md)               | German text frontend                   | Accepted |
 
 ## Template
 

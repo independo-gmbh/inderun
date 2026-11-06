@@ -1,7 +1,7 @@
 /**
  * Provenance for the committed route-core XCFramework.
  *
- * `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework` is an executable in
+ * `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework` (and `InderunSpeechTextFFI.xcframework`) is an executable in
  * git: it is what SwiftPM consumers run, and reviewing the Rust source says
  * nothing about whether that binary came from it. Rust builds are not
  * byte-reproducible, so rebuilding and diffing cannot close the gap. What can is
@@ -28,8 +28,26 @@ import { fileURLToPath } from "node:url";
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 export const frameworksDir = join(repoRoot, "ios", "IndeRun", "Frameworks");
-export const xcframeworkPath = join(frameworksDir, "InderunRouteCoreFFI.xcframework");
-export const manifestPath = join(frameworksDir, "InderunRouteCoreFFI.provenance.json");
+
+/**
+ * The two committed XCFrameworks, built from one crate with different features: the planner, which
+ * every app links, and the speech text normalizer, which only the neural speech module ships so an
+ * app that never speaks does not carry it. Each has its own manifest, so a change to either is
+ * checked on its own.
+ */
+export const artifacts = [
+  makeArtifact("InderunRouteCoreFFI", "planner"),
+  makeArtifact("InderunSpeechTextFFI", "speech-text")
+];
+
+function makeArtifact(name, role) {
+  return {
+    name,
+    role,
+    xcframeworkPath: join(frameworksDir, `${name}.xcframework`),
+    manifestPath: join(frameworksDir, `${name}.provenance.json`)
+  };
+}
 
 /**
  * Every input that can change the produced binary. A file missing from this list
@@ -103,7 +121,7 @@ export function sourceHashes() {
 }
 
 /** `{ "<path inside the xcframework>": "<sha256>" }` over every packaged file. */
-export function artifactHashes() {
+export function artifactHashes({ xcframeworkPath }) {
   const entries = walk(xcframeworkPath)
     .sort()
     .map((absolute) => [
@@ -113,25 +131,26 @@ export function artifactHashes() {
   return Object.fromEntries(entries);
 }
 
-export function provenanceManifest({ rustcVersion, toolchain }) {
+export function provenanceManifest(artifact, { rustcVersion, toolchain, cargoFeatures }) {
   return {
     // Bump when the manifest's own shape changes, so a verifier can refuse a
     // format it does not understand rather than silently checking less.
     manifestVersion: 1,
-    artifact: relative(repoRoot, xcframeworkPath).split(sep).join("/"),
+    artifact: relative(repoRoot, artifact.xcframeworkPath).split(sep).join("/"),
     buildCommand: "pnpm build:route-core-apple",
     cargoProfile: "apple",
+    cargoFeatures,
     toolchain,
     rustcVersion,
     sources: sourceHashes(),
-    files: artifactHashes()
+    files: artifactHashes(artifact)
   };
 }
 
-export function writeManifest(manifest) {
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+export function writeManifest(artifact, manifest) {
+  writeFileSync(artifact.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-export function readManifest() {
-  return JSON.parse(readFileSync(manifestPath, "utf8"));
+export function readManifest(artifact) {
+  return JSON.parse(readFileSync(artifact.manifestPath, "utf8"));
 }

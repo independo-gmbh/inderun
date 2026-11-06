@@ -13,8 +13,15 @@ type WasmGeneratedModule = {
   plan_route_json?: (inputJson: string) => string;
 };
 
+type SpeechTextGeneratedModule = {
+  default?: (moduleOrPath?: unknown) => Promise<unknown>;
+  normalize_speech_text?: (text: string, locale: string) => string;
+};
+
 let initialized = false;
 let generatedModule: WasmGeneratedModule | null = null;
+let speechText: SpeechTextGeneratedModule | null = null;
+let speechTextLoading: Promise<SpeechTextGeneratedModule> | null = null;
 
 /**
  * Loads and initializes the WASM module. Idempotent: later calls are no-ops, so
@@ -56,6 +63,68 @@ export async function planRouteJson(inputJson: string): Promise<string> {
   }
 
   return generatedModule.plan_route_json(inputJson);
+}
+
+/**
+ * Loads and initializes the speech text module, a second WASM module that only
+ * `normalizeSpeechText` needs, so apps that just route never download it. Idempotent, and
+ * independent of `initSharedCore`; call it only to control where the bytes come from.
+ *
+ * @param moduleOrPath - Same meaning as for `initSharedCore`, for the speech module's
+ * `inderun_speech_text_bg.wasm`.
+ */
+export async function initSpeechText(moduleOrPath?: unknown): Promise<void> {
+  await loadSpeechText(moduleOrPath);
+}
+
+/**
+ * Rewrites speech text into its spoken form for `locale`: numbers, dates, times, abbreviations
+ * and the like written out in words. Only German (`de`, `de-DE`, `de-AT`, ...) is rewritten; any
+ * other locale returns the text unchanged. Never fails on input. Initializes the speech text
+ * module on first use; `planRouteJson` never loads it.
+ *
+ * @throws If the generated bindings are missing or predate this export — build them with
+ * `pnpm build:wasm`.
+ */
+export async function normalizeSpeechText(text: string, locale: string): Promise<string> {
+  const mod = await loadSpeechText();
+  if (!mod.normalize_speech_text) {
+    throw new Error("Generated WASM speech text bindings are not available.");
+  }
+  return mod.normalize_speech_text(text, locale);
+}
+
+function loadSpeechText(moduleOrPath?: unknown): Promise<SpeechTextGeneratedModule> {
+  if (speechText !== null) {
+    return Promise.resolve(speechText);
+  }
+  speechTextLoading ??= (async () => {
+    try {
+      const mod = await importSpeechTextModule();
+      if (typeof mod.default === "function") {
+        await mod.default(
+          moduleOrPath === undefined ? undefined : { module_or_path: moduleOrPath }
+        );
+      }
+      speechText = mod;
+      return mod;
+    } finally {
+      speechTextLoading = null;
+    }
+  })();
+  return speechTextLoading;
+}
+
+async function importSpeechTextModule(): Promise<SpeechTextGeneratedModule> {
+  try {
+    // Literal specifier, like `importGeneratedModule`, so bundlers chunk it separately.
+    return (await import("../generated/inderun_speech_text.js")) as SpeechTextGeneratedModule;
+  } catch (error) {
+    throw new Error(
+      "Generated WASM speech text bindings are missing. Build them with `pnpm build:wasm` before using normalizeSpeechText.",
+      { cause: error }
+    );
+  }
 }
 
 async function importGeneratedModule(): Promise<WasmGeneratedModule> {

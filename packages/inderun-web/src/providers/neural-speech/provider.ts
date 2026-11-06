@@ -310,9 +310,10 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
           details: { code: "audio_output_unavailable" }
         });
       }
-      const { voice, locale, speechPackage } = this.resolveVoice(speech, context);
+      const { voice, locale, spokenLocale, speechPackage } = this.resolveVoice(speech, context);
       await this.ensureLoaded(context.runId);
-      const sentences = this.sentencesOf(speech.text, context);
+      const sentences = await this.sentencesOf(speech.text, spokenLocale, context, signal);
+      if (sentences === undefined) return undefined;
 
       const format: AudioOutputFormat = {
         sampleRate: speechPackage.sampleRate,
@@ -407,9 +408,10 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
     signal?: AbortSignal
   ): Promise<TaskOutput | undefined> {
     const speech = this.validated(request, context, "artifact");
-    const { voice, locale, speechPackage } = this.resolveVoice(speech, context);
+    const { voice, locale, spokenLocale, speechPackage } = this.resolveVoice(speech, context);
     await this.ensureLoaded(context.runId);
-    const sentences = this.sentencesOf(speech.text, context);
+    const sentences = await this.sentencesOf(speech.text, spokenLocale, context, signal);
+    if (sentences === undefined) return undefined;
 
     // One absolute deadline for the whole artifact: synthesis, then the checks before create()
     // and finish().
@@ -566,7 +568,12 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
   private resolveVoice(
     speech: NonNullable<TaskRequest["speech"]>,
     context: RunContext
-  ): { voice: PackageVoice; locale: string; speechPackage: SpeechModelPackage } {
+  ): {
+    voice: PackageVoice;
+    locale: string;
+    spokenLocale: string;
+    speechPackage: SpeechModelPackage;
+  } {
     const speechPackage = this.modelPackage.speech;
     if (speechPackage === undefined) {
       throw createCapabilityMismatch("The model package has no speech pipeline.", {
@@ -595,11 +602,32 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
         ) ??
         voices[0];
     }
-    return { voice, locale: localeFor(voice, speech.locale), speechPackage };
+    const locale = localeFor(voice, speech.locale);
+    // The tag the text is spoken in: the request's own (de-AT) while the voice speaks its
+    // language, else the voice's first locale.
+    const spokenLocale = voice.locales.some((tag: string) => sameLanguage(tag, speech.locale))
+      ? speech.locale
+      : (voice.locales[0] ?? locale);
+    return { voice, locale, spokenLocale, speechPackage };
   }
 
-  private sentencesOf(text: string, context: RunContext): string[] {
-    const sentences = splitSentences(text);
+  /** @returns The sentences to speak, or `undefined` when the run was cancelled meanwhile. */
+  private async sentencesOf(
+    text: string,
+    spokenLocale: string,
+    context: RunContext,
+    signal: AbortSignal | undefined
+  ): Promise<string[] | undefined> {
+    let normalized: string;
+    try {
+      normalized =
+        (await this.runtime.normalizeText?.(this.modelPackage, text, spokenLocale)) ?? text;
+    } catch (error) {
+      if (cancelled(signal)) return undefined;
+      throw this.mapRuntimeError(error, context.runId);
+    }
+    if (cancelled(signal)) return undefined;
+    const sentences = splitSentences(normalized);
     if (sentences.length === 0) {
       throw createCapabilityMismatch("The text has nothing to say.", {
         runId: context.runId,
