@@ -7,7 +7,7 @@
   "toolchain": "1.96.0",
   "rustcVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)",
   "sources": {
-    "Cargo.lock": "7804e15a842b1e0530a2fe960c48c19d0cbc10e03ff224349d440ff7857c54af",
+    "Cargo.lock": "69a81d7228f8c5f797289331de5969afd942e9bfbe4c50dd3dee4a30c82b29b6",
     "Cargo.toml": "b83762ab58a6b1fb60c4dfb94b90c391c28ca24ffb70018fc665813e94ef0fce",
     "rust-toolchain.toml": "cbfaf80ce835f1e53afb97c397f8f851c98fce28f46fa4384e271eacf9c012ef",
     "rust/inderun-route-core/Cargo.toml": "aab47f60529c8dac89fa8d6707c6fc0831af4c1bc075b4169b5230460766383e",
@@ -36,7 +36,7 @@
     "scripts/rust-toolchain.mjs": "1a072943da7675710aeecfbb4ece665fabd0f6b9f827821395df54815c993956"
   },
   "files": {
-    "Info.plist": "11ef9320b463cf18005c7195a15638b0904755fa4f45fcdaad5ac903b2ebf368",
+    "Info.plist": "9a09c6eb3c75a9115c860b898dfc663091fc06eb25cadefbbefd72b1e67c3227",
     "ios-arm64/InderunSpeechTextFFI.framework/Headers/inderun_speech_text.h": "3c139ae0a7112973b221db24e32f7e5e0cbe0417e9b17311dec33003e22f8593",
     "ios-arm64/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "3c6bc4da2ac8116dee6bf74e47aa3e9b703271a321947b20d365f5128fab06a4",
     "ios-arm64/InderunSpeechTextFFI.framework/Info.plist": "8918e6d0ec646ae877e8a3d73b496f1fd6a0cf14b0a3d5d9b8ccbdf095db0b95",
