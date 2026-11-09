@@ -1,0 +1,503 @@
+{
+  "$comment": "Scenario catalog for the German speech text frontend (ADR 023, PR 4b). Expectations were written from reading upstream Articulino frontend/german.py (Apache-2.0), not from running it. Run by the route core's Rust tests and by each SDK through its binding.",
+  "cases": [
+    {
+      "id": "english_passes_through",
+      "locale": "en-US",
+      "input": "Call me at 3.",
+      "expected": "Call me at 3."
+    },
+    {
+      "id": "empty_text",
+      "locale": "de-DE",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "id": "whitespace_only",
+      "locale": "de-DE",
+      "input": "  ",
+      "expected": " "
+    },
+    {
+      "id": "date_ordinal_after_am",
+      "locale": "de-DE",
+      "input": "Am 3. Mai um 14:30 Uhr.",
+      "expected": "Am dritten Mai um vierzehn Uhr dreißig."
+    },
+    {
+      "id": "money_euro_cents",
+      "locale": "de-DE",
+      "input": "Das kostet 12,50 €.",
+      "expected": "Das kostet zwölf Euro fünfzig."
+    },
+    {
+      "id": "unit_compound",
+      "locale": "de-DE",
+      "input": "Er fährt 50 km/h.",
+      "expected": "Er fährt fünfzig Kilometer pro Stunde."
+    },
+    {
+      "id": "unit_one_nominative",
+      "locale": "de-DE",
+      "input": "Es dauert 1 h.",
+      "expected": "Es dauert eine Stunde."
+    },
+    {
+      "id": "unit_one_dative",
+      "locale": "de-DE",
+      "input": "Es ist in 1 h fertig.",
+      "expected": "Es ist in einer Stunde fertig."
+    },
+    {
+      "id": "date_numeric_with_year",
+      "locale": "de-DE",
+      "input": "Am 3.1.2026 ist Ruhetag.",
+      "expected": "Am dritten Januar zweitausendsechsundzwanzig ist Ruhetag."
+    },
+    {
+      "id": "jaenner_de_at",
+      "locale": "de-AT",
+      "input": "Am 3.1.2026 ist Ruhetag.",
+      "expected": "Am dritten Jänner zweitausendsechsundzwanzig ist Ruhetag."
+    },
+    {
+      "id": "jaenner_accepted_de_de",
+      "locale": "de-DE",
+      "input": "Am 3. Jänner.",
+      "expected": "Am dritten Jänner."
+    },
+    {
+      "id": "year_form",
+      "locale": "de-DE",
+      "input": "Das war 1990.",
+      "expected": "Das war neunzehnhundertneunzig."
+    },
+    {
+      "id": "leading_zero_digits",
+      "locale": "de-DE",
+      "input": "Agent 007.",
+      "expected": "Agent null null sieben."
+    },
+    {
+      "id": "decimal_comma",
+      "locale": "de-DE",
+      "input": "Es sind 3,5 Grad.",
+      "expected": "Es sind drei Komma, fünf Grad."
+    },
+    {
+      "id": "thousands_point",
+      "locale": "de-DE",
+      "input": "Es kamen 1.250 Besucher.",
+      "expected": "Es kamen eintausendzweihundertfünfzig Besucher."
+    },
+    {
+      "id": "utf8_safety_near_matches",
+      "locale": "de-DE",
+      "input": "Grüße 😀 am 3. März für 5 €!",
+      "expected": "Grüße 😀 am dritten März für fünf Euro!"
+    },
+    {
+      "id": "no_jaenner_de_ch",
+      "locale": "de-CH",
+      "input": "Am 1.1. ist frei.",
+      "expected": "Am ersten Januar ist frei."
+    },
+    {
+      "id": "numeric_date_no_year_after_cue",
+      "locale": "de-DE",
+      "input": "Am 3.10. schließen wir.",
+      "expected": "Am dritten Oktober schließen wir."
+    },
+    {
+      "id": "numeric_date_two_digit_list",
+      "locale": "de-DE",
+      "input": "Termin: 28.11. und 05.12.",
+      "expected": "Termin: achtundzwanzigster November und fünfter Dezember."
+    },
+    {
+      "id": "date_after_te_article",
+      "locale": "de-DE",
+      "input": "Der 5. Mai ist ein Feiertag.",
+      "expected": "Der fünfte Mai ist ein Feiertag."
+    },
+    {
+      "id": "date_range_bis",
+      "locale": "de-DE",
+      "input": "Vom 3. bis 5. Mai.",
+      "expected": "Vom dritten bis fünften Mai."
+    },
+    {
+      "id": "date_range_dash",
+      "locale": "de-DE",
+      "input": "Am 3.-5. Mai.",
+      "expected": "Am dritten bis fünften Mai."
+    },
+    {
+      "id": "date_weekday_apposition",
+      "locale": "de-DE",
+      "input": "Am Freitag, 25. Juli ist es soweit.",
+      "expected": "Am Freitag, fünfundzwanzigsten Juli ist es soweit."
+    },
+    {
+      "id": "date_without_article",
+      "locale": "de-DE",
+      "input": "Berlin, 25. Juli 2000",
+      "expected": "Berlin, fünfundzwanzigster Juli zweitausend"
+    },
+    {
+      "id": "date_enumeration_like_before",
+      "locale": "de-DE",
+      "input": "Der 14. November, 28. November und 5. Dezember.",
+      "expected": "Der vierzehnte November, achtundzwanzigste November und fünfte Dezember."
+    },
+    {
+      "id": "version_point",
+      "locale": "de-DE",
+      "input": "Ab Python 3.12 gibt es das.",
+      "expected": "Ab Python drei Punkt zwölf gibt es das."
+    },
+    {
+      "id": "ip_address",
+      "locale": "de-DE",
+      "input": "Die Adresse 192.168.1.1 ist neu.",
+      "expected": "Die Adresse einhundertzweiundneunzig Punkt einhundertachtundsechzig Punkt eins Punkt eins ist neu."
+    },
+    {
+      "id": "clock_without_uhr",
+      "locale": "de-DE",
+      "input": "Von 10:00 bis 12:30 Uhr.",
+      "expected": "Von zehn Uhr bis zwölf Uhr dreißig."
+    },
+    {
+      "id": "clock_one_o_clock",
+      "locale": "de-DE",
+      "input": "Um 1:00 Uhr.",
+      "expected": "Um ein Uhr."
+    },
+    {
+      "id": "ein_uhr_digit",
+      "locale": "de-DE",
+      "input": "Ab 1 Uhr.",
+      "expected": "Ab ein Uhr."
+    },
+    {
+      "id": "score_ratio",
+      "locale": "de-DE",
+      "input": "Das Spiel endete 3:1.",
+      "expected": "Das Spiel endete drei zu eins."
+    },
+    {
+      "id": "eine_million",
+      "locale": "de-DE",
+      "input": "Es gab 1 Million Fans.",
+      "expected": "Es gab eine Million Fans."
+    },
+    {
+      "id": "millions_thousands_points",
+      "locale": "de-DE",
+      "input": "Es sind 2.000.000 Menschen.",
+      "expected": "Es sind zwei Millionen Menschen."
+    },
+    {
+      "id": "thousands_point_before_decimal_money",
+      "locale": "de-DE",
+      "input": "Das kostet 1.250,50 €.",
+      "expected": "Das kostet eintausendzweihundertfünfzig Euro fünfzig."
+    },
+    {
+      "id": "currency_symbol_first",
+      "locale": "de-DE",
+      "input": "Es kostet $5.",
+      "expected": "Es kostet fünf Dollar."
+    },
+    {
+      "id": "unit_one_accusative_masculine",
+      "locale": "de-DE",
+      "input": "Er zahlt für 1 $.",
+      "expected": "Er zahlt für einen Dollar."
+    },
+    {
+      "id": "unit_percent",
+      "locale": "de-DE",
+      "input": "Es sind 50 %.",
+      "expected": "Es sind fünfzig Prozent."
+    },
+    {
+      "id": "unit_range_degrees",
+      "locale": "de-DE",
+      "input": "Es hat 20-25 °C.",
+      "expected": "Es hat zwanzig bis fünfundzwanzig Grad Celsius."
+    },
+    {
+      "id": "unit_needs_space",
+      "locale": "de-DE",
+      "input": "Der 4K-Monitor ist neu.",
+      "expected": "Der vier K-Monitor ist neu."
+    },
+    {
+      "id": "body_height_metres",
+      "locale": "de-DE",
+      "input": "Er ist 1,80 m groß.",
+      "expected": "Er ist ein Meter achtzig groß."
+    },
+    {
+      "id": "fraction_quarter",
+      "locale": "de-DE",
+      "input": "Es fehlt 3/4 Liter.",
+      "expected": "Es fehlt drei Viertel Liter."
+    },
+    {
+      "id": "fraction_half",
+      "locale": "de-DE",
+      "input": "Nimm 1/2 Tasse.",
+      "expected": "Nimm ein halb Tasse."
+    },
+    {
+      "id": "not_a_fraction",
+      "locale": "de-DE",
+      "input": "Rund um die Uhr, 24/7 geöffnet.",
+      "expected": "Rund um die Uhr, vierundzwanzig/sieben geöffnet."
+    },
+    {
+      "id": "times_sign",
+      "locale": "de-DE",
+      "input": "Ein Raum von 2 x 3 m.",
+      "expected": "Ein Raum von zwei mal drei Meter."
+    },
+    {
+      "id": "number_range",
+      "locale": "de-DE",
+      "input": "Es dauert 10-15 Minuten.",
+      "expected": "Es dauert zehn bis fünfzehn Minuten."
+    },
+    {
+      "id": "minus_sign",
+      "locale": "de-DE",
+      "input": "Es hat -5 °C.",
+      "expected": "Es hat minus fünf Grad Celsius."
+    },
+    {
+      "id": "number_sign",
+      "locale": "de-DE",
+      "input": "Ticket #42 ist offen.",
+      "expected": "Ticket Nummer zweiundvierzig ist offen."
+    },
+    {
+      "id": "glued_digits_letters",
+      "locale": "de-DE",
+      "input": "Das sind 3mal so viele.",
+      "expected": "Das sind drei mal so viele."
+    },
+    {
+      "id": "long_digit_string",
+      "locale": "de-DE",
+      "input": "Die Nummer 12345678901 ist lang.",
+      "expected": "Die Nummer eins zwei drei vier fünf sechs sieben acht neun null eins ist lang."
+    },
+    {
+      "id": "multiline_lines_independent",
+      "locale": "de-DE",
+      "input": "Um 14:30 Uhr\nEs sind 3,5 Grad.",
+      "expected": "Um vierzehn Uhr dreißig\nEs sind drei Komma, fünf Grad."
+    },
+    {
+      "id": "unit_needs_space_t_shirts",
+      "locale": "de-DE",
+      "input": "10 T-Shirts",
+      "expected": "zehn T-Shirts"
+    },
+    {
+      "id": "unit_single_letter_before_hyphen",
+      "locale": "de-DE",
+      "input": "Ein 5 m-Brett",
+      "expected": "Ein fünf m-Brett"
+    },
+    {
+      "id": "date_enumeration_numeric_dates",
+      "locale": "de-DE",
+      "input": "Der 3. Mai, 4.6. und 5.7.",
+      "expected": "Der dritte Mai, vierte Juni und fünfte Juli."
+    },
+    {
+      "id": "numeric_date_invalid_month_is_version",
+      "locale": "de-DE",
+      "input": "am 3.13. nicht",
+      "expected": "am drei Punkt dreizehn. nicht"
+    },
+    {
+      "id": "date_zwischen_dative",
+      "locale": "de-DE",
+      "input": "zwischen 28.11. und 5.12.",
+      "expected": "zwischen achtundzwanzigstem November und fünftem Dezember."
+    },
+    {
+      "id": "date_like_ordinal_written_before",
+      "locale": "de-DE",
+      "input": "am ersten, 2. und 3. Mai",
+      "expected": "am ersten, zweiten und dritten Mai"
+    },
+    {
+      "id": "ordinal_at_end_keeps_period",
+      "locale": "de-DE",
+      "input": "Am 3.",
+      "expected": "Am dritten."
+    },
+    {
+      "id": "money_zero_cents",
+      "locale": "de-DE",
+      "input": "12,00 €.",
+      "expected": "zwölf Euro."
+    },
+    {
+      "id": "jaenner_date_rule_de_de",
+      "locale": "de-DE",
+      "input": "Berlin, 3. Jänner 2026",
+      "expected": "Berlin, dritter Jänner zweitausendsechsundzwanzig"
+    },
+    {
+      "id": "period_kept_per_line",
+      "locale": "de-DE",
+      "input": "Wir sehen uns am 3.\nBis dann.",
+      "expected": "Wir sehen uns am dritten.\nBis dann."
+    },
+    {
+      "id": "abbreviation_mid_sentence",
+      "locale": "de-DE",
+      "input": "Obst, z. B. Äpfel.",
+      "expected": "Obst, zum Beispiel Äpfel."
+    },
+    {
+      "id": "abbreviation_spacing_variant",
+      "locale": "de-DE",
+      "input": "Obst, z.B. Äpfel.",
+      "expected": "Obst, zum Beispiel Äpfel."
+    },
+    {
+      "id": "abbreviation_keeps_final_period",
+      "locale": "de-DE",
+      "input": "Das ist ca. 5 m lang usw.",
+      "expected": "Das ist circa fünf Meter lang und so weiter."
+    },
+    {
+      "id": "abbreviation_keeps_period_before_sentence_start",
+      "locale": "de-DE",
+      "input": "Wir lesen vgl. Abb. Er kam.",
+      "expected": "Wir lesen vergleiche Abbildung. Er kam."
+    },
+    {
+      "id": "weekday_range",
+      "locale": "de-DE",
+      "input": "Offen Mo–Fr.",
+      "expected": "Offen Montag bis Freitag."
+    },
+    {
+      "id": "weekday_range_drops_period_before_continuation",
+      "locale": "de-DE",
+      "input": "Mo - Fr. geöffnet",
+      "expected": "Montag bis Freitag geöffnet"
+    },
+    {
+      "id": "acronym_spelled",
+      "locale": "de-DE",
+      "input": "Das PDF ist da.",
+      "expected": "Das peh deh eff ist da."
+    },
+    {
+      "id": "acronym_shouting_kept",
+      "locale": "de-DE",
+      "input": "BITTE NICHT STÖREN.",
+      "expected": "BITTE NICHT STÖREN."
+    },
+    {
+      "id": "acronym_shouting_neighbour_keeps_short_acronym",
+      "locale": "de-DE",
+      "input": "ACHTUNG KI",
+      "expected": "ACHTUNG KI"
+    },
+    {
+      "id": "acronym_short_with_vowel_spelled",
+      "locale": "de-DE",
+      "input": "Die KI lernt.",
+      "expected": "Die kah ih lernt."
+    },
+    {
+      "id": "acronym_always_spelled",
+      "locale": "de-DE",
+      "input": "Der ADAC hilft.",
+      "expected": "Der ah deh ah zeh hilft."
+    },
+    {
+      "id": "acronym_table_word",
+      "locale": "de-DE",
+      "input": "Der RAM ist voll.",
+      "expected": "Der Ramm ist voll."
+    },
+    {
+      "id": "acronym_table_word_plural",
+      "locale": "de-DE",
+      "input": "Zwei RAMs sind da.",
+      "expected": "Zwei Ramms sind da."
+    },
+    {
+      "id": "acronym_table_word_umlaut",
+      "locale": "de-DE",
+      "input": "Der TÜV prüft.",
+      "expected": "Der Tüff prüft."
+    },
+    {
+      "id": "acronym_plural_spelled",
+      "locale": "de-DE",
+      "input": "Zwei PCs.",
+      "expected": "Zwei peh zehs."
+    },
+    {
+      "id": "roman_numeral_kept",
+      "locale": "de-DE",
+      "input": "Ludwig II kam.",
+      "expected": "Ludwig II kam."
+    },
+    {
+      "id": "single_letter_spelled",
+      "locale": "de-DE",
+      "input": "Plan B gilt.",
+      "expected": "Plan beh gilt."
+    },
+    {
+      "id": "single_letter_hyphenated_kept",
+      "locale": "de-DE",
+      "input": "Die U-Bahn fährt.",
+      "expected": "Die U-Bahn fährt."
+    },
+    {
+      "id": "vowelless_run_spelled",
+      "locale": "de-DE",
+      "input": "Pfad srv und hmm.",
+      "expected": "Pfad ess err fau und hmm."
+    },
+    {
+      "id": "symbol_written_out",
+      "locale": "de-DE",
+      "input": "Wenn x ≥ 5 gilt.",
+      "expected": "Wenn iks größer gleich fünf gilt."
+    },
+    {
+      "id": "whitespace_collapsed",
+      "locale": "de-DE",
+      "input": "Das  ist \t gut .",
+      "expected": "Das ist gut."
+    },
+    {
+      "id": "no_space_before_punctuation",
+      "locale": "de-DE",
+      "input": "Das kostet 5 € .",
+      "expected": "Das kostet fünf Euro."
+    },
+    {
+      "id": "embedded_nul_keeps_the_suffix",
+      "locale": "de-DE",
+      "input": "Hallo\u0000ich habe 12 Äpfel.",
+      "expected": "Hallo\u0000ich habe zwölf Äpfel."
+    }
+  ]
+}

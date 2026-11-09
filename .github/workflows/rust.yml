@@ -37,6 +37,7 @@ jobs:
               - 'rust/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'contracts/fixtures/speech/german-frontend.json'
               - '.github/workflows/rust.yml'
 
   rust:

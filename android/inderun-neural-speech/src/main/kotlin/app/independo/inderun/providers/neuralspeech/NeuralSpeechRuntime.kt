@@ -63,6 +63,15 @@ interface NeuralSpeechRuntime {
     suspend fun prepare(modelPackage: ModelPackage): NeuralSpeechAvailability
 
     fun synthesize(input: NeuralSpeechSynthesisInput): Flow<PcmChunk>
+
+    /**
+     * Optional pre-split hook, called once per request on the whole text, before the provider
+     * splits it into sentences. [locale] is the tag the text is spoken in (the request's own while
+     * the voice speaks its language, else the voice's first locale). The default returns [text]
+     * unchanged. A failure is signalled with [NeuralSpeechRuntimeError] and ends the run before any
+     * audio output is opened.
+     */
+    fun normalizeText(modelPackage: ModelPackage, text: String, locale: String): String = text
 }
 
 /**

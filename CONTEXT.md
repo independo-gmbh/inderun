@@ -42,7 +42,7 @@ provider families (ONNX Runtime, web system-model) do not stream yet.
 Text-to-speech is implemented through `speak()` / `generateSpeech()` /
 `listVoices()` and the system speech providers on all three platforms (ADR 018). A neural speech provider family
 (`local.onnx.speech.*`, runtime seam, fixture runtime) exists on all three SDKs; its ONNX executor and the first model
-pipeline (Articulino) ship, the Apple Core AI runtime ships for iOS/macOS 27 (ADR 022; model conversion record pending), and the German text frontend follows (ADR 020, ADR 021).
+pipeline (Articulino) ship, the Apple Core AI runtime ships for iOS/macOS 27 (ADR 022; model conversion record pending), and the German text frontend (numbers, dates, abbreviations before sentence splitting) ships (ADR 023; see also ADR 020, ADR 021).
 Mode 3 `openSession()` / realtime sessions remain unimplemented.
 
 Out of scope now:
@@ -107,19 +107,24 @@ Checked-in JavaScript commands:
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli`. The Web SDK has no fallback route
   planner, so the JS tests need these bindings to run at all.
 - `pnpm build:route-core-apple` — build the Rust route core for the Apple platforms and
-  package it into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`
-  (`scripts/build-route-core-apple.mjs`). Requires `rustup` with the five Apple targets and
-  the Xcode command line tools. Unlike the WASM bindings, the XCFramework **is committed**:
-  SwiftPM resolves this package from a git tag, so the tag has to contain the binary. Run it
-  and commit the result — including the regenerated `InderunRouteCoreFFI.provenance.json` —
+  package it into two XCFrameworks under `ios/IndeRun/Frameworks/`
+  (`scripts/build-route-core-apple.mjs`): `InderunRouteCoreFFI.xcframework` (the planner, built
+  with `--no-default-features`, linked by `IndeRunCore`) and `InderunSpeechTextFFI.xcframework`
+  (the German speech text normalizer, the `speech-text` feature, linked only by
+  `IndeRunNeuralSpeech`, so an app that never speaks does not carry it). Requires `rustup` with
+  the five Apple targets and the Xcode command line tools. Unlike the WASM bindings, the
+  XCFrameworks **are committed**: SwiftPM resolves this package from a git tag, so the tag has
+  to contain the binaries. Run it and commit the result — including both regenerated
+  `*.provenance.json` manifests —
   in the same change whenever the route core changes; CI fails otherwise. Pass `--force` to
   repackage unconditionally. A Cargo dependency bump counts as "the route core changes" —
   the provenance manifest hashes `Cargo.lock`. On Dependabot's cargo PRs
   `route-core-apple-refresh.yml` runs this and pushes the result; everywhere else it is a
   manual commit on the branch. See `docs/ci.md`.
-- `pnpm verify:route-core-apple` — check the committed XCFramework against its provenance
-  manifest (pinned compiler, source hashes, per-file hashes) and validate every slice's
-  architectures, deployment target, exported FFI symbols, install name, and linked libraries
+- `pnpm verify:route-core-apple` — check both committed XCFrameworks against their provenance
+  manifests (pinned compiler, source hashes, per-file hashes) and validate every slice's
+  architectures, deployment target, exported FFI symbols (the planner framework must not export
+  the normalizer), install name, and linked libraries
   (`scripts/verify-route-core-apple.mjs`). Run by `swift.yml` before anything is rebuilt and by
   `release.yml` before tagging. `--slices-only` skips the hash comparison, for validating a
   freshly rebuilt artifact whose bytes legitimately differ.
@@ -127,7 +132,11 @@ Checked-in JavaScript commands:
   ABIs (`scripts/build-route-core-android.mjs`). Requires `rustup` with the four Android
   targets and the Android NDK. Normally invoked by Gradle rather than by hand: `:inderun-core`
   registers the output as a generated `jniLibs` source directory, and the same script with
-  `--host` builds the library the JVM unit tests load. Unlike the Apple XCFramework these
+  `--host` builds the library the JVM unit tests load. The same script with `--speech-text` builds
+  a second library, `libinderun_speech_text` (German speech text normalizer, crate feature
+  `speech-text`), that `:inderun-neural-speech` packages; `libinderun_route_core` is planner-only
+  (`--no-default-features --features jni-bindings`) and the script fails if either library carries
+  the other's JNI symbol. Unlike the Apple XCFramework these
   binaries are **not** committed — the AAR is built by CI and published to Maven Central.
 - `pnpm test` — run tests across **all** languages (JS/TS packages via `pnpm -r test`,
   Rust via `cargo test`, Kotlin via Gradle, Swift via `swift test`); requires the
@@ -245,8 +254,10 @@ Checked-in Rust commands:
 - `cargo test -p inderun_route_core`
 - `cargo fmt -p inderun_route_core -- --check`
 - `cargo clippy -p inderun_route_core --all-targets -- -D warnings`
-- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown`
+- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features`
 - `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
+- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features --features speech-text --target-dir target/wasm-speech-text`
+- `wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_speech_text`
 - `pnpm --filter @independo/inderun-route-core-wasm test`
 
 Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing here runs in CI, see

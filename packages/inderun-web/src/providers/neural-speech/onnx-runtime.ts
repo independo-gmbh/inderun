@@ -127,6 +127,11 @@ export function createOnnxNeuralSpeechRuntime(
       const r = resolve(pkg);
       return "runtime" in r ? r.runtime.prepare(pkg) : r.unavailable;
     },
+    async normalizeText(pkg, text, locale) {
+      if (pkg.speech?.pipeline !== "articulino") return text;
+      const r = resolve(pkg);
+      return "runtime" in r ? ((await r.runtime.normalizeText?.(pkg, text, locale)) ?? text) : text;
+    },
     async *synthesize(input: NeuralSpeechSynthesisInput): AsyncIterable<PcmChunk> {
       const r = resolve(input.modelPackage);
       if (!("runtime" in r)) {

@@ -21,9 +21,13 @@ compile_error!(
 mod ffi;
 mod model;
 mod planner;
+#[cfg(feature = "speech-text")]
+mod speech_text;
 
 pub use model::*;
 pub use planner::plan_route;
+#[cfg(feature = "speech-text")]
+pub use speech_text::normalize_speech_text;
 
 #[cfg(test)]
 mod tests;

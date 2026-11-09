@@ -62,6 +62,16 @@ public protocol NeuralSpeechRuntime: Sendable {
     func availability(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability
     func prepare(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability
     func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error>
+
+    /// Optional pre-split hook: rewrites the request's whole text into the form the model should
+    /// speak (for example German numbers into words), before the provider splits it into sentences.
+    /// Called once per request, on the whole text, with the locale the voice speaks. Synchronous and
+    /// non-throwing: the shared core's C call cannot fail. The default returns `text` unchanged.
+    func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String
+}
+
+extension NeuralSpeechRuntime {
+    public func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String { text }
 }
 
 /// Failure category a runtime signals so the provider maps it onto the IndeRun error taxonomy.

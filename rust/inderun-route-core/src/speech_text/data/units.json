@@ -1,0 +1,1517 @@
+{
+ "_note": "Units are only replaced directly after a number (\"230 V\", \"5m\"). Entry: [singular, plural, gender m/f/n for ein/eine, space required 0/1]. Space 1 means \"16 A\" yes, \"16A\" no (against 4K monitors, 5G and so on). Compound units with / (km/h, kg/m³) are built from numerator 'pro' denominator. Ported unchanged from the live frontend (einheiten.json).",
+ "units": {
+  "$": [
+   "Dollar",
+   "Dollar",
+   "m",
+   0
+  ],
+  "%": [
+   "Prozent",
+   "Prozent",
+   "n",
+   0
+  ],
+  "A": [
+   "Ampere",
+   "Ampere",
+   "n",
+   1
+  ],
+  "AE": [
+   "Astronomische Einheit",
+   "Astronomische Einheiten",
+   "f",
+   1
+  ],
+  "Ah": [
+   "Amperestunde",
+   "Amperestunden",
+   "f",
+   0
+  ],
+  "atm": [
+   "Atmosphäre",
+   "Atmosphären",
+   "f",
+   0
+  ],
+  "bar": [
+   "Bar",
+   "Bar",
+   "n",
+   0
+  ],
+  "bbl": [
+   "Barrel",
+   "Barrel",
+   "n",
+   0
+  ],
+  "Bio.": [
+   "Billion",
+   "Billionen",
+   "f",
+   1
+  ],
+  "bit": [
+   "Bit",
+   "Bit",
+   "n",
+   0
+  ],
+  "Bq": [
+   "Becquerel",
+   "Becquerel",
+   "n",
+   0
+  ],
+  "cal": [
+   "Kalorie",
+   "Kalorien",
+   "f",
+   0
+  ],
+  "ccm": [
+   "Kubikzentimeter",
+   "Kubikzentimeter",
+   "m",
+   0
+  ],
+  "cd": [
+   "Candela",
+   "Candela",
+   "f",
+   0
+  ],
+  "CHF": [
+   "Franken",
+   "Franken",
+   "m",
+   1
+  ],
+  "cl": [
+   "Zentiliter",
+   "Zentiliter",
+   "m",
+   0
+  ],
+  "cL": [
+   "Zentiliter",
+   "Zentiliter",
+   "m",
+   0
+  ],
+  "cm": [
+   "Zentimeter",
+   "Zentimeter",
+   "m",
+   0
+  ],
+  "cm2": [
+   "Quadratzentimeter",
+   "Quadratzentimeter",
+   "m",
+   0
+  ],
+  "cm3": [
+   "Kubikzentimeter",
+   "Kubikzentimeter",
+   "m",
+   0
+  ],
+  "cm^2": [
+   "Quadratzentimeter",
+   "Quadratzentimeter",
+   "m",
+   0
+  ],
+  "cm^3": [
+   "Kubikzentimeter",
+   "Kubikzentimeter",
+   "m",
+   0
+  ],
+  "cm²": [
+   "Quadratzentimeter",
+   "Quadratzentimeter",
+   "m",
+   0
+  ],
+  "cm³": [
+   "Kubikzentimeter",
+   "Kubikzentimeter",
+   "m",
+   0
+  ],
+  "ct": [
+   "Cent",
+   "Cent",
+   "m",
+   0
+  ],
+  "d": [
+   "Tag",
+   "Tage",
+   "m",
+   1
+  ],
+  "dB": [
+   "Dezibel",
+   "Dezibel",
+   "n",
+   0
+  ],
+  "dB(A)": [
+   "Dezibel A",
+   "Dezibel A",
+   "n",
+   0
+  ],
+  "dBA": [
+   "Dezibel A",
+   "Dezibel A",
+   "n",
+   0
+  ],
+  "dl": [
+   "Deziliter",
+   "Deziliter",
+   "m",
+   0
+  ],
+  "dL": [
+   "Deziliter",
+   "Deziliter",
+   "m",
+   0
+  ],
+  "dm": [
+   "Dezimeter",
+   "Dezimeter",
+   "m",
+   0
+  ],
+  "dm2": [
+   "Quadratdezimeter",
+   "Quadratdezimeter",
+   "m",
+   0
+  ],
+  "dm3": [
+   "Kubikdezimeter",
+   "Kubikdezimeter",
+   "m",
+   0
+  ],
+  "dm^2": [
+   "Quadratdezimeter",
+   "Quadratdezimeter",
+   "m",
+   0
+  ],
+  "dm^3": [
+   "Kubikdezimeter",
+   "Kubikdezimeter",
+   "m",
+   0
+  ],
+  "dm²": [
+   "Quadratdezimeter",
+   "Quadratdezimeter",
+   "m",
+   0
+  ],
+  "dm³": [
+   "Kubikdezimeter",
+   "Kubikdezimeter",
+   "m",
+   0
+  ],
+  "EUR": [
+   "Euro",
+   "Euro",
+   "m",
+   1
+  ],
+  "eV": [
+   "Elektronenvolt",
+   "Elektronenvolt",
+   "n",
+   0
+  ],
+  "fps": [
+   "Bild pro Sekunde",
+   "Bilder pro Sekunde",
+   "n",
+   0
+  ],
+  "ft": [
+   "Fuß",
+   "Fuß",
+   "m",
+   0
+  ],
+  "g": [
+   "Gramm",
+   "Gramm",
+   "n",
+   0
+  ],
+  "gal": [
+   "Gallone",
+   "Gallonen",
+   "f",
+   0
+  ],
+  "GB": [
+   "Gigabyte",
+   "Gigabyte",
+   "n",
+   0
+  ],
+  "Gbit": [
+   "Gigabit",
+   "Gigabit",
+   "n",
+   0
+  ],
+  "GBq": [
+   "Gigabecquerel",
+   "Gigabecquerel",
+   "n",
+   0
+  ],
+  "GeV": [
+   "Gigaelektronenvolt",
+   "Gigaelektronenvolt",
+   "n",
+   0
+  ],
+  "GHz": [
+   "Gigahertz",
+   "Gigahertz",
+   "n",
+   0
+  ],
+  "GiB": [
+   "Gibibyte",
+   "Gibibyte",
+   "n",
+   0
+  ],
+  "GJ": [
+   "Gigajoule",
+   "Gigajoule",
+   "n",
+   0
+  ],
+  "GPa": [
+   "Gigapascal",
+   "Gigapascal",
+   "n",
+   0
+  ],
+  "Gt": [
+   "Gigatonne",
+   "Gigatonnen",
+   "f",
+   0
+  ],
+  "GW": [
+   "Gigawatt",
+   "Gigawatt",
+   "n",
+   0
+  ],
+  "GWh": [
+   "Gigawattstunde",
+   "Gigawattstunden",
+   "f",
+   0
+  ],
+  "Gy": [
+   "Gray",
+   "Gray",
+   "n",
+   0
+  ],
+  "H": [
+   "Henry",
+   "Henry",
+   "n",
+   1
+  ],
+  "h": [
+   "Stunde",
+   "Stunden",
+   "f",
+   0
+  ],
+  "ha": [
+   "Hektar",
+   "Hektar",
+   "n",
+   0
+  ],
+  "hl": [
+   "Hektoliter",
+   "Hektoliter",
+   "m",
+   0
+  ],
+  "hPa": [
+   "Hektopascal",
+   "Hektopascal",
+   "n",
+   0
+  ],
+  "Hz": [
+   "Hertz",
+   "Hertz",
+   "n",
+   0
+  ],
+  "J": [
+   "Joule",
+   "Joule",
+   "n",
+   1
+  ],
+  "K": [
+   "Kelvin",
+   "Kelvin",
+   "n",
+   1
+  ],
+  "kA": [
+   "Kiloampere",
+   "Kiloampere",
+   "n",
+   0
+  ],
+  "kB": [
+   "Kilobyte",
+   "Kilobyte",
+   "n",
+   0
+  ],
+  "KB": [
+   "Kilobyte",
+   "Kilobyte",
+   "n",
+   0
+  ],
+  "kbit": [
+   "Kilobit",
+   "Kilobit",
+   "n",
+   0
+  ],
+  "kBq": [
+   "Kilobecquerel",
+   "Kilobecquerel",
+   "n",
+   0
+  ],
+  "kcal": [
+   "Kilokalorie",
+   "Kilokalorien",
+   "f",
+   0
+  ],
+  "keV": [
+   "Kiloelektronenvolt",
+   "Kiloelektronenvolt",
+   "n",
+   0
+  ],
+  "kg": [
+   "Kilogramm",
+   "Kilogramm",
+   "n",
+   0
+  ],
+  "kHz": [
+   "Kilohertz",
+   "Kilohertz",
+   "n",
+   0
+  ],
+  "KiB": [
+   "Kibibyte",
+   "Kibibyte",
+   "n",
+   0
+  ],
+  "kJ": [
+   "Kilojoule",
+   "Kilojoule",
+   "n",
+   0
+  ],
+  "km": [
+   "Kilometer",
+   "Kilometer",
+   "m",
+   0
+  ],
+  "km2": [
+   "Quadratkilometer",
+   "Quadratkilometer",
+   "m",
+   0
+  ],
+  "km3": [
+   "Kubikkilometer",
+   "Kubikkilometer",
+   "m",
+   0
+  ],
+  "km^2": [
+   "Quadratkilometer",
+   "Quadratkilometer",
+   "m",
+   0
+  ],
+  "km^3": [
+   "Kubikkilometer",
+   "Kubikkilometer",
+   "m",
+   0
+  ],
+  "kmh": [
+   "Kilometer pro Stunde",
+   "Kilometer pro Stunde",
+   "m",
+   0
+  ],
+  "km²": [
+   "Quadratkilometer",
+   "Quadratkilometer",
+   "m",
+   0
+  ],
+  "km³": [
+   "Kubikkilometer",
+   "Kubikkilometer",
+   "m",
+   0
+  ],
+  "kN": [
+   "Kilonewton",
+   "Kilonewton",
+   "n",
+   0
+  ],
+  "kn": [
+   "Knoten",
+   "Knoten",
+   "m",
+   0
+  ],
+  "kp": [
+   "Kilopond",
+   "Kilopond",
+   "n",
+   0
+  ],
+  "kPa": [
+   "Kilopascal",
+   "Kilopascal",
+   "n",
+   0
+  ],
+  "kt": [
+   "Kilotonne",
+   "Kilotonnen",
+   "f",
+   0
+  ],
+  "kV": [
+   "Kilovolt",
+   "Kilovolt",
+   "n",
+   0
+  ],
+  "kVA": [
+   "Kilovoltampere",
+   "Kilovoltampere",
+   "n",
+   0
+  ],
+  "kW": [
+   "Kilowatt",
+   "Kilowatt",
+   "n",
+   0
+  ],
+  "kWh": [
+   "Kilowattstunde",
+   "Kilowattstunden",
+   "f",
+   0
+  ],
+  "kWh/100 km": [
+   "Kilowattstunde auf hundert Kilometer",
+   "Kilowattstunden auf hundert Kilometer",
+   "f",
+   0
+  ],
+  "kWh/100km": [
+   "Kilowattstunde auf hundert Kilometer",
+   "Kilowattstunden auf hundert Kilometer",
+   "f",
+   0
+  ],
+  "kΩ": [
+   "Kiloohm",
+   "Kiloohm",
+   "n",
+   0
+  ],
+  "l": [
+   "Liter",
+   "Liter",
+   "m",
+   0
+  ],
+  "L": [
+   "Liter",
+   "Liter",
+   "m",
+   0
+  ],
+  "l/100 km": [
+   "Liter auf hundert Kilometer",
+   "Liter auf hundert Kilometer",
+   "m",
+   0
+  ],
+  "l/100km": [
+   "Liter auf hundert Kilometer",
+   "Liter auf hundert Kilometer",
+   "m",
+   0
+  ],
+  "lb": [
+   "Pfund",
+   "Pfund",
+   "n",
+   0
+  ],
+  "lbs": [
+   "Pfund",
+   "Pfund",
+   "n",
+   0
+  ],
+  "Lj": [
+   "Lichtjahr",
+   "Lichtjahre",
+   "n",
+   0
+  ],
+  "lm": [
+   "Lumen",
+   "Lumen",
+   "n",
+   0
+  ],
+  "lx": [
+   "Lux",
+   "Lux",
+   "n",
+   0
+  ],
+  "m": [
+   "Meter",
+   "Meter",
+   "m",
+   0
+  ],
+  "m/s²": [
+   "Meter pro Quadratsekunde",
+   "Meter pro Quadratsekunde",
+   "m",
+   0
+  ],
+  "m2": [
+   "Quadratmeter",
+   "Quadratmeter",
+   "m",
+   0
+  ],
+  "m3": [
+   "Kubikmeter",
+   "Kubikmeter",
+   "m",
+   0
+  ],
+  "m^2": [
+   "Quadratmeter",
+   "Quadratmeter",
+   "m",
+   0
+  ],
+  "m^3": [
+   "Kubikmeter",
+   "Kubikmeter",
+   "m",
+   0
+  ],
+  "mA": [
+   "Milliampere",
+   "Milliampere",
+   "n",
+   0
+  ],
+  "mAh": [
+   "Milliamperestunde",
+   "Milliamperestunden",
+   "f",
+   0
+  ],
+  "MB": [
+   "Megabyte",
+   "Megabyte",
+   "n",
+   0
+  ],
+  "mbar": [
+   "Millibar",
+   "Millibar",
+   "n",
+   0
+  ],
+  "Mbit": [
+   "Megabit",
+   "Megabit",
+   "n",
+   0
+  ],
+  "MBq": [
+   "Megabecquerel",
+   "Megabecquerel",
+   "n",
+   0
+  ],
+  "MeV": [
+   "Megaelektronenvolt",
+   "Megaelektronenvolt",
+   "n",
+   0
+  ],
+  "mF": [
+   "Millifarad",
+   "Millifarad",
+   "n",
+   0
+  ],
+  "mg": [
+   "Milligramm",
+   "Milligramm",
+   "n",
+   0
+  ],
+  "mGy": [
+   "Milligray",
+   "Milligray",
+   "n",
+   0
+  ],
+  "mH": [
+   "Millihenry",
+   "Millihenry",
+   "n",
+   0
+  ],
+  "mHz": [
+   "Millihertz",
+   "Millihertz",
+   "n",
+   0
+  ],
+  "MHz": [
+   "Megahertz",
+   "Megahertz",
+   "n",
+   0
+  ],
+  "mi": [
+   "Meile",
+   "Meilen",
+   "f",
+   1
+  ],
+  "MiB": [
+   "Mebibyte",
+   "Mebibyte",
+   "n",
+   0
+  ],
+  "min": [
+   "Minute",
+   "Minuten",
+   "f",
+   0
+  ],
+  "Min.": [
+   "Minute",
+   "Minuten",
+   "f",
+   0
+  ],
+  "Mio": [
+   "Million",
+   "Millionen",
+   "f",
+   1
+  ],
+  "Mio.": [
+   "Million",
+   "Millionen",
+   "f",
+   1
+  ],
+  "mJ": [
+   "Millijoule",
+   "Millijoule",
+   "n",
+   0
+  ],
+  "MJ": [
+   "Megajoule",
+   "Megajoule",
+   "n",
+   0
+  ],
+  "ml": [
+   "Milliliter",
+   "Milliliter",
+   "m",
+   0
+  ],
+  "mL": [
+   "Milliliter",
+   "Milliliter",
+   "m",
+   0
+  ],
+  "mm": [
+   "Millimeter",
+   "Millimeter",
+   "m",
+   0
+  ],
+  "mm2": [
+   "Quadratmillimeter",
+   "Quadratmillimeter",
+   "m",
+   0
+  ],
+  "mm3": [
+   "Kubikmillimeter",
+   "Kubikmillimeter",
+   "m",
+   0
+  ],
+  "mm^2": [
+   "Quadratmillimeter",
+   "Quadratmillimeter",
+   "m",
+   0
+  ],
+  "mm^3": [
+   "Kubikmillimeter",
+   "Kubikmillimeter",
+   "m",
+   0
+  ],
+  "mmHg": [
+   "Millimeter Quecksilbersäule",
+   "Millimeter Quecksilbersäule",
+   "m",
+   0
+  ],
+  "mmol": [
+   "Millimol",
+   "Millimol",
+   "n",
+   0
+  ],
+  "mm²": [
+   "Quadratmillimeter",
+   "Quadratmillimeter",
+   "m",
+   0
+  ],
+  "mm³": [
+   "Kubikmillimeter",
+   "Kubikmillimeter",
+   "m",
+   0
+  ],
+  "mN": [
+   "Millinewton",
+   "Millinewton",
+   "n",
+   0
+  ],
+  "MN": [
+   "Meganewton",
+   "Meganewton",
+   "n",
+   0
+  ],
+  "mol": [
+   "Mol",
+   "Mol",
+   "n",
+   0
+  ],
+  "mPa": [
+   "Millipascal",
+   "Millipascal",
+   "n",
+   0
+  ],
+  "MPa": [
+   "Megapascal",
+   "Megapascal",
+   "n",
+   0
+  ],
+  "mph": [
+   "Meile pro Stunde",
+   "Meilen pro Stunde",
+   "f",
+   0
+  ],
+  "Mrd": [
+   "Milliarde",
+   "Milliarden",
+   "f",
+   1
+  ],
+  "Mrd.": [
+   "Milliarde",
+   "Milliarden",
+   "f",
+   1
+  ],
+  "ms": [
+   "Millisekunde",
+   "Millisekunden",
+   "f",
+   0
+  ],
+  "mS": [
+   "Millisiemens",
+   "Millisiemens",
+   "n",
+   0
+  ],
+  "mSv": [
+   "Millisievert",
+   "Millisievert",
+   "n",
+   0
+  ],
+  "Mt": [
+   "Megatonne",
+   "Megatonnen",
+   "f",
+   0
+  ],
+  "mT": [
+   "Millitesla",
+   "Millitesla",
+   "n",
+   0
+  ],
+  "mV": [
+   "Millivolt",
+   "Millivolt",
+   "n",
+   0
+  ],
+  "MV": [
+   "Megavolt",
+   "Megavolt",
+   "n",
+   0
+  ],
+  "mW": [
+   "Milliwatt",
+   "Milliwatt",
+   "n",
+   0
+  ],
+  "MW": [
+   "Megawatt",
+   "Megawatt",
+   "n",
+   0
+  ],
+  "mWh": [
+   "Milliwattstunde",
+   "Milliwattstunden",
+   "f",
+   0
+  ],
+  "MWh": [
+   "Megawattstunde",
+   "Megawattstunden",
+   "f",
+   0
+  ],
+  "m²": [
+   "Quadratmeter",
+   "Quadratmeter",
+   "m",
+   0
+  ],
+  "m³": [
+   "Kubikmeter",
+   "Kubikmeter",
+   "m",
+   0
+  ],
+  "mΩ": [
+   "Milliohm",
+   "Milliohm",
+   "n",
+   0
+  ],
+  "MΩ": [
+   "Megaohm",
+   "Megaohm",
+   "n",
+   0
+  ],
+  "N": [
+   "Newton",
+   "Newton",
+   "n",
+   1
+  ],
+  "nF": [
+   "Nanofarad",
+   "Nanofarad",
+   "n",
+   0
+  ],
+  "nm": [
+   "Nanometer",
+   "Nanometer",
+   "m",
+   0
+  ],
+  "Nm": [
+   "Newtonmeter",
+   "Newtonmeter",
+   "m",
+   0
+  ],
+  "NM": [
+   "Seemeile",
+   "Seemeilen",
+   "f",
+   1
+  ],
+  "nmol": [
+   "Nanomol",
+   "Nanomol",
+   "n",
+   0
+  ],
+  "ns": [
+   "Nanosekunde",
+   "Nanosekunden",
+   "f",
+   0
+  ],
+  "nT": [
+   "Nanotesla",
+   "Nanotesla",
+   "n",
+   0
+  ],
+  "oz": [
+   "Unze",
+   "Unzen",
+   "f",
+   0
+  ],
+  "Pa": [
+   "Pascal",
+   "Pascal",
+   "n",
+   0
+  ],
+  "PB": [
+   "Petabyte",
+   "Petabyte",
+   "n",
+   0
+  ],
+  "pF": [
+   "Pikofarad",
+   "Pikofarad",
+   "n",
+   0
+  ],
+  "pm": [
+   "Pikometer",
+   "Pikometer",
+   "m",
+   0
+  ],
+  "ppb": [
+   "Teil pro Milliarde",
+   "Teile pro Milliarde",
+   "n",
+   0
+  ],
+  "ppm": [
+   "Teil pro Million",
+   "Teile pro Million",
+   "n",
+   0
+  ],
+  "PS": [
+   "Pferdestärke",
+   "Pferdestärken",
+   "f",
+   0
+  ],
+  "psi": [
+   "Psi",
+   "Psi",
+   "n",
+   0
+  ],
+  "qm": [
+   "Quadratmeter",
+   "Quadratmeter",
+   "m",
+   0
+  ],
+  "rpm": [
+   "Umdrehung pro Minute",
+   "Umdrehungen pro Minute",
+   "f",
+   0
+  ],
+  "s": [
+   "Sekunde",
+   "Sekunden",
+   "f",
+   0
+  ],
+  "s^2": [
+   "Quadratsekunde",
+   "Quadratsekunden",
+   "f",
+   0
+  ],
+  "Sek.": [
+   "Sekunde",
+   "Sekunden",
+   "f",
+   0
+  ],
+  "sm": [
+   "Seemeile",
+   "Seemeilen",
+   "f",
+   1
+  ],
+  "Std": [
+   "Stunde",
+   "Stunden",
+   "f",
+   0
+  ],
+  "Std.": [
+   "Stunde",
+   "Stunden",
+   "f",
+   0
+  ],
+  "Sv": [
+   "Sievert",
+   "Sievert",
+   "n",
+   0
+  ],
+  "s²": [
+   "Quadratsekunde",
+   "Quadratsekunden",
+   "f",
+   0
+  ],
+  "t": [
+   "Tonne",
+   "Tonnen",
+   "f",
+   0
+  ],
+  "T": [
+   "Tesla",
+   "Tesla",
+   "n",
+   1
+  ],
+  "TB": [
+   "Terabyte",
+   "Terabyte",
+   "n",
+   0
+  ],
+  "Tbit": [
+   "Terabit",
+   "Terabit",
+   "n",
+   0
+  ],
+  "TeV": [
+   "Teraelektronenvolt",
+   "Teraelektronenvolt",
+   "n",
+   0
+  ],
+  "THz": [
+   "Terahertz",
+   "Terahertz",
+   "n",
+   0
+  ],
+  "TiB": [
+   "Tebibyte",
+   "Tebibyte",
+   "n",
+   0
+  ],
+  "TW": [
+   "Terawatt",
+   "Terawatt",
+   "n",
+   0
+  ],
+  "TWh": [
+   "Terawattstunde",
+   "Terawattstunden",
+   "f",
+   0
+  ],
+  "U/min": [
+   "Umdrehung pro Minute",
+   "Umdrehungen pro Minute",
+   "f",
+   0
+  ],
+  "USD": [
+   "US-Dollar",
+   "US-Dollar",
+   "m",
+   1
+  ],
+  "V": [
+   "Volt",
+   "Volt",
+   "n",
+   0
+  ],
+  "VA": [
+   "Voltampere",
+   "Voltampere",
+   "n",
+   0
+  ],
+  "W": [
+   "Watt",
+   "Watt",
+   "n",
+   0
+  ],
+  "Wb": [
+   "Weber",
+   "Weber",
+   "n",
+   0
+  ],
+  "Wh": [
+   "Wattstunde",
+   "Wattstunden",
+   "f",
+   0
+  ],
+  "yd": [
+   "Yard",
+   "Yards",
+   "n",
+   0
+  ],
+  "£": [
+   "Pfund",
+   "Pfund",
+   "n",
+   0
+  ],
+  "¥": [
+   "Yen",
+   "Yen",
+   "m",
+   0
+  ],
+  "°": [
+   "Grad",
+   "Grad",
+   "n",
+   0
+  ],
+  "° C": [
+   "Grad Celsius",
+   "Grad Celsius",
+   "n",
+   0
+  ],
+  "° F": [
+   "Grad Fahrenheit",
+   "Grad Fahrenheit",
+   "n",
+   0
+  ],
+  "°C": [
+   "Grad Celsius",
+   "Grad Celsius",
+   "n",
+   0
+  ],
+  "°F": [
+   "Grad Fahrenheit",
+   "Grad Fahrenheit",
+   "n",
+   0
+  ],
+  "°K": [
+   "Kelvin",
+   "Kelvin",
+   "n",
+   0
+  ],
+  "µA": [
+   "Mikroampere",
+   "Mikroampere",
+   "n",
+   0
+  ],
+  "µF": [
+   "Mikrofarad",
+   "Mikrofarad",
+   "n",
+   0
+  ],
+  "µg": [
+   "Mikrogramm",
+   "Mikrogramm",
+   "n",
+   0
+  ],
+  "µH": [
+   "Mikrohenry",
+   "Mikrohenry",
+   "n",
+   0
+  ],
+  "µl": [
+   "Mikroliter",
+   "Mikroliter",
+   "m",
+   0
+  ],
+  "µm": [
+   "Mikrometer",
+   "Mikrometer",
+   "m",
+   0
+  ],
+  "µm2": [
+   "Quadratmikrometer",
+   "Quadratmikrometer",
+   "m",
+   0
+  ],
+  "µm3": [
+   "Kubikmikrometer",
+   "Kubikmikrometer",
+   "m",
+   0
+  ],
+  "µm^2": [
+   "Quadratmikrometer",
+   "Quadratmikrometer",
+   "m",
+   0
+  ],
+  "µm^3": [
+   "Kubikmikrometer",
+   "Kubikmikrometer",
+   "m",
+   0
+  ],
+  "µmol": [
+   "Mikromol",
+   "Mikromol",
+   "n",
+   0
+  ],
+  "µm²": [
+   "Quadratmikrometer",
+   "Quadratmikrometer",
+   "m",
+   0
+  ],
+  "µm³": [
+   "Kubikmikrometer",
+   "Kubikmikrometer",
+   "m",
+   0
+  ],
+  "µs": [
+   "Mikrosekunde",
+   "Mikrosekunden",
+   "f",
+   0
+  ],
+  "µS": [
+   "Mikrosiemens",
+   "Mikrosiemens",
+   "n",
+   0
+  ],
+  "µSv": [
+   "Mikrosievert",
+   "Mikrosievert",
+   "n",
+   0
+  ],
+  "µT": [
+   "Mikrotesla",
+   "Mikrotesla",
+   "n",
+   0
+  ],
+  "µV": [
+   "Mikrovolt",
+   "Mikrovolt",
+   "n",
+   0
+  ],
+  "Å": [
+   "Ångström",
+   "Ångström",
+   "n",
+   0
+  ],
+  "μA": [
+   "Mikroampere",
+   "Mikroampere",
+   "n",
+   0
+  ],
+  "μF": [
+   "Mikrofarad",
+   "Mikrofarad",
+   "n",
+   0
+  ],
+  "μg": [
+   "Mikrogramm",
+   "Mikrogramm",
+   "n",
+   0
+  ],
+  "μH": [
+   "Mikrohenry",
+   "Mikrohenry",
+   "n",
+   0
+  ],
+  "μl": [
+   "Mikroliter",
+   "Mikroliter",
+   "m",
+   0
+  ],
+  "μm": [
+   "Mikrometer",
+   "Mikrometer",
+   "m",
+   0
+  ],
+  "μmol": [
+   "Mikromol",
+   "Mikromol",
+   "n",
+   0
+  ],
+  "μs": [
+   "Mikrosekunde",
+   "Mikrosekunden",
+   "f",
+   0
+  ],
+  "μS": [
+   "Mikrosiemens",
+   "Mikrosiemens",
+   "n",
+   0
+  ],
+  "μSv": [
+   "Mikrosievert",
+   "Mikrosievert",
+   "n",
+   0
+  ],
+  "μT": [
+   "Mikrotesla",
+   "Mikrotesla",
+   "n",
+   0
+  ],
+  "μV": [
+   "Mikrovolt",
+   "Mikrovolt",
+   "n",
+   0
+  ],
+  "Ω": [
+   "Ohm",
+   "Ohm",
+   "n",
+   0
+  ],
+  "‰": [
+   "Promille",
+   "Promille",
+   "n",
+   0
+  ],
+  "″": [
+   "Zoll",
+   "Zoll",
+   "m",
+   0
+  ],
+  "€": [
+   "Euro",
+   "Euro",
+   "m",
+   0
+  ]
+ }
+}

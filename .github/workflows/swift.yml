@@ -137,8 +137,9 @@ jobs:
 
       # The Swift half of the cross-platform public-API guard (#189). Scoped to
       # IndeRunContracts on purpose: swift-api-digester cannot load a baseline for
-      # any target that depends on the InderunRouteCoreFFI binary target ("missing
-      # required module 'InderunRouteCoreFFI'"), which is every other module here.
+      # any target that depends on the InderunRouteCoreFFI or InderunSpeechTextFFI
+      # binary target ("missing required module 'InderunRouteCoreFFI'"), which is every other
+      # module here.
       # Contracts is the surface worth guarding most anyway -- it is generated from
       # the shared schemas and is what the other two SDKs mirror. Widen the scope if
       # SwiftPM ever resolves binary targets for baseline builds.

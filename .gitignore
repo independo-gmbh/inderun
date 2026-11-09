@@ -10,6 +10,7 @@ dist/
 .DS_Store
 packages/inderun-route-core-wasm/generated/*
 !packages/inderun-route-core-wasm/generated/inderun_route_core.d.ts
+!packages/inderun-route-core-wasm/generated/inderun_speech_text.d.ts
 
 .idea
 
