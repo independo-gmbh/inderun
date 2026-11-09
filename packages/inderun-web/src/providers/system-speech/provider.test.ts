@@ -269,7 +269,14 @@ describe("SystemSpeechWebProvider", () => {
 describe("speech through the engine", () => {
   const options = { text: "Hallo", locale: "de-DE" };
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("speaks the voice the plan bound, and does not claim on-device", async () => {
+    // firstAudioMs adds the wall-clock time from request to handoff; freeze it so the
+    // runtime's 90 ms comes through unchanged.
+    vi.useFakeTimers({ toFake: ["Date"] });
     const fake = fakeRuntime();
 
     const ending = await (await speak(engine(fake.runtime), options)).result;
@@ -286,10 +293,6 @@ describe("speech through the engine", () => {
   });
 
   describe("timing origin", () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
     /** A runtime whose voice lookup takes 50 ms of (fake) wall-clock time. */
     function slowVoiceRuntime(ending: { durationMs: number; firstAudioMs?: number }) {
       const fake = fakeRuntime();

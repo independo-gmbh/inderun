@@ -40,3 +40,13 @@ describe("neural speech text frontend fixture", () => {
     });
   }
 });
+
+describe("splitSentences", () => {
+  // A long run of terminators not followed by whitespace made the old boundary regex
+  // backtrack quadratically (CodeQL js/polynomial-redos).
+  it("scans a long terminator run in linear time", () => {
+    const run = "!".repeat(100_000);
+    expect(splitSentences(`a${run}x`)).toEqual([`a${run}x`]);
+    expect(splitSentences(`a${run} b`)).toEqual([`a${run}`, "b"]);
+  });
+});
