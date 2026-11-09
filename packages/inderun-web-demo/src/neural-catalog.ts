@@ -51,9 +51,30 @@ export interface NeuralCatalog {
   entries: CatalogEntry[];
 }
 
-/** An entry the demo can download: it has files, and is not left to a manual install. */
+/** The runtime formats this demo ships a runtime for: Core AI is Apple-only, so not here. */
+const DEMO_RUNTIME_FORMATS = ["onnx"];
+
+/**
+ * An entry the demo can download: it has files, is not left to a manual install, and its runtime
+ * format is one this demo ships.
+ */
 export function isInstallable(entry: CatalogEntry): boolean {
-  return entry.review.status !== "manual_install" && (entry.files?.length ?? 0) > 0;
+  return (
+    entry.review.status !== "manual_install" &&
+    (entry.files?.length ?? 0) > 0 &&
+    DEMO_RUNTIME_FORMATS.includes(entry.runtime.format)
+  );
+}
+
+/** Why an entry that is not installable cannot be downloaded here. */
+export function unavailableReason(entry: CatalogEntry): string {
+  if (
+    entry.review.status !== "manual_install" &&
+    !DEMO_RUNTIME_FORMATS.includes(entry.runtime.format)
+  ) {
+    return `the ${entry.runtime.format} runtime is not available in this browser (${entry.runtime.platforms.join(", ")} only)`;
+  }
+  return entry.review.notes ?? entry.review.status;
 }
 
 /** Every file of an entry, weights first, then each voice bundle. */

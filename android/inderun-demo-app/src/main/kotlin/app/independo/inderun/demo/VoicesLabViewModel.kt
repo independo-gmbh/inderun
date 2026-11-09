@@ -207,7 +207,7 @@ internal class VoicesLabViewModel(
             }
             val installable = entries.filter { it.isInstallable }
             val unavailable = entries.filter { !it.isInstallable }
-                .map { it to (it.reviewNotes ?: it.reviewStatus) }
+                .map { it to it.unavailableReason }
             val installed = installable.filter { downloader.isInstalled(it) }
             runtime.install(installed)
             val presets = runCatching { parsePresets(corpusSource()) }.getOrDefault(emptyList())

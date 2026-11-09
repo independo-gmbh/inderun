@@ -15,6 +15,7 @@ import {
   entryRef,
   entryTotalBytes,
   isInstallable,
+  unavailableReason,
   labProfileName,
   neuralProviderId,
   type CatalogEntry,
@@ -253,7 +254,7 @@ export async function mountVoicesLabPanel(
     downloadButton.disabled = true;
   }
   unavailable.forEach((entry) => {
-    const reason = entry.review.notes ?? entry.review.status;
+    const reason = unavailableReason(entry);
     model.append(option(entry.id, `${entry.variant} Core AI (unavailable)`, true));
     const line = document.createElement("span");
     line.textContent = `${entry.id}: unavailable, ${reason}. `;

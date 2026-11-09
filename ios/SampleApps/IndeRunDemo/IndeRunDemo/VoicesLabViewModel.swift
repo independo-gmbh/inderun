@@ -204,7 +204,7 @@ final class VoicesLabViewModel: ObservableObject {
             return
         }
         let installable = entries.filter(\.isInstallable)
-        let unavailable = entries.filter { !$0.isInstallable }.map { ($0, $0.reviewNotes ?? $0.reviewStatus) }
+        let unavailable = entries.filter { !$0.isInstallable }.map { ($0, $0.unavailableReason) }
         var installed: [CatalogEntry] = []
         for entry in installable {
             if Task.isCancelled { return }

@@ -90,6 +90,26 @@ describe("neural-model-catalog.json", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("lists the exported Core AI asset from neural-speech-assets-2 under articulino.aimodel/", () => {
+    const entry = catalog.entries.find((e) => e.id === "articulino-de-en-coreai")!;
+    expect(entry.review.status).toBe("benchmark_only");
+    expect(entry.runtime.platforms).toEqual(["ios", "macos"]);
+    const asset = (entry.files ?? []).filter((f) => f.path.startsWith("articulino.aimodel/"));
+    expect(asset.map((f) => f.path).sort()).toEqual([
+      "articulino.aimodel/main.hash",
+      "articulino.aimodel/main.mlirb",
+      "articulino.aimodel/metadata.json"
+    ]);
+    for (const file of asset) {
+      expect(file.url).toBe(
+        `https://github.com/independo-gmbh/inderun/releases/download/neural-speech-assets-2/${file.path.split("/")[1]}`
+      );
+    }
+    expect(entry.files?.map((f) => f.path)).toContain("config.json");
+    const onnx = catalog.entries.find((e) => e.id === "articulino-de-en-int8")!;
+    expect(entry.voices).toEqual(onnx.voices);
+  });
+
   for (const entry of catalog.entries) {
     describe(entry.id, () => {
       const checkFile = (file: CatalogFile) => {
@@ -130,8 +150,14 @@ describe("neural-model-catalog.json", () => {
       it("lists its graphs and frontend config among its files", () => {
         if (entry.review.status === "manual_install" && !entry.files) return;
         const paths = new Set((entry.files ?? []).map((f) => f.path));
-        for (const [role, path] of Object.entries(entry.speech.graphs)) {
-          expect(paths.has(path), `graph ${role}: ${path}`).toBe(true);
+        for (const [role, ref] of Object.entries(entry.speech.graphs)) {
+          // A Core AI graph reference is `<asset>#<function>`; the asset is a directory of files.
+          const [asset, fn] = ref.split("#");
+          const listed =
+            fn === undefined
+              ? paths.has(asset!)
+              : [...paths].some((path) => path.startsWith(`${asset}/`));
+          expect(listed, `graph ${role}: ${ref}`).toBe(true);
         }
         expect(paths.has(entry.speech.frontend.assets.config)).toBe(true);
       });
@@ -149,11 +175,12 @@ describe("catalog-to-package.json", () => {
   const fixture = load("catalog-to-package.json") as { cases: MappingCase[] };
   const catalog = load("neural-model-catalog.json") as { entries: CatalogEntry[] };
 
-  it("covers the full ONNX entry and a single-voice entry", () => {
+  it("covers the full ONNX entry, a single-voice entry and the Core AI directory asset", () => {
     const ids = fixture.cases.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain("onnx_entry_all_voices");
     expect(ids).toContain("single_voice_entry");
+    expect(ids).toContain("coreai_directory_asset");
   });
 
   for (const c of fixture.cases) {

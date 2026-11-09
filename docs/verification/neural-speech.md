@@ -23,10 +23,12 @@ mixed content), which only the `render_speed` scenario reads. Each run writes on
 [`docs/verification/reports/`](./reports/). The reports hold the raw samples and the percentiles; the tables below copy
 `p50` and `p95` from them and nothing else.
 
-- **Reports.** Four exist: `sdk_tests-apple_system_speech-Mac14-6-2026-11-09.json` (the OS voice on the Mac),
+- **Reports.** Six exist: `sdk_tests-apple_system_speech-Mac14-6-2026-11-09.json` (the OS voice on the Mac),
   `sdk_tests-articulino_onnx-int8-Mac14-6-2026-11-09.json` (Articulino on the Mac) and
   `web_voices_lab-articulino-de-en-int8-Chrome-macOS-2026-11-09.json` (Articulino in the web demo) and
-  `ios_device_bench-articulino_onnx-int8-iPhone15-4-2026-11-09.json` (Articulino on an iPhone 15).
+  `ios_device_bench-articulino_onnx-int8-iPhone15-4-2026-11-09.json` (Articulino on an iPhone 15), plus the two Core AI
+  reports described under [Core AI](#core-ai-apple-fp32): `sdk_tests-articulino_coreai-Mac14-6-2026-11-09.json` and
+  `ios_device_bench-articulino_coreai-iPhone15-4-2026-11-09.json`.
 - **Mac.** `swift test` on a Mac14,6 (macOS 27.2.0), the `sdk_tests` harness, SDK build `dev+a8ee554`.
   The OS voice and Articulino ran the same scenarios as two separate runs a few minutes apart, one report each.
 - **Web.** The Voices lab "Run corpus" button of the web demo (dev server), in Chrome on the same Mac, SDK `0.4.0+dev`, the
@@ -36,7 +38,12 @@ mixed content), which only the `render_speed` scenario reads. Each run writes on
   `ios_device_bench` harness, SDK build `dev+e0a5f0b`, German (`de-DE`) only, three rounds. The harness runs two of the
   seven scenarios, `first_call_after_prepare` and `render_speed`; the other five are listed in the report's `skipped`
   with the reason "not run by the device harness". It has no OS voice run and no extended corpus.
-- **Model package.** Articulino int8 (`articulino-de-en`, `onnx-int8`), built locally with
+- **Core AI package.** Articulino fp32 as one `articulino.aimodel` asset (`articulino-de-en-coreai`, `coreai`), the
+  `neural-speech-assets-2` files, exported as recorded in [ADR 022](../architecture/decisions/022-core-ai-runtime.md#5-conversion-record).
+  The report's `target.checksums` carry the three asset checksums. The runs use the Core AI default compute units (the
+  spike found fp32 on the GPU; the ANE is not used), and the benchmarks call `prepare` with `allowDownload: true`,
+  because specialization needs the app's consent.
+- **Model package (ONNX).** Articulino int8 (`articulino-de-en`, `onnx-int8`), built locally with
   `tools/neural-speech/prepare_articulino_package.py`, never committed. The graphs (`dit_step.onnx`, `decoder.onnx`)
   and `config.json` come from the pinned Hugging Face revision `a760ce8d513534111c7679751869fa4c45ef0e54`, checked
   against the upstream `SHA256SUMS`. `text.onnx` and the voices (`de-de-f-1`, `en-us-f-1`) are byte-identical to the
@@ -69,17 +76,18 @@ not pay again.
 
 Family by locale by platform by device. **Real** means the cell is covered by a report in this document.
 
-| Family                           | Locale           | Mac14,6 (macOS 27.2)        | Chrome on the same Mac      | iPhone 15 (iPhone15,4)                                                | Android                      | Core AI         |
-| -------------------------------- | ---------------- | --------------------------- | --------------------------- | --------------------------------------------------------------------- | ---------------------------- | --------------- |
-| Articulino ONNX int8             | `de-DE`          | Real                        | Real                        | Real (2 of 7 scenarios; the others are not run by the device harness) | pending (no device attached) | pending (#279)  |
-| Articulino ONNX int8             | `en-US`          | Real                        | Real                        | not run (device harness is `de-DE` only)                              | pending (no device attached) | pending (#279)  |
-| Articulino ONNX int8             | `de-AT`          | Real (extended corpus only) | Real (extended corpus only) | not run (device harness is `de-DE` only)                              | pending (no device attached) | pending (#279)  |
-| OS voice (`apple_system_speech`) | `de-DE`, `en-US` | Real                        | not run                     | not run                                                               | pending (no device attached) | n/a             |
-| Kokoro                           | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289) |
-| Piper                            | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289) |
-| Pocket TTS                       | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289) |
+| Family                           | Locale           | Mac14,6 (macOS 27.2)        | Chrome on the same Mac      | iPhone 15 (iPhone15,4)                                                | Android                      | Core AI (fp32)                                            |
+| -------------------------------- | ---------------- | --------------------------- | --------------------------- | --------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------- |
+| Articulino ONNX int8             | `de-DE`          | Real                        | Real                        | Real (2 of 7 scenarios; the others are not run by the device harness) | pending (no device attached) | Real (Mac, iPhone 15; see [Core AI](#core-ai-apple-fp32)) |
+| Articulino ONNX int8             | `en-US`          | Real                        | Real                        | not run (device harness is `de-DE` only)                              | pending (no device attached) | Real (Mac only)                                           |
+| Articulino ONNX int8             | `de-AT`          | Real (extended corpus only) | Real (extended corpus only) | not run (device harness is `de-DE` only)                              | pending (no device attached) | Real (Mac, extended corpus only)                          |
+| OS voice (`apple_system_speech`) | `de-DE`, `en-US` | Real                        | not run                     | not run                                                               | pending (no device attached) | n/a                                                       |
+| Kokoro                           | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289)                                           |
+| Piper                            | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289)                                           |
+| Pocket TTS                       | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289)                                           |
 
-The OS voice's own pending list is in [system-speech.md](./system-speech.md). The iPhone 15 report comes from the
+The Core AI column is the Articulino fp32 asset run through Core AI on the Mac and the iPhone 15 listed in the same row;
+it has no Chrome or Android cell because Core AI exists only on iOS and macOS. The OS voice's own pending list is in [system-speech.md](./system-speech.md). The iPhone 15 report comes from the
 `ios_device_bench` harness, which runs only `first_call_after_prepare` and `render_speed`; the other five scenarios on
 the iPhone are **not run by the device harness**, and they are not pending work. The
 [family doc](../architecture/neural-speech-provider-family.md#spike-and-device-findings) also records an earlier iPhone 15
@@ -267,6 +275,135 @@ in one session and are not a thermal or battery study.
 | `render_speed` / cold | `de_de_long`  | 36,000 / 36,000 | 991 / 991     | 0.028 / 0.028 | 1.4 / 1.4            | 1   |
 | `render_speed` / warm | `de_de_long`  | 36,000 / 36,000 | 1,023 / 1,040 | 0.028 / 0.029 | 0.0 / 21.4           | 3   |
 
+## Core AI (Apple, fp32)
+
+Articulino through the Apple Core AI runtime ([ADR 022](../architecture/decisions/022-core-ai-runtime.md)), the fp32
+`articulino.aimodel` of `neural-speech-assets-2`, read against the ONNX Runtime int8 run on the same device. Both sides
+are Articulino and the same pipeline; they differ in runtime, precision (fp32 against int8) and the graphs. The tables
+below are copied from the four reports and checked against them. Every cell copies `p50 / p95` from the reports; `n/a`
+means the report has no such metric.
+
+**Headline.** On both devices, Core AI fp32 is slower than ONNX int8 inside the pipeline: warm render speed is an RTF of
+0.064 to 0.096 on the Mac and 0.063 to 0.100 on the iPhone 15, against 0.038 to 0.041 and 0.028 to 0.030 for ONNX int8.
+The phone's first `prepare` (specialize, load and warm-up) takes 9,246 ms; the Mac's does not (see below). The spike
+record measured three things about this asset: Core AI compiles once per new input shape, the asset is fp32, and the
+work runs on the GPU (the ANE is not used). This record does not attribute the pipeline numbers to any one of them.
+
+- **Mac (Mac14,6, macOS 27.2.0).** `sdk_tests`, SDK build `dev+22c5d26`, all seven scenarios plus the extended corpus
+  (the extended rows are in the report and are not tabulated). **The Mac's Core AI specialization cache was already
+  warm from the export spike, so its `prepareMs` excludes a cold specialization**; read the Mac prepare rows as "load
+  and warm up", not as the first-install cost. The spike measured a cold specialization of 1.22 s on the same Mac
+  (ADR 022).
+- **iPhone 15 (iPhone15,4, iOS 27.2.0).** `ios_device_bench`, SDK build `dev+52f3b35`, German only, three rounds, the
+  two scenarios the device harness runs. The first `prepare` in the process includes the cold specialization of the
+  asset on the phone.
+- **Disk.** Specialization writes about 262 MB per specialized asset per app into the Core AI cache (spike, default
+  options, on the Mac); the cache is purgeable and the OS may drop it, which makes the package `not_prepared` again.
+  The spike measured it once, on the Mac; it was not measured on the phone.
+- **Consent.** The benchmarks call `prepare` with `allowDownload: true`: without it, `prepare` is skipped on a device
+  whose specialization cache is empty.
+- **Not measured.** Cold-specialization time on the Mac. There are no listening scores
+  here, so none of this says how the Core AI audio sounds; the spike's numeric match to ONNX fp32 is in ADR 022.
+
+### Mac (Mac14,6, macOS 27.2.0)
+
+Reports: `sdk_tests-articulino_coreai-Mac14-6-2026-11-09.json` against
+`sdk_tests-articulino_onnx-int8-Mac14-6-2026-11-09.json`.
+
+#### Playback
+
+| Scenario / step                               | Utterance     | Core AI first audio (ms) | ONNX int8 first audio (ms) | Core AI wall (ms) | ONNX int8 wall (ms) | n (Core AI / ONNX) |
+| --------------------------------------------- | ------------- | ------------------------ | -------------------------- | ----------------- | ------------------- | ------------------ |
+| `first_call_cold` / first in process          | `de_de_short` | 3,028 / 3,028            | 1,490 / 1,490              | 5,527 / 5,527     | 3,983 / 3,983       | 1 / 1              |
+| `first_call_cold` / new instance              | `de_de_short` | 2,196 / 2,224            | 1,396 / 1,437              | 4,702 / 4,724     | 3,890 / 3,928       | 2 / 2              |
+| `first_call_after_prepare` / first in process | `de_de_short` | 666 / 666                | 219 / 219                  | 3,168 / 3,168     | 2,727 / 2,727       | 1 / 1              |
+| `first_call_after_prepare` / new instance     | `de_de_short` | 610 / 638                | 225 / 239                  | 3,108 / 3,150     | 2,734 / 2,737       | 2 / 2              |
+| `repeat_same_voice` / call 1                  | `de_de_short` | 2,156 / 2,156            | 1,379 / 1,379              | 4,653 / 4,653     | 3,884 / 3,884       | 1 / 1              |
+| `repeat_same_voice` / call 2                  | `de_de_short` | 438 / 438                | 226 / 226                  | 2,938 / 2,938     | 2,721 / 2,721       | 1 / 1              |
+| `repeat_same_voice` / call 3                  | `de_de_short` | 423 / 423                | 214 / 214                  | 2,933 / 2,933     | 2,715 / 2,715       | 1 / 1              |
+| `repeat_same_voice` / call 4                  | `de_de_short` | 411 / 411                | 230 / 230                  | 2,921 / 2,921     | 2,714 / 2,714       | 1 / 1              |
+| `repeat_same_voice` / call 5                  | `de_de_short` | 435 / 435                | 236 / 236                  | 2,939 / 2,939     | 2,739 / 2,739       | 1 / 1              |
+| `switch_language` / call 1 (en-US)            | `en_us_short` | 2,163 / 2,163            | 1,397 / 1,397              | 5,672 / 5,672     | 4,893 / 4,893       | 1 / 1              |
+| `switch_language` / call 2 (de-DE)            | `de_de_short` | 738 / 738                | 216 / 216                  | 3,228 / 3,228     | 2,712 / 2,712       | 1 / 1              |
+| `switch_language` / call 3 (en-US)            | `en_us_short` | 486 / 486                | 256 / 256                  | 3,985 / 3,985     | 3,745 / 3,745       | 1 / 1              |
+| `speak_after_stop` / warm-up                  | `en_us_short` | 2,195 / 2,195            | 1,457 / 1,457              | 5,688 / 5,688     | 4,956 / 4,956       | 1 / 1              |
+| `speak_after_stop` / next after stop          | `en_us_short` | 408 / 424                | 288 / 310                  | 3,907 / 3,933     | 3,791 / 3,801       | 3 / 3              |
+| `text_length` / warm-up                       | `de_de_short` | 2,653 / 2,653            | 1,361 / 1,361              | 5,160 / 5,160     | 3,856 / 3,856       | 1 / 1              |
+| `text_length` / short                         | `de_de_short` | 417 / 417                | 245 / 245                  | 2,926 / 2,926     | 2,743 / 2,743       | 1 / 1              |
+| `text_length` / long                          | `de_de_long`  | 840 / 840                | 286 / 286                  | 36,966 / 36,966   | 36,429 / 36,429     | 1 / 1              |
+
+#### Prepare and stop
+
+| Scenario / step                                        | Utterance     | Metric          | Core AI (ms)  | ONNX int8 (ms) | n (Core AI / ONNX) |
+| ------------------------------------------------------ | ------------- | --------------- | ------------- | -------------- | ------------------ |
+| `first_call_after_prepare` / prepare, first in process | `de_de_short` | `prepareMs`     | 1,539 / 1,539 | 1,178 / 1,178  | 1 / 1              |
+| `first_call_after_prepare` / prepare, new instance     | `de_de_short` | `prepareMs`     | 1,520 / 1,528 | 1,155 / 1,313  | 2 / 2              |
+| `speak_after_stop` / stop                              | `en_us_long`  | `stopLatencyMs` | 28.9 / 32.9   | 32.9 / 33.6    | 3 / 3              |
+
+#### Render speed
+
+| Scenario / step       | Utterance     | Core AI audio (ms) | ONNX int8 audio (ms) | Core AI render (ms) | ONNX int8 render (ms) | Core AI RTF   | ONNX int8 RTF | n (Core AI / ONNX) |
+| --------------------- | ------------- | ------------------ | -------------------- | ------------------- | --------------------- | ------------- | ------------- | ------------------ |
+| `render_speed` / cold | `de_de_short` | 2,350 / 2,350      | 2,350 / 2,350        | 2,469 / 2,469       | 1,289 / 1,289         | 1.051 / 1.051 | 0.549 / 0.549 | 1 / 1              |
+| `render_speed` / warm | `de_de_short` | 2,350 / 2,350      | 2,350 / 2,350        | 225 / 232           | 96 / 101              | 0.096 / 0.099 | 0.041 / 0.043 | 3 / 3              |
+| `render_speed` / cold | `de_de_long`  | 35,960 / 35,960    | 36,000 / 36,000      | 4,460 / 4,460       | 1,351 / 1,351         | 0.124 / 0.124 | 0.038 / 0.038 | 1 / 1              |
+| `render_speed` / warm | `de_de_long`  | 35,960 / 35,960    | 36,000 / 36,000      | 2,303 / 2,310       | 1,353 / 1,561         | 0.064 / 0.064 | 0.038 / 0.043 | 3 / 3              |
+
+#### Peak memory growth
+
+| Scenario / step                                        | Utterance     | Core AI (MB)  | ONNX int8 (MB) |
+| ------------------------------------------------------ | ------------- | ------------- | -------------- |
+| `first_call_cold` / first in process                   | `de_de_short` | 380.1 / 380.1 | 253.7 / 253.7  |
+| `first_call_cold` / new instance                       | `de_de_short` | 35.3 / 323.4  | 2.8 / 116.8    |
+| `first_call_after_prepare` / prepare, first in process | `de_de_short` | 25.4 / 25.4   | 0.7 / 0.7      |
+| `first_call_after_prepare` / first in process          | `de_de_short` | 12.8 / 12.8   | 0.6 / 0.6      |
+| `first_call_after_prepare` / prepare, new instance     | `de_de_short` | 25.5 / 25.5   | 0.4 / 0.6      |
+| `first_call_after_prepare` / new instance              | `de_de_short` | 11.8 / 12.7   | 0.8 / 0.9      |
+| `render_speed` / cold                                  | `de_de_short` | 320.4 / 320.4 | 39.4 / 39.4    |
+| `render_speed` / cold                                  | `de_de_long`  | 160.8 / 160.8 | 4.9 / 4.9      |
+
+### iPhone 15 (iPhone15,4, iOS 27.2.0)
+
+Reports: `ios_device_bench-articulino_coreai-iPhone15-4-2026-11-09.json` against
+`ios_device_bench-articulino_onnx-int8-iPhone15-4-2026-11-09.json`. Only `first_call_after_prepare` and `render_speed`
+ran.
+
+#### Playback
+
+| Scenario / step                               | Utterance     | Core AI first audio (ms) | ONNX int8 first audio (ms) | Core AI wall (ms) | ONNX int8 wall (ms) | n (Core AI / ONNX) |
+| --------------------------------------------- | ------------- | ------------------------ | -------------------------- | ----------------- | ------------------- | ------------------ |
+| `first_call_after_prepare` / first in process | `de_de_short` | 2,045 / 2,045            | 322 / 322                  | 4,457 / 4,457     | 2,719 / 2,719       | 1 / 1              |
+| `first_call_after_prepare` / new instance     | `de_de_short` | 603 / 639                | 189 / 217                  | 3,000 / 3,037     | 2,594 / 2,614       | 2 / 2              |
+
+The warm-up in `prepare` runs each function once at the smallest shapes (N = L = F = 2), not at the sentence's shapes, so the first sentence after `prepare` (2,045 ms to first audio) is still slower than a later one (603 ms): it loads the first sentence's own shapes.
+
+#### Prepare and stop
+
+| Scenario / step                                        | Utterance     | Metric      | Core AI (ms)  | ONNX int8 (ms) | n (Core AI / ONNX) |
+| ------------------------------------------------------ | ------------- | ----------- | ------------- | -------------- | ------------------ |
+| `first_call_after_prepare` / prepare, first in process | `de_de_short` | `prepareMs` | 9,246 / 9,246 | 486 / 486      | 1 / 1              |
+| `first_call_after_prepare` / prepare, new instance     | `de_de_short` | `prepareMs` | 536 / 3,703   | 227 / 233      | 2 / 2              |
+
+#### Render speed
+
+| Scenario / step       | Utterance     | Core AI audio (ms) | ONNX int8 audio (ms) | Core AI render (ms) | ONNX int8 render (ms) | Core AI RTF   | ONNX int8 RTF | n (Core AI / ONNX) |
+| --------------------- | ------------- | ------------------ | -------------------- | ------------------- | --------------------- | ------------- | ------------- | ------------------ |
+| `render_speed` / cold | `de_de_short` | 2,350 / 2,350      | 2,350 / 2,350        | 1,020 / 1,020       | 302 / 302             | 0.434 / 0.434 | 0.128 / 0.128 | 1 / 1              |
+| `render_speed` / warm | `de_de_short` | 2,350 / 2,350      | 2,350 / 2,350        | 235 / 257           | 71 / 72               | 0.100 / 0.109 | 0.030 / 0.030 | 3 / 3              |
+| `render_speed` / cold | `de_de_long`  | 35,960 / 35,960    | 36,000 / 36,000      | 8,102 / 8,102       | 991 / 991             | 0.225 / 0.225 | 0.028 / 0.028 | 1 / 1              |
+| `render_speed` / warm | `de_de_long`  | 35,960 / 35,960    | 36,000 / 36,000      | 2,260 / 2,268       | 1,023 / 1,040         | 0.063 / 0.063 | 0.028 / 0.029 | 3 / 3              |
+
+#### Peak memory growth
+
+| Scenario / step                                        | Utterance     | Core AI (MB)  | ONNX int8 (MB) |
+| ------------------------------------------------------ | ------------- | ------------- | -------------- |
+| `first_call_after_prepare` / prepare, first in process | `de_de_short` | 396.2 / 396.2 | 318.8 / 318.8  |
+| `first_call_after_prepare` / first in process          | `de_de_short` | 34.1 / 34.1   | 20.9 / 20.9    |
+| `first_call_after_prepare` / prepare, new instance     | `de_de_short` | 277.8 / 291.6 | 24.9 / 75.8    |
+| `first_call_after_prepare` / new instance              | `de_de_short` | 11.9 / 23.5   | 3.6 / 3.8      |
+| `render_speed` / cold                                  | `de_de_short` | 300.5 / 300.5 | 89.2 / 89.2    |
+| `render_speed` / cold                                  | `de_de_long`  | 6.4 / 6.4     | 1.4 / 1.4      |
+
 ## Reproduce
 
 Each harness writes the `inderun-speech-benchmark/1` report (`contracts/fixtures/speech/speech-benchmark-report.schema.json`)
@@ -276,6 +413,11 @@ and names it `<harness>-<target>-<device>-<date>.json`, with the device name red
 INDERUN_SPEECH_BENCHMARK_MODEL_ID=articulino-de-en-int8 INDERUN_SPEECH_BENCHMARK_OUT=<dir> swift test --filter
 SpeechBenchmarkTests`. Without `MODEL_DIR` only the OS voice runs. `INDERUN_SPEECH_BENCHMARK_SDK_VERSION` sets
   `sdkVersion` (default `dev`).
+- **Core AI on the Mac.** As the Mac run above with `INDERUN_COREAI_MODEL_DIR=<Core AI package dir>`, which adds the
+  `articulino_coreai` target (macOS 27); `INDERUN_SPEECH_BENCHMARK_MODEL_ID_COREAI` sets its model id. The package comes
+  from `prepare_coreai_package.py` around the `neural-speech-assets-2` files.
+- **Core AI on the iPhone.** The same `ios_device_bench.sh` command with a Core AI package; the hook builds the Core AI
+  provider for a `format: "coreai"` package (see `tools/neural-speech/README.md`).
 - **Android.** `cd android && ./gradlew :inderun-kotlin:connectedAndroidTest
 -Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true` plus, as needed,
   `-Pandroid.testInstrumentationRunnerArguments.speechBenchmarkModelDir=<package dir on the device>`,
@@ -294,7 +436,7 @@ articulino-de-en-int8` (see `tools/neural-speech/README.md`). It runs two of the
 - **iPhone 15 (iPhone15,4):** the other five scenarios (`first_call_cold`, `repeat_same_voice`, `switch_language`, `speak_after_stop`, `text_length`), the OS voice and `en-US` are not run by the device harness.
 - **Android:** pending, no device attached.
 - **OS voice in the browser:** not run.
-- **Core AI:** pending, after the export spike (#279).
+- **Core AI:** cold specialization time on the Mac (its cache was warm). No demo links a Core AI runtime path, so the Voices lab shows the catalog entry as unavailable in all three demos.
 - **Kokoro, Piper, Pocket TTS:** deferred (#289).
 - **Supertonic 3:** not integrated. Its upstream repositories are archived and unmaintained since September 2026 (owner decision, 2026-11-09, #277).
 - **Listening scores:** none yet (PR 12).

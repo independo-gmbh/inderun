@@ -92,9 +92,15 @@ functions, in the order text, dit_step, decoder. The voices go through the same 
 ```
 
 `integrity.checksums` lists the sha256 of every file above except `model-package.json`; a directory asset contributes
-each contained file under its path relative to the package. The `.aimodel` comes from the coreai-torch export (spike
-0b, see `docs/architecture/decisions/022-core-ai-runtime.md`); this tool does not run the export. The SDK's gated tests
+each contained file under its path relative to the package. The `.aimodel` comes from the coreai-torch export (the
+procedure, pinned versions, wrapper changes and bounds are in the conversion record,
+`docs/architecture/decisions/022-core-ai-runtime.md`, section 5); this tool does not run the export, and the export is not
+byte-reproducible, so use the published asset (release `neural-speech-assets-2`). The SDK's gated tests
 read the directory from `INDERUN_COREAI_MODEL_DIR`.
+
+The published asset (`neural-speech-assets-2`) carries [`coreai-release/MODIFICATIONS.md`](coreai-release/MODIFICATIONS.md),
+the Apache-2.0 section 4(b) note for the derived `.aimodel` (re-traced stages, int32 inputs, baked time embedding,
+matmul iSTFT; upstream commit `66f79f60`, weights revision `38ad5471`).
 
 ## Build the demo assets
 
@@ -126,7 +132,7 @@ device, so the script uses the iOS demo app as the host:
 tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 3] [--model-id <id>] [--sdk-version <v>] [--out <file>]
 ```
 
-It applies `ios-device-bench.patch` (a launch-argument hook in `IndeRunDemoApp.swift`) to the working tree, builds the
+It applies `ios-device-bench.patch` (a launch-argument hook in `IndeRunDemoApp.swift`, and the `IndeRunCoreAIProviders` link in the demo's `project.pbxproj`) to the working tree, builds the
 demo app in Release, installs it over the demo on the phone, copies the package into the app's Documents, runs two
 scenarios of the shared corpus through the public speech API (`first_call_after_prepare`: per round a new engine, a
 timed `prepare` and one `speak`; `render_speed`: `de_de_short` and `de_de_long` through `generateSpeech`, one cold
@@ -142,7 +148,12 @@ the working tree is unchanged. `xcrun devicectl list devices` shows the device i
 and in Developer Mode, and the demo project needs a signing team. Each sample also records `peakRssDeltaBytes` (a 20
 ms `phys_footprint` sampler); the log lines add the thermal state. Reinstall the demo from Xcode to drop the hook from
 the phone, and delete the app or its Documents to free the package's space. If the demo's `IndeRunDemoApp.swift`
-changes, refresh the patch.
+changes, refresh the patch. Both files must be clean before the script starts, and both are reverted on exit.
+
+The package may be an ONNX one or a Core AI one (`format: "coreai"` in `model-package.json`, for example the output of
+`prepare_coreai_package.py`): the hook builds the Core AI provider for the latter, so the same command compares the two on the
+same phone (target `articulino_coreai` against `articulino_onnx-<variant>`). A Core AI package needs iOS 27 on the phone; its
+first run specializes the asset, which takes a few seconds and shows up in the cold `prepareMs`.
 
 ## Voice bundle format
 

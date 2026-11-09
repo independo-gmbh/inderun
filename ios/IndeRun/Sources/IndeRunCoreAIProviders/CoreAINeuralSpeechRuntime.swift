@@ -28,29 +28,49 @@ public struct CoreAINeuralSpeechRuntimeOptions: Sendable {
 /// voice file exist, and runs the Articulino pipeline through ``CoreAISpeechGraphExecutor``.
 /// One pipeline runtime is built and cached per package id and version.
 ///
-/// A `.aimodel` must be specialized for the device before it loads, which can take minutes. That is
-/// the consent-gated step: `availability` reports `readiness: .notPrepared` while any graph file is
+/// A `.aimodel` must be specialized for the device before it loads (about 1.2 s for the Articulino
+/// model on a Mac; the first prepare, with load and warm-up, about 9 s on an iPhone 15). That is the
+/// consent-gated step: `availability` reports `readiness: .notPrepared` while any graph file is
 /// missing from `AIModelCache`, and only `prepare` specializes. `synthesize` refuses until a
 /// `prepare` succeeded, so neither it nor `availability` ever specializes. Below iOS 27 / macOS 27,
 /// or on an SDK without Core AI, every call refuses with ``CoreAISupport/unavailableReason``.
 public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Sendable {
     private actor State {
-        private var runtimes: [String: ArticulinoRuntime] = [:]
+        private var pipelines: [String: Pipeline] = [:]
         private var prepared: Set<String> = []
+        /// Packages whose graphs ran their warm-up.
+        private var warmedUp: Set<String> = []
         /// Why the last `prepare` of a package failed, by package key.
         private var failures: [String: String] = [:]
         /// Specializations in flight, by file, so concurrent `prepare` calls specialize a file once.
         private var specializing: [URL: Task<Void, Error>] = [:]
 
-        func runtime(for key: String, make: () -> ArticulinoRuntime?) -> ArticulinoRuntime? {
-            if let existing = runtimes[key] { return existing }
+        func pipeline(for key: String, make: () -> Pipeline?) -> Pipeline? {
+            if let existing = pipelines[key] { return existing }
             guard let created = make() else { return nil }
-            runtimes[key] = created
+            pipelines[key] = created
             return created
         }
 
         func clearRuntimes() {
-            runtimes.removeAll()
+            pipelines.removeAll()
+        }
+
+        func isWarmedUp(_ key: String) -> Bool {
+            warmedUp.contains(key)
+        }
+
+        func markWarmedUp(_ key: String) {
+            warmedUp.insert(key)
+        }
+
+        /// Drops `pipeline` when it is still the one cached under `key`, so the next `prepare` loads it
+        /// afresh. A concurrent `prepare` may already have replaced it; that one is left alone.
+        func discard(_ key: String, ifSameAs pipeline: Pipeline) -> Bool {
+            guard let cached = pipelines[key], cached === pipeline else { return false }
+            warmedUp.remove(key)
+            pipelines[key] = nil
+            return true
         }
 
         func finishPrepare(_ key: String, _ result: NeuralSpeechAvailability) {
@@ -84,6 +104,17 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
         }
     }
 
+    /// A class, so a discard can tell its own pipeline from one a concurrent `prepare` cached since.
+    private final class Pipeline: Sendable {
+        let runtime: ArticulinoRuntime
+        let executor: any SpeechGraphExecutor
+
+        init(runtime: ArticulinoRuntime, executor: any SpeechGraphExecutor) {
+            self.runtime = runtime
+            self.executor = executor
+        }
+    }
+
     private struct Resolved {
         let key: String
         let directory: URL
@@ -111,6 +142,8 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
     var isSpecialized: ((URL) -> Bool)?
     /// `nil` runs `AIModel.specialize(contentsOf:options:)`.
     var specialize: ((URL) async throws -> Void)?
+    /// `nil` builds the Core AI executor. A replacement skips the bounds check and the framework.
+    var makeExecutorOverride: ((URL) -> any SpeechGraphExecutor)?
     /// The inference functions an asset declares, `nil` when it has no summary. `nil` reads the
     /// `AIModelAsset` summary.
     var assetFunctionNames: ((URL) throws -> [String]?)?
@@ -136,11 +169,19 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
     }
 
     /// Every outcome, an early refusal included, is remembered for the next `synthesize`.
+    ///
+    /// A prepare is work `close()` cancels and waits for: the specialization it is waiting on is
+    /// cancelled (and, should `AIModel.specialize` not stop early, awaited), no later graph file is
+    /// specialized, nothing is loaded or warmed up, and the prepare ends `runtime closed`. So
+    /// nothing a prepare does outlives `close()`.
     public func prepare(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
-        if lifecycle.isClosed { return Self.closedAvailability }
-        let result = await prepareResolving(modelPackage)
-        await state.finishPrepare(Self.key(modelPackage), result)
-        return result
+        let result = await lifecycle.cancellingOnClose { () -> NeuralSpeechAvailability in
+            let result = await self.prepareResolving(modelPackage)
+            if self.lifecycle.isClosed { return Self.closedAvailability }
+            await self.state.finishPrepare(Self.key(modelPackage), result)
+            return result
+        }
+        return result ?? Self.closedAvailability
     }
 
     private func prepareResolving(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
@@ -154,21 +195,40 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
         }
         // Runs on every prepare: a cache hit is cheap, and a purged cache is re-specialized here.
         for file in resolved.files {
+            if lifecycle.isClosed { return Self.closedAvailability }
             let url = resolved.directory.appendingPathComponent(file)
             guard !specialized(url) else { continue }
             let specialization = await state.specialization(of: url) { try await self.specializeFile(url) }
-            let outcome = await specialization.result
+            let lifecycle = lifecycle
+            let outcome = await withTaskCancellationHandler {
+                await specialization.result
+            } onCancel: {
+                // Only close cancels a specialization: a concurrent prepare of the same package may be
+                // waiting for it too, so a cancelled caller keeps waiting instead.
+                if lifecycle.isClosed { specialization.cancel() }
+            }
             await state.finishSpecialization(of: url)
             if case let .failure(error) = outcome {
                 let message = (error as? NeuralSpeechRuntimeError)?.message ?? error.localizedDescription
                 return NeuralSpeechAvailability(available: false, reason: "specialization failed: \(file): \(message)")
             }
         }
-        guard let runtime = await pipelineRuntime(resolved) else {
+        guard let pipeline = await pipelineFor(resolved) else {
             if lifecycle.isClosed { return Self.closedAvailability }
             return NeuralSpeechAvailability(available: false, reason: CoreAISupport.unavailableReason)
         }
-        return await runtime.prepare(modelPackage)
+        let prepared = await pipeline.runtime.prepare(modelPackage)
+        guard prepared.available, !(await state.isWarmedUp(resolved.key)) else { return prepared }
+        // The first call per function, and per new shape, compiles; do it here, not in the first sentence.
+        let roles = resolved.references.map(\.role)
+        if let reason = await warmUpCoreAIGraphs(executor: pipeline.executor, roles: roles) {
+            // Leave no half-loaded runtime behind: the next prepare loads the graphs again.
+            _ = await state.discard(resolved.key, ifSameAs: pipeline)
+            await pipeline.executor.close()
+            return NeuralSpeechAvailability(available: false, reason: reason)
+        }
+        await state.markWarmedUp(resolved.key)
+        return prepared
     }
 
     /// Forwards to the Articulino hook; any other pipeline keeps the text (it is refused at `availability`).
@@ -193,7 +253,7 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
                 throw NeuralSpeechRuntimeError(kind: .unavailable, message: refusal.reason ?? "unavailable")
             case let .ready(resolved):
                 let preparation = await self.state.preparation(resolved.key)
-                guard preparation.prepared, let runtime = await self.pipelineRuntime(resolved) else {
+                guard preparation.prepared, let runtime = await self.pipelineFor(resolved)?.runtime else {
                     if self.lifecycle.isClosed { throw NeuralSpeechRuntimeError.runtimeClosed }
                     let reason = preparation.failure.map { ": \($0)" } ?? ""
                     throw NeuralSpeechRuntimeError(kind: .unavailable, message: "model not prepared: \(resolved.key)\(reason)")
@@ -261,6 +321,8 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
         // The pipeline reads the config and every voice file only after specialization, so their
         // absence is refused here instead.
         let assets = [speech.frontend?.assets?["config"]].compactMap { $0 } + speech.voices.compactMap(\.file)
+        var voiceFiles: [(id: String, file: String)] = []
+        for voice in speech.voices { if let file = voice.file { voiceFiles.append((voice.id, file)) } }
         for file in assets {
             do {
                 try checkPackageFileName(file)
@@ -272,6 +334,14 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
             guard FileManager.default.fileExists(atPath: directory.appendingPathComponent(file).path) else {
                 return refused("model files missing: \(file)")
             }
+        }
+        // The export fixes the voice cache's prompt length; another length would reach Core AI at the
+        // first sentence, so the package is unavailable now and routing skips it.
+        for (id, file) in voiceFiles {
+            guard let frames = voicePromptFrames(at: directory.appendingPathComponent(file)),
+                  frames != CoreAIArticulinoSignature.promptFrames else { continue }
+            let needed = CoreAIArticulinoSignature.promptFrames
+            return refused("voice prompt length unsupported by the Core AI export: \(id) has P = \(frames), needs P = \(needed)")
         }
         return .ready(Resolved(key: Self.key(modelPackage), directory: directory, files: files, references: references))
     }
@@ -305,19 +375,23 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
         .refused(NeuralSpeechAvailability(available: false, reason: reason))
     }
 
-    /// The cached pipeline runtime of the package, or `nil` where Core AI cannot run.
-    private func pipelineRuntime(_ resolved: Resolved) async -> ArticulinoRuntime? {
+    /// The cached pipeline (runtime and executor) of the package, or `nil` where Core AI cannot run.
+    private func pipelineFor(_ resolved: Resolved) async -> Pipeline? {
         let options = options
         let lifecycle = lifecycle
-        return await state.runtime(for: resolved.key) {
-            guard let executor = lifecycle.guarded(make: { Self.makeExecutor(directory: resolved.directory) }) else { return nil }
-            return ArticulinoRuntime(options: ArticulinoRuntimeOptions(
+        let override = makeExecutorOverride
+        return await state.pipeline(for: resolved.key) {
+            guard let executor = lifecycle.guarded(make: {
+                override?(resolved.directory) ?? Self.makeExecutor(directory: resolved.directory)
+            }) else { return nil }
+            let runtime = ArticulinoRuntime(options: ArticulinoRuntimeOptions(
                 executor: executor,
                 files: DirectoryPackageFiles(directory: resolved.directory),
                 noise: options.noise,
                 speed: options.speed,
                 pauseMs: options.pauseMs
             ))
+            return Pipeline(runtime: runtime, executor: executor)
         }
     }
 

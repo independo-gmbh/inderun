@@ -1,12 +1,55 @@
+diff --git a/ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj/project.pbxproj b/ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj/project.pbxproj
+index c673ccc..25f3c5f 100644
+--- a/ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj/project.pbxproj
++++ b/ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj/project.pbxproj
+@@ -19,6 +19,7 @@
+ 		A10000000000000000000007 /* IndeRunAppleProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000034 /* IndeRunAppleProviders */; };
+ 		A10000000000000000000008 /* IndeRunOpenAIProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000035 /* IndeRunOpenAIProviders */; };
+ 		A10000000000000000000009 /* IndeRunOnnxProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000036 /* IndeRunOnnxProviders */; };
++		A1000000000000000000000D /* IndeRunCoreAIProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000037 /* IndeRunCoreAIProviders */; };
+ 		A20000000000000000000012 /* NeuralCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* NeuralCatalog.swift */; };
+ 		A20000000000000000000022 /* DemoNeuralModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* DemoNeuralModelDownloader.swift */; };
+ 		A20000000000000000000032 /* VoicesLabViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000031 /* VoicesLabViewModel.swift */; };
+@@ -79,6 +80,7 @@
+ 				A10000000000000000000007 /* IndeRunAppleProviders in Frameworks */,
+ 				A10000000000000000000008 /* IndeRunOpenAIProviders in Frameworks */,
+ 				A10000000000000000000009 /* IndeRunOnnxProviders in Frameworks */,
++				A1000000000000000000000D /* IndeRunCoreAIProviders in Frameworks */,
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 0;
+ 		};
+@@ -182,6 +184,7 @@
+ 				A10000000000000000000034 /* IndeRunAppleProviders */,
+ 				A10000000000000000000035 /* IndeRunOpenAIProviders */,
+ 				A10000000000000000000036 /* IndeRunOnnxProviders */,
++				A10000000000000000000037 /* IndeRunCoreAIProviders */,
+ 			);
+ 			productName = IndeRunDemo;
+ 			productReference = A10000000000000000000010 /* IndeRunDemo.app */;
+@@ -516,6 +519,11 @@
+ 			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
+ 			productName = IndeRunOnnxProviders;
+ 		};
++		A10000000000000000000037 /* IndeRunCoreAIProviders */ = {
++			isa = XCSwiftPackageProductDependency;
++			package = A10000000000000000000030 /* XCLocalSwiftPackageReference "../../.." */;
++			productName = IndeRunCoreAIProviders;
++		};
+ /* End XCSwiftPackageProductDependency section */
+ 	};
+ 	rootObject = A10000000000000000000070 /* Project object */;
 diff --git a/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift b/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
-index 127d2c4..b9db2ac 100644
+index 127d2c4..a9bab1e 100644
 --- a/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
 +++ b/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
-@@ -1,10 +1,286 @@
+@@ -1,10 +1,307 @@
  import SwiftUI
 +import Darwin
 +import IndeRunContracts
 +import IndeRunCore
++#if canImport(CoreAI)
++import IndeRunCoreAIProviders
++#endif
 +import IndeRunOnnxProviders
 +import IndeRunSwift
  
@@ -23,13 +66,14 @@ index 127d2c4..b9db2ac 100644
 +    }
 +}
 +
-+/// Times the ONNX Articulino package on a device through the public speech API and writes the shared
++/// Times the ONNX or Core AI Articulino package on a device through the public speech API and writes the shared
 +/// `inderun-speech-benchmark/1` report (`contracts/fixtures/speech/speech-benchmark-report.schema.json`) to
 +/// `Documents/bench.json`, plus a text log (no utterance text) to `Documents/bench.txt`. Runs the
 +/// `first_call_after_prepare` and `render_speed` scenarios with the same metrics as
 +/// `ios/IndeRun/Tests/IndeRunTests/SpeechBenchmarkTests.swift`, so device and Mac numbers compare. The report
 +/// builder is reimplemented here because the demo app cannot import test sources.
 +enum DeviceBenchScratch {
++    enum BenchError: Error { case coreAIUnavailable, prepareNotReady(String) }
 +    struct Utterance { let id: String; let locale: String; let text: String }
 +    struct Sample {
 +        let scenario: String, step: String, utteranceId: String, requestedLocale: String
@@ -133,6 +177,7 @@ index 127d2c4..b9db2ac 100644
 +    /// The error class and `details.code` of an IndeRun error, the type name of anything else. An error message can
 +    /// echo the request, and a report never carries utterance text.
 +    static func skipReason(_ error: Error) -> String {
++        if case BenchError.prepareNotReady(let status) = error { return "prepare \(status)" }
 +        guard let exception = error as? IndeRunException else { return String(describing: type(of: error)) }
 +        if let code = exception.details?["code"]?.value as? String { return "\(exception.errorClass.rawValue): \(code)" }
 +        return exception.errorClass.rawValue
@@ -174,7 +219,18 @@ index 127d2c4..b9db2ac 100644
 +            var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 +            json["source"] = ["sourceType": "filesystem", "ref": directory.path]
 +            let package = try JSONDecoder().decode(ModelPackage.self, from: JSONSerialization.data(withJSONObject: json))
-+            let makeProvider = { NeuralSpeechProvider(options: NeuralSpeechProviderOptions(modelPackage: package, runtime: OnnxNeuralSpeechRuntime())) }
++            let makeProvider: () -> NeuralSpeechProvider
++            if package.format == .coreai {
++                // A `coreai` package runs through Core AI (iOS 27); the first run specializes the asset, a few seconds.
++                #if canImport(CoreAI)
++                guard #available(iOS 27, *) else { throw BenchError.coreAIUnavailable }
++                makeProvider = { makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions(modelPackage: package)) }
++                #else
++                throw BenchError.coreAIUnavailable
++                #endif
++            } else {
++                makeProvider = { NeuralSpeechProvider(options: NeuralSpeechProviderOptions(modelPackage: package, runtime: OnnxNeuralSpeechRuntime())) }
++            }
 +            target["name"] = "articulino_\(package.variant ?? "default")"
 +            target["providerId"] = makeProvider().describe().id
 +            // The catalog entry id when the script passes one (the Voices lab's id), else the package id.
@@ -205,8 +261,13 @@ index 127d2c4..b9db2ac 100644
 +                for trial in 0 ..< rounds {
 +                    let engine = try engine()
 +                    let started = Date()
-+                    let (_, preparePeak) = try await measuringPeak {
-+                        try await engine.prepare(PrepareRequest(tasks: ["text_to_speech"], locale: short.locale)).result()
++                    // allowDownload is the benchmark's consent: Core AI specialization counts as a download.
++                    let (prepared, preparePeak) = try await measuringPeak {
++                        try await engine.prepare(PrepareRequest(tasks: ["text_to_speech"], locale: short.locale, allowDownload: true)).result()
++                    }
++                    // Status word only, never the free-text reason.
++                    if let item = prepared.items.first(where: { $0.status != .prepared && $0.status != .alreadyReady }) {
++                        throw BenchError.prepareNotReady(item.status.rawValue)
 +                    }
 +                    record("first_call_after_prepare", trial == 0 ? "prepare, first in process" : "prepare, new instance", short,
 +                           ["prepareMs": Date().timeIntervalSince(started) * 1000], peak: preparePeak)

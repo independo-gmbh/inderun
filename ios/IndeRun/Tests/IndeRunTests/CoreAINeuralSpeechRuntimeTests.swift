@@ -139,6 +139,20 @@ final class CoreAINeuralSpeechRuntimeTests: XCTestCase {
         }
     }
 
+    func testAVoiceWhosePromptIsNot125FramesIsUnavailableAndNothingSpecializes() async throws {
+        let cache = SpecializationCache()
+        let runtime = makeRuntime(isSpecialized: cache.contains, specialize: cache.specialize)
+        let package = try makePackage(directory: try makeDirectory())
+        try writeValidPipelineFiles(package, promptFrames: 124)
+        let expected = NeuralSpeechAvailability(
+            available: false, reason: "voice prompt length unsupported by the Core AI export: v has P = 124, needs P = 125"
+        )
+        for availability in [await runtime.availability(package), await runtime.prepare(package)] {
+            XCTAssertEqual(availability, expected)
+        }
+        XCTAssertEqual(cache.calls, 0)
+    }
+
     // MARK: - Readiness and consent
 
     func testUnspecializedFilesReportNotPrepared() async throws {
@@ -312,6 +326,82 @@ final class CoreAINeuralSpeechRuntimeTests: XCTestCase {
         }
     }
 
+    // MARK: - Warm-up
+
+    func testPrepareWarmsUpEachFunctionOnce() async throws {
+        let executor = RecordingExecutor()
+        let runtime = makeRuntime()
+        runtime.makeExecutorOverride = { _ in executor }
+        let package = try makePackage(directory: try makeDirectory())
+        try writeValidPipelineFiles(package)
+        let first = await runtime.prepare(package)
+        XCTAssertTrue(first.available, first.reason ?? "")
+        let second = await runtime.prepare(package)
+        XCTAssertTrue(second.available, second.reason ?? "")
+        // Once per function, at the smallest shapes, with the declared dtypes; a second prepare adds none.
+        XCTAssertEqual(executor.calls.map(\.role), ["decoder", "dit_step", "text"])
+        let text = try XCTUnwrap(executor.calls.first { $0.role == "text" }).inputs
+        XCTAssertEqual(text["text_ids"], SpeechTensor(shape: [1, 2], data: .i64([0, 0])))
+        XCTAssertEqual(text["voice_vector"]?.shape, [1, 768])
+        let dit = try XCTUnwrap(executor.calls.first { $0.role == "dit_step" }).inputs
+        XCTAssertEqual(dit["x"]?.shape, [1, 2, 96])
+        XCTAssertEqual(dit["voice_cache"]?.shape, [8, 2, 1, 6, 125, 64])
+        XCTAssertEqual(executor.calls.first { $0.role == "decoder" }?.inputs["latents"]?.shape, [1, 2, 96])
+    }
+
+    func testWarmUpFailureReportsUnavailable() async throws {
+        let executor = RecordingExecutor(failing: "dit_step")
+        let runtime = makeRuntime()
+        runtime.makeExecutorOverride = { _ in executor }
+        let package = try makePackage(directory: try makeDirectory())
+        try writeValidPipelineFiles(package)
+        let prepared = await runtime.prepare(package)
+        XCTAssertFalse(prepared.available)
+        XCTAssertEqual(prepared.reason, "warm-up failed: dit_step: graph failed: dit_step: boom")
+        XCTAssertEqual(executor.closeCount, 1)
+        // Nothing half-loaded stays behind: synthesize refuses, and a later prepare loads again.
+        let input = NeuralSpeechSynthesisInput(modelPackage: package, text: "a", locale: "de-DE", voiceId: "v")
+        do {
+            for try await _ in runtime.synthesize(input) {}
+            XCTFail("expected a refusal")
+        } catch let error as NeuralSpeechRuntimeError {
+            XCTAssertTrue(error.message.hasPrefix("model not prepared: coreai-fixture@1"), error.message)
+        }
+        executor.failing = nil
+        let retried = await runtime.prepare(package)
+        XCTAssertTrue(retried.available, retried.reason ?? "")
+        XCTAssertEqual(executor.loadCount, 2)
+    }
+
+    func testNoWarmUpRunsWhenThePipelineDoesNotLoad() async throws {
+        let executor = RecordingExecutor()
+        let runtime = makeRuntime()
+        runtime.makeExecutorOverride = { _ in executor }
+        // The empty config.json fails the pipeline step.
+        let prepared = await runtime.prepare(try makePackage(directory: try makeDirectory()))
+        XCTAssertFalse(prepared.available)
+        XCTAssertTrue(executor.calls.isEmpty)
+    }
+
+    /// Replaces the empty config and voice of `makeDirectory` with ones the Articulino pipeline loads.
+    private func writeValidPipelineFiles(_ package: ModelPackage, promptFrames: Int = 125) throws {
+        let directory = URL(fileURLWithPath: try XCTUnwrap(package.source?.ref))
+        let config = """
+        {"sample_rate":24000,"latent_dim":2,"samples_per_frame":4,"duration_units_per_frame":4,"prefix_frames":3,
+         "decoder_lead_in_frames":1,"max_duration_units":400.0,"times":[0.0,0.25,0.5,0.75],"charset":" abcdefghijklmnopqrstuvwxyz.",
+         "languages":{"de":0,"en":1},"postprocess":{"low_shelf_db":2.0,"low_shelf_hz":180.0,"shelf_slope":0.7,"peak":0.95}}
+        """
+        try Data(config.utf8).write(to: directory.appendingPathComponent("config.json"))
+        func f32(_ shape: [Int], _ value: Float = 0) -> SpeechTensor {
+            SpeechTensor(shape: shape, data: .f32([Float](repeating: value, count: shape.reduce(1, *))))
+        }
+        let voice = try encodeSafetensors([
+            ("voice_tokens", f32([1, 1, 1])), ("voice_vector", f32([1, 1])), ("voice_cache", f32([1, 1, 1, 1, promptFrames, 1])),
+            ("prompt_latents", f32([1, 1, 2])), ("letter_rate", f32([1]))
+        ], metadata: ["format": "inderun.articulino.voice/1"])
+        try voice.write(to: directory.appendingPathComponent("voices/v.safetensors"))
+    }
+
     // MARK: - Helpers
 
     private func makeRuntime(
@@ -389,5 +479,48 @@ private final class SpecializationCache: @unchecked Sendable {
         lock.withLock { count += 1 }
         if delayNanoseconds > 0 { try await Task.sleep(nanoseconds: delayNanoseconds) }
         lock.withLock { _ = urls.insert(url.standardizedFileURL) }
+    }
+}
+
+/// Records every `run` and fails the role named by `failing`.
+private final class RecordingExecutor: SpeechGraphExecutor, @unchecked Sendable {
+    struct Call {
+        let role: String
+        let inputs: [String: SpeechTensor]
+    }
+
+    private let lock = NSLock()
+    private var recorded: [Call] = []
+    private var loads = 0
+    private var closes = 0
+    private var failingRole: String?
+
+    init(failing: String? = nil) {
+        failingRole = failing
+    }
+
+    var failing: String? {
+        get { lock.withLock { failingRole } }
+        set { lock.withLock { failingRole = newValue } }
+    }
+    var calls: [Call] { lock.withLock { recorded } }
+    var loadCount: Int { lock.withLock { loads } }
+    var closeCount: Int { lock.withLock { closes } }
+
+    func load(graphs: [String: String]) async throws {
+        lock.withLock { loads += 1 }
+    }
+
+    func run(role: String, inputs: [String: SpeechTensor]) async throws -> [String: SpeechTensor] {
+        let fails = lock.withLock { () -> Bool in
+            recorded.append(Call(role: role, inputs: inputs))
+            return role == failingRole
+        }
+        if fails { throw NeuralSpeechRuntimeError(kind: .unavailable, message: "graph failed: \(role): boom") }
+        return [:]
+    }
+
+    func close() async {
+        lock.withLock { closes += 1 }
     }
 }

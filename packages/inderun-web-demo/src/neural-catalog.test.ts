@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { catalogEntryToModelPackage, entryTotalBytes, type CatalogEntry } from "./neural-catalog";
+import {
+  catalogEntryToModelPackage,
+  entryTotalBytes,
+  isInstallable,
+  unavailableReason,
+  type CatalogEntry
+} from "./neural-catalog";
 import { catalog, loadFixture } from "./fixtures.test-support";
 
 type Case = { id: string; entry: CatalogEntry; ref: string; expected: unknown };
@@ -33,5 +39,16 @@ describe("entryTotalBytes", () => {
     );
     expect(entryTotalBytes(entry)).toBe(expected);
     expect(expected).toBeGreaterThan(80_000_000);
+  });
+});
+
+describe("isInstallable", () => {
+  it("offers the ONNX entry and keeps the Core AI entry unavailable in the browser, files or not", () => {
+    const entries = catalog().entries;
+    expect(isInstallable(entries.find((e) => e.id === "articulino-de-en-int8")!)).toBe(true);
+    const coreAi = entries.find((e) => e.id === "articulino-de-en-coreai")!;
+    expect(coreAi.files?.length).toBeGreaterThan(0);
+    expect(isInstallable(coreAi)).toBe(false);
+    expect(unavailableReason(coreAi)).toContain("coreai runtime is not available in this browser");
   });
 });

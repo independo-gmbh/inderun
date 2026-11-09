@@ -186,11 +186,14 @@ voices/<id>.safetensors
 A `speech.graphs` value names the `.aimodel` file and, after a `#`, the inference function in it:
 `articulino.aimodel#text`, `articulino.aimodel#dit_step`, `articulino.aimodel#decoder`. Without a `#`
 the function is named after the role. The asset must be specialized for the device before it runs,
-which can take minutes, and a consented `prepare` specializes it: until then the provider reports
+which took about 1.2 s on a Mac and, with load and warm-up, about 9 s for the first `prepare` on an iPhone 15, and a consented `prepare` specializes it: until then the provider reports
 `readiness: not_prepared`, and IndeRun prepares it only under `autoDownload` or
 `PrepareRequest(allowDownload: true)`. Core AI needs iOS 27 / macOS 27; below that,
 or on an SDK without it, the provider reports `available: false` with the reason, so routing falls
-back. As with the ONNX runtime, write numbers as words.
+back. `prepare` also runs each function once at the smallest shapes, so loading happens there; the first sentence
+after it can still be slower than later ones (2,045 ms against 603 ms to first audio on the iPhone 15). The export
+fixes the input shapes: a text longer than 257 tokens, more than 1,024 frames or a voice whose prompt length is not
+125 is refused with a `capability` error before Core AI runs, and a package with such a voice is unavailable. As with the ONNX runtime, write numbers as words.
 
 ## Streaming
 

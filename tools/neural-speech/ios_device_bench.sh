@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Times the ONNX Articulino runtime on a connected iPhone through the demo app, when a phone is at hand.
+# Times the ONNX or Core AI Articulino runtime on a connected iPhone through the demo app, when a phone is at hand.
 #
 #   tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 3] [--model-id <id>] [--sdk-version <v>] [--out <file>]
 #
-# Applies ios-device-bench.patch (a launch-argument hook in IndeRunDemoApp.swift) to the working tree, builds the demo
+# Applies ios-device-bench.patch (a launch-argument hook in IndeRunDemoApp.swift, plus a link to the IndeRunCoreAIProviders product in the project file) to the working tree, builds the demo
 # app in Release, installs it over the demo on the phone, copies the package into its Documents, runs the first_call_after_prepare
 # and render_speed scenarios through the public speech API and copies Documents/bench.json (the inderun-speech-benchmark/1 report) back to
 # --out, with the text log next to it as <out>.txt. The patch is reverted on exit; nothing of it is committed or stays in the build that
@@ -14,6 +14,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 app_file="ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift"
+project_file="ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj/project.pbxproj"
 bundle_id="app.independo.inderun.demo"
 device="" package="" rounds=3 out="" sdk_version="dev" model_id=""
 
@@ -33,7 +34,7 @@ package="$(cd "$package" && pwd)"
 name="$(basename "$package")"
 
 cd "$root"
-git diff --quiet -- "$app_file" || { echo "$app_file has local changes; commit or stash them first" >&2; exit 1; }
+git diff --quiet -- "$app_file" "$project_file" || { echo "$app_file or $project_file has local changes; commit or stash them first" >&2; exit 1; }
 work="$(mktemp -d)"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cleanup() { git apply -R "$here/ios-device-bench.patch" 2>/dev/null || true; rm -rf "$work"; }

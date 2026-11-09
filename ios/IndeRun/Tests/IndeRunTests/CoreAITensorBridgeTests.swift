@@ -10,9 +10,34 @@ final class CoreAITensorBridgeTests: XCTestCase {
         #if canImport(CoreAI)
         guard #available(iOS 27, macOS 27, *) else { throw XCTSkip(CoreAISupport.unavailableReason) }
         let f32 = SpeechTensor(shape: [1, 3], data: .f32([0.5, -1, 2.25]))
-        let i64 = SpeechTensor(shape: [1, 3], data: .i64([1, -2, 9_000_000_000]))
-        for tensor in [f32, i64] {
-            XCTAssertEqual(try makeSpeechTensor(try makeNDArray(tensor), role: "text", name: "x"), tensor)
+        XCTAssertEqual(try makeSpeechTensor(try makeNDArray(f32), role: "text", name: "x"), f32)
+        #else
+        throw XCTSkip(CoreAISupport.unavailableReason)
+        #endif
+    }
+
+    func testInt64InputsAreNarrowedToInt32() throws {
+        #if canImport(CoreAI)
+        guard #available(iOS 27, macOS 27, *) else { throw XCTSkip(CoreAISupport.unavailableReason) }
+        let array = try makeNDArray(SpeechTensor(shape: [1, 4], data: .i64([0, 1, -2, 2_147_483_647])))
+        XCTAssertEqual(array.scalarType, .int32)
+        XCTAssertEqual(array.shape, [1, 4])
+        let values = array.view(as: Int32.self).withUnsafePointer { pointer, _, _ in Array(UnsafeBufferPointer(start: pointer, count: 4)) }
+        XCTAssertEqual(values, [0, 1, -2, 2_147_483_647])
+        XCTAssertEqual(try makeNDArray(SpeechTensor(shape: [1, 0], data: .i64([]))).scalarType, .int32)
+        #else
+        throw XCTSkip(CoreAISupport.unavailableReason)
+        #endif
+    }
+
+    func testInt64OutsideInt32RangeThrows() throws {
+        #if canImport(CoreAI)
+        guard #available(iOS 27, macOS 27, *) else { throw XCTSkip(CoreAISupport.unavailableReason) }
+        for value: Int64 in [2_147_483_648, -2_147_483_649, Int64.max] {
+            XCTAssertThrowsError(try makeNDArray(SpeechTensor(shape: [1, 2], data: .i64([1, value])))) { error in
+                XCTAssertEqual((error as? NeuralSpeechRuntimeError)?.kind, .internalFailure)
+                XCTAssertEqual((error as? NeuralSpeechRuntimeError)?.message, "tensor value out of int32 range")
+            }
         }
         #else
         throw XCTSkip(CoreAISupport.unavailableReason)
@@ -74,7 +99,7 @@ final class CoreAITensorBridgeTests: XCTestCase {
             try makeSpeechTensor(filled([2, 1, 3], strides: [3, 5, 1], count: 6), role: "decoder", name: "waveform"),
             SpeechTensor(shape: [2, 1, 3], data: .f32([0, 1, 2, 3, 4, 5]))
         )
-        let scalar = SpeechTensor(shape: [], data: .i64([42]))
+        let scalar = SpeechTensor(shape: [], data: .f32([42]))
         XCTAssertEqual(try makeSpeechTensor(try makeNDArray(scalar), role: "text", name: "count"), scalar)
         #else
         throw XCTSkip(CoreAISupport.unavailableReason)

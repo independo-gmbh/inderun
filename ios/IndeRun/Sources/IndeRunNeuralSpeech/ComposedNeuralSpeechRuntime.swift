@@ -43,10 +43,15 @@ extension NeuralSpeechRuntimeError {
 /// ``guarded(make:)``, so every graph call is counted: once closed, a new call fails with
 /// ``NeuralSpeechRuntimeError/runtimeClosed`` (a running synthesis ends at its next graph
 /// boundary), and ``close()`` closes the executors only after the calls in flight have returned.
+/// Work that runs outside a graph call, such as a Core AI specialization, joins the same count
+/// through ``cancellingOnClose(_:)``.
 package final class SpeechRuntimeLifecycle: @unchecked Sendable {
     private let lock = NSLock()
     private var closed = false
     private var inFlight = 0
+    /// Cancels each piece of ``cancellingOnClose(_:)`` work in flight, by id.
+    private var cancels: [Int: @Sendable () -> Void] = [:]
+    private var nextWorkId = 0
     private var drained: [CheckedContinuation<Void, Never>] = []
     private var executors: [any SpeechGraphExecutor] = []
     private var closing: Task<Void, Never>?
@@ -69,7 +74,9 @@ package final class SpeechRuntimeLifecycle: @unchecked Sendable {
         let task: Task<Void, Never> = lock.withLock {
             if let closing { return closing }
             closed = true
+            let pending = Array(cancels.values)
             let task = Task { [self] in
+                for cancel in pending { cancel() }
                 await drain()
                 let all = lock.withLock { executors }
                 for executor in all { await executor.close() }
@@ -78,6 +85,29 @@ package final class SpeechRuntimeLifecycle: @unchecked Sendable {
             return task
         }
         await task.value
+    }
+
+    /// Runs `body` as work `close()` waits for, like a graph call in flight, and cancels when it
+    /// begins. Returns `nil` without running `body` once closed. Cancelling the caller cancels `body`.
+    package func cancellingOnClose<T: Sendable>(_ body: @escaping @Sendable () async -> T) async -> T? {
+        let started: (id: Int, task: Task<T, Never>)? = lock.withLock {
+            guard !closed else { return nil }
+            inFlight += 1
+            let id = nextWorkId
+            nextWorkId += 1
+            let task = Task { await body() }
+            cancels[id] = { task.cancel() }
+            return (id, task)
+        }
+        guard let started else { return nil }
+        let result = await withTaskCancellationHandler {
+            await started.task.value
+        } onCancel: {
+            started.task.cancel()
+        }
+        lock.withLock { cancels[started.id] = nil }
+        leave()
+        return result
     }
 
     private func drain() async {

@@ -164,6 +164,76 @@ final class NeuralSpeechRuntimeCloseTests: XCTestCase {
         }
     }
 
+    func testCoreAICloseCancelsARunningSpecializationAndAwaitsIt() async throws {
+        let gate = SpecializationGate(honoursCancellation: true)
+        let (runtime, created) = makeBlockedCoreAIRuntime(gate)
+        let package = try makePackage(version: "1", format: "coreai", assets: true)
+
+        let preparing = Task { await runtime.prepare(package) }
+        await gate.waitUntilEntered()
+        await runtime.close()
+
+        // close() returned, so the specialization it cancelled has already ended.
+        XCTAssertTrue(gate.wasCancelled, "close did not cancel the running specialization")
+        XCTAssertTrue(gate.hasFinished, "close returned while the specialization still ran")
+        // Lets an uncancelled specialization end, so a failure above reports instead of hanging.
+        gate.release()
+        await assertClosedAfterward(runtime, package, preparing: preparing, gate: gate, created: created)
+    }
+
+    func testCoreAICloseAwaitsASpecializationThatIgnoresCancellation() async throws {
+        let gate = SpecializationGate(honoursCancellation: false)
+        let (runtime, created) = makeBlockedCoreAIRuntime(gate)
+        let package = try makePackage(version: "1", format: "coreai", assets: true)
+
+        let preparing = Task { await runtime.prepare(package) }
+        await gate.waitUntilEntered()
+        let closeSettled = Flag()
+        let closing = Task {
+            await runtime.close()
+            closeSettled.set()
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(closeSettled.value, "close returned while the specialization still ran")
+
+        gate.release()
+        await closing.value
+        XCTAssertTrue(gate.hasFinished)
+        await assertClosedAfterward(runtime, package, preparing: preparing, gate: gate, created: created)
+    }
+
+    /// The prepare close interrupted ends closed, nothing was specialized or built after it, and a
+    /// later prepare refuses.
+    private func assertClosedAfterward(
+        _ runtime: CoreAINeuralSpeechRuntime,
+        _ package: ModelPackage,
+        preparing: Task<NeuralSpeechAvailability, Never>,
+        gate: SpecializationGate,
+        created: ExecutorLog,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let closed = NeuralSpeechAvailability(available: false, reason: "runtime closed")
+        let interrupted = await preparing.value
+        XCTAssertEqual(interrupted, closed, file: file, line: line)
+        XCTAssertEqual(gate.calls, 1, "a graph file was specialized after close", file: file, line: line)
+        XCTAssertTrue(created.executors.isEmpty, "an executor was built after close", file: file, line: line)
+        let later = await runtime.prepare(package)
+        XCTAssertEqual(later, closed, file: file, line: line)
+        XCTAssertEqual(gate.calls, 1, file: file, line: line)
+    }
+
+    private func makeBlockedCoreAIRuntime(_ gate: SpecializationGate) -> (CoreAINeuralSpeechRuntime, ExecutorLog) {
+        let created = ExecutorLog()
+        let runtime = CoreAINeuralSpeechRuntime()
+        runtime.isAvailableOverride = true
+        runtime.isSpecialized = { _ in false }
+        runtime.specialize = { url in try await gate.specialize(url) }
+        runtime.assetFunctionNames = { _ in nil }
+        runtime.makeExecutorOverride = { _ in created.make() }
+        return (runtime, created)
+    }
+
     // MARK: - Helpers
 
     private func makeOnnxRuntime(_ log: ExecutorLog) -> OnnxNeuralSpeechRuntime {
@@ -199,6 +269,76 @@ private final class Flag: @unchecked Sendable {
     private var flag = false
     var value: Bool { lock.withLock { flag } }
     func set() { lock.withLock { flag = true } }
+}
+
+/// A `specialize` that blocks until `release()`, or, when `honoursCancellation`, until its task is
+/// cancelled. Once released, later calls return at once.
+private final class SpecializationGate: @unchecked Sendable {
+    private let honoursCancellation: Bool
+    private let lock = NSLock()
+    private var count = 0
+    private var cancelled = false
+    private var finished = false
+    private var released = false
+    private var blocked: CheckedContinuation<Void, Error>?
+    private var enteredWaiter: CheckedContinuation<Void, Never>?
+
+    init(honoursCancellation: Bool) {
+        self.honoursCancellation = honoursCancellation
+    }
+
+    var calls: Int { lock.withLock { count } }
+    var wasCancelled: Bool { lock.withLock { cancelled } }
+    var hasFinished: Bool { lock.withLock { finished } }
+
+    func specialize(_ url: URL) async throws {
+        defer { lock.withLock { finished = true } }
+        let waiter = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            count += 1
+            defer { enteredWaiter = nil }
+            return enteredWaiter
+        }
+        waiter?.resume()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let resume = lock.withLock { () -> Result<Void, Error>? in
+                    if released { return .success(()) }
+                    if honoursCancellation && cancelled { return .failure(CancellationError()) }
+                    blocked = continuation
+                    return nil
+                }
+                if let resume { continuation.resume(with: resume) }
+            }
+        } onCancel: {
+            let continuation = lock.withLock { () -> CheckedContinuation<Void, Error>? in
+                cancelled = true
+                guard honoursCancellation else { return nil }
+                defer { blocked = nil }
+                return blocked
+            }
+            continuation?.resume(throwing: CancellationError())
+        }
+    }
+
+    func waitUntilEntered() async {
+        await withCheckedContinuation { continuation in
+            let ready = lock.withLock { () -> Bool in
+                if count > 0 { return true }
+                enteredWaiter = continuation
+                return false
+            }
+            if ready { continuation.resume() }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Error>? in
+            released = true
+            defer { blocked = nil }
+            return blocked
+        }
+        continuation?.resume()
+    }
 }
 
 private final class ExecutorLog: @unchecked Sendable {

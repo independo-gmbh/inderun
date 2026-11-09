@@ -269,6 +269,8 @@ Limitations of this pipeline today:
   suspended at a yield does not block close and throws on its next resume. After close nothing is created, and
   `normalizeText` returns the text unchanged. Swift's `prepare` does not throw, so there it reports unavailable
   (`runtime closed`) like `availability`; both the ONNX and the Core AI runtime share one `close()` implementation.
+  Swift's Core AI `close()` also cancels and waits for a `prepare` in flight, its device specialization included, so
+  that prepare ends `runtime closed` and nothing it would have loaded outlives close.
   On Android `close()` is synchronous (`NeuralSpeechRuntime : AutoCloseable`) and returns at once; the sessions are
   released on the execution thread after the graph call in flight, and a synthesis cut short ends at its next chunk.
 - CPU execution provider only. CoreML, NNAPI and WebGPU are not used (see the findings below).
@@ -309,14 +311,29 @@ macOS 27; on an older Xcode the module builds to a stub, and on an older OS it r
 - **The package.** [`prepare_coreai_package.py`](../../tools/neural-speech/README.md) writes `model-package.json`
   (`format` and `variant` `coreai`, `runtime.minOsVersion` `27.0`), `config.json`, the `.aimodel` under its own name
   and `voices/<id>.safetensors`, with `integrity.checksums` for every file but the manifest. The package ships
-  `bundled` or `app_managed`; IndeRun never downloads it. The gated real-model tests read the directory from
+  `bundled` or `app_managed`; IndeRun never downloads it. The exported asset is published in the
+  `neural-speech-assets-2` release (modification note: [`MODIFICATIONS.md`](../../tools/neural-speech/coreai-release/MODIFICATIONS.md))
+  and listed in the demo catalog under `articulino.aimodel/`. The gated real-model tests read the directory from
   `INDERUN_COREAI_MODEL_DIR` and skip without it.
 - **Conversion.** The `.aimodel` comes from the upstream PyTorch checkpoint through Apple's `coreai-torch`
   (`torch.export` with bounded `Dim`s, `run_decompositions`, one `TorchConverter` entrypoint per role, `to_coreai()`,
-  `save_asset`). The entrypoints are `text`, `dit_step` and `decoder`, and `text_mask` is int64 and cast to bool inside
-  the exported program. The full chain is in ADR 022 section 5.
-- **Device numbers.** The asset hash, the shape bounds, the specialization time and the realtime factor are pending
-  spike 0b; nothing here is measured on a device.
+  `save_asset`). The entrypoints are `text`, `dit_step` and `decoder`; the integer inputs are **int32**, and `text_mask`
+  is cast to bool inside the exported program. Pinned versions and commits, the install-file review (including the one
+  binary wheel), the three wrapper changes, the numeric match to ONNX fp32 and the timings are in
+  [ADR 022 section 5](./decisions/022-core-ai-runtime.md#5-conversion-record). The asset is not byte-reproducible; the
+  published bytes are the reference.
+- **Bounds.** Core AI does not check shapes, so the executor does, before every run: `text` N at most 257, `dit_step`
+  L at most 1024, `decoder` F at most 1036. A violation throws a `.capability` error (`CapabilityMismatch`), so routing
+  can fall back. Integers are narrowed to int32 and a value outside that range throws; an int64 `NDArray` would abort
+  the process.
+- **Prepare.** `prepare` specializes, then warms each function up once at the minimum shapes; a failed warm-up reports
+  the provider unavailable with `warm-up failed: <role>: <message>`. Specialization counts as a download for consent: an
+  app calls `prepare({ allowDownload: true })` (or registers with `autoDownload`), otherwise a device whose
+  specialization cache is empty is skipped.
+- **Device numbers.** In the pipeline, Core AI fp32 is slower than ONNX int8 on a Mac14,6 and an iPhone 15 (warm RTF
+  about 0.06 to 0.10 against 0.03 to 0.04), and the first `prepare` on the phone (specialize, load and warm-up) takes about 9 s. The tables are in
+  [the verification record](../verification/neural-speech.md#core-ai-apple-fp32). The specialization cache costs about
+  262 MB per specialized asset per app. The spike found the work running on the GPU in fp32; the ANE is not used.
 
 Follow-ups: a typed preparation kind on the contracts, a CI test of a successful `prepare`, and specialization of
 unused `speech.graphs` entries. The code is in
@@ -365,8 +382,9 @@ directory. The lab is a demo, not SDK surface: nothing in the SDKs changes for i
   entries, their files and voices, checksums and review status. Every download asks for consent and is verified against
   the catalog's checksums. The entry-to-`ModelPackage` mapping is pinned by
   [`catalog-to-package.json`](../../contracts/fixtures/speech/catalog-to-package.json) and run by each demo
-  ([speech-conformance.md](../speech-conformance.md)). The Core AI entry stays `manual_install` until its conversion
-  record exists.
+  ([speech-conformance.md](../speech-conformance.md)). The Core AI entry lists its files (the
+  `articulino.aimodel/` directory asset, `benchmark_only` pending legal sign-off, #260), but no demo links a Core AI
+  runtime, so each demo keeps it unavailable (`isInstallable` checks the runtime format).
 - **Assets.** The upstream weights are fetched from Hugging Face at a pinned revision. The derived `text.onnx` and the
   seven voices are built by
   [`build_demo_assets.py`](../../tools/neural-speech/README.md) and hosted in the GitHub release

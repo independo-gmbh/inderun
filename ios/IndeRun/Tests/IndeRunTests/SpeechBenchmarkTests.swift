@@ -3,6 +3,8 @@ import XCTest
 @testable import IndeRunAppleProviders
 @testable import IndeRunContracts
 @testable import IndeRunCore
+@testable import IndeRunCoreAIProviders
+@testable import IndeRunNeuralSpeech
 @testable import IndeRunOnnxProviders
 @testable import IndeRunSwift
 
@@ -20,6 +22,9 @@ import XCTest
 /// - `INDERUN_SPEECH_BENCHMARK_MODEL_DIR`: a model package directory; adds a neural ONNX target.
 /// - `INDERUN_SPEECH_BENCHMARK_MODEL_ID`: the model catalog entry id to record for the neural target
 ///   (for example `articulino-de-en-int8`); default is the package id.
+/// - `INDERUN_COREAI_MODEL_DIR`: a Core AI package directory (`format: "coreai"`); adds the `articulino_coreai`
+///   target on `CoreAINeuralSpeechRuntime` (macOS/iOS 27, #279).
+/// - `INDERUN_SPEECH_BENCHMARK_MODEL_ID_COREAI`: the model id to record for that target; default is the package id.
 /// - `INDERUN_SPEECH_BENCHMARK_OUT`: a directory, created before the first scenario; each target writes one
 ///   `SpeechBenchmarkReport` there.
 /// - `INDERUN_SPEECH_BENCHMARK_SDK_VERSION`: the SDK version to record, default `dev`.
@@ -66,6 +71,19 @@ final class SpeechBenchmarkTests: XCTestCase {
         if let directory = environment["INDERUN_SPEECH_BENCHMARK_MODEL_DIR"] {
             targets.append(try await neuralTarget(
                 directory: URL(fileURLWithPath: directory), modelId: environment["INDERUN_SPEECH_BENCHMARK_MODEL_ID"]
+            ))
+        }
+        if let directory = environment["INDERUN_COREAI_MODEL_DIR"] {
+            targets.append(try await neuralTarget(
+                directory: URL(fileURLWithPath: directory), modelId: environment["INDERUN_SPEECH_BENCHMARK_MODEL_ID_COREAI"],
+                name: "articulino_coreai",
+                // `makeCoreAINeuralSpeechProvider` with the runtime built here, so the trial can close it.
+                makeProvider: { package in
+                    let runtime = CoreAINeuralSpeechRuntime()
+                    return Built(provider: NeuralSpeechProvider(options: NeuralSpeechProviderOptions(
+                        id: "\(NeuralSpeechProvider.coreAIDefaultId):\(package.id)", modelPackage: package, runtime: runtime
+                    )), runtime: runtime)
+                }
             ))
         }
         return targets
@@ -279,7 +297,7 @@ final class SpeechBenchmarkTests: XCTestCase {
                     let utterance = try run.utterance(0)
                     let started = Date()
                     let (_, peak) = try await run.measuringPeak {
-                        try await engine.prepare(PrepareRequest(tasks: ["text_to_speech"], locale: utterance.locale)).result()
+                        try await engine.prepare(PrepareRequest(tasks: ["text_to_speech"], locale: utterance.locale, allowDownload: true)).result()
                     }
                     run.record(trial == 0 ? "prepare, first in process" : "prepare, new instance", utterance, [
                         "prepareMs": Date().timeIntervalSince(started) * 1000,

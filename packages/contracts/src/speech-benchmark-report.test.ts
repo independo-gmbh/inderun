@@ -37,7 +37,8 @@ const stats = [
     metrics: { renderMs: 12.5 }
   }
 ];
-const minimalReport = (): Record<string, any> => ({
+type Report = Record<string, unknown> & { samples: Array<Record<string, unknown>> };
+const minimalReport = (): Report => ({
   schema: "inderun-speech-benchmark/1",
   harness: "sdk_tests",
   createdAt: "2026-11-09T10:00:00Z",
@@ -88,7 +89,7 @@ describe("speech benchmark report schema", () => {
     expect(validate(report), errorsOf()).toBe(true);
   });
 
-  const rejected: Array<[string, (report: Record<string, any>) => void]> = [
+  const rejected: Array<[string, (report: Report) => void]> = [
     ["a different schema version", (r) => (r.schema = "inderun-speech-benchmark/2")],
     ["an unknown harness", (r) => (r.harness = "xcode")],
     ["a negative metric", (r) => (r.samples[0].renderMs = -1)],

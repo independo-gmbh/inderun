@@ -60,8 +60,9 @@ final class NeuralCatalogTests: XCTestCase {
         XCTAssertEqual(onnx.totalBytes, onnx.allFiles.map(\.bytes).reduce(0, +))
 
         let coreAI = try XCTUnwrap(entries.first { $0.id == "articulino-de-en-coreai" })
+        XCTAssertFalse(coreAI.files.isEmpty)
         XCTAssertFalse(coreAI.isInstallable)
-        XCTAssertNotNil(coreAI.reviewNotes)
+        XCTAssertEqual(coreAI.unavailableReason, "the coreai runtime is not linked by this demo")
     }
 
     func testTheLabProfilesPairEachNeuralProviderWithTheOSVoice() {

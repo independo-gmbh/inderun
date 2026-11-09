@@ -220,7 +220,7 @@ describe("voices lab panel", () => {
     )!;
     expect(option.disabled).toBe(true);
     expect(t.root.textContent).toContain("unavailable");
-    expect(t.root.textContent).toContain("no .aimodel is published");
+    expect(t.root.textContent).toContain("coreai runtime is not available in this browser");
   });
 
   it("speaks the neural voice through the model profile, never a model id", async () => {

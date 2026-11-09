@@ -20,6 +20,8 @@ from prepare_articulino_voice import UPSTREAM_REPO, VoiceTool, sha256_file
 ROLES = ("text", "dit_step", "decoder")
 DEFAULT_FUNCTION_NAMES = list(ROLES)
 MIN_OS_VERSION = "27.0"
+# The export fixes voice_cache to 125 prompt frames; Core AI returns wrong numbers for any other length.
+PROMPT_FRAMES = 125
 
 
 def check_asset_name(name: str) -> str:
@@ -75,6 +77,10 @@ def prepare_package(asset: Path, config: Path, models: Path, precision: str, voi
     for wav, voice_id in voices:
         rel = f"voices/{voice_id}.safetensors"
         stats[voice_id] = tool.prepare(wav, voice_id, out / rel)
+        frames = stats[voice_id]["prompt_frames"]
+        if frames != PROMPT_FRAMES:
+            raise ValueError(f"voice {voice_id}: P = {frames}, the Core AI export needs P = {PROMPT_FRAMES}; "
+                             "use a prompt of the length the seed voices have")
         files.append(rel)
         entries.append({"id": voice_id, "name": voice_id, "locales": VOICE_LOCALES, "file": rel, "license": license_})
     package = {

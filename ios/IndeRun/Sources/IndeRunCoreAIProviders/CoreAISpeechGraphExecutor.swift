@@ -12,11 +12,13 @@ private struct LoadedCoreAIGraph: Sendable {
 /// Runs the graphs of a `coreai` speech model package through Apple Core AI. Each role names an
 /// `.aimodel` file (a file or a directory) and an inference function in it (``CoreAIGraphReference``);
 /// roles that share a file share one `AIModel`. A file already specialized for this device is taken
-/// from `AIModelCache.default`; otherwise `load` specializes it first, which can take minutes on a
-/// large model, and leaves it in the cache for the next load. `load` replaces the loaded graphs; a run
+/// from `AIModelCache.default`; otherwise `load` specializes it first (about 1.2 s for the Articulino
+/// model on a Mac), and leaves it in the cache for the next load. `load` replaces the loaded graphs; a run
 /// that already holds a replaced function keeps it alive until it returns. Core AI's inference
 /// functions may run concurrently, so runs are not serialized here. The tensors are f32 or i64 only
-/// (see ``SpeechTensor``); a graph whose mask is boolean casts it inside the `.aimodel`.
+/// (see ``SpeechTensor``); an i64 input reaches Core AI as int32, and a graph whose mask is boolean
+/// casts it inside the `.aimodel`. `run` refuses an input past the export's shape bounds
+/// (``checkCoreAIBounds(role:inputs:)``) before it touches Core AI.
 @available(iOS 27, macOS 27, *)
 public final class CoreAISpeechGraphExecutor: SpeechGraphExecutor, @unchecked Sendable {
     private let directory: URL
@@ -94,6 +96,7 @@ public final class CoreAISpeechGraphExecutor: SpeechGraphExecutor, @unchecked Se
     }
 
     public func run(role: String, inputs: [String: SpeechTensor]) async throws -> [String: SpeechTensor] {
+        try checkCoreAIBounds(role: role, inputs: inputs)
         guard let graph = lock.withLock({ graphs[role] }) else {
             throw NeuralSpeechRuntimeError(kind: .internalFailure, message: "graph not loaded: \(role)")
         }
