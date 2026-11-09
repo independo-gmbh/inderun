@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var viewModel = DemoViewModel()
+    // Built idle: nothing is read, registered or downloaded until the lab is switched on.
+    @StateObject private var lab = VoicesLabViewModel.makeDefault()
 
     var body: some View {
         TabView {
@@ -11,6 +13,16 @@ struct ContentView: View {
             Tab("Speech", systemImage: "speaker.wave.2") {
                 SpeechScreen(viewModel: viewModel)
             }
+            if viewModel.voicesLabEnabled {
+                Tab("Voices lab", systemImage: "waveform") {
+                    VoicesLabScreen(lab: lab)
+                }
+            }
+        }
+        // On the TabView, not on the lab's screen: leaving the tab must not stop a download.
+        // Only switching the lab off does.
+        .onChange(of: viewModel.voicesLabEnabled, initial: true) { _, enabled in
+            lab.setEnabled(enabled)
         }
         // Above the tabs: a tab's task is cancelled when the user leaves it, which would abort
         // the model download.

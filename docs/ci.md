@@ -399,6 +399,9 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
     the reviewed source must both satisfy the same tests. `swift test` only exercises the macOS
     slice, so the job also runs the suite on an iOS simulator and builds `ios/SampleApps/IndeRunDemo`
     for a generic iOS device, which links and embeds the device slice.
+    The demo's `IndeRunDemoTests` target (Voices lab catalog mapping) is neither built nor run by that step or any other CI
+    job; run it from Xcode. The Android demo's unit tests run under `./gradlew test` and the web demo's under
+    `pnpm test:js`.
   - Because hashes cover `Cargo.lock`, a Cargo dependency bump fails verification until the
     XCFramework is rebuilt: a lockfile change can alter the compiled core, so such a PR needs a
     `pnpm build:route-core-apple` commit on top. On Dependabot's cargo PRs that commit is made

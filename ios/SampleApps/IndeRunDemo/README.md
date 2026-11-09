@@ -15,9 +15,43 @@ registered providers:
   an alternate selection.
 - an OpenAI-compatible cloud endpoint configured in the app, typically via `@independo/inderun-demo-proxy`
 
-The app has two tabs. **Text** holds everything above: the privacy preference, the prompt, run,
+The app has two tabs, and an optional third. **Text** holds everything above: the privacy preference, the prompt, run,
 stream and cancel, the result and routing panels, provider availability, and the cloud and ONNX
-settings. **Speech** speaks text through the device's system voices.
+settings. **Speech** speaks text through the device's system voices. **Voices lab** is opt-in (below).
+
+## Voices lab (opt-in)
+
+Switch on **Voices lab** at the bottom of the Speech tab (persisted in `UserDefaults`, off by default) and a third tab
+appears. While the switch is off the tab is hidden and nothing is read, registered, downloaded or created on disk.
+
+- It downloads the Articulino neural speech model and seven demo voices (about 113 MB) only after a consent sheet that
+  shows the real total size, the model licence and attribution, and each distinct voice licence. Declining makes no
+  request. Files stream to `<name>.part` with an incremental SHA-256 and a byte check (a slow disk suspends the request
+  once a few MB wait unwritten, so a file is never held in memory whole), then move into
+  `Application Support/voices-lab/<entry id>/<version>/`, which is where the SDK resolves the `app_managed` package
+  `ref`. A mismatch deletes the file (`checksum mismatch: <path>`); a retry resumes by skipping verified files.
+  **Cancel** stops a download; verified files are kept.
+- The tab speaks the same text through the neural voice and the OS voice (**Speak**, **Repeat**, **A/B** = neural then
+  OS control). The status card names the provider that actually spoke; a neural request answered by the OS voice reads
+  "fell back to OS voice", and an A/B run whose neural leg fell back stops there with "comparison invalid: neural fell
+  back to <provider>" instead of playing the OS voice twice. The Core AI entry is listed as unavailable with the catalog's reason (this app does not link
+  `IndeRunCoreAIProviders`).
+- The catalog (`contracts/fixtures/speech/neural-model-catalog.json`) and the utterance corpus used for presets are
+  referenced from the repository by relative path and bundled as resources, so there is one copy.
+- The model files come from Hugging Face; the voices and the rewritten `text.onnx` come from the GitHub release
+  `neural-speech-assets-1`. **Until that release is published those downloads fail with "asset not published yet
+  (HTTP 404)".** The voices are demo assets (`review.status: benchmark_only`, legal sign-off pending, #260).
+- Switching the lab off (not leaving the tab) stops a running download or playback.
+
+## Tests
+
+`IndeRunDemoTests` is a unit-test bundle hosted by the app. It runs the shared catalog-to-package fixture, the
+consent downloader against a fake transport and a temporary directory, and the Voices lab view model:
+
+```bash
+xcodebuild test -project ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj -scheme IndeRunDemo \
+  -destination "platform=iOS Simulator,name=iPhone 17 Pro"
+```
 
 ## Requirements
 

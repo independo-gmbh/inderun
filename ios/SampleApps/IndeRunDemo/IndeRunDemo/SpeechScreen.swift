@@ -12,6 +12,7 @@ struct SpeechScreen: View {
                     textSection
                     languageSection
                     actionSection
+                    voicesLabSection
                     if let outcome = viewModel.speechOutcome {
                         MetadataRow(label: "Outcome", value: outcome)
                     }
@@ -107,6 +108,15 @@ struct SpeechScreen: View {
             }
             .buttonStyle(.bordered)
             .disabled(!viewModel.canSpeak)
+        }
+    }
+
+    private var voicesLabSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Voices lab", isOn: $viewModel.voicesLabEnabled)
+            Text("Adds a tab to download a neural voice model (about 113 MB, after you agree) and compare it with the OS voice. Off by default; while off, nothing is fetched or registered.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 

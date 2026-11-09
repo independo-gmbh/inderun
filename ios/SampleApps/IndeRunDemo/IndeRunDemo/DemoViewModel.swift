@@ -106,6 +106,7 @@ final class DemoViewModel: ObservableObject {
         static let endpointURL = "inderun.demo.cloudEndpointURL"
         static let model = "inderun.demo.cloudModel"
         static let onnxModelSelection = "inderun.demo.onnxModelSelection"
+        static let voicesLabEnabled = "inderun.demo.voicesLabEnabled"
     }
 
     private static let providerLabels: [String: String] = [
@@ -134,6 +135,11 @@ final class DemoViewModel: ObservableObject {
             userDefaults.set(onnxModelSelection.rawValue, forKey: DefaultsKey.onnxModelSelection)
             Task { await ensureSelectedOnnxModelDownloaded() }
         }
+    }
+    /// The opt-in Voices lab (#260). Off by default: while off, the tab is hidden and nothing is
+    /// read, registered or downloaded.
+    @Published var voicesLabEnabled: Bool {
+        didSet { userDefaults.set(voicesLabEnabled, forKey: DefaultsKey.voicesLabEnabled) }
     }
     @Published private(set) var onnxDownloadState: DemoOnnxDownloadState = .idle
     @Published private(set) var capabilitiesState: CapabilitiesState = .loading
@@ -195,6 +201,7 @@ final class DemoViewModel: ObservableObject {
         // Defaults to a real downloadable model (not the fixture) so the demo generates actual
         // text on first launch with no manual setup, mirroring the web demo's default experience.
         self.onnxModelSelection = persistedSelection ?? .distilgpt2Quantized
+        self.voicesLabEnabled = userDefaults.bool(forKey: DefaultsKey.voicesLabEnabled)
         self.hostServices = DefaultHostServices.make()
     }
 

@@ -12,6 +12,12 @@ export default defineConfig({
       "Cross-Origin-Embedder-Policy": "require-corp"
     },
     proxy: {
+      // The proxy serves the Voices lab asset relay at /assets; keep the page-relative path distinct.
+      "/api/inderun/assets": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/inderun\/assets/u, "/assets")
+      },
       "/api/inderun": {
         target: "http://127.0.0.1:8787",
         changeOrigin: true
