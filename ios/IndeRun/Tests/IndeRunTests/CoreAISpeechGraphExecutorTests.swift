@@ -23,6 +23,115 @@ final class CoreAISpeechGraphExecutorTests: XCTestCase {
         #endif
     }
 
+    // The bound check runs before the graph lookup, so an unloaded executor tells a size inside the bound
+    // (`graph not loaded`) from one past it (`input exceeds the Core AI bound`) without any model.
+    private func assertRun(
+        role: String, inputs: [String: SpeechTensor], message: String, kind: NeuralSpeechRuntimeErrorKind,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        #if canImport(CoreAI)
+        guard #available(iOS 27, macOS 27, *) else { throw XCTSkip(CoreAISupport.unavailableReason) }
+        let executor = CoreAISpeechGraphExecutor(directory: FileManager.default.temporaryDirectory)
+        do {
+            _ = try await executor.run(role: role, inputs: inputs)
+            XCTFail("expected a failure", file: file, line: line)
+        } catch let error as NeuralSpeechRuntimeError {
+            XCTAssertEqual(error.kind, kind, file: file, line: line)
+            XCTAssertEqual(error.message, message, file: file, line: line)
+        }
+        #else
+        throw XCTSkip(CoreAISupport.unavailableReason)
+        #endif
+    }
+
+    private func textInputs(_ n: Int) -> [String: SpeechTensor] {
+        ["text_ids": SpeechTensor(shape: [1, n], data: .i64([Int64](repeating: 0, count: n)))]
+    }
+
+    private func floatInputs(_ name: String, _ n: Int) -> [String: SpeechTensor] {
+        [name: SpeechTensor(shape: [1, n, 96], data: .f32([Float](repeating: 0, count: n * 96)))]
+    }
+
+    func testTextLongerThanTheBoundThrows() async throws {
+        try await assertRun(
+            role: "text", inputs: textInputs(258), message: "input exceeds the Core AI bound: text.text_ids 258 > 257", kind: .capability
+        )
+    }
+
+    func testFramesAboveTheBoundThrow() async throws {
+        try await assertRun(
+            role: "dit_step", inputs: floatInputs("x", 1025), message: "input exceeds the Core AI bound: dit_step.x 1025 > 1024",
+            kind: .capability
+        )
+        try await assertRun(
+            role: "decoder", inputs: floatInputs("latents", 1037), message: "input exceeds the Core AI bound: decoder.latents 1037 > 1036",
+            kind: .capability
+        )
+    }
+
+    func testBoundsAllowTheMaximum() async throws {
+        try await assertRun(role: "text", inputs: textInputs(257), message: "graph not loaded: text", kind: .internalFailure)
+        try await assertRun(role: "dit_step", inputs: floatInputs("x", 1024), message: "graph not loaded: dit_step", kind: .internalFailure)
+        try await assertRun(role: "decoder", inputs: floatInputs("latents", 1036), message: "graph not loaded: decoder", kind: .internalFailure)
+    }
+
+    // MARK: - Fixed shapes (the pure check, so no Core AI is needed)
+
+    private func zeros(_ shape: [Int]) -> SpeechTensor {
+        SpeechTensor(shape: shape, data: .f32([Float](repeating: 0, count: shape.reduce(1, *))))
+    }
+
+    private func assertRefused(
+        role: String, _ inputs: [String: SpeechTensor], _ message: String, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertThrowsError(try checkCoreAIBounds(role: role, inputs: inputs), file: file, line: line) { error in
+            let error = error as? NeuralSpeechRuntimeError
+            XCTAssertEqual(error?.kind, .capability, file: file, line: line)
+            XCTAssertEqual(error?.message, message, file: file, line: line)
+        }
+    }
+
+    func testTheExportedShapesPass() throws {
+        for role in ["text", "dit_step", "decoder"] {
+            let inputs = try XCTUnwrap(CoreAIArticulinoSignature.warmUpInputs(role: role))
+            XCTAssertNoThrow(try checkCoreAIBounds(role: role, inputs: inputs), role)
+        }
+    }
+
+    func testAVoiceCacheOfAnotherPromptLengthIsRefused() {
+        assertRefused(
+            role: "dit_step", ["voice_cache": zeros([8, 2, 1, 6, 124, 64])],
+            "input shape unsupported by the Core AI export: dit_step.voice_cache [8,2,1,6,124,64], expected [8,2,1,6,125,64]"
+        )
+    }
+
+    func testAFixedDimensionOrRankOffTheExportIsRefused() {
+        assertRefused(
+            role: "dit_step", ["x": zeros([1, 2, 95])],
+            "input shape unsupported by the Core AI export: dit_step.x [1,2,95], expected [1,*,96]"
+        )
+        assertRefused(
+            role: "dit_step", ["voice_tokens": zeros([1, 31, 768])],
+            "input shape unsupported by the Core AI export: dit_step.voice_tokens [1,31,768], expected [1,32,768]"
+        )
+        assertRefused(
+            role: "decoder", ["latents": zeros([2, 2, 96])],
+            "input shape unsupported by the Core AI export: decoder.latents [2,2,96], expected [1,*,96]"
+        )
+        assertRefused(
+            role: "text", ["voice_vector": zeros([768])],
+            "input shape unsupported by the Core AI export: text.voice_vector [768], expected [1,768]"
+        )
+    }
+
+    func testAnEmptyVariableAxisIsRefusedButOneFrameIsAccepted() {
+        assertRefused(
+            role: "dit_step", ["x": zeros([1, 0, 96])],
+            "input shape unsupported by the Core AI export: dit_step.x [1,0,96], expected [1,*,96]"
+        )
+        XCTAssertNoThrow(try checkCoreAIBounds(role: "dit_step", inputs: ["x": zeros([1, 1, 96]), "frame_cond": zeros([1, 1, 512])]))
+    }
+
     func testLoadReportsAMissingGraphFile() async throws {
         #if canImport(CoreAI)
         guard #available(iOS 27, macOS 27, *) else { throw XCTSkip(CoreAISupport.unavailableReason) }

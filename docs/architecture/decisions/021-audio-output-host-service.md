@@ -80,6 +80,9 @@ All codes are `details.code` values on the normalized error:
 | `audio_output_interrupted` | `Unavailable`        | the system ending a session                                       |
 | `audio_output_unavailable` | `CapabilityMismatch` | a provider, when the host has no service                          |
 
+Waits on the output (`drain()`, and the backpressure wait in `write()`) are bounded by the audio time they wait for
+plus a fixed grace, and end in `audio_output_failed`; the exact bound is in the services' doc comments.
+
 ## Consequences
 
 - Every PCM-producing provider shares one playback seam, and one definition of cancel and of first audio.

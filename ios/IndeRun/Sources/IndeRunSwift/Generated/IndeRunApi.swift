@@ -16,4 +16,6 @@ public protocol IndeRunApi: Sendable {
     func readArtifact(request: ArtifactReadRequest) async throws -> ArtifactChunk
     /// Releases the bytes of an engine-owned media artifact. Idempotent: disposing an artifact twice, or one the engine does not hold, does nothing. After disposal readArtifact reports 'artifact_not_found'. An artifact outlives the run that produced it, so an application that keeps none should dispose each one it receives.
     func disposeArtifact(artifact: MediaArtifact) async
+    /// Closes the engine. Idempotent: a second or concurrent call returns once the first has finished. In order: the engine stops accepting work, so every later run, stream, prepare and readArtifact fails with Unavailable and details.code 'engine_closed' (checkCapabilities returns an empty list and disposeArtifact does nothing); in-flight streams and prepares are cancelled and reach their standard terminal cancelled outcome; the call waits for those and for in-flight run() calls, which are not cancelled; engine-owned artifacts are disposed; providers the engine constructed itself are closed. A neural speech runtime an application supplied is never closed by the engine.
+    func close() async
 }

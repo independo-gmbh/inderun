@@ -558,7 +558,10 @@ class NeuralSpeechProvider(
 
     private fun mapRuntimeError(error: Throwable, runId: String): IndeRunException {
         if (error is NeuralSpeechRuntimeError) {
-            val details = error.cause?.let { mapOf("originalError" to (it.localizedMessage ?: it.toString())) }
+            val details = buildMap<String, Any?> {
+                error.cause?.let { put("originalError", it.localizedMessage ?: it.toString()) }
+                error.code?.let { put("code", it) }
+            }.ifEmpty { null }
             val message = error.message ?: "The neural speech runtime failed."
             return when (error.kind) {
                 NeuralSpeechRuntimeErrorKind.Capability -> createCapabilityMismatch(message, runId, id, details = details)

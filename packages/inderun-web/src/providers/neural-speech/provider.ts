@@ -708,10 +708,12 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
     const extra = { providerId: this.id, runId };
 
     if (error instanceof NeuralSpeechRuntimeError) {
-      const details =
-        error.originalError !== undefined
-          ? { details: { originalError: getErrorSummary(error.originalError) } }
-          : {};
+      const detail: Record<string, unknown> = {};
+      if (error.originalError !== undefined) {
+        detail.originalError = getErrorSummary(error.originalError);
+      }
+      if (error.code !== undefined) detail.code = error.code;
+      const details = Object.keys(detail).length > 0 ? { details: detail } : {};
 
       switch (error.kind) {
         case "capability":

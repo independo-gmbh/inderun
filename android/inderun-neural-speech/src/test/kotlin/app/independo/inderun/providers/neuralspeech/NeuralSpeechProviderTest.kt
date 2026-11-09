@@ -352,6 +352,29 @@ class NeuralSpeechProviderTest {
         error("unreachable")
     }
 
+    @Test
+    fun mapsARuntimeErrorCodeIntoTheDetailsAndKeepsTheOriginalError() = runTest {
+        val runtime = object : NeuralSpeechRuntime {
+            override suspend fun availability(modelPackage: ModelPackage) = NeuralSpeechAvailability(true)
+
+            override suspend fun prepare(modelPackage: ModelPackage) = NeuralSpeechAvailability(true)
+
+            override fun synthesize(input: NeuralSpeechSynthesisInput): Flow<PcmChunk> = flow {
+                throw NeuralSpeechRuntimeError(
+                    NeuralSpeechRuntimeErrorKind.Unavailable,
+                    "runtime closed",
+                    cause = IllegalStateException("boom"),
+                    code = "runtime_closed",
+                )
+            }
+        }
+        val error = refusal { NeuralSpeechProvider(pkg, runtime).run(request(), runContext(RecordingAudioOutput())) }
+
+        assertEquals(IndeRunErrorClass.Unavailable, error.errorClass)
+        assertEquals("runtime_closed", error.details?.get("code"))
+        assertEquals("boom", error.details?.get("originalError"))
+    }
+
     // --- descriptor and capabilities ---------------------------------------------------------
 
     @Test

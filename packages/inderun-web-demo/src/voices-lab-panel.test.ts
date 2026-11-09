@@ -11,6 +11,7 @@ import {
   type NeuralCatalog
 } from "./neural-catalog";
 import { mountVoicesLabPanel, type VoicesLabOptions } from "./voices-lab-panel";
+import type { BenchmarkRun, runCorpus } from "./voices-lab-benchmark";
 
 const NEURAL_ID = "local.onnx.speech.web:articulino-de-en-int8";
 const PROFILE = "voices-lab:articulino-de-en-int8";
@@ -114,7 +115,8 @@ function setup(over: Partial<VoicesLabOptions> & { installed?: boolean; corrupt?
     result: Promise.resolve({ finishReason: "stop", items: [] })
   }));
   const fetchImpl = vi.fn();
-  const createEngine = vi.fn((_installed: unknown[]) => LAB);
+  const closeLab = vi.fn(async () => undefined);
+  const createEngine = vi.fn((_installed: unknown[]) => ({ engine: LAB, close: closeLab }));
   const openEntryStore = vi.fn(async (entry: CatalogEntry, _mode: { create: boolean }) =>
     installed || _mode.create ? storeOf(entry, installed, corrupt) : undefined
   );
@@ -139,6 +141,7 @@ function setup(over: Partial<VoicesLabOptions> & { installed?: boolean; corrupt?
     prepare,
     fetchImpl,
     createEngine,
+    closeLab,
     openEntryStore,
     q,
     base: BASE
@@ -217,7 +220,7 @@ describe("voices lab panel", () => {
     )!;
     expect(option.disabled).toBe(true);
     expect(t.root.textContent).toContain("unavailable");
-    expect(t.root.textContent).toContain("no .aimodel is published");
+    expect(t.root.textContent).toContain("coreai runtime is not available in this browser");
   });
 
   it("speaks the neural voice through the model profile, never a model id", async () => {
@@ -457,5 +460,281 @@ describe("voices lab panel", () => {
     expect(entryTotalBytes(onnxEntry())).toBe(113_011_812);
     expect(t.q("lab-consent").textContent).toContain("113 MB");
     expect(t.q("lab-download").textContent).toContain("113 MB");
+  });
+
+  it("closes the replaced lab engine, and its runtimes, when an install rebuilds it", async () => {
+    // Two installable entries: the first is installed, the second is downloaded during the test.
+    const two = verifiableCatalog();
+    const first = two.entries.find((e) => e.id === onnxEntry().id)!;
+    const second = structuredClone(first);
+    second.id = "articulino-b";
+    two.entries.push(second);
+    const bytesByUrl = new Map<string, Uint8Array>();
+    for (const file of entryFiles(second)) {
+      const bytes = storedBytes(file.path);
+      bytesByUrl.set(file.url, bytes);
+      bytesByUrl.set(`https://proxy.test/assets?url=${encodeURIComponent(file.url)}`, bytes);
+    }
+    const t = setup();
+    const opts = t.options as { catalog: NeuralCatalog };
+    opts.catalog = two;
+    (t.options as { openEntryStore: unknown }).openEntryStore = async (
+      entry: CatalogEntry,
+      mode: { create: boolean }
+    ) => (entry.id === first.id || mode.create ? storeOf(entry, entry.id === first.id) : undefined);
+    t.fetchImpl.mockImplementation(async (url: string) => {
+      const bytes = bytesByUrl.get(url);
+      return bytes === undefined
+        ? new Response("missing", { status: 404 })
+        : new Response(bytes as unknown as BodyInit, { status: 200 });
+    });
+    await mountVoicesLabPanel(t.root, BASE, t.options);
+    await flush();
+    expect(t.createEngine).toHaveBeenCalledTimes(1);
+    expect(t.closeLab).not.toHaveBeenCalled();
+
+    const model = t.q<HTMLSelectElement>("lab-model");
+    model.value = second.id;
+    model.dispatchEvent(new Event("change"));
+    t.q<HTMLButtonElement>("lab-download").click();
+    await flush();
+    t.q<HTMLButtonElement>("lab-consent-accept").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(t.createEngine).toHaveBeenCalledTimes(2);
+    expect(t.closeLab).toHaveBeenCalledTimes(1);
+  });
+
+  describe("corpus run", () => {
+    const emptyRun = (target: unknown): BenchmarkRun => ({
+      target: target as BenchmarkRun["target"],
+      samples: [
+        {
+          scenario: "repeat_same_voice",
+          step: "call 1",
+          utteranceId: "de_de_short",
+          requestedLocale: "de-DE",
+          resolvedLocale: "de-DE",
+          metrics: { wallMs: 12 }
+        }
+      ],
+      skipped: [],
+      renders: [
+        {
+          utteranceId: "de_de_short",
+          voiceId: "de-at-m-1",
+          locale: "de-DE",
+          mimeType: "audio/wav",
+          base64: "AQID"
+        }
+      ]
+    });
+
+    function withRun(run: typeof runCorpus) {
+      const download = vi.fn();
+      const t = setup({ runBenchmark: run, download, now: () => 0 });
+      return { ...t, download };
+    }
+
+    it("the preset list carries the extended utterances after the shared ones", async () => {
+      const t = setup();
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      const ids = Array.from(t.q<HTMLSelectElement>("lab-preset").options).map((o) => o.value);
+      const extended = (corpus.extendedUtterances ?? []).filter((u) => u.expect !== "refuse");
+      expect(extended.length).toBeGreaterThan(0);
+      expect(ids.indexOf(extended[0]!.id)).toBeGreaterThan(ids.indexOf("de_de_short"));
+      expect(ids).toContain(extended.at(-1)!.id);
+    });
+
+    it("export is disabled before a run", async () => {
+      const t = withRun(vi.fn());
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      expect(t.q<HTMLButtonElement>("lab-export").disabled).toBe(true);
+      expect(t.q<HTMLInputElement>("lab-export-audio").checked).toBe(false);
+      expect(t.q("lab-run-corpus").textContent).toBe("Run corpus (plays audio)");
+    });
+
+    it("run corpus disables itself until the run ends, also when it fails", async () => {
+      let finish!: (value: BenchmarkRun) => void;
+      let fail!: (error: Error) => void;
+      const runner = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise<BenchmarkRun>((resolve) => (finish = resolve)))
+        .mockImplementationOnce(() => new Promise<BenchmarkRun>((_, reject) => (fail = reject)));
+      const t = withRun(runner as unknown as typeof runCorpus);
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      const button = t.q<HTMLButtonElement>("lab-run-corpus");
+
+      button.click();
+      await flush();
+      expect(button.disabled).toBe(true);
+      expect(t.q<HTMLButtonElement>("lab-speak").disabled).toBe(true);
+      button.click();
+      await flush();
+      expect(runner).toHaveBeenCalledTimes(1);
+
+      finish(emptyRun({ name: "articulino-de-en-int8", providerId: NEURAL_ID }));
+      await flush();
+      expect(button.disabled).toBe(false);
+      expect(t.q<HTMLButtonElement>("lab-export").disabled).toBe(false);
+
+      button.click();
+      await flush();
+      expect(button.disabled).toBe(true);
+      fail(new Error("boom"));
+      await flush();
+      expect(button.disabled).toBe(false);
+      expect(t.q("lab-run-status").textContent).toContain("failed: boom");
+      // Only the successful run downloaded a report.
+      expect(t.download).toHaveBeenCalledTimes(1);
+      // The earlier report stays exportable; a failed run replaces nothing.
+      expect(t.q<HTMLButtonElement>("lab-export").disabled).toBe(false);
+    });
+
+    it("runs against the selected model and voice on the lab engine", async () => {
+      const runner = vi.fn(async (input: Parameters<typeof runCorpus>[0]) =>
+        emptyRun(input.target)
+      );
+      const t = withRun(runner);
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      t.q<HTMLButtonElement>("lab-run-corpus").click();
+      await flush();
+      const input = runner.mock.calls[0]![0];
+      expect(input.engine).toBe(LAB);
+      expect(input.profile).toBe(PROFILE);
+      expect(input.voice).toMatchObject({ id: "de-at-m-1" });
+      const entry = onnxEntry();
+      expect(input.target).toMatchObject({
+        name: "articulino-de-en-int8",
+        providerId: NEURAL_ID,
+        model: "articulino-de-en-int8",
+        variant: entry.variant,
+        voiceId: "de-at-m-1"
+      });
+      const files = entryFiles(entry);
+      expect(Object.keys(input.target.checksums!)).toEqual(files.map((f) => f.path));
+      expect(
+        Object.values(input.target.checksums!).every((v) => /^sha256:[0-9a-f]{64}$/u.test(v))
+      ).toBe(true);
+      // A new engine for a cold trial comes from the lab engine factory and is closed by the run.
+      const fresh = input.newEngine!();
+      expect(fresh.engine).toBe(LAB);
+      expect(t.createEngine).toHaveBeenCalledTimes(2);
+    });
+
+    it("a cold trial's engine holds only the selected model, so prepare touches no other", async () => {
+      const twoModels = verifiableCatalog();
+      const second = structuredClone(twoModels.entries.find((e) => e.id === onnxEntry().id)!);
+      second.id = "articulino-de-en-int8-second";
+      twoModels.entries.push(second);
+      const runner = vi.fn(async (input: Parameters<typeof runCorpus>[0]) =>
+        emptyRun(input.target)
+      );
+      const t = setup({
+        runBenchmark: runner,
+        download: vi.fn(),
+        now: () => 0,
+        catalog: twoModels
+      });
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      // The shared lab engine carries both installed models.
+      const shared = t.createEngine.mock.calls.at(-1)![0] as { entry: CatalogEntry }[];
+      expect(shared.map((i) => i.entry.id)).toEqual([onnxEntry().id, second.id]);
+      const model = t.q<HTMLSelectElement>("lab-model");
+      model.value = second.id;
+      model.dispatchEvent(new Event("change"));
+      t.q<HTMLButtonElement>("lab-run-corpus").click();
+      await flush();
+
+      const input = runner.mock.calls[0]![0];
+      const calls = t.createEngine.mock.calls.length;
+      input.newEngine!();
+      expect(t.createEngine).toHaveBeenCalledTimes(calls + 1);
+      const fresh = t.createEngine.mock.calls.at(-1)![0] as { entry: CatalogEntry }[];
+      expect(fresh.map((i) => i.entry.id)).toEqual([second.id]);
+    });
+
+    it("the OS control runs on the demo's engine with the system provider and no model", async () => {
+      const runner = vi.fn(async (input: Parameters<typeof runCorpus>[0]) =>
+        emptyRun(input.target)
+      );
+      const t = withRun(runner);
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      const model = t.q<HTMLSelectElement>("lab-model");
+      model.value = "control";
+      model.dispatchEvent(new Event("change"));
+      t.q<HTMLButtonElement>("lab-run-corpus").click();
+      await flush();
+      const input = runner.mock.calls[0]![0];
+      expect(input.engine).toBe(BASE);
+      expect(input.profile).toBeUndefined();
+      expect(input.newEngine).toBeUndefined();
+      expect(input.target).toEqual({ name: "web_system_speech", providerId: "web_system_speech" });
+    });
+
+    it("run corpus downloads the report when it finishes, and a rejected run downloads nothing", async () => {
+      const runner = vi
+        .fn()
+        .mockImplementationOnce(async (input: Parameters<typeof runCorpus>[0]) =>
+          emptyRun(input.target)
+        )
+        .mockRejectedValueOnce(new Error("boom"));
+      const t = withRun(runner as unknown as typeof runCorpus);
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      t.q<HTMLButtonElement>("lab-run-corpus").click();
+      await flush();
+      expect(t.download).toHaveBeenCalledTimes(1);
+      const [name, json] = t.download.mock.calls[0]!;
+      expect(name).toMatch(
+        /^web_voices_lab-articulino-de-en-int8-[A-Za-z0-9._-]+-\d{4}-\d{2}-\d{2}\.json$/u
+      );
+      const report = JSON.parse(json as string);
+      expect(report.harness).toBe("web_voices_lab");
+      expect("audio" in report).toBe(false);
+      t.q<HTMLButtonElement>("lab-run-corpus").click();
+      await flush();
+      expect(t.download).toHaveBeenCalledTimes(1);
+    });
+
+    it("export downloads the last report, with audio only when asked", async () => {
+      const t = withRun(
+        vi.fn(async (input: Parameters<typeof runCorpus>[0]) => emptyRun(input.target))
+      );
+      await mountVoicesLabPanel(t.root, BASE, t.options);
+      await flush();
+      t.q<HTMLButtonElement>("lab-run-corpus").click();
+      await flush();
+
+      t.download.mockClear();
+      t.q<HTMLButtonElement>("lab-export").click();
+      expect(t.download).toHaveBeenCalledTimes(1);
+      const [name, json] = t.download.mock.calls[0]!;
+      expect(name).toMatch(
+        /^web_voices_lab-articulino-de-en-int8-[A-Za-z0-9._-]+-\d{4}-\d{2}-\d{2}\.json$/u
+      );
+      const report = JSON.parse(json as string);
+      expect(report).toMatchObject({
+        schema: "inderun-speech-benchmark/1",
+        harness: "web_voices_lab",
+        locality: "on_device",
+        target: { providerId: NEURAL_ID }
+      });
+      expect(report.sdkVersion).toMatch(/^\d+\.\d+\.\d+/u);
+      expect("audio" in report).toBe(false);
+
+      t.q<HTMLInputElement>("lab-export-audio").checked = true;
+      t.q<HTMLButtonElement>("lab-export").click();
+      const withAudio = JSON.parse(t.download.mock.calls[1]![1] as string);
+      expect(withAudio.audio).toEqual([
+        expect.objectContaining({ base64: "AQID", mimeType: "audio/wav" })
+      ]);
+    });
   });
 });

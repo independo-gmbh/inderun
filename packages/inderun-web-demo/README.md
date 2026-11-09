@@ -119,6 +119,13 @@ to add a **Voices lab** panel below Speech. Without the flag nothing of it is lo
   utterance corpus, then **Speak**, **Stop**, **Repeat** or **A/B** (neural, then the OS voice). The status card shows
   provider, model and variant, the `text.onnx` checksum, voice, resolved locale, locality, runtime and delivery; an A/B
   run whose neural leg fell back stops there with "comparison invalid: neural fell back to <provider>". The Core AI entry is listed as unavailable (no `.aimodel` exists yet).
+- **Run corpus (plays audio)** runs the seven scenarios of the shared benchmark corpus (`benchmark.scenarios`) against
+  the selected model and voice (or the OS control), with the sentences played aloud and a new engine per cold-start
+  trial. A scenario the target cannot serve is listed as skipped; the OS control skips the two cold-start scenarios.
+  **Export report** downloads `speech-benchmark-<target>-<yyyy-mm-dd>.json` (harness `web_voices_lab`, see
+  [`speech-benchmark-report.schema.json`](../../contracts/fixtures/speech/speech-benchmark-report.schema.json)); it holds
+  utterance ids and timings, a browser family plus platform, and the rendered audio only when **Include rendered audio**
+  is ticked. The corpus's `extendedUtterances` also appear in the preset list.
 - Requests go through the model profile `voices-lab:<model>` (`[neural provider, web_system_speech]`) on a lab engine
   that is rebuilt after each install; the control uses the demo's own engine.
 - Hugging Face files are fetched directly. **The demo proxy must be running for the GitHub release assets** (the voices

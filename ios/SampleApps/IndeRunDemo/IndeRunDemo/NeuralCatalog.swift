@@ -50,8 +50,21 @@ struct CatalogEntry: Equatable, Sendable, Identifiable {
     let files: [CatalogFile]
     let voices: [CatalogVoice]
 
-    /// An entry the demo can download: it has files and is not left to a manual install.
-    var isInstallable: Bool { reviewStatus != "manual_install" && !files.isEmpty }
+    /// The runtime formats this app links a runtime for: Core AI is not linked.
+    private static let demoRuntimeFormats: Set<String> = ["onnx"]
+
+    /// An entry the demo can download: it has files, is not left to a manual install, and its runtime
+    /// format is one this app links.
+    var isInstallable: Bool {
+        reviewStatus != "manual_install" && !files.isEmpty && Self.demoRuntimeFormats.contains(runtimeFormat)
+    }
+
+    /// Why an entry that is not installable cannot be downloaded here.
+    var unavailableReason: String {
+        reviewStatus == "manual_install" || Self.demoRuntimeFormats.contains(runtimeFormat)
+            ? (reviewNotes ?? reviewStatus)
+            : "the \(runtimeFormat) runtime is not linked by this demo"
+    }
 
     /// Every file of the entry, weights first, then each voice bundle.
     var allFiles: [CatalogFile] { files + voices.map(\.file) }

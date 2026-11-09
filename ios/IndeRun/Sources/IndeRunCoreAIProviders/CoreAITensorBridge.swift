@@ -3,7 +3,10 @@ import CoreAI
 import Foundation
 
 /// Copies a ``SpeechTensor`` into a newly allocated, C-contiguous `NDArray` (caller memory is never
-/// shared with Core AI). Throws (internal) when the shape does not match the number of values.
+/// shared with Core AI). An `i64` tensor becomes an int32 `NDArray`: the exported Articulino graphs take
+/// int32, and an int64 input aborts the process in MPSGraph (#279). Throws (internal) when the shape
+/// does not match the number of values, or `tensor value out of int32 range` for an integer that does
+/// not fit.
 @available(iOS 27, macOS 27, *)
 func makeNDArray(_ tensor: SpeechTensor) throws -> NDArray {
     let count: Int
@@ -19,7 +22,16 @@ func makeNDArray(_ tensor: SpeechTensor) throws -> NDArray {
     case let .f32(values):
         return values.isEmpty ? NDArray(shape: tensor.shape, scalarType: .float32) : NDArray(scalars: values, shape: tensor.shape)
     case let .i64(values):
-        return values.isEmpty ? NDArray(shape: tensor.shape, scalarType: .int64) : NDArray(scalars: values, shape: tensor.shape)
+        if values.isEmpty { return NDArray(shape: tensor.shape, scalarType: .int32) }
+        var narrowed: [Int32] = []
+        narrowed.reserveCapacity(values.count)
+        for value in values {
+            guard let small = Int32(exactly: value) else {
+                throw NeuralSpeechRuntimeError(kind: .internalFailure, message: "tensor value out of int32 range")
+            }
+            narrowed.append(small)
+        }
+        return NDArray(scalars: narrowed, shape: tensor.shape)
     }
 }
 

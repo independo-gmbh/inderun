@@ -19,6 +19,7 @@ interface Expectations {
   drainAfterStop?: { elapsedAtMostMs: number; throws: boolean };
   independence?: { stoppedDrainAtMostMs: number; otherDrainAtLeastMs: number; timeoutMs: number };
   openRejectsWith?: { errorClass: string; code: string };
+  drainRejectsWith?: string;
 }
 
 interface CatalogCase {
@@ -56,6 +57,7 @@ interface Observation {
   stoppedDrainElapsedMs?: number;
   otherDrainElapsedMs?: number;
   openRejection?: IndeRunException;
+  drainRejection?: IndeRunException;
 }
 
 const format: AudioOutputFormat = { sampleRate: 24000, channels: 1, encoding: "pcm_s16le" };
@@ -213,6 +215,21 @@ const handlers: Record<string, (target: Target, expected: Expectations) => Promi
     b.stop();
     return { stoppedDrainElapsedMs, otherDrainElapsedMs };
   },
+  async drain_fails_when_output_stalls({ service, now }, expected) {
+    const session = await service.open(format);
+    const from = now();
+    await session.write(tone(500));
+    let drainRejection: IndeRunException | undefined;
+    try {
+      await bounded(session.drain(), expected.drain!.timeoutMs, "drain");
+    } catch (error) {
+      if (error instanceof IndeRunException) drainRejection = error;
+      else throw error;
+    }
+    const drainElapsedMs = now() - from;
+    session.stop();
+    return { drainElapsedMs, ...(drainRejection ? { drainRejection } : {}) };
+  },
   async unsupported_format_refused({ service }) {
     try {
       const session = await service.open({ ...format, sampleRate: 4000 });
@@ -267,6 +284,11 @@ function assertCase(expected: Expectations, observed: Observation): void {
       expected.independence.otherDrainAtLeastMs
     );
   }
+  if (expected.drainRejectsWith) {
+    expect(observed.drainRejection).toBeInstanceOf(IndeRunException);
+    expect(observed.drainRejection!.errorClass).toBe("Unavailable");
+    expect(observed.drainRejection!.details?.["code"]).toBe(expected.drainRejectsWith);
+  }
   if (expected.openRejectsWith) {
     expect(observed.openRejection).toBeInstanceOf(IndeRunException);
     expect(observed.openRejection!.errorClass).toBe(expected.openRejectsWith.errorClass);
@@ -282,7 +304,9 @@ describe("audio output conformance", () => {
   describe("fixture service", () => {
     for (const catalogCase of catalog.cases) {
       it(catalogCase.id, async () => {
-        const fixture = createFixtureAudioOutput();
+        const fixture = createFixtureAudioOutput({
+          stalled: catalogCase.id === "drain_fails_when_output_stalls"
+        });
         assertCase(
           catalogCase.expect,
           await handlers[catalogCase.id]!(

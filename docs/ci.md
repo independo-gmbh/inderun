@@ -317,7 +317,7 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   ktlint-clean. `pnpm verify:enum-wire-parity` covers the content of the file
   `javascript.yml` leaves out of that diff (see the verification steps above).
 - `pnpm build:wasm` (`scripts/build-route-core-wasm.mjs`) is the single definition of the
-  Rust→WASM build: it runs `cargo build --target wasm32-unknown-unknown` plus
+  Rust→WASM build: it runs `cargo build --profile wasm --target wasm32-unknown-unknown` (size-optimised release profile; the shipped modules are release builds) plus
   `wasm-bindgen --target web`. Freshness is left to cargo, which fingerprints every effective
   input (sources, workspace manifest, lockfile, rustc version); only the wasm-bindgen step is
   skipped, and only when the existing bindings are newer than the `.wasm` cargo just produced.
@@ -326,7 +326,9 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
   target directory), so routing-only apps do not download the speech module's regex engine.
   A hand-rolled mtime check over crate sources alone would serve stale bindings after a
   dependency bump. Both `pnpm build` and `pnpm test:js` call it, and `javascript.yml`/`release.yml`
-  run it as an explicit step so a missing toolchain fails visibly. Since the Web SDK has no
+  run it as an explicit step so a missing toolchain fails visibly, followed by `pnpm check:wasm-size`
+  (`scripts/check-wasm-size.mjs`), which fails the job when either module's raw or gzip size exceeds its
+  budget (measured size + 15 %, rounded up to 10 KiB). Since the Web SDK has no
   fallback planner, the JS suite genuinely needs those bindings — hence building
   them is part of `pnpm test:js` rather than a prerequisite contributors are expected to
   remember. Running the JS tests locally therefore requires `rustup` with the
@@ -399,9 +401,10 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
     the reviewed source must both satisfy the same tests. `swift test` only exercises the macOS
     slice, so the job also runs the suite on an iOS simulator and builds `ios/SampleApps/IndeRunDemo`
     for a generic iOS device, which links and embeds the device slice.
-    The demo's `IndeRunDemoTests` target (Voices lab catalog mapping) is neither built nor run by that step or any other CI
-    job; run it from Xcode. The Android demo's unit tests run under `./gradlew test` and the web demo's under
-    `pnpm test:js`.
+    A following step runs the demo's app-hosted `IndeRunDemoTests` target (Voices lab catalog, downloader, transport and
+    view model) with `xcodebuild test` on the first available iPhone simulator, with `CODE_SIGNING_ALLOWED=NO`. The device
+    build stays separate because it is the only step that links the device slice. The Android demo's unit tests run under
+    `./gradlew test` and the web demo's under `pnpm test:js`.
   - Because hashes cover `Cargo.lock`, a Cargo dependency bump fails verification until the
     XCFramework is rebuilt: a lockfile change can alter the compiled core, so such a PR needs a
     `pnpm build:route-core-apple` commit on top. On Dependabot's cargo PRs that commit is made

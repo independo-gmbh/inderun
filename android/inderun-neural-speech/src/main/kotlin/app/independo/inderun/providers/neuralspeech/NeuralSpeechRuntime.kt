@@ -56,8 +56,21 @@ data class NeuralSpeechSynthesisInput(
  *
  * [synthesize] may be called concurrently: artifact runs do not wait for the playback turn, and two
  * providers may share one runtime instance. A runtime must serialize or isolate its own sessions.
+ *
+ * [close] ends the runtime's life and releases what it holds (loaded models, executors). It is
+ * synchronous, because [AutoCloseable] is: it returns at once, marks the runtime closed and
+ * schedules the teardown after any graph call in flight, so a model is never released while one
+ * of its graphs runs. The default does nothing, for a runtime that holds nothing. Closing is
+ * terminal and idempotent. Afterwards [availability] reports `available = false` with the reason
+ * `runtime closed` (it does not throw), and [prepare] and [synthesize] fail with a
+ * [NeuralSpeechRuntimeError] of kind `Unavailable`, message `runtime closed` and code
+ * [RUNTIME_CLOSED_CODE]; nothing is loaded or created any more, and [normalizeText] returns the
+ * text unchanged. A synthesis cut short by [close] fails the same way at its next chunk, unless
+ * it already delivered its last chunk (it completes) or its collector was cancelled
+ * (cancellation wins). The provider maps the code into the error's `details.code`; before the
+ * first sound the engine tries the next provider, after it the run ends `Unavailable`.
  */
-interface NeuralSpeechRuntime {
+interface NeuralSpeechRuntime : AutoCloseable {
     suspend fun availability(modelPackage: ModelPackage): NeuralSpeechAvailability
 
     suspend fun prepare(modelPackage: ModelPackage): NeuralSpeechAvailability
@@ -72,7 +85,12 @@ interface NeuralSpeechRuntime {
      * audio output is opened.
      */
     fun normalizeText(modelPackage: ModelPackage, text: String, locale: String): String = text
+
+    override fun close() {}
 }
+
+/** The [NeuralSpeechRuntimeError.code] of a closed runtime, mapped into the error's `details.code`. */
+const val RUNTIME_CLOSED_CODE = "runtime_closed"
 
 /**
  * Failure category a runtime signals so the provider maps it onto the IndeRun error taxonomy
@@ -81,9 +99,14 @@ interface NeuralSpeechRuntime {
  */
 enum class NeuralSpeechRuntimeErrorKind { Capability, Unavailable, Timeout, Internal }
 
-/** Error type neural speech runtimes throw to steer IndeRun error normalization. */
+/**
+ * Error type neural speech runtimes throw to steer IndeRun error normalization.
+ *
+ * @property code Optional machine-readable code the provider surfaces as the error's `details.code`.
+ */
 class NeuralSpeechRuntimeError(
     val kind: NeuralSpeechRuntimeErrorKind,
     message: String,
     cause: Throwable? = null,
+    val code: String? = null,
 ) : Exception(message, cause)

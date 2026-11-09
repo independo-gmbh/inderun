@@ -219,6 +219,19 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/dd-device" \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Test the demo app on an iOS simulator
+        working-directory: ios/SampleApps/IndeRunDemo
+        run: |
+          device="$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys; print(next(d['name'] for runtime in json.load(sys.stdin)['devices'].values() for d in runtime if d['name'].startswith('iPhone')))")"
+          echo "Testing the demo on $device"
+          xcodebuild test \
+            -project IndeRunDemo.xcodeproj \
+            -scheme IndeRunDemo \
+            -destination "platform=iOS Simulator,name=$device" \
+            -derivedDataPath "$RUNNER_TEMP/dd-demo-simulator" \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Install SwiftLint
         run: brew install swiftlint
 

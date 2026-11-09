@@ -11,7 +11,9 @@ public final class IndeRun: IndeRunApi {
     private let modelProfiles: ModelProfiles
     /// The engine's in-memory media artifact store (ADR 017). Artifacts outlive the run that
     /// produced them and live until disposed or until this instance is released.
-    private let artifacts: ArtifactStore
+    let artifacts: ArtifactStore
+    /// What is in flight, so `close()` can stop and await it.
+    private let lifecycle = EngineLifecycle()
 
     /// - Parameters:
     ///   - modelProfiles: Named model profiles requests can route within
@@ -131,6 +133,8 @@ public final class IndeRun: IndeRunApi {
     /// - Parameter request: The standard request payload including prompt, constraints, preferences, and task description.
     /// - Returns: A normalized `TaskResult` containing generated text and execution telemetry.
     public func run(request: TaskRequest) async throws -> TaskResult {
+        guard lifecycle.begin() else { throw EngineLifecycle.closedError(runId: request.requestId) }
+        defer { lifecycle.end() }
         let startTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
 
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
@@ -342,6 +346,10 @@ public final class IndeRun: IndeRunApi {
     /// - Parameter request: The canonical task request.
     /// - Returns: The run handle, its canonical event sequence, and a cancel hook.
     public func stream(request: TaskRequest) async throws -> StreamRun {
+        guard lifecycle.begin() else { throw EngineLifecycle.closedError(runId: request.requestId) }
+        // Until the driver task takes over, a failure here ends the unit of work itself.
+        var driverEndsWork = false
+        defer { if !driverEndsWork { lifecycle.end() } }
         let startTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
 
@@ -427,6 +435,10 @@ public final class IndeRun: IndeRunApi {
         // would let the run finish with no terminal event at all, breaking the
         // exactly-one-terminal guarantee. There is no cycle: the engine does not
         // retain this task.
+        // Registered before the driver starts: if close began while this call was routing, the
+        // hook fires now, and the run ends in its one cancelled terminal.
+        let hookId = lifecycle.register { reason in cancellation.cancel(reason: reason) }
+        driverEndsWork = true
         Task {
             await self.driveStream(
                 request: request,
@@ -439,6 +451,8 @@ public final class IndeRun: IndeRunApi {
                 continuation: continuation
             )
             continuation.finish()
+            self.lifecycle.unregister(hookId)
+            self.lifecycle.end()
         }
 
         return StreamRun(handle: handle, events: events) { reason in
@@ -926,6 +940,7 @@ public final class IndeRun: IndeRunApi {
     /// Reads a byte range of an engine-owned media artifact (ADR 017). See
     /// `IndeRunApi.readArtifact`.
     public func readArtifact(request: ArtifactReadRequest) async throws -> ArtifactChunk {
+        if lifecycle.isClosed { throw EngineLifecycle.closedError() }
         var issues: [(path: String, message: String)] = []
         if request.artifactId.isEmpty {
             issues.append((path: "/artifactId", message: "artifactId must be non-empty."))
@@ -955,6 +970,7 @@ public final class IndeRun: IndeRunApi {
     /// because what is ready is skipped. Providers go one at a time, and one failing does not stop
     /// the rest: the terminal outcome lists each item.
     public func prepare(request: PrepareRequest) async throws -> StreamRun {
+        guard lifecycle.begin() else { throw EngineLifecycle.closedError(runId: request.requestId) }
         let now: @Sendable () -> Double = { Date().timeIntervalSince1970 * 1000 }
         let runId = request.requestId ?? "run_\(UUID().uuidString.prefix(8).lowercased())"
         let gate = EventGate(runId: runId)
@@ -974,6 +990,7 @@ public final class IndeRun: IndeRunApi {
             }
         }
         cancellation.onCancel { worker.cancel() }
+        let hookId = lifecycle.register { reason in cancellation.cancel(reason: reason) }
         Task {
             let items = await worker.value
             let outcome: StreamTerminalOutcome
@@ -1000,13 +1017,19 @@ public final class IndeRun: IndeRunApi {
                 continuation.yield(terminal)
             }
             continuation.finish()
+            self.lifecycle.unregister(hookId)
+            self.lifecycle.end()
         }
         return StreamRun(handle: handle, events: events) { reason in cancellation.cancel(reason: reason) }
     }
 
     /// Reports each registered provider's static descriptor and current dynamic capability check,
     /// without executing a task. Useful for UI that shows live provider availability before a run.
+    ///
+    /// `checkCapabilities` cannot throw on Swift, so a closed engine reports no providers instead of
+    /// failing with `engine_closed`.
     public func checkCapabilities() async -> [ProviderCapabilitySnapshot] {
+        if lifecycle.isClosed { return [] }
         var snapshots: [ProviderCapabilitySnapshot] = []
         for provider in registry.list() {
             let descriptor = provider.describe()
@@ -1020,6 +1043,12 @@ public final class IndeRun: IndeRunApi {
             )
         }
         return snapshots
+    }
+
+    /// Closes the engine. See `IndeRunApi.close`. The engine closes no providers: the registry
+    /// is the application's, and so is any runtime it handed a provider.
+    public func close() async {
+        await lifecycle.close { [artifacts] in artifacts.disposeAll() }
     }
 }
 

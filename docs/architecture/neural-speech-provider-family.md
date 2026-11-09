@@ -196,6 +196,9 @@ On a real host `firstAudioMs` is not smaller than `firstChunkMs`. The fixture au
 cannot observe that ordering, so the conformance catalog does not pin it. On the Web, `firstAudioMs` carries the caveat
 in ADR 021 about what the browser lets the output observe.
 
+Measured timings, percentiles per scenario on the Mac and in the browser, next to the operating system's voice, are in
+[the neural speech verification record](../verification/neural-speech.md).
+
 ## Error codes
 
 | Code                       | Where it comes from                                                        |
@@ -254,8 +257,22 @@ Limitations of this pipeline today:
   either, so digits in other locales reach the model unspelled. Markup, URLs and phone numbers are not handled.
 - Latency is sentence-level: the first audio is available only after a whole sentence is synthesized.
 - Outlier retry and rate equalisation beyond the bundle's `letter_rate` are not implemented.
-- The composed runtimes have no `close()`; sessions live as long as the runtime, and the cache key (`id@version`) ignores
-  `source.ref`.
+- The cache key (`id@version`) ignores `source.ref`.
+- `close()` (#280): whoever constructed the runtime closes it; an engine never closes a
+  runtime the app passed in. It releases every cached pipeline's graph executor, and is terminal and idempotent. After it,
+  `availability` reports unavailable (`runtime closed`) and `prepare`/`synthesize` throw `NeuralSpeechRuntimeError`
+  `unavailable` with code `runtime_closed`, which the provider reports as `Unavailable` with
+  `details.code: "runtime_closed"`: routing falls back before playback commits, and committed playback ends with that
+  terminal error. A synthesis running at close ends at its next graph boundary; an executor is closed only after its
+  in-flight graph call returns. A synthesis cut short by close throws `runtime_closed` unless its last chunk was already
+  delivered (then it completes) or the caller aborted (the abort wins and the iteration ends silently); a generator
+  suspended at a yield does not block close and throws on its next resume. After close nothing is created, and
+  `normalizeText` returns the text unchanged. Swift's `prepare` does not throw, so there it reports unavailable
+  (`runtime closed`) like `availability`; both the ONNX and the Core AI runtime share one `close()` implementation.
+  Swift's Core AI `close()` also cancels and waits for a `prepare` in flight, its device specialization included, so
+  that prepare ends `runtime closed` and nothing it would have loaded outlives close.
+  On Android `close()` is synchronous (`NeuralSpeechRuntime : AutoCloseable`) and returns at once; the sessions are
+  released on the execution thread after the graph call in flight, and a synthesis cut short ends at its next chunk.
 - CPU execution provider only. CoreML, NNAPI and WebGPU are not used (see the findings below).
 
 **Preparing a package.** [`tools/neural-speech/`](../../tools/neural-speech/README.md) (Python, not run in CI) takes the
@@ -294,14 +311,29 @@ macOS 27; on an older Xcode the module builds to a stub, and on an older OS it r
 - **The package.** [`prepare_coreai_package.py`](../../tools/neural-speech/README.md) writes `model-package.json`
   (`format` and `variant` `coreai`, `runtime.minOsVersion` `27.0`), `config.json`, the `.aimodel` under its own name
   and `voices/<id>.safetensors`, with `integrity.checksums` for every file but the manifest. The package ships
-  `bundled` or `app_managed`; IndeRun never downloads it. The gated real-model tests read the directory from
+  `bundled` or `app_managed`; IndeRun never downloads it. The exported asset is published in the
+  `neural-speech-assets-2` release (modification note: [`MODIFICATIONS.md`](../../tools/neural-speech/coreai-release/MODIFICATIONS.md))
+  and listed in the demo catalog under `articulino.aimodel/`. The gated real-model tests read the directory from
   `INDERUN_COREAI_MODEL_DIR` and skip without it.
 - **Conversion.** The `.aimodel` comes from the upstream PyTorch checkpoint through Apple's `coreai-torch`
   (`torch.export` with bounded `Dim`s, `run_decompositions`, one `TorchConverter` entrypoint per role, `to_coreai()`,
-  `save_asset`). The entrypoints are `text`, `dit_step` and `decoder`, and `text_mask` is int64 and cast to bool inside
-  the exported program. The full chain is in ADR 022 section 5.
-- **Device numbers.** The asset hash, the shape bounds, the specialization time and the realtime factor are pending
-  spike 0b; nothing here is measured on a device.
+  `save_asset`). The entrypoints are `text`, `dit_step` and `decoder`; the integer inputs are **int32**, and `text_mask`
+  is cast to bool inside the exported program. Pinned versions and commits, the install-file review (including the one
+  binary wheel), the three wrapper changes, the numeric match to ONNX fp32 and the timings are in
+  [ADR 022 section 5](./decisions/022-core-ai-runtime.md#5-conversion-record). The asset is not byte-reproducible; the
+  published bytes are the reference.
+- **Bounds.** Core AI does not check shapes, so the executor does, before every run: `text` N at most 257, `dit_step`
+  L at most 1024, `decoder` F at most 1036. A violation throws a `.capability` error (`CapabilityMismatch`), so routing
+  can fall back. Integers are narrowed to int32 and a value outside that range throws; an int64 `NDArray` would abort
+  the process.
+- **Prepare.** `prepare` specializes, then warms each function up once at the minimum shapes; a failed warm-up reports
+  the provider unavailable with `warm-up failed: <role>: <message>`. Specialization counts as a download for consent: an
+  app calls `prepare({ allowDownload: true })` (or registers with `autoDownload`), otherwise a device whose
+  specialization cache is empty is skipped.
+- **Device numbers.** In the pipeline, Core AI fp32 is slower than ONNX int8 on a Mac14,6 and an iPhone 15 (warm RTF
+  about 0.06 to 0.10 against 0.03 to 0.04), and the first `prepare` on the phone (specialize, load and warm-up) takes about 9 s. The tables are in
+  [the verification record](../verification/neural-speech.md#core-ai-apple-fp32). The specialization cache costs about
+  262 MB per specialized asset per app. The spike found the work running on the GPU in fp32; the ANE is not used.
 
 Follow-ups: a typed preparation kind on the contracts, a CI test of a successful `prepare`, and specialization of
 unused `speech.graphs` entries. The code is in
@@ -331,6 +363,8 @@ rows say a phone is fast enough.
 - iPhone 15, measured 2026-11-05 over five rounds of six sentences: `prepare` 347 ms, warm wall time 54-139 ms for
   1.5-4.4 s of audio (realtime factor 0.030-0.038), the first round about 20% slower, thermal state nominal throughout,
   peak process footprint 233 MB. The pipeline returns one chunk per sentence, so time to first audio equals wall time.
+  A later run in the report format (2026-11-09, `first_call_after_prepare` and `render_speed` only) is in
+  [the verification record](../verification/neural-speech.md#iphone-15-iphone154-ios-2720).
 - Device runs are opt-in and not part of CI: with a phone at hand,
   [`ios_device_bench.sh`](../../tools/neural-speech/README.md#time-a-package-on-an-iphone) builds the demo app with a
   temporary benchmark hook, runs it on the phone and reverts the hook. Run it when a model, a runtime or the pipeline
@@ -348,8 +382,9 @@ directory. The lab is a demo, not SDK surface: nothing in the SDKs changes for i
   entries, their files and voices, checksums and review status. Every download asks for consent and is verified against
   the catalog's checksums. The entry-to-`ModelPackage` mapping is pinned by
   [`catalog-to-package.json`](../../contracts/fixtures/speech/catalog-to-package.json) and run by each demo
-  ([speech-conformance.md](../speech-conformance.md)). The Core AI entry stays `manual_install` until its conversion
-  record exists.
+  ([speech-conformance.md](../speech-conformance.md)). The Core AI entry lists its files (the
+  `articulino.aimodel/` directory asset, `benchmark_only` pending legal sign-off, #260), but no demo links a Core AI
+  runtime, so each demo keeps it unavailable (`isInstallable` checks the runtime format).
 - **Assets.** The upstream weights are fetched from Hugging Face at a pinned revision. The derived `text.onnx` and the
   seven voices are built by
   [`build_demo_assets.py`](../../tools/neural-speech/README.md) and hosted in the GitHub release

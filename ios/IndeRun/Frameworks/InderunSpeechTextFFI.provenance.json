@@ -8,7 +8,7 @@
   "rustcVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)",
   "sources": {
     "Cargo.lock": "69a81d7228f8c5f797289331de5969afd942e9bfbe4c50dd3dee4a30c82b29b6",
-    "Cargo.toml": "b83762ab58a6b1fb60c4dfb94b90c391c28ca24ffb70018fc665813e94ef0fce",
+    "Cargo.toml": "da102fd879097c2a0f36853d493f85912a5119169da5932d5d00d9b9d5f2f546",
     "rust-toolchain.toml": "cbfaf80ce835f1e53afb97c397f8f851c98fce28f46fa4384e271eacf9c012ef",
     "rust/inderun-route-core/Cargo.toml": "aab47f60529c8dac89fa8d6707c6fc0831af4c1bc075b4169b5230460766383e",
     "rust/inderun-route-core/include/inderun_route_core.h": "661bb11c660a4678e6757a1b41c0e537dc07af1a1766638c8d48ee553e119f90",
@@ -29,14 +29,14 @@
     "rust/inderun-route-core/src/speech_text/german/units.rs": "feaf515f85dbe612a925cac71debe282c75d97e4a2a1d17217767217248afd4f",
     "rust/inderun-route-core/src/speech_text/mod.rs": "7a64f4a65e0975efb11077e606db371a190f6155a128573dbe17207ba88fb31f",
     "rust/inderun-route-core/src/speech_text/number_words.rs": "3e9d2b63d015cade1fe26baf8fea39bc36d129b935558e2421a20d46390e6d20",
-    "rust/inderun-route-core/src/speech_text/tests.rs": "2bd7642df05d78c8d89a86c1b53e03be8f07b21785317c2e64b5374cb6b8b58b",
+    "rust/inderun-route-core/src/speech_text/tests.rs": "df8e4673dcd8563a49ab17e903f4d388499e09acb77b6b496460f75e1ff730c2",
     "rust/inderun-route-core/src/tests.rs": "a4a586712e1f279e5571b3dc7203596336532c9cf38626c6f58b5b90eecd2106",
     "scripts/build-route-core-apple.mjs": "c8a6bd16387000c24d4ebdbbb18ce4620be30a0eb14e6aa0c8d9772d8146dd6f",
     "scripts/route-core-apple-provenance.mjs": "7b560f13530ee317a1311c6ff9c792329e62dbb1ce9b93e168b8d2d03552975b",
     "scripts/rust-toolchain.mjs": "1a072943da7675710aeecfbb4ece665fabd0f6b9f827821395df54815c993956"
   },
   "files": {
-    "Info.plist": "9a09c6eb3c75a9115c860b898dfc663091fc06eb25cadefbbefd72b1e67c3227",
+    "Info.plist": "e77e2b85f1b36d38a307d1ba93ab6422e9897e026fd8c2381cf511041d5306dd",
     "ios-arm64/InderunSpeechTextFFI.framework/Headers/inderun_speech_text.h": "3c139ae0a7112973b221db24e32f7e5e0cbe0417e9b17311dec33003e22f8593",
     "ios-arm64/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "3c6bc4da2ac8116dee6bf74e47aa3e9b703271a321947b20d365f5128fab06a4",
     "ios-arm64/InderunSpeechTextFFI.framework/Info.plist": "8918e6d0ec646ae877e8a3d73b496f1fd6a0cf14b0a3d5d9b8ccbdf095db0b95",

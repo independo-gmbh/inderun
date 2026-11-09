@@ -132,6 +132,19 @@ class PrepareCoreAiPackageTests(unittest.TestCase):
         printed = "".join(call.args[0] for call in stdout.write.call_args_list)
         self.assertIn("default text,dit_step,decoder", " ".join(printed.split()))
 
+    def test_a_voice_whose_prompt_is_not_125_frames_is_refused(self):
+        def short(wav, voice_id, target):
+            Path(target).parent.mkdir(parents=True, exist_ok=True)
+            Path(target).write_bytes(b"voice")
+            return {"letter_rate": 1.0, "prompt_frames": 124}
+
+        self.voice_tool.return_value.prepare.side_effect = short
+        with self.assertRaises(ValueError) as caught:
+            self.run_tool(self.asset_dir)
+        self.assertIn("anna", str(caught.exception))
+        self.assertIn("124", str(caught.exception))
+        self.assertIn("125", str(caught.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,7 +43,11 @@ class AudioOutputLifecycleConformanceTest {
     @Test
     fun fixtureMatchesTheSharedCatalog() = runTest {
         val fixture = FixtureAudioOutputService()
-        val failures = runAudioOutputCatalog(catalogJson(), AudioOutputTarget(fixture) { fixture.now() })
+        val stalledFixture = FixtureAudioOutputService(stallsDrain = true)
+        val failures = runAudioOutputCatalog(
+            catalogJson(),
+            AudioOutputTarget(fixture, { fixture.now() }, AudioOutputTarget(stalledFixture, { stalledFixture.now() })),
+        )
         assertTrue("Conformance failures:\n${failures.joinToString("\n")}", failures.isEmpty())
     }
 
@@ -53,7 +57,7 @@ class AudioOutputLifecycleConformanceTest {
         val fixture = FixtureAudioOutputService()
         val failures = runAudioOutputCatalog(
             catalogJson(),
-            AudioOutputTarget(fixture) { fixture.now() },
+            AudioOutputTarget(fixture, { fixture.now() }),
             setOf("stop_discards_buffered_audio"),
         )
         assertTrue("Conformance failures:\n${failures.joinToString("\n")}", failures.isEmpty())

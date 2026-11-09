@@ -6,6 +6,8 @@ import { createOnnxWebSpeechGraphExecutor, type OnnxRuntimeWebModule } from "./o
 import {
   checkPackageFileName,
   NeuralSpeechRuntimeError,
+  runtimeClosedError,
+  type SpeechGraphExecutor,
   type NeuralSpeechAvailability,
   type NeuralSpeechRuntime,
   type NeuralSpeechSynthesisInput,
@@ -77,8 +79,40 @@ export function createOnnxNeuralSpeechRuntime(
   options: OnnxNeuralSpeechRuntimeOptions = {}
 ): NeuralSpeechRuntime {
   const runtimes = new Map<string, NeuralSpeechRuntime>();
+  const executors: SpeechGraphExecutor[] = [];
+  /** Graph calls (load/run) not yet settled; an executor closes only after they all have. */
+  const inFlight = new Set<Promise<unknown>>();
+  /** Aborted on close, so a running synthesis ends at its next graph boundary. */
+  const closing = new AbortController();
+  let closePromise: Promise<void> | undefined;
+
+  function track<T>(call: Promise<T>): Promise<T> {
+    inFlight.add(call);
+    const done = (): void => {
+      inFlight.delete(call);
+    };
+    call.then(done, done);
+    return call;
+  }
+
+  function guardedExecutor(inner: SpeechGraphExecutor): SpeechGraphExecutor {
+    return {
+      load: (graphs) => {
+        if (closePromise !== undefined) return Promise.reject(runtimeClosedError());
+        return track(inner.load(graphs));
+      },
+      run: (role, inputs) => {
+        if (closePromise !== undefined) return Promise.reject(runtimeClosedError());
+        return track(inner.run(role, inputs));
+      },
+      close: () => inner.close?.() ?? Promise.resolve()
+    };
+  }
 
   function resolve(pkg: ModelPackage): Resolved {
+    if (closePromise !== undefined) {
+      return { unavailable: { available: false, reason: "runtime closed" } };
+    }
     const pipeline = pkg.speech?.pipeline;
     if (pipeline !== "articulino") {
       return {
@@ -103,12 +137,16 @@ export function createOnnxNeuralSpeechRuntime(
         };
       }
     }
-    const runtime = createArticulinoRuntime({
-      executor: createOnnxWebSpeechGraphExecutor({
+    const executor = guardedExecutor(
+      createOnnxWebSpeechGraphExecutor({
         files,
         ...(options.load === undefined ? {} : { load: options.load }),
         ...(options.threads === undefined ? {} : { threads: options.threads })
-      }),
+      })
+    );
+    executors.push(executor);
+    const runtime = createArticulinoRuntime({
+      executor,
       files,
       ...(options.noise === undefined ? {} : { noise: options.noise }),
       ...(options.speed === undefined ? {} : { speed: options.speed }),
@@ -120,24 +158,50 @@ export function createOnnxNeuralSpeechRuntime(
 
   return {
     async availability(pkg) {
+      if (closePromise !== undefined) return { available: false, reason: "runtime closed" };
       const r = resolve(pkg);
       return "runtime" in r ? r.runtime.availability(pkg) : r.unavailable;
     },
     async prepare(pkg) {
+      if (closePromise !== undefined) throw runtimeClosedError();
       const r = resolve(pkg);
       return "runtime" in r ? r.runtime.prepare(pkg) : r.unavailable;
     },
     async normalizeText(pkg, text, locale) {
-      if (pkg.speech?.pipeline !== "articulino") return text;
+      if (closePromise !== undefined || pkg.speech?.pipeline !== "articulino") return text;
       const r = resolve(pkg);
       return "runtime" in r ? ((await r.runtime.normalizeText?.(pkg, text, locale)) ?? text) : text;
     },
     async *synthesize(input: NeuralSpeechSynthesisInput): AsyncIterable<PcmChunk> {
+      if (closePromise !== undefined) throw runtimeClosedError();
       const r = resolve(input.modelPackage);
       if (!("runtime" in r)) {
         throw new NeuralSpeechRuntimeError("unavailable", r.unavailable.reason ?? "unavailable");
       }
-      yield* r.runtime.synthesize(input);
+      const signals = [closing.signal, ...(input.signal === undefined ? [] : [input.signal])];
+      const signal = signals.length === 1 ? closing.signal : AbortSignal.any(signals);
+      let finished = false;
+      for await (const chunk of r.runtime.synthesize({ ...input, signal })) {
+        finished = chunk.isLast;
+        yield chunk;
+      }
+      // Ended early because of the close, not the caller's own abort: report it.
+      if (!finished && closing.signal.aborted && input.signal?.aborted !== true) {
+        throw runtimeClosedError();
+      }
+    },
+    close() {
+      closePromise ??= (async () => {
+        closing.abort();
+        while (inFlight.size > 0) {
+          await Promise.allSettled([...inFlight]);
+        }
+        await Promise.allSettled(executors.map((executor) => executor.close?.()));
+        // Nothing resolves a pipeline after close; drop them so their graphs and files can be freed.
+        runtimes.clear();
+        executors.length = 0;
+      })();
+      return closePromise;
     }
   };
 }

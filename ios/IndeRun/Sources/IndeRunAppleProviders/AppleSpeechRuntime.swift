@@ -77,6 +77,7 @@ private final class PlaybackSynthesizer: @unchecked Sendable {
         let lock = NSLock()
         var items: [ObjectIdentifier: (AVSpeechSynthesizer, AnyObject?)] = [:]
         var total = 0
+        var created = 0
     }
 
     private static let retired = Retired()
@@ -85,6 +86,10 @@ private final class PlaybackSynthesizer: @unchecked Sendable {
     static var retirement: (pending: Int, total: Int) {
         retired.lock.withLock { (retired.items.count, retired.total) }
     }
+
+    /// Playback synthesizers created so far in the process; a run that was cancelled before it got
+    /// as far as speaking never creates one, which tests wait on before cancelling.
+    static var created: Int { retired.lock.withLock { retired.created } }
 
     private let lock = NSLock()
     private var synthesizer: AVSpeechSynthesizer?
@@ -95,6 +100,7 @@ private final class PlaybackSynthesizer: @unchecked Sendable {
             if let synthesizer { return synthesizer }
             let created = AVSpeechSynthesizer()
             synthesizer = created
+            Self.retired.lock.withLock { Self.retired.created += 1 }
             return created
         }
     }
@@ -148,6 +154,9 @@ struct SystemAppleSpeechRuntime: AppleSpeechRuntime {
 
     /// Playback synthesizers retired by released providers: those not yet released, and the total.
     static var retiredSynthesizers: (pending: Int, total: Int) { PlaybackSynthesizer.retirement }
+
+    /// Playback synthesizers created so far: one per provider that has started to speak.
+    static var createdSynthesizers: Int { PlaybackSynthesizer.created }
 
     func voices() -> [AppleSpeechVoice] {
         let voices = AVSpeechSynthesisVoice.speechVoices()

@@ -5,7 +5,11 @@ import type {
   AudioOutputSession
 } from "@independo/inderun-contracts";
 
-import { createCapabilityMismatch, type IndeRunException } from "../core/errors.js";
+import {
+  createCapabilityMismatch,
+  createUnavailable,
+  type IndeRunException
+} from "../core/errors.js";
 
 export interface FixtureAudioOutputSession extends AudioOutputSession {
   readonly format: AudioOutputFormat;
@@ -33,6 +37,17 @@ interface Clock {
   ms: number;
 }
 
+/** Wall-clock grace a stalled drain waits beyond the written duration; the real services' rule. */
+const STALL_GRACE_MS = 2000;
+
+export interface FixtureAudioOutputOptions {
+  /**
+   * The output never advances: `drain()` advances the virtual clock by the pending duration plus
+   * the 2000 ms grace, then ends the session and throws `Unavailable` `audio_output_failed`.
+   */
+  stalled?: boolean;
+}
+
 class FixtureSession implements FixtureAudioOutputSession {
   readonly writes: Int16Array[] = [];
   private written = 0;
@@ -46,7 +61,8 @@ class FixtureSession implements FixtureAudioOutputSession {
 
   constructor(
     readonly format: AudioOutputFormat,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly stalled: boolean
   ) {
     this.openedAt = clock.ms;
   }
@@ -82,6 +98,13 @@ class FixtureSession implements FixtureAudioOutputSession {
     if (this.endError) throw this.endError;
     if (this.isStopped) return;
     const pending = this.written - this.played;
+    if (this.stalled && pending > 0) {
+      this.clock.ms += (pending * 1000) / this.format.sampleRate + STALL_GRACE_MS;
+      this.end(undefined);
+      throw createUnavailable("The audio output stalled and did not finish playing.", {
+        details: { code: "audio_output_failed" }
+      });
+    }
     this.clock.ms += (pending * 1000) / this.format.sampleRate;
     this.played = this.written;
   }
@@ -111,7 +134,9 @@ class FixtureSession implements FixtureAudioOutputSession {
  * A recording audio output with a virtual clock: `now()` starts at 0 and only `drain()`
  * advances it, by the duration of the frames not yet played. `write()` resolves at once.
  */
-export function createFixtureAudioOutput(): FixtureAudioOutput {
+export function createFixtureAudioOutput(
+  options: FixtureAudioOutputOptions = {}
+): FixtureAudioOutput {
   const clock: Clock = { ms: 0 };
   const sessions: FixtureAudioOutputSession[] = [];
   const service: AudioOutputService = {
@@ -129,7 +154,7 @@ export function createFixtureAudioOutput(): FixtureAudioOutput {
       if (signal?.aborted) {
         throw new DOMException("Opening the audio output was cancelled.", "AbortError");
       }
-      const session = new FixtureSession(format, clock);
+      const session = new FixtureSession(format, clock, options.stalled === true);
       sessions.push(session);
       return session;
     }

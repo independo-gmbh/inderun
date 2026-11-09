@@ -47,6 +47,9 @@ internal data class CatalogVoice(
     val license: CatalogLicense,
 )
 
+/** The runtime formats this app ships a runtime for. */
+private val DEMO_RUNTIME_FORMATS = setOf("onnx")
+
 internal data class CatalogEntry(
     val id: String,
     val variant: String,
@@ -65,8 +68,20 @@ internal data class CatalogEntry(
     val files: List<CatalogFile>,
     val voices: List<CatalogVoice>,
 ) {
-    /** An entry the demo can download: it has files and is not left to a manual install. */
-    val isInstallable: Boolean get() = reviewStatus != "manual_install" && files.isNotEmpty()
+    /**
+     * An entry the demo can download: it has files, is not left to a manual install, and its runtime
+     * format is one this app ships a runtime for (Core AI is Apple-only).
+     */
+    val isInstallable: Boolean
+        get() = reviewStatus != "manual_install" && files.isNotEmpty() && runtimeFormat in DEMO_RUNTIME_FORMATS
+
+    /** Why an entry that is not installable cannot be downloaded here. */
+    val unavailableReason: String
+        get() = if (reviewStatus != "manual_install" && runtimeFormat !in DEMO_RUNTIME_FORMATS) {
+            "the $runtimeFormat runtime is not available on Android"
+        } else {
+            reviewNotes ?: reviewStatus
+        }
 
     /** Every file of the entry, weights first, then each voice bundle. */
     val allFiles: List<CatalogFile> get() = files + voices.map { it.file }

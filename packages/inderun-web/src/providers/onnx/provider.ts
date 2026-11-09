@@ -98,6 +98,14 @@ export class OnnxRuntimeWebProvider implements PreparableProviderAdapter {
   }
 
   /**
+   * Releases the loaded model. Closes the runtime only when this provider created it; a runtime
+   * the application supplied through `options.runtime` stays the application's to close.
+   */
+  async close(): Promise<void> {
+    if (this.options.runtime === undefined) await this.runtime.close?.();
+  }
+
+  /**
    * Returns static metadata used by the router for deterministic provider selection.
    */
   describe(): ProviderDescriptor {

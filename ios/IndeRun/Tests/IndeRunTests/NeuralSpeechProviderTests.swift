@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import IndeRunCore
+@testable import IndeRunSwift
 @testable import IndeRunNeuralSpeech
 
 /// Unit tests of `NeuralSpeechProvider` and its fixture runtime. Mirrors `provider.test.ts` and
@@ -602,6 +603,125 @@ final class NeuralSpeechProviderTests: XCTestCase {
         XCTAssertEqual(runtime.synthesized.map(\.text), ["Es sind 3 Mai."])
     }
 
+    // MARK: - Runtime close
+
+    func testRuntimeClosedBeforeTheFirstChunkIsUnavailableWithTheCode() async throws {
+        let provider = makeProvider(runtime: ClosingRuntime(afterChunks: 0))
+        let commits = CommitCounter()
+        let context = RunContext(runId: "run-1", hostServices: hostWith(FixtureAudioOutputService()), commit: commits.commit)
+
+        let error = await refusal { _ = try await provider.run(request: speechRequest(), context: context) }
+
+        XCTAssertEqual(error?.errorClass, .Unavailable)
+        XCTAssertEqual(error?.message, "runtime closed")
+        XCTAssertEqual(error?.details?["code"]?.value as? String, "runtime_closed")
+        XCTAssertEqual(commits.count, 0)
+    }
+
+    func testRuntimeClosedAfterCommitEndsAsUnavailableWithTheCode() async throws {
+        let provider = makeProvider(runtime: ClosingRuntime(afterChunks: 1))
+        let audio = FixtureAudioOutputService()
+        let commits = CommitCounter()
+        let context = RunContext(runId: "run-1", hostServices: hostWith(audio), commit: commits.commit)
+
+        let error = await refusal { _ = try await provider.run(request: speechRequest(), context: context) }
+
+        XCTAssertEqual(error?.errorClass, .Unavailable)
+        XCTAssertEqual(error?.details?["code"]?.value as? String, "runtime_closed")
+        XCTAssertEqual(commits.count, 1)
+        XCTAssertEqual(audio.sessions.first?.stopped, true)
+    }
+
+    func testClosedFixtureRuntimeIsUnavailableAndSynthesisFailsWithTheCode() async throws {
+        let runtime = FixtureNeuralSpeechRuntime()
+        await runtime.close()
+        await runtime.close()
+        let closed = NeuralSpeechAvailability(available: false, reason: "runtime closed")
+        let availability = await runtime.availability(package)
+        let prepared = await runtime.prepare(package)
+        XCTAssertEqual(availability, closed)
+        XCTAssertEqual(prepared, closed)
+        do {
+            _ = try await collect(runtime.synthesize(input("abc")))
+            XCTFail("expected runtime_closed")
+        } catch let error as NeuralSpeechRuntimeError {
+            XCTAssertEqual(error.kind, .unavailable)
+            XCTAssertEqual(error.message, "runtime closed")
+            XCTAssertEqual(error.code, "runtime_closed")
+        }
+    }
+
+    func testCloseMidSentenceFailsOnTheNextChunkButNotAfterTheLastOne() async throws {
+        let runtime = FixtureNeuralSpeechRuntime()
+        var iterator = runtime.synthesize(input(twentyEightCharacters)).makeAsyncIterator()
+        _ = try await iterator.next()
+        await runtime.close()
+        do {
+            _ = try await iterator.next()
+            XCTFail("expected runtime_closed")
+        } catch let error as NeuralSpeechRuntimeError {
+            XCTAssertEqual(error.code, "runtime_closed")
+        }
+
+        // Close after the last chunk was delivered: the iteration completes.
+        let late = FixtureNeuralSpeechRuntime()
+        var done = late.synthesize(input("ab")).makeAsyncIterator()
+        while let chunk = try await done.next(), !chunk.isLast {}
+        await late.close()
+        let end = try await done.next()
+        XCTAssertNil(end, "a delivered last chunk completes")
+    }
+
+    func testCancellationWinsOverCloseInTheFixture() async throws {
+        let runtime = FixtureNeuralSpeechRuntime(options: FixtureNeuralSpeechRuntimeOptions(delayMs: 20))
+        let stream = runtime.synthesize(input(twentyEightCharacters))
+        let consumer = Task { () -> Int in
+            var received = 0
+            for try await _ in stream {
+                received += 1
+                withUnsafeCurrentTask { $0?.cancel() }
+                await runtime.close()
+            }
+            return received
+        }
+        let received = try await bounded(ms: 2000, "cancelled synthesis") { try await consumer.value }
+        XCTAssertEqual(received, 1)
+    }
+
+    func testEnginePreCommitRuntimeClosedFallsBackToTheNextProvider() async throws {
+        let healthy = FixtureNeuralSpeechRuntime()
+        let engine = try twoProviderEngine(ClosingRuntime(afterChunks: 0), healthy)
+
+        let result = try await engine.run(request: speechRequest())
+
+        XCTAssertNotNil(result.output.playback)
+        let attempts = result.provenance?.attempts ?? []
+        XCTAssertEqual(attempts[0].providerId, "tts-a")
+        XCTAssertEqual(attempts[0].outcome, .failed)
+        XCTAssertEqual(attempts[0].errorClass, .Unavailable)
+        XCTAssertEqual(attempts[1].providerId, "tts-b")
+        XCTAssertEqual(attempts[1].outcome, .succeeded)
+        XCTAssertEqual(healthy.synthesized.count, 1)
+    }
+
+    func testEngineCommittedRuntimeClosedEndsTerminalWithoutTryingTheOtherProvider() async throws {
+        let other = FixtureNeuralSpeechRuntime()
+        let engine = try twoProviderEngine(ClosingRuntime(afterChunks: 1), other)
+
+        let error = await refusal { _ = try await engine.run(request: speechRequest()) }
+
+        XCTAssertEqual(error?.errorClass, .Unavailable)
+        XCTAssertEqual(error?.details?["code"]?.value as? String, "runtime_closed")
+        XCTAssertTrue(other.synthesized.isEmpty)
+    }
+
+    private func twoProviderEngine(_ first: any NeuralSpeechRuntime, _ second: any NeuralSpeechRuntime) throws -> IndeRun {
+        let registry = ProviderRegistry()
+        try registry.register(makeProvider(id: "tts-a", runtime: first))
+        try registry.register(makeProvider(id: "tts-b", runtime: second))
+        return IndeRun(registry: registry, hostServices: hostWith(FixtureAudioOutputService()))
+    }
+
     // MARK: - Helpers
 
     private let host = HostServices(connectivity: MockConnectivityService(), clock: MockClockService())
@@ -681,6 +801,40 @@ private func speechRequest(
 }
 
 // MARK: - Test doubles
+
+/// Streams `afterChunks` fixture chunks, then fails the way a closed runtime does.
+private final class ClosingRuntime: NeuralSpeechRuntime, @unchecked Sendable {
+    private let fixture = FixtureNeuralSpeechRuntime()
+    private let afterChunks: Int
+
+    init(afterChunks: Int) {
+        self.afterChunks = afterChunks
+    }
+
+    func availability(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability { await fixture.availability(modelPackage) }
+    func prepare(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability { await fixture.prepare(modelPackage) }
+
+    func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error> {
+        let afterChunks = afterChunks
+        let inner = fixture.synthesize(input)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                var received = 0
+                do {
+                    for try await chunk in inner {
+                        if received == afterChunks { break }
+                        continuation.yield(chunk)
+                        received += 1
+                    }
+                    continuation.finish(throwing: NeuralSpeechRuntimeError.runtimeClosed)
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
 
 /// A fixture runtime with the pre-split hook; records what the provider handed it.
 private final class NormalizingRuntime: NeuralSpeechRuntime, @unchecked Sendable {

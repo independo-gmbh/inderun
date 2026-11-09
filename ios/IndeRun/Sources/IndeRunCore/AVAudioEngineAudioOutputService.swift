@@ -9,9 +9,12 @@ import IndeRunContracts
 public final class AVAudioEngineAudioOutputService: AudioOutputService {
     private let makeSession: @Sendable (AVAudioFormat, Date) throws -> AVAudioEngineAudioOutputSession
 
-    public convenience init() {
+    /// `outputWaitGrace` is how long past the unplayed audio's own duration a `write` or `drain`
+    /// may wait on the output before it fails with `audio_output_failed` (see
+    /// ``AVAudioEngineAudioOutputSession``).
+    public convenience init(outputWaitGrace: Duration = .milliseconds(2000)) {
         self.init(makeSession: { format, openedAt in
-            try AVAudioEngineAudioOutputSession(format: format, openedAt: openedAt)
+            try AVAudioEngineAudioOutputSession(format: format, openedAt: openedAt, outputWaitGrace: outputWaitGrace)
         })
     }
 
@@ -55,6 +58,14 @@ public final class AVAudioEngineAudioOutputService: AudioOutputService {
 /// `play()`: a tap on an idle node would see silence buffers and report first audio before any
 /// write. The tap records the first rendered buffer that has frames, then is removed.
 ///
+/// Waits on the output are bounded. A `drain()`, or a `write` parked behind three buffers in
+/// flight, waits at most the duration of the audio scheduled and not yet played back when it starts
+/// waiting, plus `outputWaitGrace` (2000 ms by default), measured on a wall-clock timer rather than
+/// the engine's own clock, so an engine that never runs an IO cycle cannot stop it. On expiry the
+/// waiters throw `Unavailable` with `details.code` `audio_output_failed` and the session ends the
+/// way `stop()` ends it: later writes are ignored, a later `drain()` returns at once, `stop()` stays
+/// idempotent and releases nothing twice.
+///
 /// The system can stop the engine under the session: an `.AVAudioEngineConfigurationChange` for
 /// this engine (an output device change, for example) or, on iOS-family platforms, an
 /// `AVAudioSession` interruption or a media services reset. Any of them ends the session, as does a
@@ -73,7 +84,7 @@ final class AVAudioEngineAudioOutputSession: AudioOutputSession, @unchecked Send
     private let player = AVAudioPlayerNode()
     private let format: AVAudioFormat
     private let openedAt: Date
-    private let gate = AudioOutputGate(limit: 3)
+    private let gate: AudioOutputGate
     private let stateLock = NSLock()
     private let controlLock = NSRecursiveLock()
     private var stopped = false
@@ -84,9 +95,23 @@ final class AVAudioEngineAudioOutputSession: AudioOutputSession, @unchecked Send
     private var firstAudioAt: Date?
     private var observers: [NSObjectProtocol] = []
 
-    init(format: AVAudioFormat, openedAt: Date) throws {
+    init(
+        format: AVAudioFormat,
+        openedAt: Date,
+        outputWaitGrace: Duration = .milliseconds(2000),
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) throws {
         self.format = format
         self.openedAt = openedAt
+        let expiry = ExpiryHook()
+        gate = AudioOutputGate(
+            limit: 3,
+            sampleRate: Int(format.sampleRate),
+            grace: outputWaitGrace,
+            sleep: sleep,
+            onExpire: { expiry.run() }
+        )
+        expiry.set { [weak self] in self?.finish(nil) }
         // A host without an output device reports a 0-channel output; connecting to it raises an
         // Objective-C exception rather than throwing, so it is refused before anything is connected.
         let output = engine.outputNode.outputFormat(forBus: 0)
@@ -132,7 +157,7 @@ final class AVAudioEngineAudioOutputSession: AudioOutputSession, @unchecked Send
         guard let buffer = makeBuffer(samples) else { return }
         try await gate.reserve()
         // Counted before scheduling, so a completion can never arrive ahead of its own count.
-        await gate.markScheduled()
+        await gate.markScheduled(frames: samples.count)
         let engineStopped: Bool = controlLock.withLock {
             let startsPlayback: Bool? = stateLock.withLock {
                 if stopped { return nil }
@@ -242,6 +267,15 @@ final class AVAudioEngineAudioOutputSession: AudioOutputSession, @unchecked Send
 
     private static func failed(_ message: String) -> IndeRunException {
         createUnavailable(message: message, details: ["code": JSONAny("audio_output_failed")])
+    }
+
+    /// Lets the gate, built before `self` exists, end the session when its wait bound expires.
+    private final class ExpiryHook: @unchecked Sendable {
+        private let lock = NSLock()
+        private var action: (@Sendable () -> Void)?
+
+        func set(_ action: @escaping @Sendable () -> Void) { lock.withLock { self.action = action } }
+        func run() { lock.withLock { action }?() }
     }
 
     /// A completion that `player.stop()` delivers for discarded audio is ignored: the gate is

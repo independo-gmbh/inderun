@@ -59,10 +59,10 @@ own artifact that only neural speech loads:
 
 - **Web.** `@independo/inderun-route-core-wasm` builds two modules: `inderun_route_core` (the planner) and
   `inderun_speech_text`, loaded lazily by `normalizeSpeechText()`. `initSpeechText(moduleOrPath?)` is the counterpart
-  of the planner's initializer for hosts that serve the wasm from a custom path. What ships today is the debug profile,
-  because `scripts/build-route-core-wasm.mjs` builds it and `release.yml` publishes that build:
-  `inderun_route_core_bg.wasm` is about 1.0 MB (about 256 KB gzip) and `inderun_speech_text_bg.wasm` is about 5.0 MB
-  (about 1.32 MB gzip).
+  of the planner's initializer for hosts that serve the wasm from a custom path. What ships is the size-optimised `wasm` cargo profile (opt-level "z", fat LTO), which
+  `scripts/build-route-core-wasm.mjs` builds and `release.yml` publishes, gated by `pnpm check:wasm-size`:
+  `inderun_route_core_bg.wasm` is about 333 KB (about 104 KB gzip) and `inderun_speech_text_bg.wasm` is about 1.69 MB
+  (about 535 KB gzip).
 - **Android.** `:inderun-core` packages the planner-only `libinderun_route_core.so` (about 0.71 MB arm64).
   `:inderun-neural-speech` packages `libinderun_speech_text.so` (about 2.34 MB arm64, its own soname) and an internal
   `SharedCoreSpeechText` object.

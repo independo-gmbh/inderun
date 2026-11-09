@@ -90,8 +90,10 @@ class NeuralCatalogTest {
         assertTrue(onnx.isInstallable)
         assertEquals("voices-lab/articulino-de-en-int8/1", onnx.ref)
         assertEquals(4 + 7, onnx.allFiles.size)
-        val coreAi = entries.single { it.reviewStatus == "manual_install" }
+        val coreAi = entries.single { it.id == "articulino-de-en-coreai" }
+        assertTrue(coreAi.files.isNotEmpty())
         assertFalse(coreAi.isInstallable)
+        assertEquals("the coreai runtime is not available on Android", coreAi.unavailableReason)
     }
 
     @Test

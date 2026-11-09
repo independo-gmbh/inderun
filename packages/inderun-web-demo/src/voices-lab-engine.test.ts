@@ -14,9 +14,26 @@ describe("createVoicesLabEngine", () => {
         files: { read: async () => new Uint8Array() }
       }
     ];
-    const engine = createVoicesLabEngine(installed);
-    const ids = (await engine.checkCapabilities()).map((s) => s.providerId);
+    const lab = createVoicesLabEngine(installed);
+    const ids = (await lab.engine.checkCapabilities()).map((s) => s.providerId);
     expect(ids).toContain("local.onnx.speech.web:articulino-de-en-int8");
     expect(ids).toContain("web_system_speech");
+  });
+
+  it("close closes the engine and the runtimes created for it", async () => {
+    const entry = catalog().entries.find((e) => e.id === "articulino-de-en-int8")!;
+    const lab = createVoicesLabEngine([
+      {
+        entry,
+        modelPackage: catalogEntryToModelPackage(entry, "voices-lab/articulino-de-en-int8/1"),
+        files: { read: async () => new Uint8Array() }
+      }
+    ]);
+    await lab.close();
+    await lab.close();
+    // The engine refuses work once closed.
+    await expect(lab.engine.readArtifact({ artifactId: "x" })).rejects.toMatchObject({
+      details: { code: "engine_closed" }
+    });
   });
 });

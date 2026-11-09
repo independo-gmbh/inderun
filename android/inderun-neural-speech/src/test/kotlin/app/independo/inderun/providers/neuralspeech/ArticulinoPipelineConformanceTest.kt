@@ -13,7 +13,6 @@ import app.independo.inderun.providers.neuralspeech.articulino.ArticulinoMath
 import app.independo.inderun.providers.neuralspeech.articulino.ArticulinoRuntime
 import app.independo.inderun.providers.neuralspeech.articulino.ArticulinoRuntimeOptions
 import app.independo.inderun.providers.neuralspeech.articulino.NoiseSource
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -30,6 +29,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 /**
@@ -603,19 +603,22 @@ private val handlers: Map<String, Handler> = mapOf(
     },
     "cancel" to { fixture, entry ->
         val limit = entry.getInt("cancelAfterCalls")
-        // The callback runs on the runtime's dispatcher, possibly before `launch` returns: it cancels the
-        // job once it is known, whichever comes first.
-        val launched = CompletableDeferred<Job>()
+        // The callback runs on the runtime's dispatcher. The job is launched LAZILY and published to
+        // `handle` before it starts, so the callback always finds it and cancels deterministically.
+        val handle = AtomicReference<Job?>(null)
         val executor = ScriptedExecutor(entry.getJSONObject("executor").script()) { count ->
-            if (count >= limit) launched.invokeOnCompletion { launched.getCompleted().cancel() }
+            if (count >= limit) handle.get()!!.cancel()
         }
         val runtime = ArticulinoRuntime(
             ArticulinoRuntimeOptions(executor, packageFiles(fixture), fixtureNoise(noiseOf(entry)), pauseMs = entry.getInt("pauseMs")),
         )
         val chunks = mutableListOf<PcmChunk>()
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
-        val job = scope.launch { runtime.synthesize(synthesisInput(entry)).toList(chunks) }
-        launched.complete(job)
+        val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            runtime.synthesize(synthesisInput(entry)).toList(chunks)
+        }
+        handle.set(job)
+        job.start()
         job.join()
         assertTrue(job.isCancelled)
         assertEquals(0, chunks.size)

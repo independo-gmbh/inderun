@@ -551,7 +551,10 @@ public final class NeuralSpeechProvider: StreamingProviderAdapter, PreparablePro
 
     fileprivate func mapRuntimeError(_ error: Error, runId: String) -> IndeRunException {
         if let runtimeError = error as? NeuralSpeechRuntimeError {
-            let details = runtimeError.originalErrorDescription.map { ["originalError": JSONAny($0)] }
+            var detailMap: [String: JSONAny] = [:]
+            if let original = runtimeError.originalErrorDescription { detailMap["originalError"] = JSONAny(original) }
+            if let code = runtimeError.code { detailMap["code"] = JSONAny(code) }
+            let details: [String: JSONAny]? = detailMap.isEmpty ? nil : detailMap
             switch runtimeError.kind {
             case .capability:
                 return createCapabilityMismatch(message: runtimeError.message, runId: runId, providerId: id, details: details)

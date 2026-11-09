@@ -42,7 +42,7 @@ provider families (ONNX Runtime, web system-model) do not stream yet.
 Text-to-speech is implemented through `speak()` / `generateSpeech()` /
 `listVoices()` and the system speech providers on all three platforms (ADR 018). A neural speech provider family
 (`local.onnx.speech.*`, runtime seam, fixture runtime) exists on all three SDKs; its ONNX executor and the first model
-pipeline (Articulino) ship, the Apple Core AI runtime ships for iOS/macOS 27 (ADR 022; model conversion record pending), and the German text frontend (numbers, dates, abbreviations before sentence splitting) ships (ADR 023; see also ADR 020, ADR 021). The three demos carry an opt-in Voices lab (#260 PR 6) that downloads
+pipeline (Articulino) ship, the Apple Core AI runtime ships for iOS/macOS 27 (ADR 022, with its conversion record), and the German text frontend (numbers, dates, abbreviations before sentence splitting) ships (ADR 023; see also ADR 020, ADR 021). The three demos carry an opt-in Voices lab (#260 PR 6) that downloads
 neural models from a checksummed catalog.
 Mode 3 `openSession()` / realtime sessions remain unimplemented.
 
@@ -107,6 +107,9 @@ Checked-in JavaScript commands:
   called automatically by `pnpm build` and `pnpm test:js`. Requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli`. The Web SDK has no fallback route
   planner, so the JS tests need these bindings to run at all.
+- `pnpm check:wasm-size` — size gate for the two WASM modules (`scripts/check-wasm-size.mjs`); run after
+  `pnpm build:wasm`. Prints raw and gzip bytes against the budgets in the script and exits 1 when over. Run by
+  `javascript.yml` and `release.yml`. Raise a budget only in the change that grows the module.
 - `pnpm build:route-core-apple` — build the Rust route core for the Apple platforms and
   package it into two XCFrameworks under `ios/IndeRun/Frameworks/`
   (`scripts/build-route-core-apple.mjs`): `InderunRouteCoreFFI.xcframework` (the planner, built
@@ -215,9 +218,18 @@ build script prints the install commands when a toolchain is missing.
   the NDK (the test APK packages the route core). CI runs it in the non-required
   `Android emulator speech` job; see `docs/ci.md`. Add
   `-Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true` for the opt-in speech latency
-  benchmark (`SpeechBenchmarkTest`); its Swift counterpart runs with
-  `INDERUN_SPEECH_BENCHMARK=1 swift test --filter SpeechBenchmarkTests`. Both are described in
-  `docs/verification/system-speech.md`.
+  benchmark (`SpeechBenchmarkTest`). Further optional arguments, each prefixed
+  `-Pandroid.testInstrumentationRunnerArguments.`: `speechBenchmarkModelDir` (a model package directory
+  on the device; adds the neural ONNX target), `speechBenchmarkOut` (a directory on the device; one JSON
+  report per target), `speechBenchmarkModelId` (the catalog entry id to record) and `speechBenchmarkSdkVersion`
+  (default `dev`). `speechBenchmarkOut` is a directory name under the app's external files directory
+  (`getExternalFilesDir(null)`, the only place the test app can write); it is created first and the log prints
+  each report's absolute path, to fetch with `adb pull` before the test app is uninstalled. The Swift
+  counterpart runs with `INDERUN_SPEECH_BENCHMARK=1 swift test --filter SpeechBenchmarkTests`, with the matching
+  variables `INDERUN_SPEECH_BENCHMARK_MODEL_DIR`, `INDERUN_SPEECH_BENCHMARK_MODEL_ID`,
+  `INDERUN_SPEECH_BENCHMARK_OUT` and `INDERUN_SPEECH_BENCHMARK_SDK_VERSION`. The latency scenarios are
+  described in `docs/verification/system-speech.md`; the report format and how to reproduce the neural
+  runs are in `docs/verification/neural-speech.md`.
 - `cd android && ./gradlew publishToMavenLocal` — build the library modules' Maven
   artifacts locally (no credentials needed); Maven Central publishing is automated in CI.
 
@@ -255,10 +267,11 @@ Checked-in Rust commands:
 - `cargo test -p inderun_route_core`
 - `cargo fmt -p inderun_route_core -- --check`
 - `cargo clippy -p inderun_route_core --all-targets -- -D warnings`
-- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features`
-- `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
-- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features --features speech-text --target-dir target/wasm-speech-text`
-- `wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_speech_text`
+- Manual debug builds for local iteration (they exceed the size gate; `pnpm build:wasm` is the shipped release build):
+  - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features`
+  - `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
+  - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features --features speech-text --target-dir target/wasm-speech-text`
+  - `wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_speech_text`
 - `pnpm --filter @independo/inderun-route-core-wasm test`
 
 Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing here runs in CI, see
@@ -277,9 +290,10 @@ Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing 
   — build the Voices lab demo assets (int64-mask `text.onnx`, the seven voice bundles, `SHA256SUMS`), write their
   url/sha256/bytes into `contracts/fixtures/speech/neural-model-catalog.json` and print the `gh release create`
   command for the owner (nothing is uploaded).
-- `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 5]` — opt-in: time an
-  ONNX Articulino package on a connected iPhone through the demo app, with a temporary hook the script reverts (needs
-  Xcode and a paired phone; see the README).
+- `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 3] [--model-id <id>] [--sdk-version <v>] [--out <file>]` — opt-in:
+  time an ONNX or Core AI Articulino package on a connected iPhone through the demo app, with a temporary hook the script reverts (a Core AI package also links `IndeRunCoreAIProviders` through a temporary `project.pbxproj` edit),
+  and write the `inderun-speech-benchmark/1` JSON report (`first_call_after_prepare`, `render_speed`) to `--out`
+  (needs Xcode and a paired phone; see the README).
 - `tools/neural-speech/.venv/bin/python tools/neural-speech/generate_pipeline_fixture.py` — regenerate
   `contracts/fixtures/speech/articulino-pipeline.json`; the output is deterministic.
 

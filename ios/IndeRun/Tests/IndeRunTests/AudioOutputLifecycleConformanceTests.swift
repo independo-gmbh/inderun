@@ -22,11 +22,14 @@ final class AudioOutputLifecycleConformanceTests: XCTestCase {
 
     func testFixtureMatchesTheSharedCatalog() async throws {
         let fixture = FixtureAudioOutputService()
-        try await runCatalog(AudioOutputTarget(service: fixture, now: { fixture.now() }), label: "fixture")
+        try await runCatalog(
+            AudioOutputTarget(service: fixture, now: { fixture.now() }, setStalled: { fixture.setStalled($0) }),
+            label: "fixture"
+        )
         // 3000 ms at 24000 Hz: the buffered audio was discarded, not played.
         // Re-run the one case on a fresh fixture so the counter is attributable to it.
         let discarding = FixtureAudioOutputService()
-        let target = AudioOutputTarget(service: discarding, now: { discarding.now() })
+        let target = AudioOutputTarget(service: discarding, now: { discarding.now() }, setStalled: nil)
         let expected = try XCTUnwrap(loadCatalog().cases.first { $0.id == "stop_discards_buffered_audio" }).expect
         _ = try await handlers["stop_discards_buffered_audio"]!(target, expected)
         XCTAssertEqual(discarding.sessions.first?.discardedFrames, 72000)
@@ -264,6 +267,7 @@ private struct Expectations: Decodable {
     var drainAfterStop: AtMost?
     var independence: Independence?
     var openRejectsWith: OpenRejection?
+    var drainRejectsWith: String?
 }
 
 private struct CatalogCase: Decodable {
@@ -297,6 +301,9 @@ private func loadCatalog() throws -> Catalog {
 struct AudioOutputTarget {
     let service: any AudioOutputService
     let now: @Sendable () -> Double
+    /// Makes the target's output stall (`true`) or play again (`false`); `nil` when it cannot be
+    /// forced to, as for a real engine on a real device, which skips the stall case.
+    var setStalled: (@Sendable (Bool) -> Void)?
 }
 
 private struct Observation {
@@ -314,6 +321,10 @@ private struct Observation {
     var stoppedDrainElapsedMs: Double?
     var otherDrainElapsedMs: Double?
     var openRejection: IndeRunException?
+    var drainRejectionCode: String?
+    var drainRejectionClass: IndeRunErrorClass?
+    /// The target cannot be forced to stall; the case is not asserted.
+    var skipped = false
 }
 
 private typealias Handler = (AudioOutputTarget, Expectations) async throws -> Observation
@@ -491,6 +502,27 @@ private let handlers: [String: Handler] = [
         second.stop()
         return Observation(stoppedDrainElapsedMs: stoppedElapsed, otherDrainElapsedMs: otherElapsed)
     },
+    "drain_fails_when_output_stalls": { target, expected in
+        // A machine cannot be forced to stall its output, so the real engine skips this case; the
+        // bound is pinned against the engine session in AudioOutputStallTests instead.
+        guard let setStalled = target.setStalled else { return Observation(skipped: true) }
+        setStalled(true)
+        defer { setStalled(false) }
+        let session = try await target.service.open(format: format)
+        let from = target.now()
+        try await session.write(tone(ms: 500))
+        var code: String?
+        var errorClass: IndeRunErrorClass?
+        do {
+            try await bounded(ms: expected.drain!.timeoutMs, "drain") { try await session.drain() }
+        } catch let error as IndeRunException {
+            code = error.details?["code"]?.value as? String
+            errorClass = error.errorClass
+        }
+        let elapsed = target.now() - from
+        session.stop()
+        return Observation(drainElapsedMs: elapsed, drainRejectionCode: code, drainRejectionClass: errorClass)
+    },
     "unsupported_format_refused": { target, _ in
         do {
             let session = try await target.service.open(format: AudioOutputFormat(sampleRate: 4000))
@@ -522,6 +554,11 @@ private func runCatalog(_ target: AudioOutputTarget, label: String) async throws
 
 // swiftlint:disable:next cyclomatic_complexity function_body_length
 private func check(label: String, expected: Expectations, observed: Observation) {
+    if observed.skipped { return }
+    if let code = expected.drainRejectsWith {
+        XCTAssertEqual(observed.drainRejectionCode, code, "\(label): drain rejection code")
+        XCTAssertEqual(observed.drainRejectionClass, .Unavailable, "\(label): drain rejection class")
+    }
     if let afterOpen = expected.afterOpen {
         XCTAssertEqual(observed.firstAudioDefinedAfterOpen, afterOpen.firstAudioDefined, "\(label): firstAudio after open")
     }

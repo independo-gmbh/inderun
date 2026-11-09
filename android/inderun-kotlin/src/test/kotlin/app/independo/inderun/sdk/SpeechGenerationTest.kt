@@ -98,6 +98,8 @@ private class ScriptedApi(
     override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk = error("not scripted")
 
     override suspend fun disposeArtifact(artifact: MediaArtifact) = Unit
+
+    override suspend fun close() = Unit
 }
 
 @RunWith(RobolectricTestRunner::class)

@@ -124,4 +124,90 @@ class FixtureNeuralSpeechRuntimeTest {
         assertEquals(PcmChunk(shortArrayOf(1, 2), 24000, true).hashCode(), PcmChunk(shortArrayOf(1, 2), 24000, true).hashCode())
         assertTrue(PcmChunk(shortArrayOf(1, 2), 24000, true) != PcmChunk(shortArrayOf(1, 3), 24000, true))
     }
+
+    // --- close() -----------------------------------------------------------------------------
+
+    private fun assertRuntimeClosed(error: Throwable) {
+        assertTrue(error.toString(), error is NeuralSpeechRuntimeError)
+        error as NeuralSpeechRuntimeError
+        assertEquals(NeuralSpeechRuntimeErrorKind.Unavailable, error.kind)
+        assertEquals("runtime closed", error.message)
+        assertEquals("runtime_closed", error.code)
+    }
+
+    @Test
+    fun closeIsIdempotentAndAvailabilityAndPrepareReportRuntimeClosed() = runTest {
+        val runtime = FixtureNeuralSpeechRuntime()
+        runtime.close()
+        runtime.close()
+
+        assertEquals(NeuralSpeechAvailability(false, "runtime closed"), runtime.availability(pkg))
+        try {
+            runtime.prepare(pkg)
+            fail("expected runtime_closed")
+        } catch (error: NeuralSpeechRuntimeError) {
+            assertRuntimeClosed(error)
+        }
+    }
+
+    @Test
+    fun synthesizeAfterCloseFailsWithRuntimeClosedAndRecordsNothing() = runTest {
+        val runtime = FixtureNeuralSpeechRuntime()
+        runtime.close()
+        try {
+            runtime.synthesize(input()).toList()
+            fail("expected runtime_closed")
+        } catch (error: NeuralSpeechRuntimeError) {
+            assertRuntimeClosed(error)
+        }
+        assertEquals(0, runtime.synthesized.size)
+    }
+
+    @Test
+    fun aSentenceInProgressFailsAtItsNextChunk() = runTest {
+        val runtime = FixtureNeuralSpeechRuntime()
+        val delivered = mutableListOf<PcmChunk>()
+        try {
+            runtime.synthesize(input()).collect {
+                delivered += it
+                runtime.close()
+            }
+            fail("expected runtime_closed")
+        } catch (error: NeuralSpeechRuntimeError) {
+            assertRuntimeClosed(error)
+        }
+        assertEquals(1, delivered.size)
+    }
+
+    @Test
+    fun cancellationWinsOverClose() = runTest {
+        val runtime = FixtureNeuralSpeechRuntime()
+        var failure: Throwable? = null
+        val job = launch {
+            try {
+                runtime.synthesize(input()).collect {
+                    runtime.close()
+                    currentCoroutineContext().cancel()
+                }
+            } catch (error: Throwable) {
+                failure = error
+                throw error
+            }
+        }
+        job.join()
+
+        assertTrue(failure.toString(), failure is kotlinx.coroutines.CancellationException)
+    }
+
+    @Test
+    fun aSentenceWhoseLastChunkWasDeliveredCompletes() = runTest {
+        val runtime = FixtureNeuralSpeechRuntime(FixtureNeuralSpeechRuntimeOptions(chunkMs = 2000))
+        val delivered = mutableListOf<PcmChunk>()
+        runtime.synthesize(input()).collect {
+            delivered += it
+            if (it.isLast) runtime.close()
+        }
+
+        assertTrue(delivered.last().isLast)
+    }
 }

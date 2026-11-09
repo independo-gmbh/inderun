@@ -61,6 +61,12 @@ offline/PWA use), the `./generated/*` export subpath exposes the raw generated a
 import wasmUrl from "@independo/inderun-route-core-wasm/generated/inderun_route_core_bg.wasm?url";
 ```
 
+## Building and size budgets
+
+`pnpm build:wasm` (repo root) builds both modules with the size-optimised `wasm` cargo profile.
+`pnpm check:wasm-size` then compares each module's raw and gzip size with the budgets in
+`scripts/check-wasm-size.mjs` and exits 1 when one is over; CI runs it after the build.
+
 ## About IndeRun
 
 This package is developed and published from the

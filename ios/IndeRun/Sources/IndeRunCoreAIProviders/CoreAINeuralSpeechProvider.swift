@@ -31,6 +31,8 @@ public struct CoreAINeuralSpeechProviderOptions: Sendable {
 }
 
 /// A ``NeuralSpeechProvider`` that runs a `coreai` package through a ``CoreAINeuralSpeechRuntime``.
+/// Specializing the asset needs the app's consent: register with `autoDownload` or call
+/// `prepare({ allowDownload: true })`, otherwise a device whose specialization cache is empty is skipped.
 public func makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions) -> NeuralSpeechProvider {
     NeuralSpeechProvider(options: NeuralSpeechProviderOptions(
         id: options.id ?? "\(NeuralSpeechProvider.coreAIDefaultId):\(options.modelPackage.id)",

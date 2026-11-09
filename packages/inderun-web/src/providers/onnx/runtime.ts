@@ -104,6 +104,12 @@ export interface OnnxTextGenerationRuntime {
    * runtime allows it; ONNX inference is not hard-interruptible, so cancellation is best effort.
    */
   generate(input: OnnxGenerationInput, signal?: AbortSignal): Promise<OnnxGenerationOutput>;
+  /**
+   * Releases what the runtime loaded (model sessions, WASM or GPU memory). Optional: a runtime with
+   * nothing to release omits it. Repeating it must be harmless. The provider calls it only for a
+   * runtime it created itself, never for one the application supplied.
+   */
+  close?(): Promise<void>;
 }
 
 /**

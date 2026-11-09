@@ -142,6 +142,12 @@ export class ArtifactStore {
     this.storedBytes -= stored.bytes.byteLength;
   }
 
+  /** Releases every artifact the store holds. */
+  disposeAll(): void {
+    this.artifacts.clear();
+    this.storedBytes = 0;
+  }
+
   /** The stored reference for `artifactId`, or `undefined` once it was disposed. */
   reference(artifactId: string): MediaArtifact | undefined {
     return this.artifacts.get(artifactId)?.reference;
