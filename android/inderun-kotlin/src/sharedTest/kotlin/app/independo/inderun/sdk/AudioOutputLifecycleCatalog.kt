@@ -26,7 +26,12 @@ import kotlin.math.sin
  * A service under test and the clock its elapsed times are read on (the fixture's virtual clock,
  * or wall time for a real service).
  */
-internal class AudioOutputTarget(val service: AudioOutputService, val now: () -> Double)
+internal class AudioOutputTarget(
+    val service: AudioOutputService,
+    val now: () -> Double,
+    /** The same target with an output that never advances, or null when it cannot be stalled on demand. */
+    val stalled: AudioOutputTarget? = null,
+)
 
 /** What a handler saw; every field is optional because each case observes a few. */
 internal class AudioOutputObservation(
@@ -44,6 +49,7 @@ internal class AudioOutputObservation(
     val stoppedDrainElapsedMs: Double? = null,
     val otherDrainElapsedMs: Double? = null,
     val openRejection: IndeRunException? = null,
+    val drainRejection: IndeRunException? = null,
 )
 
 private val catalogFormat = AudioOutputFormat(sampleRate = 24000)
@@ -193,6 +199,22 @@ internal val audioOutputHandlers: Map<String, suspend (AudioOutputTarget, JSONOb
         b.stop()
         AudioOutputObservation(stoppedDrainElapsedMs = stoppedElapsed, otherDrainElapsedMs = otherElapsed)
     },
+    "drain_fails_when_output_stalls" to { target, expected ->
+        val timeoutMs = expected.requireObject("drain").getInt("timeoutMs")
+        val stalled = target.stalled ?: throw AssertionError("this target cannot stall its output on demand")
+        val session = stalled.service.open(catalogFormat)
+        val from = stalled.now()
+        session.write(tone(500))
+        val rejection = try {
+            bounded(timeoutMs, "drain") { session.drain() }
+            null
+        } catch (error: IndeRunException) {
+            error
+        }
+        val elapsed = stalled.now() - from
+        session.stop()
+        AudioOutputObservation(drainElapsedMs = elapsed, drainRejection = rejection)
+    },
     "unsupported_format_refused" to { target, _ ->
         try {
             target.service.open(catalogFormat.copy(sampleRate = 4000)).stop()
@@ -228,6 +250,14 @@ internal fun checkAudioOutputCase(label: String, expected: JSONObject, observed:
     }
     expected.optJSONObject("drain")?.let {
         atLeast("drain elapsed", it.getDouble("elapsedAtLeastMs"), observed.drainElapsedMs)
+    }
+    expected.optString("drainRejectsWith").takeIf { it.isNotEmpty() }?.let { code ->
+        val rejection = observed.drainRejection
+        require(rejection != null) { "expected drain() to throw" }
+        if (rejection != null) {
+            same("drain error class", IndeRunErrorClass.Unavailable, rejection.errorClass)
+            same("drain error details.code", code, rejection.details?.get("code"))
+        }
     }
     expected.optJSONObject("stop")?.let {
         same("stop threw", it.getBoolean("throws"), observed.stopThrew)

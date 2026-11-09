@@ -51,6 +51,7 @@ import {
   ArtifactStore,
   type AttemptArtifacts
 } from "./artifacts.js";
+import { InFlight } from "./in-flight.js";
 
 /**
  * @deprecated Renamed to `StreamRun`, which is the name the generated
@@ -78,6 +79,22 @@ export interface IndeRunOptions {
    * artifact, 64 MiB in total, 1 MiB per `readArtifact` call.
    */
   artifacts?: ArtifactLimits;
+}
+
+/** Resources handed to an engine by the code that built it; see {@link adoptOwnedResources}. */
+const ownedResources = new WeakMap<object, ReadonlyArray<{ close(): void | Promise<void> }>>();
+
+/**
+ * Hands `resources` to `engine`, which closes them in {@link IndeRun.close} after its own work has
+ * ended. Package-internal (not exported from the package entry point): `createIndeRunWeb` lists
+ * the providers it constructed that hold something to release. A runtime an application supplied
+ * is never listed here.
+ */
+export function adoptOwnedResources(
+  engine: IndeRun,
+  resources: ReadonlyArray<{ close(): void | Promise<void> }>
+): void {
+  ownedResources.set(engine, resources);
 }
 
 /**
@@ -142,6 +159,9 @@ export class IndeRun implements IndeRunApi {
   private readonly artifacts: ArtifactStore;
   private telemetryService: TelemetryService;
   private modelProfiles: ModelProfiles;
+  private readonly inFlight = new InFlight();
+  private closed = false;
+  private closing: Promise<void> | undefined;
 
   /**
    * Initializes the IndeRun instance.
@@ -161,6 +181,43 @@ export class IndeRun implements IndeRunApi {
     this.modelProfiles = options.modelProfiles ?? {};
     validateModelProfiles(this.modelProfiles);
     this.artifacts = new ArtifactStore(options.artifacts);
+  }
+
+  /** Fails with `engine_closed` once {@link close} has begun. */
+  private assertOpen(): void {
+    if (this.closed) {
+      throw createUnavailable("The engine is closed.", {
+        retryable: false,
+        details: { code: "engine_closed" }
+      });
+    }
+  }
+
+  /**
+   * Closes the engine. In order: refuses new work, cancels in-flight streams and prepares,
+   * waits for them and for in-flight `run()` calls (Mode 1 has no cancel path, so those are
+   * awaited, not cancelled), disposes the engine's artifacts, and closes the resources the
+   * engine's creator handed over. Idempotent: later and concurrent calls await the first.
+   */
+  close(): Promise<void> {
+    // Set before anything is cancelled, so a call made from a cancel listener is already refused.
+    this.closed = true;
+    this.closing ??= this.shutDown();
+    return this.closing;
+  }
+
+  private async shutDown(): Promise<void> {
+    this.inFlight.cancelAll("The engine was closed.");
+    await this.inFlight.settled();
+    this.artifacts.disposeAll();
+    for (const resource of ownedResources.get(this) ?? []) {
+      try {
+        await resource.close();
+      } catch (error) {
+        // Closing never throws; one resource failing must not leave the rest open.
+        console.warn("[IndeRun] Closing an owned resource failed:", error);
+      }
+    }
   }
 
   /**
@@ -275,6 +332,11 @@ export class IndeRun implements IndeRunApi {
    * @throws {IndeRunException} Standardized error indicating validation, connection, or provider failures.
    */
   async run(request: TaskRequest): Promise<TaskResult> {
+    this.assertOpen();
+    return this.inFlight.track(this.runUntracked(request));
+  }
+
+  private async runUntracked(request: TaskRequest): Promise<TaskResult> {
     const startTime = this.now();
 
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
@@ -459,6 +521,11 @@ export class IndeRun implements IndeRunApi {
    * @throws {IndeRunException} If validation fails or no eligible streaming provider exists.
    */
   async stream(request: TaskRequest): Promise<StreamRun> {
+    this.assertOpen();
+    return this.inFlight.track(this.streamUntracked(request));
+  }
+
+  private async streamUntracked(request: TaskRequest): Promise<StreamRun> {
     const startTime = this.now();
     const now = () => this.now();
     const runId = request.requestId || `run_${Math.random().toString(36).substring(2, 11)}`;
@@ -504,6 +571,8 @@ export class IndeRun implements IndeRunApi {
       });
     }
 
+    // Close may have begun while this call was routing: nothing exists yet to cancel.
+    this.assertOpen();
     const controller = new AbortController();
     const gate = new EventGate(runId);
     const hostServices = this.hostServices;
@@ -815,7 +884,11 @@ export class IndeRun implements IndeRunApi {
       if (terminal) yield terminal;
     }
 
-    return { handle, events: run(), cancel: (reason?: string) => controller.abort(reason) };
+    return this.inFlight.trackRun({
+      handle,
+      events: run(),
+      cancel: (reason?: string) => controller.abort(reason)
+    });
   }
 
   /**
@@ -827,6 +900,7 @@ export class IndeRun implements IndeRunApi {
    * @throws {IndeRunException} If validation fails.
    */
   async prepare(request: PrepareRequest = {}): Promise<StreamRun> {
+    this.assertOpen();
     const startTime = this.now();
     const now = () => this.now();
     const runId = request.requestId ?? `run_${Math.random().toString(36).substring(2, 11)}`;
@@ -904,7 +978,11 @@ export class IndeRun implements IndeRunApi {
     }
 
     const handle: StreamRunHandle = { runId, schemaVersion: "1.0", startedAt: startTime };
-    return { handle, events: run(), cancel: (reason?: string) => controller.abort(reason) };
+    return this.inFlight.trackRun({
+      handle,
+      events: run(),
+      cancel: (reason?: string) => controller.abort(reason)
+    });
   }
 
   /**
@@ -1066,6 +1144,7 @@ export class IndeRun implements IndeRunApi {
    * without executing a task. Useful for UI that shows live provider availability before a run.
    */
   async readArtifact(request: ArtifactReadRequest): Promise<ArtifactChunk> {
+    this.assertOpen();
     const validationIssues = getArtifactReadRequestValidationIssues(request);
     if (validationIssues.length > 0) {
       const message = `Validation failed for ArtifactReadRequest: ${validationIssues
@@ -1164,6 +1243,8 @@ export class IndeRun implements IndeRunApi {
   }
 
   async checkCapabilities(): Promise<ProviderCapabilitySnapshot[]> {
+    // A closed engine reports an empty snapshot rather than throwing: the Swift signature cannot throw.
+    if (this.closed) return [];
     return Promise.all(
       this.registry.list().map(async (provider) => ({
         providerId: provider.describe().id,

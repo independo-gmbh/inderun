@@ -175,6 +175,14 @@ class ArtifactStore(private val limits: ArtifactLimits = ArtifactLimits()) {
         }
     }
 
+    /** Releases every artifact the store holds, for an engine that is closing. */
+    fun disposeAll() {
+        synchronized(lock) {
+            artifacts.clear()
+            storedBytes = 0
+        }
+    }
+
     /**
      * A copy of the whole artifact's bytes, or null once it was disposed: what the engine writes to
      * an application destination.

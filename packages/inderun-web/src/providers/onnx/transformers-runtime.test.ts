@@ -323,3 +323,52 @@ describe("createTransformersJsRuntime generate", () => {
     expect((error as OnnxRuntimeError).kind).toBe("timeout");
   });
 });
+
+describe("createTransformersJsRuntime close()", () => {
+  it("disposes the loaded pipeline and loads a fresh one afterwards", async () => {
+    let disposed = 0;
+    const module: TransformersModule = {
+      env: {},
+      async pipeline() {
+        const generator = (async () => [{ generated_text: "hi" }]) as TransformersTextGenerator;
+        generator.dispose = async () => {
+          disposed += 1;
+        };
+        return generator;
+      }
+    };
+    const runtime = createTransformersJsRuntime({ load: async () => module });
+    await runtime.prepare(modelPackage());
+
+    await runtime.close!();
+    await runtime.close!();
+
+    expect(disposed).toBe(1);
+  });
+
+  it("waits for a pipeline that is still loading, then disposes it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let disposed = 0;
+    const module: TransformersModule = {
+      env: {},
+      async pipeline() {
+        await gate;
+        const generator = (async () => []) as TransformersTextGenerator;
+        generator.dispose = async () => {
+          disposed += 1;
+        };
+        return generator;
+      }
+    };
+    const runtime = createTransformersJsRuntime({ load: async () => module });
+    const loading = runtime.prepare(modelPackage());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const closing = runtime.close!();
+    release();
+    await Promise.all([loading, closing]);
+
+    expect(disposed).toBe(1);
+  });
+});

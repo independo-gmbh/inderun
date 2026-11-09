@@ -2,7 +2,7 @@ import {
   createBrowserHostServices,
   type CreateBrowserHostServicesOptions
 } from "./core/browser-host.js";
-import { IndeRun } from "./core/engine.js";
+import { adoptOwnedResources, IndeRun } from "./core/engine.js";
 import type { ModelProfiles } from "./core/model-profiles.js";
 import { OnnxRuntimeWebProvider, type OnnxProviderOptions } from "./providers/onnx/provider.js";
 import {
@@ -115,6 +115,9 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
   }
 
   const registry = new ProviderRegistry();
+  // What the engine closes with itself: providers built here that hold something to release.
+  // Neural speech providers take an application-supplied runtime and are never listed.
+  const owned: { close(): Promise<void> }[] = [];
 
   if (options.openAI) {
     assertSafeOpenAIEndpoint(options.openAI, options.allowDirectOpenAIEndpoint);
@@ -128,7 +131,9 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
   }
 
   if (options.onnx) {
-    registry.register(new OnnxRuntimeWebProvider(options.onnx));
+    const onnx = new OnnxRuntimeWebProvider(options.onnx);
+    registry.register(onnx);
+    owned.push(onnx);
   }
 
   if (options.systemModel) {
@@ -143,9 +148,11 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
     registry.register(new NeuralSpeechWebProvider(neuralSpeech), neuralSpeech);
   }
 
-  return new IndeRun(registry, createBrowserHostServices(options.hostServices), {
+  const engine = new IndeRun(registry, createBrowserHostServices(options.hostServices), {
     ...(options.modelProfiles ? { modelProfiles: options.modelProfiles } : {})
   });
+  adoptOwnedResources(engine, owned);
+  return engine;
 }
 
 function assertSafeOpenAIEndpoint(

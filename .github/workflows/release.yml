@@ -154,6 +154,9 @@ jobs:
       - name: Build Rust WASM bindings
         run: pnpm build:wasm
 
+      - name: Check WASM size budgets
+        run: pnpm check:wasm-size
+
       - name: Build workspace
         run: pnpm build
 

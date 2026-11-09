@@ -43,6 +43,13 @@
           "returns": { "type": "void" },
           "async": true,
           "throws": false
+        },
+        "close": {
+          "description": "Closes the engine. Idempotent: a second or concurrent call returns once the first has finished. In order: the engine stops accepting work, so every later run, stream, prepare and readArtifact fails with Unavailable and details.code 'engine_closed' (checkCapabilities returns an empty list and disposeArtifact does nothing); in-flight streams and prepares are cancelled and reach their standard terminal cancelled outcome; the call waits for those and for in-flight run() calls, which are not cancelled; engine-owned artifacts are disposed; providers the engine constructed itself are closed. A neural speech runtime an application supplied is never closed by the engine.",
+          "params": [],
+          "returns": { "type": "void" },
+          "async": true,
+          "throws": false
         }
       }
     }

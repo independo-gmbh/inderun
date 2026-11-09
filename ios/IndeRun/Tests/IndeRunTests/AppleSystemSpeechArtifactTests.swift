@@ -99,6 +99,8 @@ final class AppleSystemSpeechArtifactTests: XCTestCase {
     func testDiscardedProvidersReleaseTheirSynthesizersAfterStoppedSpeech() async throws {
         let providers = 4
         let retiredBefore = SystemAppleSpeechRuntime.retiredSynthesizers.total
+        let createdBefore = SystemAppleSpeechRuntime.createdSynthesizers
+        var started = 0
         let long = String(repeating: "This sentence keeps the synthesizer busy for a while. ", count: 20)
         for _ in 0..<providers {
             let registry = ProviderRegistry()
@@ -113,7 +115,14 @@ final class AppleSystemSpeechArtifactTests: XCTestCase {
             } catch let error as IndeRunException where error.errorClass == .CapabilityMismatch {
                 throw XCTSkip("Speech synthesis is unavailable on this host: \(error.message)")
             }
-            try await Task.sleep(nanoseconds: 300_000_000)
+            // A provider cancelled before it reaches its synthesizer never creates, so never
+            // retires, one: wait until this run has started to speak.
+            let startedBy = Date().addingTimeInterval(30)
+            while Date() < startedBy, SystemAppleSpeechRuntime.createdSynthesizers == createdBefore + started {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            XCTAssertEqual(SystemAppleSpeechRuntime.createdSynthesizers, createdBefore + started + 1, "playback never started")
+            started += 1
             playback.cancel(reason: "stop")
             let stopped = try await playback.result()
             XCTAssertEqual(stopped.finishReason, .cancelled)

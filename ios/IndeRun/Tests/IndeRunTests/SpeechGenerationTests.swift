@@ -25,6 +25,7 @@ private struct ScriptedApi: IndeRunApi {
     }
 
     func disposeArtifact(artifact: MediaArtifact) async {}
+    func close() async {}
 }
 
 final class SpeechGenerationTests: XCTestCase {

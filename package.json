@@ -9,6 +9,7 @@
   "scripts": {
     "build": "pnpm build:wasm && pnpm -r build",
     "build:wasm": "node scripts/build-route-core-wasm.mjs",
+    "check:wasm-size": "node scripts/check-wasm-size.mjs",
     "build:route-core-apple": "node scripts/build-route-core-apple.mjs",
     "verify:route-core-apple": "node scripts/verify-route-core-apple.mjs",
     "build:route-core-android": "node scripts/build-route-core-android.mjs",

@@ -40,3 +40,15 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+
+# Profile for the WASM modules the Web SDK ships (scripts/build-route-core-wasm.mjs;
+# sizes are gated by scripts/check-wasm-size.mjs). The speech module carries a regex
+# engine and Unicode tables, so a debug build was ~5 MB; opt-level "z" with fat LTO
+# and one codegen unit drops what the exported entry points never reach. Unlike
+# `apple`, no `panic = "abort"` is set: panics already abort on
+# wasm32-unknown-unknown, so the setting would change nothing.
+[profile.wasm]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1

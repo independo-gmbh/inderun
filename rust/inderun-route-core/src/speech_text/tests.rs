@@ -103,6 +103,32 @@ fn oversized_numbers_leave_the_line_unchanged() {
     assert_eq!(normalize_speech_text(line, "de-DE"), line);
 }
 
+/// Best of three runs after one warm-up, so a scheduler hiccup on a shared CI runner
+/// cannot inflate either side of the ratio.
+fn best_time(input: &str) -> std::time::Duration {
+    let _ = normalize_speech_text(input, "de-DE");
+    (0..3)
+        .map(|_| {
+            let started = std::time::Instant::now();
+            let _ = normalize_speech_text(input, "de-DE");
+            started.elapsed()
+        })
+        .min()
+        .expect("three runs")
+}
+
+/// Asserts that doubling the input does not much more than double the time. An absolute
+/// bound flakes with machine speed; a ratio only fails when the algorithm stops scaling
+/// (quadratic work would give about 4x). The 10 s ceiling is a backstop, not the check.
+fn assert_scales_linearly(name: &str, make: impl Fn(usize) -> String, n: usize) {
+    let t1 = best_time(&make(n));
+    let t2 = best_time(&make(2 * n));
+    assert!(
+        t2 < 3 * t1 && t2 < std::time::Duration::from_secs(10),
+        "{name}: t(n={n}) = {t1:?}, t(2n) = {t2:?}"
+    );
+}
+
 #[test]
 fn many_dates_on_one_line_stay_fast_and_keep_their_endings() {
     let short = "Der 14. November, 28. November und 5. Dezember, 3. Mai, 4. Mai.";
@@ -110,38 +136,31 @@ fn many_dates_on_one_line_stay_fast_and_keep_their_endings() {
         normalize_speech_text(short, "de-DE"),
         "Der vierzehnte November, achtundzwanzigste November und fünfte Dezember, dritte Mai, vierte Mai."
     );
-    let line: String = (0..300).map(|i| format!("{}. Mai, ", i % 28 + 1)).collect();
-    let started = std::time::Instant::now();
-    let out = normalize_speech_text(&line, "de-DE");
-    assert!(
-        started.elapsed().as_secs_f32() < 1.0,
-        "{:?}",
-        started.elapsed()
-    );
+    let make = |n: usize| -> String { (0..n).map(|i| format!("{}. Mai, ", i % 28 + 1)).collect() };
+    assert_scales_linearly("dates", make, 300);
+    let out = normalize_speech_text(&make(300), "de-DE");
     assert!(out.starts_with("erster Mai, zweiter Mai, "), "{out}");
 }
 
 #[test]
 fn long_and_adversarial_input_is_bounded() {
-    let inputs = [
-        "1. ".repeat(5000),
-        "a".repeat(20000),
-        "z. B. ".repeat(3000),
-        "AB ".repeat(5000),
-        format!("{}AB", " ".repeat(20000)),
-        "A".repeat(20000),
-        "x ".repeat(8000),
-        "z.B.,".repeat(4000) + &" ".repeat(100_000),
+    type Make = fn(usize) -> String;
+    let cases: [(&str, Make, usize); 8] = [
+        ("numbered", |n| "1. ".repeat(n), 1500),
+        ("letters", |n| "a".repeat(n), 40000),
+        ("abbreviations", |n| "z. B. ".repeat(n), 3000),
+        ("shouting", |n| "AB ".repeat(n), 10000),
+        ("spaces then AB", |n| format!("{}AB", " ".repeat(n)), 80000),
+        ("capitals", |n| "A".repeat(n), 40000),
+        ("words", |n| "x ".repeat(n), 10000),
+        (
+            "abbreviation tail",
+            |n| "z.B.,".repeat(n) + &" ".repeat(25 * n),
+            4000,
+        ),
     ];
-    for input in &inputs {
-        let started = std::time::Instant::now();
-        let _ = normalize_speech_text(input, "de-DE");
-        let elapsed = started.elapsed();
-        assert!(
-            elapsed.as_secs_f32() < 1.0,
-            "{} bytes: {elapsed:?}",
-            input.len()
-        );
+    for (name, make, n) in cases {
+        assert_scales_linearly(name, make, n);
     }
 }
 
@@ -165,22 +184,24 @@ fn eszett_runs_lose_the_eszett_like_upstream() {
 
 #[test]
 fn long_benign_lines_are_still_normalized() {
-    let minutes = "in 5 Minuten 1 ".repeat(3000);
-    let cases = [
-        ("minutes", minutes.clone()),
-        ("ones", "1 ".repeat(2000)),
+    type Make = fn(usize) -> String;
+    let cases: [(&str, Make, usize); 4] = [
+        ("minutes", |n| "in 5 Minuten 1 ".repeat(n), 750),
+        ("ones", |n| "1 ".repeat(n), 1200),
         (
             "pages",
-            "Seite 12 und Kapitel 7, dann 2026 und 42. ".repeat(1000),
+            |n| "Seite 12 und Kapitel 7, dann 2026 und 42. ".repeat(n),
+            250,
         ),
-        ("dates", "am 1.1. ".repeat(2000)),
+        ("dates", |n| "am 1.1. ".repeat(n), 500),
     ];
-    for (name, input) in &cases {
-        let started = std::time::Instant::now();
-        let out = normalize_speech_text(input, "de-DE");
-        let elapsed = started.elapsed();
-        assert!(&out != input, "{name} stayed unnormalized");
-        assert!(elapsed.as_secs_f32() < 1.0, "{name}: {elapsed:?}");
+    for (name, make, n) in cases {
+        let input = make(n);
+        let out = normalize_speech_text(&input, "de-DE");
+        assert!(out != input, "{name} stayed unnormalized");
+        if name == "minutes" {
+            assert!(out.contains("fünf Minuten"), "{name}: {out}");
+        }
+        assert_scales_linearly(name, make, n);
     }
-    assert!(normalize_speech_text(&minutes, "de-DE").contains("fünf Minuten"));
 }

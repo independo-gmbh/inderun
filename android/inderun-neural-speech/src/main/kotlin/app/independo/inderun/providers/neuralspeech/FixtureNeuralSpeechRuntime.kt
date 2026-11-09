@@ -6,6 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.max
@@ -37,7 +38,10 @@ data class FixtureNeuralSpeechRuntimeOptions(
  * chunks of one sentence, [FixtureNeuralSpeechRuntimeOptions.msPerCharacter] times the sentence
  * length (in UTF-16 units, as on Web) long, in chunks of [FixtureNeuralSpeechRuntimeOptions.chunkMs]
  * with `isLast` on the final one, at the package's `speech.sampleRate`. Cancelling the collector
- * ends synthesis between chunks. Records every call. Thread-safe.
+ * ends synthesis between chunks. Records every call. Thread-safe. After [close], availability is
+ * unavailable (`runtime closed`), prepare throws `runtime_closed`, and a synthesis fails with
+ * `runtime_closed` at its next chunk, unless the collector was cancelled or its last chunk was
+ * already delivered.
  */
 class FixtureNeuralSpeechRuntime(
     private val options: FixtureNeuralSpeechRuntimeOptions = FixtureNeuralSpeechRuntimeOptions(),
@@ -45,6 +49,7 @@ class FixtureNeuralSpeechRuntime(
     private val recorded = mutableListOf<NeuralSpeechSynthesisInput>()
     private val prepares = AtomicInteger()
     private val availabilities = AtomicInteger()
+    private val closed = AtomicBoolean(false)
 
     /** Every [synthesize] call, in call order. */
     val synthesized: List<NeuralSpeechSynthesisInput>
@@ -56,15 +61,22 @@ class FixtureNeuralSpeechRuntime(
 
     override suspend fun availability(modelPackage: ModelPackage): NeuralSpeechAvailability {
         availabilities.incrementAndGet()
+        if (closed.get()) return CLOSED
         return options.availability
     }
 
     override suspend fun prepare(modelPackage: ModelPackage): NeuralSpeechAvailability {
         prepares.incrementAndGet()
+        if (closed.get()) throw closedError()
         return options.prepareResult
     }
 
+    override fun close() {
+        closed.set(true)
+    }
+
     override fun synthesize(input: NeuralSpeechSynthesisInput): Flow<PcmChunk> = flow {
+        if (closed.get()) throw closedError()
         synchronized(recorded) { recorded += input }
         val sampleRate = input.modelPackage.speech?.sampleRate?.toInt() ?: DEFAULT_SAMPLE_RATE
         val totalFrames = Math.round(input.text.length.toDouble() * options.msPerCharacter * sampleRate / 1000).toInt()
@@ -74,6 +86,7 @@ class FixtureNeuralSpeechRuntime(
         var chunks = 0
         while (produced < totalFrames) {
             currentCoroutineContext().ensureActive()
+            if (closed.get()) throw closedError()
             if (options.failAfterChunks != null && chunks >= options.failAfterChunks) {
                 throw NeuralSpeechRuntimeError(NeuralSpeechRuntimeErrorKind.Internal, "fixture synthesis failed")
             }
@@ -88,7 +101,12 @@ class FixtureNeuralSpeechRuntime(
         }
     }
 
+    private fun closedError() = NeuralSpeechRuntimeError(NeuralSpeechRuntimeErrorKind.Unavailable, CLOSED_REASON, code = RUNTIME_CLOSED_CODE)
+
     private companion object {
+        const val CLOSED_REASON = "runtime closed"
+        val CLOSED = NeuralSpeechAvailability(false, CLOSED_REASON)
+
         const val TONE_HZ = 440.0
 
         /** About -14 dBFS. */

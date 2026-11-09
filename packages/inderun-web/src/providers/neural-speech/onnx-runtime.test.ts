@@ -83,7 +83,10 @@ function memoryFiles(): SpeechPackageFiles {
   };
 }
 
-function scriptedModule(created: string[] = []): OnnxRuntimeWebModule {
+function scriptedModule(
+  created: string[] = [],
+  hooks: { released?: string[]; beforeDitStep?: () => Promise<void> } = {}
+): OnnxRuntimeWebModule {
   const steps = [...endToEnd.executor.dit_step];
   const toOut = (m: Record<string, Tensor>): Record<string, OnnxRuntimeWebTensor> =>
     Object.fromEntries(
@@ -106,13 +109,16 @@ function scriptedModule(created: string[] = []): OnnxRuntimeWebModule {
         created.push(role);
         return {
           async run() {
+            if (role === "dit_step") await hooks.beforeDitStep?.();
             if (role === "text") return toOut(endToEnd.executor.text);
             if (role === "decoder") return toOut(endToEnd.executor.decoder);
             const next = steps.shift();
             if (next === undefined) throw new Error("no more dit_step outputs");
             return toOut(next);
           },
-          async release() {}
+          async release() {
+            hooks.released?.push(role);
+          }
         };
       }
     },
@@ -206,6 +212,110 @@ describe("onnx neural speech runtime", () => {
       kind: "unavailable",
       message: "model source unavailable: 'registry' needs 'files'"
     });
+  });
+});
+
+describe("onnx neural speech runtime close", () => {
+  const closed = {
+    kind: "unavailable",
+    message: "runtime closed",
+    code: "runtime_closed"
+  };
+
+  function synthesizeInput(pkg: ModelPackage) {
+    return { modelPackage: pkg, text: endToEnd.text, locale: endToEnd.language, voiceId: "v" };
+  }
+
+  it("close releases every cached pipeline's executor exactly once", async () => {
+    const released: string[] = [];
+    const runtime = createOnnxNeuralSpeechRuntime({
+      files: memoryFiles(),
+      load: async () => scriptedModule([], { released })
+    });
+    const pkg = articulinoPackage();
+    await runtime.prepare(pkg);
+    await runtime.prepare({ ...pkg, version: "2" });
+    await runtime.close?.();
+    expect(released.sort()).toEqual(
+      ["decoder", "decoder", "dit_step", "dit_step", "text", "text"].sort()
+    );
+  });
+
+  it("close_is_idempotent: concurrent closes close each executor once", async () => {
+    const released: string[] = [];
+    const runtime = createOnnxNeuralSpeechRuntime({
+      files: memoryFiles(),
+      load: async () => scriptedModule([], { released })
+    });
+    await runtime.prepare(articulinoPackage());
+    await Promise.all([runtime.close?.(), runtime.close?.()]);
+    await runtime.close?.();
+    expect(released).toHaveLength(3);
+  });
+
+  it("after close, availability/prepare/synthesize report runtime_closed", async () => {
+    const runtime = createOnnxNeuralSpeechRuntime({
+      files: memoryFiles(),
+      load: async () => scriptedModule()
+    });
+    const pkg = articulinoPackage();
+    await runtime.prepare(pkg);
+    await runtime.close?.();
+    expect(await runtime.availability(pkg)).toEqual({
+      available: false,
+      reason: "runtime closed"
+    });
+    await expect(runtime.prepare(pkg)).rejects.toMatchObject(closed);
+    await expect(collect(runtime.synthesize(synthesizeInput(pkg)))).rejects.toMatchObject(closed);
+  });
+
+  it("after close, nothing is created and normalizeText returns the text unchanged", async () => {
+    const created: string[] = [];
+    const load = vi.fn(async () => scriptedModule(created));
+    const runtime = createOnnxNeuralSpeechRuntime({ files: memoryFiles(), load });
+    await runtime.close?.();
+    const pkg = articulinoPackage();
+    expect(await runtime.normalizeText?.(pkg, "Am 3. Mai.", "de-DE")).toBe("Am 3. Mai.");
+    await runtime.availability(pkg);
+    await expect(runtime.prepare(pkg)).rejects.toMatchObject(closed);
+    await expect(collect(runtime.synthesize(synthesizeInput(pkg)))).rejects.toMatchObject(closed);
+    expect(load).not.toHaveBeenCalled();
+    expect(created).toEqual([]);
+  });
+
+  it("close_during_synthesis_waits_for_graph_boundary", async () => {
+    const released: string[] = [];
+    let ditStarted!: () => void;
+    const started = new Promise<void>((resolve) => (ditStarted = resolve));
+    let finishDit!: () => void;
+    const held = new Promise<void>((resolve) => (finishDit = resolve));
+    const runtime = createOnnxNeuralSpeechRuntime({
+      files: memoryFiles(),
+      load: async () =>
+        scriptedModule([], {
+          released,
+          beforeDitStep: async () => {
+            ditStarted();
+            await held;
+          }
+        })
+    });
+    const pkg = articulinoPackage();
+    await runtime.prepare(pkg);
+    const synthesis = collect(runtime.synthesize(synthesizeInput(pkg))).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await started;
+    let closeSettled = false;
+    const closing = runtime.close?.().then(() => (closeSettled = true));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(released).toEqual([]);
+    expect(closeSettled).toBe(false);
+    finishDit();
+    await closing;
+    expect(released).toHaveLength(3);
+    expect(await synthesis).toMatchObject(closed);
   });
 });
 

@@ -46,6 +46,11 @@ export interface CreateWebAudioOutputServiceOptions {
   maxLeadSeconds?: number;
   /** How long open() waits for resume() before reporting audio_not_allowed. Default 500. */
   resumeTimeoutMs?: number;
+  /**
+   * Wall-clock grace added to the audio time a `write()` or `drain()` waits for before the wait
+   * fails with `audio_output_failed`. Default 2000, the same as Android.
+   */
+  outputWaitGraceMs?: number;
 }
 
 const MIN_SAMPLE_RATE = 8000;
@@ -101,11 +106,14 @@ class WebAudioOutputSession implements AudioOutputSession {
   private lastSource: WebAudioSourceLike | undefined;
   private stopped = false;
   private endError: IndeRunException | undefined;
+  /** Set when a bounded wait expired; the waits running at that moment throw it. */
+  private stallError: IndeRunException | undefined;
 
   constructor(
     private readonly context: WebAudioContextLike,
     private readonly format: AudioOutputFormat,
     private readonly maxLeadSeconds: number,
+    private readonly outputWaitGraceMs: number,
     private readonly openedAtContextTime: number,
     /** Wall-clock milliseconds `open()` had spent before this session existed, resume wait included. */
     private readonly openOverheadMs: number,
@@ -117,6 +125,12 @@ class WebAudioOutputSession implements AudioOutputSession {
     return this.live.size > 0;
   }
 
+  /**
+   * Schedules `samples`. When the scheduled lead exceeds `maxLeadSeconds` it waits for the lead to
+   * fall, and that wait is bounded: the lead to shed, measured from when the wait starts, plus
+   * `outputWaitGraceMs` of wall-clock time. On expiry the session ends (later writes are ignored,
+   * `drain()` resolves at once) and this call throws `Unavailable` `audio_output_failed`.
+   */
   async write(samples: Int16Array): Promise<void> {
     this.throwIfEnded();
     if (this.stopped || samples.length === 0) {
@@ -155,8 +169,17 @@ class WebAudioOutputSession implements AudioOutputSession {
     // chunk is longer than the limit: waiting for that source to end would leave nothing scheduled,
     // and the next write would start START_LEAD_SECONDS after it, an audible gap. The lead is
     // re-read after every wake-up, so a late timer (a throttled tab) only waits again.
-    while (!this.stopped && this.leadSeconds() > this.maxLeadSeconds) {
-      await this.nextChange((this.leadSeconds() - this.maxLeadSeconds) * 1000);
+    if (!this.stopped && this.leadSeconds() > this.maxLeadSeconds) {
+      const boundMs = Math.round((this.leadSeconds() - this.maxLeadSeconds) * 1000);
+      const stopBound = this.startBound(boundMs, "write");
+      try {
+        while (!this.stopped && this.leadSeconds() > this.maxLeadSeconds) {
+          await this.nextChange((this.leadSeconds() - this.maxLeadSeconds) * 1000);
+        }
+      } finally {
+        stopBound();
+      }
+      this.throwIfStalled();
     }
     this.throwIfEnded();
   }
@@ -166,13 +189,50 @@ class WebAudioOutputSession implements AudioOutputSession {
     return this.nextStartTime - this.context.currentTime;
   }
 
+  /**
+   * Resolves once the last scheduled source has ended. The wait is bounded: the audio not yet
+   * played when `drain()` starts (scheduled end minus the context's current time) plus
+   * `outputWaitGraceMs`, on the wall clock, since a frozen `currentTime` must not stop the timer.
+   * On expiry the session ends and this call throws `Unavailable` `audio_output_failed`.
+   */
   async drain(): Promise<void> {
     this.throwIfEnded();
     const last = this.lastSource;
-    while (!this.stopped && last !== undefined && this.live.has(last)) {
-      await this.nextChange();
+    if (!this.stopped && last !== undefined && this.live.has(last)) {
+      const unplayedMs = Math.max(0, this.leadSeconds()) * 1000;
+      const stopBound = this.startBound(Math.round(unplayedMs), "drain");
+      try {
+        while (!this.stopped && this.live.has(last)) {
+          await this.nextChange();
+        }
+      } finally {
+        stopBound();
+      }
+      this.throwIfStalled();
     }
     this.throwIfEnded();
+  }
+
+  /**
+   * Starts the wall-clock bound of one wait: `audioMs` plus the grace. On expiry the session
+   * fails; returns the function that cancels the timer.
+   */
+  private startBound(audioMs: number, wait: "write" | "drain"): () => void {
+    const boundMs = audioMs + this.outputWaitGraceMs;
+    const timer = setTimeout(() => {
+      this.stallError ??= createUnavailable(
+        `The audio output did not finish within ${boundMs} ms (${audioMs} ms of audio plus ${this.outputWaitGraceMs} ms grace) while waiting in ${wait}().`,
+        { details: { code: "audio_output_failed", boundMs } }
+      );
+      this.end(undefined);
+    }, boundMs);
+    return () => clearTimeout(timer);
+  }
+
+  private throwIfStalled(): void {
+    if (this.stallError !== undefined) {
+      throw this.stallError;
+    }
   }
 
   stop(): void {
@@ -268,6 +328,7 @@ export function createWebAudioOutputService(
 ): AudioOutputService {
   const maxLeadSeconds = options.maxLeadSeconds ?? 1.0;
   const resumeTimeoutMs = options.resumeTimeoutMs ?? 500;
+  const outputWaitGraceMs = options.outputWaitGraceMs ?? 2000;
   const createContext = options.audioContext ?? (() => new AudioContext() as WebAudioContextLike);
   let shared: WebAudioContextLike | undefined;
   const sessions = new Set<WebAudioOutputSession>();
@@ -320,6 +381,7 @@ export function createWebAudioOutputService(
         context,
         format,
         maxLeadSeconds,
+        outputWaitGraceMs,
         context.currentTime,
         wallClockMs() - openStartedAt,
         (ended) => sessions.delete(ended)

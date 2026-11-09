@@ -152,6 +152,14 @@ public final class ArtifactStore: @unchecked Sendable {
         }
     }
 
+    /// Releases every artifact the store holds, for an engine that is closing.
+    public func disposeAll() {
+        lock.locked {
+            artifacts.removeAll()
+            storedBytes = 0
+        }
+    }
+
     /// The whole artifact, for writing it to an application destination; `nil` once it was
     /// disposed.
     public func bytes(artifactId: String) -> Data? {

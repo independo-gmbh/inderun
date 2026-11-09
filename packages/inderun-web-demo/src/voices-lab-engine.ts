@@ -10,15 +10,20 @@ import { labProfileName, neuralProviderId, type InstalledModel } from "./neural-
  * The lab's own engine: the browser's system speech plus one neural provider per installed entry,
  * and per entry the profile `voices-lab:<entry id>` = [neural provider, system speech]. It is built
  * only after the lab is switched on and a model is installed, so the demo's main engine never
- * changes. Rebuilt after each install, because an engine registers its providers once. The SDK
- * offers no public close for an engine or for the ONNX runtime it creates (`close` exists only on
- * a graph executor, which `createOnnxNeuralSpeechRuntime` keeps private), so the caller drops its
- * reference to the replaced engine and lets it be collected; sessions are not released explicitly.
+ * changes. Rebuilt after each install, because an engine registers its providers once. The demo
+ * creates the ONNX runtimes itself and the engine never closes a runtime an application supplied,
+ * so the returned `close` closes the engine and then those runtimes, releasing their sessions.
  */
+export interface VoicesLabEngine {
+  readonly engine: IndeRunApi;
+  /** Closes the engine, then the runtimes created for it. Never throws. */
+  close(): Promise<void>;
+}
+
 export function createVoicesLabEngine(
   installed: InstalledModel[],
   load?: () => Promise<OnnxRuntimeWebModule>
-): IndeRunApi {
+): VoicesLabEngine {
   const runtimes = installed.map((model) =>
     createOnnxNeuralSpeechRuntime({
       files: model.files,
@@ -38,5 +43,11 @@ export function createVoicesLabEngine(
       ])
     )
   });
-  return engine;
+  return {
+    engine,
+    async close() {
+      await engine.close().catch(() => undefined);
+      await Promise.allSettled(runtimes.map((runtime) => runtime.close?.()));
+    }
+  };
 }

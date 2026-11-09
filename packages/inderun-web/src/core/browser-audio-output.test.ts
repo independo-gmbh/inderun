@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { IndeRunException } from "../index.js";
 import {
   createWebAudioOutputService,
   type WebAudioBufferLike,
@@ -277,7 +278,8 @@ describe("createWebAudioOutputService", () => {
         }).open(format);
         const long = session.write(new Int16Array(48000));
         await tick();
-        expect(vi.getTimerCount()).toBe(1);
+        // The lead wake-up and the wall-clock bound.
+        expect(vi.getTimerCount()).toBe(2);
         session.stop();
         await long;
         expect(vi.getTimerCount()).toBe(0);
@@ -519,5 +521,148 @@ describe("createWebAudioOutputService", () => {
       context.onstatechange?.();
       await expect(pendingDrain).rejects.toMatchObject(interrupted);
     });
+  });
+});
+
+describe("bounded output waits", () => {
+  const stalledService = (maxLeadSeconds = 10) => {
+    const fake = fakeAudioContext({ state: "running" });
+    const service = createWebAudioOutputService({
+      audioContext: () => fake.context,
+      maxLeadSeconds
+    });
+    return { fake, service };
+  };
+  const ms = (n: number) => new Int16Array((24000 * n) / 1000);
+
+  /** Settles a promise into a record so a rejection never goes unhandled. */
+  function observe(promise: Promise<void>) {
+    const state: { settled: boolean; error?: unknown } = { settled: false };
+    promise.then(
+      () => {
+        state.settled = true;
+      },
+      (error: unknown) => {
+        state.settled = true;
+        state.error = error;
+      }
+    );
+    return state;
+  }
+
+  function expectStall(error: unknown) {
+    expect(error).toBeInstanceOf(IndeRunException);
+    expect((error as IndeRunException).errorClass).toBe("Unavailable");
+    expect((error as IndeRunException).details?.["code"]).toBe("audio_output_failed");
+  }
+
+  it("drain rejects with audio_output_failed after written duration + grace", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service } = stalledService();
+      const session = await service.open(format);
+      await session.write(ms(500));
+      const draining = observe(session.drain());
+      await vi.advanceTimersByTimeAsync(520 + 2000 - 1);
+      expect(draining.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+      expect(draining.settled).toBe(true);
+      expectStall(draining.error);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("honours outputWaitGraceMs", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeAudioContext({ state: "running" });
+      const session = await createWebAudioOutputService({
+        audioContext: () => fake.context,
+        outputWaitGraceMs: 100
+      }).open(format);
+      await session.write(ms(500));
+      const draining = observe(session.drain());
+      await vi.advanceTimersByTimeAsync(600 + 20 + 1);
+      expectStall(draining.error);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drain_bound_counts_only_unplayed_audio", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fake, service } = stalledService();
+      const session = await service.open(format);
+      for (let i = 0; i < 4; i += 1) await session.write(ms(500));
+      // Scheduled end is 0.02 + 2.0 s. 1 500 ms played, the clock then freezes with 500 ms left.
+      fake.advance(1.52);
+      for (const source of fake.sources.slice(0, 3)) source.end();
+      const draining = observe(session.drain());
+      await vi.advanceTimersByTimeAsync(500 + 2000 - 1);
+      expect(draining.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+      expectStall(draining.error);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stop_releases_a_stalled_drain", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service } = stalledService();
+      const session = await service.open(format);
+      await session.write(ms(500));
+      const draining = observe(session.drain());
+      await vi.advanceTimersByTimeAsync(100);
+      session.stop();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(draining.settled).toBe(true);
+      expect(draining.error).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("write backpressure wait is bounded", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service } = stalledService(1);
+      const session = await service.open(format);
+      await session.write(ms(500));
+      // 1 500 ms of lead against a 1 000 ms limit: the wait is for 520 ms of audio, plus grace.
+      const blocked = observe(session.write(ms(1000)));
+      await vi.advanceTimersByTimeAsync(520 + 2000 - 1);
+      expect(blocked.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+      expect(blocked.settled).toBe(true);
+      expectStall(blocked.error);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("after a failure write is ignored and drain resolves at once", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fake, service } = stalledService();
+      const session = await service.open(format);
+      await session.write(ms(500));
+      const draining = observe(session.drain());
+      await vi.advanceTimersByTimeAsync(3000);
+      expectStall(draining.error);
+      const sourcesBefore = fake.sources.length;
+      await session.write(ms(100));
+      await session.drain();
+      expect(fake.sources.length).toBe(sourcesBefore);
+      expect(fake.sources[0]!.stopCalls).toBe(1);
+      session.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

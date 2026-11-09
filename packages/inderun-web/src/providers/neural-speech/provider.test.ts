@@ -754,3 +754,83 @@ describe("NeuralSpeechWebProvider text normalization", () => {
     });
   }
 });
+
+describe("NeuralSpeechWebProvider runtime_closed", () => {
+  function twoProviderEngine(first: NeuralSpeechRuntime, second: NeuralSpeechRuntime) {
+    const registry = new ProviderRegistry();
+    const a = new NeuralSpeechWebProvider({ modelPackage: PACKAGE, runtime: first, id: "tts-a" });
+    const b = new NeuralSpeechWebProvider({ modelPackage: PACKAGE, runtime: second, id: "tts-b" });
+    registry.register(a);
+    registry.register(b);
+    return registry;
+  }
+
+  it("pre-commit runtime_closed falls back to the next provider", async () => {
+    // Closed after the capability check passed: the race the routing cannot see.
+    const open = createFixtureNeuralSpeechRuntime();
+    const shut = createFixtureNeuralSpeechRuntime();
+    await shut.close?.();
+    const closedRuntime: NeuralSpeechRuntime = {
+      availability: (pkg) => open.availability(pkg),
+      prepare: (pkg) => open.prepare(pkg),
+      synthesize: (input) => shut.synthesize(input)
+    };
+    const healthy = createFixtureNeuralSpeechRuntime();
+    const audio = createFixtureAudioOutput();
+    const registry = twoProviderEngine(closedRuntime, healthy);
+    const engine = new IndeRun(registry, { ...host, audioOutput: audio.service });
+
+    const result = await engine.run(speechRequest());
+
+    expect(result.output.type).toBe("playback");
+    expect(result.provenance?.attempts?.[0]).toMatchObject({
+      providerId: "tts-a",
+      outcome: "failed",
+      errorClass: "Unavailable"
+    });
+    expect(result.provenance?.attempts?.[1]).toMatchObject({
+      providerId: "tts-b",
+      outcome: "succeeded"
+    });
+    expect(healthy.synthesized).toHaveLength(1);
+  });
+
+  it("committed playback ends with terminal Unavailable/runtime_closed", async () => {
+    const fixture = createFixtureNeuralSpeechRuntime();
+    let closeNow: () => Promise<void> = async () => undefined;
+    const runtime: NeuralSpeechRuntime = {
+      availability: (pkg) => fixture.availability(pkg),
+      prepare: (pkg) => fixture.prepare(pkg),
+      close: () => fixture.close!(),
+      async *synthesize(input) {
+        if (input.text.startsWith("Wie")) {
+          await closeNow();
+          throw new NeuralSpeechRuntimeError(
+            "unavailable",
+            "runtime closed",
+            undefined,
+            "runtime_closed"
+          );
+        }
+        yield* fixture.synthesize(input);
+      }
+    };
+    closeNow = () => runtime.close!();
+    const other = createFixtureNeuralSpeechRuntime();
+    const audio = createFixtureAudioOutput();
+    const engine = new IndeRun(twoProviderEngine(runtime, other), {
+      ...host,
+      audioOutput: audio.service
+    });
+
+    const error = await rejection(
+      engine.run(
+        speechRequest({ speech: { text: "Hallo Welt. Wie geht es dir?", locale: "de-AT" } })
+      )
+    );
+
+    expect(error.errorClass).toBe("Unavailable");
+    expect(error.details).toMatchObject({ code: "runtime_closed" });
+    expect(other.synthesized).toHaveLength(0);
+  });
+});

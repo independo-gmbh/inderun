@@ -9,9 +9,11 @@ import android.os.SystemClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,9 +31,15 @@ import kotlin.math.min
  *
  * @param ioDispatcher Where the track is built and the blocking `AudioTrack.write` runs, so
  *   neither blocks the caller.
+ * @param drainGraceMs How long past the unplayed audio's duration a write blocked in the track and
+ *   [AudioOutputSession.drain] wait
+ *   for the playback head before it fails with `audio_output_failed` (ADR 021 section 5).
+ * @param drainPollMs How often [AudioOutputSession.drain] reads the playback head.
  */
 class AudioTrackAudioOutputService(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val drainGraceMs: Long = 2_000L,
+    private val drainPollMs: Long = 10L,
 ) : AudioOutputService {
     override suspend fun open(format: AudioOutputFormat): AudioOutputSession {
         val openedAt = SystemClock.elapsedRealtime()
@@ -48,7 +56,7 @@ class AudioTrackAudioOutputService(
             throw cancelled
         }
         val track = checkNotNull(built.get())
-        return AudioTrackAudioOutputSession(track, format, ioDispatcher, openedAt)
+        return AudioTrackAudioOutputSession(track, format, ioDispatcher, openedAt, drainGraceMs, drainPollMs)
     }
 
     /** Builds an initialized streaming track, or throws `audio_format_unsupported`/`audio_output_failed`. */
@@ -99,8 +107,11 @@ class AudioTrackAudioOutputService(
 
 /**
  * One [AudioTrack] in streaming mode. The first [write] (and the first after a [drain]) starts
- * playback; [write] blocks on the track's buffer on [ioDispatcher], which is the backpressure. It
- * writes in slices of at most one buffer and checks for cancellation between them, so a cancelled
+ * playback; [write] blocks on the track's buffer on [ioDispatcher], which is the backpressure, and
+ * that wait is bounded: a watchdog allows the unplayed audio's duration plus the drain grace, then
+ * ends the session (which returns the blocked write) and the write throws `audio_output_failed`
+ * (`Unavailable`), with the same semantics as a drain that expires: later writes are ignored, a
+ * later [drain] returns at once and [stop] stays a no-op. It writes in slices of at most one buffer and checks for cancellation between them, so a cancelled
  * write returns within about one buffer. [stop] pauses, flushes, stops and releases the track once,
  * which also returns a write blocked in the track; the provider's cancel path is [stop]. A slice
  * write that races the release can throw `IllegalStateException` from the track; it returns once
@@ -116,7 +127,9 @@ class AudioTrackAudioOutputService(
  * without the padding the end of the audio is never heard and the head stops short of the frames
  * written. [drain] returns only once the head has reached the last frame written; a head that
  * stalls short of it (a mixer that stops consuming the track) makes [drain] throw
- * `audio_output_failed` when its timeout runs out, never return as if the audio had played.
+ * `audio_output_failed` when its timeout runs out, never return as if the audio had played. That
+ * failure also ends the session: later writes are ignored, a later [drain] returns at once and
+ * [stop] stays a no-op.
  *
  * First audio comes from a playback-head marker at frame 1, delivered on the main looper; the
  * emulator has no HAL timestamps, so `AudioTrack.getTimestamp` is not used.
@@ -126,8 +139,13 @@ internal class AudioTrackAudioOutputSession(
     private val format: AudioOutputFormat,
     private val ioDispatcher: CoroutineDispatcher,
     private val openedAt: Long,
+    private val drainGraceMs: Long,
+    private val drainPollMs: Long,
 ) : AudioOutputSession {
     private val stopped = AtomicBoolean(false)
+
+    /** Set when the watchdog of a blocked [write] ended the session. */
+    private val writeExpired = AtomicBoolean(false)
 
     /** Set before [stopped] when the system ended the session; `null` after [stop]. */
     @Volatile private var endError: IndeRunException? = null
@@ -154,25 +172,25 @@ internal class AudioTrackAudioOutputSession(
 
     override suspend fun write(samples: ShortArray) {
         if (hasEnded() || samples.isEmpty() || !startPlaying()) return
-        val written = withContext(ioDispatcher) {
-            var offset = 0
-            while (offset < samples.size) {
-                ensureActive()
-                val count = min(bufferFrames, samples.size - offset)
-                val result = try {
-                    track.write(samples, offset, count, AudioTrack.WRITE_BLOCKING)
-                } catch (error: IllegalStateException) {
-                    // `release()` frees the native track before it marks the Java object
-                    // uninitialized, so a slice write in that window passes the state check.
-                    if (stopped.get()) break
-                    throw outputFailed("AudioTrack.write failed: ${error.message}")
-                }
-                if (result < 0) return@withContext result
-                framesWritten.addAndGet(result.toLong())
-                offset += result
-                if (result < count) break
+        // A blocking write that never returns (a mixer that stops consuming the track) is bounded like
+        // drain(): the unplayed audio plus this write, plus the grace. Ending the session returns it.
+        val head = headPosition() ?: return
+        val unplayed = max(0L, framesWritten.get() + samples.size - head)
+        val boundMs = unplayed * MILLIS_PER_SECOND / format.sampleRate + drainGraceMs
+        val written = coroutineScope {
+            val watchdog = launch {
+                delay(boundMs)
+                writeExpired.set(true)
+                end(null)
             }
-            offset
+            try {
+                withContext(ioDispatcher) { writeSlices(samples) }
+            } finally {
+                watchdog.cancel()
+            }
+        }
+        if (writeExpired.get()) {
+            throw outputFailed("The audio output did not accept audio within $boundMs ms.")
         }
         if (written == AudioTrack.ERROR_DEAD_OBJECT) end(interrupted())
         if (hasEnded()) return
@@ -181,6 +199,28 @@ internal class AudioTrackAudioOutputSession(
 
             written < samples.size -> throw outputFailed("AudioTrack.write took $written of ${samples.size} frames.")
         }
+    }
+
+    /** The blocking slice loop of [write]: the frames written, or the negative error code of a slice. */
+    private suspend fun writeSlices(samples: ShortArray): Int {
+        var offset = 0
+        while (offset < samples.size) {
+            currentCoroutineContext().ensureActive()
+            val count = min(bufferFrames, samples.size - offset)
+            val result = try {
+                track.write(samples, offset, count, AudioTrack.WRITE_BLOCKING)
+            } catch (error: IllegalStateException) {
+                // `release()` frees the native track before it marks the Java object
+                // uninitialized, so a slice write in that window passes the state check.
+                if (stopped.get()) break
+                throw outputFailed("AudioTrack.write failed: ${error.message}")
+            }
+            if (result < 0) return result
+            framesWritten.addAndGet(result.toLong())
+            offset += result
+            if (result < count) break
+        }
+        return offset
     }
 
     override suspend fun drain() {
@@ -194,17 +234,22 @@ internal class AudioTrackAudioOutputSession(
         val remainingMs = max(0L, target - head) * MILLIS_PER_SECOND / format.sampleRate
         val padding = ShortArray(bufferFrames)
         var padded = 0
-        val reached = withTimeoutOrNull(remainingMs + DRAIN_GRACE_MS) {
+        val reached = withTimeoutOrNull(remainingMs + drainGraceMs) {
             while (true) {
                 // Never blocks, so the timeout bounds the padding too; it does not count toward target.
                 if (padded < padding.size) padded += writePadding(padding, padded) ?: break
                 val position = headPosition() ?: break
                 if (position >= target) break
-                delay(DRAIN_POLL_MS)
+                delay(drainPollMs)
             }
         }
         if (hasEnded()) return
-        if (reached == null) throw outputFailed("The audio output did not finish playing within ${remainingMs + DRAIN_GRACE_MS} ms.")
+        if (reached == null) {
+            // The output is not rendering: end the session (as Web and Swift do), so later writes are
+            // ignored, a later drain returns at once and the track is released.
+            end(null)
+            throw outputFailed("The audio output did not finish playing within ${remainingMs + drainGraceMs} ms.")
+        }
         synchronized(lock) {
             if (hasEnded()) return
             // Discards the padding and resets the head position; the next write calls play() again.
@@ -288,8 +333,6 @@ internal class AudioTrackAudioOutputSession(
     private companion object {
         const val NOT_YET = -1L
         const val MILLIS_PER_SECOND = 1_000L
-        const val DRAIN_POLL_MS = 10L
-        const val DRAIN_GRACE_MS = 2_000L
     }
 }
 

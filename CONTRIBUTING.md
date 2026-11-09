@@ -39,7 +39,9 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version "$(node scripts/wasm-bindgen-version.mjs)" --locked
 ```
 
-Then generate the bindings:
+Then generate the bindings. `pnpm build:wasm` is the shipped build: it uses the size-optimised `wasm` cargo profile
+(a release build) for both modules. The manual commands below are plain debug builds for local iteration; their output
+exceeds the size gate and is not what ships.
 
 ```sh
 RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable \
@@ -56,7 +58,12 @@ wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_
   --out-name inderun_speech_text
 ```
 
-Re-run these commands (or `pnpm build:wasm`, which does both) whenever the Rust core changes.
+Re-run these commands (or `pnpm build:wasm`, which does both as release builds) whenever the Rust core changes.
+
+After `pnpm build:wasm`, run `pnpm check:wasm-size`. It reads both `*_bg.wasm` modules, prints
+`<module> raw=<bytes> gzip=<bytes> budget=<raw>/<gzip>` for each and exits 1 when either number is over its budget.
+The budgets live in `scripts/check-wasm-size.mjs`; raise one only in the change that grows the module. CI runs the
+check after the build.
 
 `wasm-bindgen` also overwrites `generated/inderun_route_core.d.ts` and `inderun_speech_text.d.ts`, which are checked in as stubs so `tsc` resolves without the Rust toolchain. The regenerated file drops that stub's explanatory
 header, so revert it before committing unless the route-core API actually changed:

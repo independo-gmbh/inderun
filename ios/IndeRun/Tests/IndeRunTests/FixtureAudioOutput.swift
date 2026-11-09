@@ -46,6 +46,17 @@ final class FixtureAudioOutputSession: AudioOutputSession, @unchecked Sendable {
     }
 
     func drain() async throws {
+        if clock.isStalled, lock.withLock({ !isStopped && endError == nil }) {
+            // A stalled output never plays: drain fails once the unplayed audio's duration plus the
+            // grace has passed, then the session is over (later writes ignored, drain at once).
+            let pending = lock.withLock { written - played }
+            clock.advance(byMs: Double(pending) * 1000 / Double(format.sampleRate) + FixtureAudioOutputService.graceMs)
+            end(nil)
+            throw createUnavailable(
+                message: "The audio output made no progress.",
+                details: ["code": JSONAny("audio_output_failed")]
+            )
+        }
         let pending: Int = try lock.withLock {
             if let endError { throw endError }
             if isStopped { return 0 }
@@ -86,6 +97,15 @@ final class FixtureAudioOutputService: AudioOutputService, @unchecked Sendable {
     private let lock = NSLock()
     private var ms = 0.0
     private var opened: [FixtureAudioOutputSession] = []
+    private var stalled = false
+
+    /// The grace a stalled drain waits past the unplayed audio, in virtual ms.
+    static let graceMs = 2000.0
+
+    /// While stalled, the output of every session never advances and `drain()` fails with
+    /// `audio_output_failed` after the unplayed duration plus ``graceMs``.
+    func setStalled(_ value: Bool) { lock.withLock { stalled = value } }
+    fileprivate var isStalled: Bool { lock.withLock { stalled } }
 
     /// Virtual milliseconds; advanced only by `drain()`.
     func now() -> Double { lock.withLock { ms } }

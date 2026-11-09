@@ -107,6 +107,9 @@ Checked-in JavaScript commands:
   called automatically by `pnpm build` and `pnpm test:js`. Requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli`. The Web SDK has no fallback route
   planner, so the JS tests need these bindings to run at all.
+- `pnpm check:wasm-size` — size gate for the two WASM modules (`scripts/check-wasm-size.mjs`); run after
+  `pnpm build:wasm`. Prints raw and gzip bytes against the budgets in the script and exits 1 when over. Run by
+  `javascript.yml` and `release.yml`. Raise a budget only in the change that grows the module.
 - `pnpm build:route-core-apple` — build the Rust route core for the Apple platforms and
   package it into two XCFrameworks under `ios/IndeRun/Frameworks/`
   (`scripts/build-route-core-apple.mjs`): `InderunRouteCoreFFI.xcframework` (the planner, built
@@ -255,10 +258,11 @@ Checked-in Rust commands:
 - `cargo test -p inderun_route_core`
 - `cargo fmt -p inderun_route_core -- --check`
 - `cargo clippy -p inderun_route_core --all-targets -- -D warnings`
-- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features`
-- `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
-- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features --features speech-text --target-dir target/wasm-speech-text`
-- `wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_speech_text`
+- Manual debug builds for local iteration (they exceed the size gate; `pnpm build:wasm` is the shipped release build):
+  - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features`
+  - `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
+  - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features --features speech-text --target-dir target/wasm-speech-text`
+  - `wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_speech_text`
 - `pnpm --filter @independo/inderun-route-core-wasm test`
 
 Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing here runs in CI, see

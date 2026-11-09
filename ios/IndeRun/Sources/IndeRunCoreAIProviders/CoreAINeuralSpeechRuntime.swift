@@ -49,6 +49,10 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
             return created
         }
 
+        func clearRuntimes() {
+            runtimes.removeAll()
+        }
+
         func finishPrepare(_ key: String, _ result: NeuralSpeechAvailability) {
             if result.available {
                 prepared.insert(key)
@@ -96,6 +100,8 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
 
     private let options: CoreAINeuralSpeechRuntimeOptions
     private let state = State()
+    private let lifecycle = SpeechRuntimeLifecycle()
+    private static let closedAvailability = NeuralSpeechAvailability(available: false, reason: "runtime closed")
 
     // Test hooks, consulted before any Core AI symbol. Set them before the first call: they are read
     // without synchronization.
@@ -114,6 +120,7 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
     }
 
     public func availability(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
+        if lifecycle.isClosed { return Self.closedAvailability }
         switch resolve(modelPackage, verify: false) {
         case let .refused(refusal):
             return refusal
@@ -130,6 +137,7 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
 
     /// Every outcome, an early refusal included, is remembered for the next `synthesize`.
     public func prepare(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
+        if lifecycle.isClosed { return Self.closedAvailability }
         let result = await prepareResolving(modelPackage)
         await state.finishPrepare(Self.key(modelPackage), result)
         return result
@@ -157,6 +165,7 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
             }
         }
         guard let runtime = await pipelineRuntime(resolved) else {
+            if lifecycle.isClosed { return Self.closedAvailability }
             return NeuralSpeechAvailability(available: false, reason: CoreAISupport.unavailableReason)
         }
         return await runtime.prepare(modelPackage)
@@ -164,18 +173,28 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
 
     /// Forwards to the Articulino hook; any other pipeline keeps the text (it is refused at `availability`).
     public func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String {
-        guard modelPackage.speech?.pipeline == "articulino" else { return text }
+        guard !lifecycle.isClosed, modelPackage.speech?.pipeline == "articulino" else { return text }
         return ArticulinoRuntime.normalizeText(modelPackage, text: text, locale: locale)
+    }
+
+    /// Terminal and idempotent; see ``NeuralSpeechRuntime/close()``. Releases every cached pipeline's
+    /// executor once the graph calls in flight have returned.
+    public func close() async {
+        await lifecycle.close()
+        // Nothing resolves a pipeline after close; drop them so their graphs and files can be freed.
+        await state.clearRuntimes()
     }
 
     public func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error> {
         ComposedNeuralSpeechRuntime.stream { continuation in
+            if self.lifecycle.isClosed { throw NeuralSpeechRuntimeError.runtimeClosed }
             switch self.resolve(input.modelPackage, verify: false) {
             case let .refused(refusal):
                 throw NeuralSpeechRuntimeError(kind: .unavailable, message: refusal.reason ?? "unavailable")
             case let .ready(resolved):
                 let preparation = await self.state.preparation(resolved.key)
                 guard preparation.prepared, let runtime = await self.pipelineRuntime(resolved) else {
+                    if self.lifecycle.isClosed { throw NeuralSpeechRuntimeError.runtimeClosed }
                     let reason = preparation.failure.map { ": \($0)" } ?? ""
                     throw NeuralSpeechRuntimeError(kind: .unavailable, message: "model not prepared: \(resolved.key)\(reason)")
                 }
@@ -289,8 +308,9 @@ public final class CoreAINeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked Se
     /// The cached pipeline runtime of the package, or `nil` where Core AI cannot run.
     private func pipelineRuntime(_ resolved: Resolved) async -> ArticulinoRuntime? {
         let options = options
+        let lifecycle = lifecycle
         return await state.runtime(for: resolved.key) {
-            guard let executor = Self.makeExecutor(directory: resolved.directory) else { return nil }
+            guard let executor = lifecycle.guarded(make: { Self.makeExecutor(directory: resolved.directory) }) else { return nil }
             return ArticulinoRuntime(options: ArticulinoRuntimeOptions(
                 executor: executor,
                 files: DirectoryPackageFiles(directory: resolved.directory),

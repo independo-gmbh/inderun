@@ -1,6 +1,7 @@
 import {
   type NeuralSpeechAvailability,
   NeuralSpeechRuntimeError,
+  runtimeClosedError,
   type NeuralSpeechRuntime,
   type NeuralSpeechSynthesisInput,
   type PcmChunk
@@ -44,8 +45,10 @@ export function createFixtureNeuralSpeechRuntime(
   const synthesized: { text: string; locale: string; voiceId: string }[] = [];
   let prepareCalls = 0;
   let availabilityCalls = 0;
+  let closed = false;
 
   async function* synthesize(input: NeuralSpeechSynthesisInput): AsyncGenerator<PcmChunk> {
+    if (closed) throw runtimeClosedError();
     synthesized.push({ text: input.text, locale: input.locale, voiceId: input.voiceId });
     const sampleRate = input.modelPackage.speech?.sampleRate ?? 24000;
     const totalFrames = Math.round((input.text.length * msPerCharacter * sampleRate) / 1000);
@@ -55,6 +58,7 @@ export function createFixtureNeuralSpeechRuntime(
     let chunkCount = 0;
     while (produced < totalFrames) {
       if (input.signal?.aborted) return;
+      if (closed) throw runtimeClosedError();
       if (options.failAfterChunks !== undefined && chunkCount >= options.failAfterChunks) {
         throw new NeuralSpeechRuntimeError("internal", "fixture synthesis failed");
       }
@@ -85,11 +89,16 @@ export function createFixtureNeuralSpeechRuntime(
     },
     async availability() {
       availabilityCalls += 1;
+      if (closed) return { available: false, reason: "runtime closed" };
       return options.availability ?? { available: true };
     },
     async prepare() {
+      if (closed) throw runtimeClosedError();
       prepareCalls += 1;
       return options.prepareResult ?? { available: true };
+    },
+    async close() {
+      closed = true;
     },
     synthesize
   };

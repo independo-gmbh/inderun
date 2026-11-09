@@ -54,6 +54,7 @@ private final class FakeApi: IndeRunApi, @unchecked Sendable {
     }
 
     func disposeArtifact(artifact: MediaArtifact) async {}
+    func close() async {}
 }
 
 final class TextGenerationTests: XCTestCase {

@@ -105,6 +105,28 @@ fast. A provider's download starts only under `autoDownload` at registration or 
 reads through `readiness` on `checkCapabilities()` and `listVoices()`. See
 [ADR 019](./decisions/019-prepare-and-readiness.md).
 
+## Lifecycle and ownership
+
+Whoever constructs a resource closes it. An engine closes only what it built or was explicitly handed
+to own; it never closes something an application supplied, such as a neural speech runtime shared by
+several engines.
+
+- **Engine `close()`** (Web `close(): Promise<void>`, Swift `close() async`, Kotlin `suspend fun close()`)
+  stops the engine accepting work, cancels in-flight streams and prepares, waits for them and for
+  in-flight `run()` calls, disposes engine-owned artifacts, and closes the providers the engine
+  constructed itself (today only the Web factory `createIndeRunWeb` constructs providers). It is
+  idempotent: a concurrent or repeated call returns once the first has finished. After close, new work
+  fails with `Unavailable` / `engine_closed`, except that `checkCapabilities()` and `listVoices()` return an
+  empty list (the Swift signature cannot throw) and `disposeArtifact` does nothing.
+- **Mode 1 runs are awaited, not cancelled.** Mode 1 has no cancel path, so close waits for a running
+  `run()` to settle; provider timeouts keep that wait finite.
+- **Runtime `close()`** is optional on a neural speech runtime and is the application's call. After it,
+  the runtime reports itself unavailable, so routing falls back, and a synthesis that already
+  committed ends with a terminal `Unavailable` error rather than a cancellation.
+- **Error codes.** Calls on a closed engine fail with `Unavailable` and `details.code`
+  `engine_closed`; use of a closed runtime fails with `Unavailable` and `details.code`
+  `runtime_closed`. `disposeArtifact` on a closed engine does nothing.
+
 ## Model Profiles
 
 Model selection is a property of configuration, not of call sites. App code names *what kind* of model it wants; the

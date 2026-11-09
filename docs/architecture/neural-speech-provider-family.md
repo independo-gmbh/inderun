@@ -254,8 +254,20 @@ Limitations of this pipeline today:
   either, so digits in other locales reach the model unspelled. Markup, URLs and phone numbers are not handled.
 - Latency is sentence-level: the first audio is available only after a whole sentence is synthesized.
 - Outlier retry and rate equalisation beyond the bundle's `letter_rate` are not implemented.
-- The composed runtimes have no `close()`; sessions live as long as the runtime, and the cache key (`id@version`) ignores
-  `source.ref`.
+- The cache key (`id@version`) ignores `source.ref`.
+- `close()` (#280): whoever constructed the runtime closes it; an engine never closes a
+  runtime the app passed in. It releases every cached pipeline's graph executor, and is terminal and idempotent. After it,
+  `availability` reports unavailable (`runtime closed`) and `prepare`/`synthesize` throw `NeuralSpeechRuntimeError`
+  `unavailable` with code `runtime_closed`, which the provider reports as `Unavailable` with
+  `details.code: "runtime_closed"`: routing falls back before playback commits, and committed playback ends with that
+  terminal error. A synthesis running at close ends at its next graph boundary; an executor is closed only after its
+  in-flight graph call returns. A synthesis cut short by close throws `runtime_closed` unless its last chunk was already
+  delivered (then it completes) or the caller aborted (the abort wins and the iteration ends silently); a generator
+  suspended at a yield does not block close and throws on its next resume. After close nothing is created, and
+  `normalizeText` returns the text unchanged. Swift's `prepare` does not throw, so there it reports unavailable
+  (`runtime closed`) like `availability`; both the ONNX and the Core AI runtime share one `close()` implementation.
+  On Android `close()` is synchronous (`NeuralSpeechRuntime : AutoCloseable`) and returns at once; the sessions are
+  released on the execution thread after the graph call in flight, and a synthesis cut short ends at its next chunk.
 - CPU execution provider only. CoreML, NNAPI and WebGPU are not used (see the findings below).
 
 **Preparing a package.** [`tools/neural-speech/`](../../tools/neural-speech/README.md) (Python, not run in CI) takes the

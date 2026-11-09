@@ -356,6 +356,8 @@ class DemoViewModelTest {
         override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk = error("not scripted")
 
         override suspend fun disposeArtifact(artifact: MediaArtifact) = error("not scripted")
+
+        override suspend fun close() = error("not scripted")
     }
 
     private class FakeRuntime(

@@ -65,15 +65,23 @@ import app.independo.inderun.core.toIndeRunException
 import app.independo.inderun.providers.mlkit.AndroidProviderRegistryFactory
 import app.independo.inderun.sdk.generated.IndeRunApi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ProducerScope
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The primary entry point for the IndeRun Android SDK.
@@ -100,7 +108,10 @@ class IndeRun(
 ) : IndeRunApi {
     private val router = Router(registry)
     private val preparer = Preparer(registry, router, hostServices)
-    private val artifacts = ArtifactStore(artifactLimits)
+    internal val artifacts = ArtifactStore(artifactLimits)
+
+    /** What is in flight, so [close] can stop and await it. */
+    private val lifecycle = EngineLifecycle()
     private val telemetryService: TelemetryService? = telemetry ?: hostServices.telemetry
 
     /**
@@ -119,6 +130,15 @@ class IndeRun(
      * @throws app.independo.inderun.core.IndeRunException on validation, routing, or provider failure.
      */
     override suspend fun run(request: TaskRequest): TaskResult {
+        if (!lifecycle.begin()) throw EngineLifecycle.closedError(request.requestId)
+        try {
+            return runAdmitted(request)
+        } finally {
+            lifecycle.end()
+        }
+    }
+
+    private suspend fun runAdmitted(request: TaskRequest): TaskResult {
         val startTime = hostServices.clock.elapsedRealtimeMillis().toDouble()
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
         val provenance = ProvenanceRecorder(request.modelProfile)
@@ -299,11 +319,16 @@ class IndeRun(
     /**
      * Reports each registered provider's static descriptor and current dynamic capability check,
      * without executing a task. Useful for UI that shows live provider availability before a run.
+     * A closed engine returns an empty list rather than failing with `engine_closed`.
      */
-    override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = registry.list().map { provider ->
-        val descriptor = provider.describe()
-        val capabilities = provider.capabilities(hostServices)
-        ProviderCapabilitySnapshot(providerId = descriptor.id, descriptor = descriptor, capabilities = capabilities)
+    override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> {
+        // A closed engine reports no providers instead of failing: the Swift signature cannot throw.
+        if (lifecycle.isClosed) return emptyList()
+        return registry.list().map { provider ->
+            val descriptor = provider.describe()
+            val capabilities = provider.capabilities(hostServices)
+            ProviderCapabilitySnapshot(providerId = descriptor.id, descriptor = descriptor, capabilities = capabilities)
+        }
     }
 
     /**
@@ -316,6 +341,7 @@ class IndeRun(
      *   with `details.validationIssues` for a malformed request or an offset beyond the end.
      */
     override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk {
+        if (lifecycle.isClosed) throw EngineLifecycle.closedError()
         val validationIssues = buildList {
             if (request.artifactId.isEmpty()) {
                 add(mapOf("path" to "/artifactId", "message" to "must NOT have fewer than 1 characters"))
@@ -339,6 +365,20 @@ class IndeRun(
      */
     override suspend fun disposeArtifact(artifact: MediaArtifact) {
         if (artifact.owner == ArtifactOwner.Engine) artifacts.dispose(artifact.id)
+    }
+
+    /**
+     * Closes the engine. In order: refuses new work, cancels in-flight streams and prepares, waits
+     * for them and for in-flight [run] calls (Mode 1 has no cancel path, so those are awaited, not
+     * cancelled), then disposes the engine's artifacts. Idempotent: later and concurrent calls await
+     * the first. The engine closes no providers: the registry is the application's, and so is any
+     * runtime it handed a provider.
+     *
+     * A stream nobody collects holds nothing, so close does not wait for it; collecting it later
+     * yields its one cancelled terminal event.
+     */
+    override suspend fun close() {
+        lifecycle.close { artifacts.disposeAll() }
     }
 
     /**
@@ -456,6 +496,16 @@ class IndeRun(
      * @throws app.independo.inderun.core.IndeRunException on validation or routing failure.
      */
     override suspend fun stream(request: TaskRequest): StreamRun {
+        if (!lifecycle.begin()) throw EngineLifecycle.closedError(request.requestId)
+        // Held while the stream routes; its producer takes its own once it is collected.
+        try {
+            return streamAdmitted(request)
+        } finally {
+            lifecycle.end()
+        }
+    }
+
+    private suspend fun streamAdmitted(request: TaskRequest): StreamRun {
         // Two clocks, deliberately: durations must come from the monotonic
         // elapsed-realtime clock, while StreamRunHandle.startedAt is contractually
         // Unix epoch milliseconds and would otherwise serialize device uptime.
@@ -519,24 +569,40 @@ class IndeRun(
         val cancellation = StreamCancellationToken()
         val gate = EventGate(runId)
         val collected = AtomicBoolean(false)
+        val outlet = EventOutlet()
 
         // channelFlow rather than flow: interrupting a provider that is blocked
         // on a network read means cancelling a child coroutine, and a plain flow
         // builder forbids emitting from a scope it does not own.
-        val events = channelFlow {
-            check(collected.compareAndSet(false, true)) {
-                "StreamRun.events is single-use; collect it once."
-            }
-            driveStream(
-                request = request,
-                runId = runId,
-                startTime = startElapsedMs,
-                candidates = routeSelection.candidates,
-                routePlan = routeSelection.routePlan,
-                gate = gate,
-                cancellation = cancellation,
-            )
-        }
+        val events = outlet.events(
+            channelFlow {
+                check(collected.compareAndSet(false, true)) {
+                    "StreamRun.events is single-use; collect it once."
+                }
+                // Registered against a closed engine this cancels at once, so the run ends in its one
+                // cancelled terminal. Releasing the outlet frees a producer a paused collector holds.
+                val hook = lifecycle.register { reason ->
+                    cancellation.cancel(reason)
+                    outlet.release()
+                }
+                lifecycle.enter()
+                try {
+                    driveStream(
+                        request = request,
+                        runId = runId,
+                        startTime = startElapsedMs,
+                        candidates = routeSelection.candidates,
+                        routePlan = routeSelection.routePlan,
+                        gate = gate,
+                        cancellation = cancellation,
+                        outlet = outlet,
+                    )
+                } finally {
+                    lifecycle.unregister(hook)
+                    lifecycle.end()
+                }
+            }.buffer(EventOutlet.CAPACITY),
+        )
 
         return StreamRun(
             handle = StreamRunHandle(
@@ -556,6 +622,15 @@ class IndeRun(
      * the rest: the terminal outcome lists each item.
      */
     override suspend fun prepare(request: PrepareRequest): StreamRun {
+        if (!lifecycle.begin()) throw EngineLifecycle.closedError(request.requestId)
+        try {
+            return prepareAdmitted(request)
+        } finally {
+            lifecycle.end()
+        }
+    }
+
+    private fun prepareAdmitted(request: PrepareRequest): StreamRun {
         val runId = request.requestId ?: "run_${UUID.randomUUID().toString().take(8).lowercase()}"
         val cancellation = StreamCancellationToken()
         val gate = EventGate(runId)
@@ -563,72 +638,98 @@ class IndeRun(
         val provenance = ProvenanceRecorder(null).build()
         fun now(): Double = System.currentTimeMillis().toDouble()
 
-        val events = channelFlow {
-            val items = mutableListOf<PreparationItem>()
-            var failure: Throwable? = null
-            val worker = launch {
+        val outlet = EventOutlet()
+        val events = outlet.events(
+            channelFlow {
+                val hook = lifecycle.register { reason ->
+                    cancellation.cancel(reason)
+                    outlet.release()
+                }
+                lifecycle.enter()
                 try {
-                    preparer.steps(request, runId, firstRun = false).collect { step ->
-                        when (step) {
-                            is PreparationStep.Finished -> items.add(step.item)
-                            is PreparationStep.Progress -> {
-                                val payload = Payload(
-                                    fractionCompleted = step.fractionCompleted,
-                                    providerId = step.providerId,
-                                    task = step.task,
-                                )
-                                gate.admit(now(), "preparation_progress", payload)?.let { send(it) }
-                            }
-                        }
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Throwable) {
-                    failure = error
+                    drivePrepare(request, runId, gate, cancellation, kinds, provenance, outlet)
+                } finally {
+                    lifecycle.unregister(hook)
+                    lifecycle.end()
                 }
-            }
-            cancellation.onCancel { worker.cancel() }
-            worker.join()
-
-            val problem = failure
-            val outcome = when {
-                cancellation.isCancelled -> cancelledOutcome(runId, null, cancellation.reason, provenance)
-                problem != null -> errorOutcome(
-                    runId,
-                    toIndeRunException(problem, fallbackRunId = runId).toContractError().let { contractError ->
-                        StreamTerminalOutcomeError(
-                            details = contractError.details,
-                            errorClass = contractError.errorClass,
-                            message = contractError.message,
-                            provenance = contractError.provenance,
-                            providerId = contractError.providerId,
-                            retryable = contractError.retryable,
-                            retryAfterMs = contractError.retryAfterMs,
-                            schemaVersion = contractError.schemaVersion,
-                        )
-                    },
-                    null,
-                    provenance,
-                )
-                else -> {
-                    preparer.markPrepared(kinds, request, items)
-                    StreamTerminalOutcome(
-                        finishReason = FinishReason.STOP,
-                        outcome = Outcome.Completed,
-                        output = TaskOutput(type = TaskOutputType.PREPARED, preparation = items),
-                        provenance = provenance,
-                        runId = runId,
-                        schemaVersion = SchemaVersion.V1_0,
-                    )
-                }
-            }
-            gate.terminate(outcome, now())?.let { send(it) }
-        }
-
+            }.buffer(EventOutlet.CAPACITY),
+        )
         return StreamRun(
             handle = StreamRunHandle(runId = runId, schemaVersion = SchemaVersion.V1_0, startedAt = now()),
             events = events,
         ) { reason -> cancellation.cancel(reason) }
+    }
+
+    @Suppress("LongParameterList")
+    private suspend fun ProducerScope<StreamEvent>.drivePrepare(
+        request: PrepareRequest,
+        runId: String,
+        gate: EventGate,
+        cancellation: StreamCancellationToken,
+        kinds: List<String>,
+        provenance: ExecutionProvenance,
+        outlet: EventOutlet,
+    ) {
+        fun now(): Double = System.currentTimeMillis().toDouble()
+        val items = mutableListOf<PreparationItem>()
+        var failure: Throwable? = null
+        val worker = launch {
+            try {
+                preparer.steps(request, runId, firstRun = false).collect { step ->
+                    when (step) {
+                        is PreparationStep.Finished -> items.add(step.item)
+                        is PreparationStep.Progress -> {
+                            val payload = Payload(
+                                fractionCompleted = step.fractionCompleted,
+                                providerId = step.providerId,
+                                task = step.task,
+                            )
+                            gate.admit(now(), "preparation_progress", payload)?.let { outlet.deliver(this@drivePrepare, it) }
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                failure = error
+            }
+        }
+        cancellation.onCancel { worker.cancel() }
+        worker.join()
+
+        val problem = failure
+        val outcome = when {
+            cancellation.isCancelled -> cancelledOutcome(runId, null, cancellation.reason, provenance)
+            problem != null -> errorOutcome(
+                runId,
+                toIndeRunException(problem, fallbackRunId = runId).toContractError().let { contractError ->
+                    StreamTerminalOutcomeError(
+                        details = contractError.details,
+                        errorClass = contractError.errorClass,
+                        message = contractError.message,
+                        provenance = contractError.provenance,
+                        providerId = contractError.providerId,
+                        retryable = contractError.retryable,
+                        retryAfterMs = contractError.retryAfterMs,
+                        schemaVersion = contractError.schemaVersion,
+                    )
+                },
+                null,
+                provenance,
+            )
+            else -> {
+                preparer.markPrepared(kinds, request, items)
+                StreamTerminalOutcome(
+                    finishReason = FinishReason.STOP,
+                    outcome = Outcome.Completed,
+                    output = TaskOutput(type = TaskOutputType.PREPARED, preparation = items),
+                    provenance = provenance,
+                    runId = runId,
+                    schemaVersion = SchemaVersion.V1_0,
+                )
+            }
+        }
+        gate.terminate(outcome, now())?.let { outlet.deliver(this, it) }
     }
 
     @Suppress("LongMethod", "CyclomaticComplexMethod", "LongParameterList")
@@ -640,6 +741,7 @@ class IndeRun(
         routePlan: RoutePlan,
         gate: EventGate,
         cancellation: StreamCancellationToken,
+        outlet: EventOutlet,
     ) {
         fun now(): Double = System.currentTimeMillis().toDouble()
         fun elapsed(): Double = hostServices.clock.elapsedRealtimeMillis().toDouble() - startTime
@@ -689,7 +791,7 @@ class IndeRun(
                     },
                 ),
             )
-            terminal?.let { send(it) }
+            terminal?.let { outlet.deliver(this, it) }
         }
 
         suspend fun emitFailure(
@@ -731,7 +833,7 @@ class IndeRun(
                     },
                 ),
             )
-            terminal?.let { send(it) }
+            terminal?.let { outlet.deliver(this, it) }
         }
 
         val attemptedProviderIds = mutableListOf<String>()
@@ -841,10 +943,15 @@ class IndeRun(
                                         checkOutput(request, delivery, TaskOutput(type = TaskOutputType.TEXT, text = ""), providerId),
                                     )
                                 }
-                                partialText = if (event is ProviderStreamEvent.Delta) partialText + text else text
                                 markCommitted()
                                 val type = if (event is ProviderStreamEvent.Delta) "content_delta" else "content_snapshot"
-                                gate.admit(now(), type, contentPayload(text))?.let { send(it) }
+                                val delivered = gate.admit(now(), type, contentPayload(text))
+                                    ?.let { outlet.deliver(this@driveStream, it) } == true
+                                // The partial text is what the collector was sent: a delta close
+                                // dropped is not part of it.
+                                if (delivered) {
+                                    partialText = if (event is ProviderStreamEvent.Delta) partialText + text else text
+                                }
                             }
 
                             // Done (text) or Result (any task): the run's final output.
@@ -912,7 +1019,7 @@ class IndeRun(
                                     ),
                                 )
                                 terminated = true
-                                terminal?.let { send(it) }
+                                terminal?.let { outlet.deliver(this, it) }
                             }
                         }
                         if (terminated) break
@@ -1090,6 +1197,56 @@ class IndeRun(
 
 /** The id of an artifact output the engine still holds, which an attempt must keep. */
 private fun engineOwnedArtifactId(output: TaskOutput): String? = output.artifact?.takeIf { it.owner == ArtifactOwner.Engine }?.id
+
+/**
+ * Where a stream's or prepare's producer delivers its events: a channel of [CAPACITY], so a
+ * collector that falls behind holds the producer back instead of letting events pile up in memory.
+ *
+ * A collector that pauses with the buffer full would hold the producer in `send` for as long as it
+ * pauses, and `close()` waits for the producer. [release], which the close hook calls after it has
+ * cancelled the run, ends that wait. From then on an event the buffer cannot take at once is
+ * dropped, because the run is cancelled and nothing may follow the cancel; a terminal is held
+ * instead, and the flow [events] returns emits it itself once the collector has drained the
+ * buffer. So a collector that resumes after close still ends on its one cancelled terminal, and one
+ * that never resumes pins only the buffer. The producer coroutine is not cancelled: that would
+ * cancel the channel, discard what it holds, and surface in the collector as a
+ * `CancellationException` instead of the terminal it is owed.
+ */
+private class EventOutlet {
+    private val released = CompletableDeferred<Unit>()
+    private val heldTerminal = AtomicReference<StreamEvent?>(null)
+
+    /** Stops waiting on a full buffer. Called by the close hook, after the run is cancelled. */
+    fun release() {
+        released.complete(Unit)
+    }
+
+    /**
+     * Sends [event] on [channel], waiting for room unless the outlet is released first. Returns
+     * whether it was sent; a terminal that was not is held for [events] to emit.
+     */
+    suspend fun deliver(channel: SendChannel<StreamEvent>, event: StreamEvent): Boolean {
+        // `select` is biased to its first clause, so an event the buffer has room for is sent even
+        // after release.
+        val sent = select {
+            channel.onSend(event) { true }
+            released.onAwait { false }
+        }
+        if (!sent && event.type == "terminal") heldTerminal.set(event)
+        return sent
+    }
+
+    /** [produced], followed by the terminal held back from a full buffer, if there is one. */
+    fun events(produced: Flow<StreamEvent>): Flow<StreamEvent> = flow {
+        emitAll(produced)
+        heldTerminal.getAndSet(null)?.let { emit(it) }
+    }
+
+    companion object {
+        /** kotlinx's default channel buffer, stated so it does not move with a system property. */
+        const val CAPACITY = 64
+    }
+}
 
 /**
  * Records the moment a run committed to one attempt's provider (see [RunContext.commit]).

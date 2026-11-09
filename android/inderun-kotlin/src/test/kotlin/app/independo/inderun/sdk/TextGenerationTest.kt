@@ -104,6 +104,8 @@ private class FakeApi(
     override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk = error("the text facade never reads artifacts")
 
     override suspend fun disposeArtifact(artifact: MediaArtifact) = Unit
+
+    override suspend fun close() = Unit
 }
 
 @RunWith(RobolectricTestRunner::class)

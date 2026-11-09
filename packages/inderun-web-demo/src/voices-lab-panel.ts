@@ -27,6 +27,7 @@ import {
   type ConsentPrompt,
   type ModelStorage
 } from "./neural-downloader";
+import type { VoicesLabEngine } from "./voices-lab-engine";
 
 const LANGUAGES = [
   { tag: "de-DE", label: "Deutsch (Deutschland)" },
@@ -71,7 +72,7 @@ export interface VoicesLabOptions {
   /** Asked for only after the person consented to a download (`navigator.storage.persist()`). */
   requestPersistence?: () => Promise<void>;
   /** Builds the lab engine for the installed models; called again after each install. */
-  createEngine: (installed: InstalledModel[]) => IndeRunApi;
+  createEngine: (installed: InstalledModel[]) => VoicesLabEngine;
   api?: Partial<VoicesLabApi>;
 }
 
@@ -192,6 +193,7 @@ export async function mountVoicesLabPanel(
   const store = new Map<string, EntryStore>();
   const installedIds = new Set<string>();
   let engine: IndeRunApi | undefined;
+  let labEngine: VoicesLabEngine | undefined;
   let neuralVoices: SpeechVoiceInfo[] = [];
   let controlVoices: SpeechVoiceInfo[] = [];
 
@@ -226,7 +228,7 @@ export async function mountVoicesLabPanel(
     return true;
   }
 
-  function rebuildEngine(): void {
+  async function rebuildEngine(): Promise<void> {
     const installed: InstalledModel[] = installable
       .filter((entry) => installedIds.has(entry.id))
       .map((entry) => {
@@ -237,8 +239,11 @@ export async function mountVoicesLabPanel(
           files: opened.files
         };
       });
-    // The SDK has no public close for an engine; the old one is dropped (see voices-lab-engine.ts).
-    engine = installed.length === 0 ? undefined : options.createEngine(installed);
+    const previous = labEngine;
+    labEngine = installed.length === 0 ? undefined : options.createEngine(installed);
+    engine = labEngine?.engine;
+    // The replaced engine and the runtimes the demo created for it are closed (voices-lab-engine.ts).
+    await previous?.close();
   }
 
   function renderModels(): void {
@@ -312,7 +317,7 @@ export async function mountVoicesLabPanel(
   }
   if (status.textContent === checking) status.textContent = "";
   renderModels();
-  rebuildEngine();
+  await rebuildEngine();
   await refreshVoices();
   updateButtons();
 
@@ -568,7 +573,7 @@ export async function mountVoicesLabPanel(
           installedIds.add(entry.id);
           renderModels();
           model.value = entry.id;
-          rebuildEngine();
+          await rebuildEngine();
           await refreshVoices();
         }
         await warm(entry);

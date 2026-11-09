@@ -31,3 +31,101 @@ package enum ComposedNeuralSpeechRuntime {
         }
     }
 }
+
+extension NeuralSpeechRuntimeError {
+    /// What a closed runtime throws from `synthesize` (see ``NeuralSpeechRuntime/close()``).
+    package static var runtimeClosed: NeuralSpeechRuntimeError {
+        NeuralSpeechRuntimeError(kind: .unavailable, message: "runtime closed", code: "runtime_closed")
+    }
+}
+
+/// The `close()` machinery the composed runtimes share. Executors are created through
+/// ``guarded(make:)``, so every graph call is counted: once closed, a new call fails with
+/// ``NeuralSpeechRuntimeError/runtimeClosed`` (a running synthesis ends at its next graph
+/// boundary), and ``close()`` closes the executors only after the calls in flight have returned.
+package final class SpeechRuntimeLifecycle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var closed = false
+    private var inFlight = 0
+    private var drained: [CheckedContinuation<Void, Never>] = []
+    private var executors: [any SpeechGraphExecutor] = []
+    private var closing: Task<Void, Never>?
+
+    package init() {}
+
+    package var isClosed: Bool { lock.withLock { closed } }
+
+    /// Creates an executor and registers it, or returns `nil` when already closed: nothing is built
+    /// after `close()`.
+    package func guarded(make: () -> (any SpeechGraphExecutor)?) -> (any SpeechGraphExecutor)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed, let executor = make() else { return nil }
+        executors.append(executor)
+        return GuardedExecutor(inner: executor, lifecycle: self)
+    }
+
+    package func close() async {
+        let task: Task<Void, Never> = lock.withLock {
+            if let closing { return closing }
+            closed = true
+            let task = Task { [self] in
+                await drain()
+                let all = lock.withLock { executors }
+                for executor in all { await executor.close() }
+            }
+            closing = task
+            return task
+        }
+        await task.value
+    }
+
+    private func drain() async {
+        await withCheckedContinuation { continuation in
+            let resume = lock.withLock { () -> Bool in
+                if inFlight == 0 { return true }
+                drained.append(continuation)
+                return false
+            }
+            if resume { continuation.resume() }
+        }
+    }
+
+    fileprivate func enter() throws {
+        try lock.withLock {
+            if closed { throw NeuralSpeechRuntimeError.runtimeClosed }
+            inFlight += 1
+        }
+    }
+
+    fileprivate func leave() {
+        let waiting: [CheckedContinuation<Void, Never>] = lock.withLock {
+            inFlight -= 1
+            guard inFlight == 0 else { return [] }
+            defer { drained = [] }
+            return drained
+        }
+        for continuation in waiting { continuation.resume() }
+    }
+
+    private struct GuardedExecutor: SpeechGraphExecutor {
+        let inner: any SpeechGraphExecutor
+        let lifecycle: SpeechRuntimeLifecycle
+
+        func load(graphs: [String: String]) async throws {
+            try lifecycle.enter()
+            defer { lifecycle.leave() }
+            try await inner.load(graphs: graphs)
+        }
+
+        func run(role: String, inputs: [String: SpeechTensor]) async throws -> [String: SpeechTensor] {
+            try lifecycle.enter()
+            defer { lifecycle.leave() }
+            return try await inner.run(role: role, inputs: inputs)
+        }
+
+        func close() async {
+            await inner.close()
+        }
+    }
+}

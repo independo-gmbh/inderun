@@ -114,7 +114,8 @@ function setup(over: Partial<VoicesLabOptions> & { installed?: boolean; corrupt?
     result: Promise.resolve({ finishReason: "stop", items: [] })
   }));
   const fetchImpl = vi.fn();
-  const createEngine = vi.fn((_installed: unknown[]) => LAB);
+  const closeLab = vi.fn(async () => undefined);
+  const createEngine = vi.fn((_installed: unknown[]) => ({ engine: LAB, close: closeLab }));
   const openEntryStore = vi.fn(async (entry: CatalogEntry, _mode: { create: boolean }) =>
     installed || _mode.create ? storeOf(entry, installed, corrupt) : undefined
   );
@@ -139,6 +140,7 @@ function setup(over: Partial<VoicesLabOptions> & { installed?: boolean; corrupt?
     prepare,
     fetchImpl,
     createEngine,
+    closeLab,
     openEntryStore,
     q,
     base: BASE
@@ -457,5 +459,48 @@ describe("voices lab panel", () => {
     expect(entryTotalBytes(onnxEntry())).toBe(113_011_812);
     expect(t.q("lab-consent").textContent).toContain("113 MB");
     expect(t.q("lab-download").textContent).toContain("113 MB");
+  });
+
+  it("closes the replaced lab engine, and its runtimes, when an install rebuilds it", async () => {
+    // Two installable entries: the first is installed, the second is downloaded during the test.
+    const two = verifiableCatalog();
+    const first = two.entries.find((e) => e.id === onnxEntry().id)!;
+    const second = structuredClone(first);
+    second.id = "articulino-b";
+    two.entries.push(second);
+    const bytesByUrl = new Map<string, Uint8Array>();
+    for (const file of entryFiles(second)) {
+      const bytes = storedBytes(file.path);
+      bytesByUrl.set(file.url, bytes);
+      bytesByUrl.set(`https://proxy.test/assets?url=${encodeURIComponent(file.url)}`, bytes);
+    }
+    const t = setup();
+    const opts = t.options as { catalog: NeuralCatalog };
+    opts.catalog = two;
+    (t.options as { openEntryStore: unknown }).openEntryStore = async (
+      entry: CatalogEntry,
+      mode: { create: boolean }
+    ) => (entry.id === first.id || mode.create ? storeOf(entry, entry.id === first.id) : undefined);
+    t.fetchImpl.mockImplementation(async (url: string) => {
+      const bytes = bytesByUrl.get(url);
+      return bytes === undefined
+        ? new Response("missing", { status: 404 })
+        : new Response(bytes as unknown as BodyInit, { status: 200 });
+    });
+    await mountVoicesLabPanel(t.root, BASE, t.options);
+    await flush();
+    expect(t.createEngine).toHaveBeenCalledTimes(1);
+    expect(t.closeLab).not.toHaveBeenCalled();
+
+    const model = t.q<HTMLSelectElement>("lab-model");
+    model.value = second.id;
+    model.dispatchEvent(new Event("change"));
+    t.q<HTMLButtonElement>("lab-download").click();
+    await flush();
+    t.q<HTMLButtonElement>("lab-consent-accept").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(t.createEngine).toHaveBeenCalledTimes(2);
+    expect(t.closeLab).toHaveBeenCalledTimes(1);
   });
 });

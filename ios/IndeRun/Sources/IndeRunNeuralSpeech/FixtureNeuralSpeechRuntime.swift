@@ -50,6 +50,7 @@ public final class FixtureNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked S
     private var recorded: [(text: String, locale: String, voiceId: String)] = []
     private var prepares = 0
     private var availabilities = 0
+    private var closed = false
 
     public init(options: FixtureNeuralSpeechRuntimeOptions = FixtureNeuralSpeechRuntimeOptions()) {
         self.options = options
@@ -63,15 +64,27 @@ public final class FixtureNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked S
 
     public func availability(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
         lock.withLock { availabilities += 1 }
+        if lock.withLock({ closed }) { return NeuralSpeechAvailability(available: false, reason: "runtime closed") }
         return options.availability
     }
 
     public func prepare(_ modelPackage: ModelPackage) async -> NeuralSpeechAvailability {
         lock.withLock { prepares += 1 }
+        if lock.withLock({ closed }) { return NeuralSpeechAvailability(available: false, reason: "runtime closed") }
         return options.prepareResult
     }
 
+    /// Terminal and idempotent: afterwards `availability` and `prepare` report `runtime closed`, and a
+    /// sentence's iteration fails with `runtime_closed` at its next chunk, unless it already delivered
+    /// its last chunk or its consumer was cancelled.
+    public func close() async {
+        lock.withLock { closed = true }
+    }
+
     public func synthesize(_ input: NeuralSpeechSynthesisInput) -> AsyncThrowingStream<PcmChunk, Error> {
+        if lock.withLock({ closed }) {
+            return AsyncThrowingStream { $0.finish(throwing: NeuralSpeechRuntimeError.runtimeClosed) }
+        }
         lock.withLock { recorded.append((input.text, input.locale, input.voiceId)) }
         let sampleRate = input.modelPackage.speech?.sampleRate ?? 24000
         let tone = FixtureTone(
@@ -79,7 +92,8 @@ public final class FixtureNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked S
             totalFrames: Int((Double(input.text.utf16.count) * options.msPerCharacter * Double(sampleRate) / 1000).rounded()),
             chunkFrames: max(1, Int((options.chunkMs * Double(sampleRate) / 1000).rounded())),
             delayMs: options.delayMs,
-            failAfterChunks: options.failAfterChunks
+            failAfterChunks: options.failAfterChunks,
+            isClosed: { [self] in lock.withLock { closed } }
         )
         return AsyncThrowingStream(unfolding: { try await tone.next() })
     }
@@ -91,6 +105,7 @@ public final class FixtureNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked S
         private let chunkFrames: Int
         private let delayMs: Int
         private let failAfterChunks: Int?
+        private let isClosed: @Sendable () -> Bool
         /// One period of the tone: it repeats every `sampleRate / gcd(sampleRate, 440)` frames, so
         /// the phase stays continuous without computing a sine per frame.
         private let period: [Int16]
@@ -98,7 +113,11 @@ public final class FixtureNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked S
         private var produced = 0
         private var chunks = 0
 
-        init(sampleRate: Int, totalFrames: Int, chunkFrames: Int, delayMs: Int, failAfterChunks: Int?) {
+        init(
+            sampleRate: Int, totalFrames: Int, chunkFrames: Int, delayMs: Int, failAfterChunks: Int?,
+            isClosed: @escaping @Sendable () -> Bool
+        ) {
+            self.isClosed = isClosed
             let step = 2 * Double.pi * FixtureNeuralSpeechRuntime.toneHz / Double(sampleRate)
             let frames = sampleRate / Self.gcd(sampleRate, Int(FixtureNeuralSpeechRuntime.toneHz))
             self.period = (0 ..< frames).map { Int16((FixtureNeuralSpeechRuntime.amplitude * sin(step * Double($0))).rounded()) }
@@ -112,6 +131,7 @@ public final class FixtureNeuralSpeechRuntime: NeuralSpeechRuntime, @unchecked S
         func next() async throws -> PcmChunk? {
             let state = lock.withLock { (produced, chunks) }
             guard !Task.isCancelled, state.0 < totalFrames else { return nil }
+            if isClosed() { throw NeuralSpeechRuntimeError.runtimeClosed }
             if let failAfterChunks, state.1 >= failAfterChunks {
                 throw NeuralSpeechRuntimeError(kind: .internalFailure, message: "fixture synthesis failed")
             }

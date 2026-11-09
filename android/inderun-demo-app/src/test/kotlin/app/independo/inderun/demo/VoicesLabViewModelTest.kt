@@ -268,6 +268,8 @@ class VoicesLabViewModelTest {
             override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = emptyList()
             override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk = error("not scripted")
             override suspend fun disposeArtifact(artifact: MediaArtifact) = error("not scripted")
+
+            override suspend fun close() = error("not scripted")
         }.speak(options, scope)
     }
 

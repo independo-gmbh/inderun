@@ -34,7 +34,7 @@ class AudioTrackAudioOutputConformanceTest {
 
     private fun catalogJson() = context.assets.open("audio-output-lifecycle.json").bufferedReader().use { it.readText() }
 
-    private fun target() = AudioOutputTarget(AudioTrackAudioOutputService()) { SystemClock.elapsedRealtime().toDouble() }
+    private fun target() = AudioOutputTarget(AudioTrackAudioOutputService(), { SystemClock.elapsedRealtime().toDouble() })
 
     private val headIndependent = setOf(
         "unsupported_format_refused",
@@ -44,13 +44,16 @@ class AudioTrackAudioOutputConformanceTest {
         "drain_after_stop_resolves_at_once",
         "stop_discards_buffered_audio",
     )
+
+    /** Needs an output that stops rendering on demand, which a device cannot do; the JVM run and the drain unit tests cover it. */
+    private val stallOnly = setOf("drain_fails_when_output_stalls")
     private val playback = setOf("first_write_starts_playback", "drain_waits_for_everything_written", "sessions_are_independent")
 
     @Test
     fun implementsEveryCaseInTheSharedCatalogAndNoOthers() {
         val ids = audioOutputCatalogCases(catalogJson()).map { it.getString("id") }.sorted()
         assertEquals(ids, audioOutputHandlers.keys.sorted())
-        assertEquals(ids, (headIndependent + playback).sorted())
+        assertEquals(ids, (headIndependent + playback + stallOnly).sorted())
     }
 
     @Test

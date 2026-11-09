@@ -117,6 +117,29 @@ export interface NeuralSpeechRuntime {
    * a runtime without the hook, is no normalization.
    */
   normalizeText?(pkg: ModelPackage, text: string, locale: string): string | Promise<string>;
+  /**
+   * Optional. Releases what the runtime holds (graph sessions). Whoever constructed the runtime
+   * closes it; an engine never closes a runtime the app passed in.
+   *
+   * Terminal and idempotent (concurrent calls close each executor once). Nothing is created after
+   * it. Afterwards:
+   * - `availability` returns `{ available: false, reason: "runtime closed" }` without throwing;
+   * - `prepare` and `synthesize` throw `runtimeClosedError()`
+   *   (`NeuralSpeechRuntimeError("unavailable", "runtime closed", undefined, "runtime_closed")`);
+   * - `normalizeText` returns the text unchanged.
+   *
+   * A synthesis running at close ends at its next graph boundary and throws `runtime_closed`,
+   * unless its `isLast` chunk was already delivered (it completes) or the caller aborted (the
+   * caller's abort wins and the iteration ends silently). A generator suspended at a `yield` does
+   * not block close; its next resume throws `runtime_closed`. An executor is closed only after its
+   * in-flight graph call returns, never while a graph runs.
+   */
+  close?(): Promise<void>;
+}
+
+/** The error every closed runtime throws from `prepare` and `synthesize`. */
+export function runtimeClosedError(): NeuralSpeechRuntimeError {
+  return new NeuralSpeechRuntimeError("unavailable", "runtime closed", undefined, "runtime_closed");
 }
 
 /**
@@ -129,12 +152,20 @@ export type NeuralSpeechRuntimeErrorKind = "capability" | "unavailable" | "timeo
 export class NeuralSpeechRuntimeError extends Error {
   readonly kind: NeuralSpeechRuntimeErrorKind;
   readonly originalError?: unknown;
+  /** Stable machine code the provider reports as `details.code`, e.g. `runtime_closed`. */
+  readonly code?: string;
 
-  constructor(kind: NeuralSpeechRuntimeErrorKind, message: string, originalError?: unknown) {
+  constructor(
+    kind: NeuralSpeechRuntimeErrorKind,
+    message: string,
+    originalError?: unknown,
+    code?: string
+  ) {
     super(message);
     this.name = "NeuralSpeechRuntimeError";
     this.kind = kind;
     if (originalError !== undefined) this.originalError = originalError;
+    if (code !== undefined) this.code = code;
 
     Object.setPrototypeOf(this, NeuralSpeechRuntimeError.prototype);
   }

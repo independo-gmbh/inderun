@@ -46,7 +46,7 @@ const artifacts = [
   }
 ].map((artifact) => ({
   ...artifact,
-  wasmInput: join(artifact.targetDir, "wasm32-unknown-unknown", "debug", "inderun_route_core.wasm"),
+  wasmInput: join(artifact.targetDir, "wasm32-unknown-unknown", "wasm", "inderun_route_core.wasm"),
   outputs: [
     join(outDir, `${artifact.name}.js`),
     join(outDir, `${artifact.name}_bg.wasm`),
@@ -113,6 +113,8 @@ for (const artifact of artifacts) {
       "inderun_route_core",
       "--target",
       "wasm32-unknown-unknown",
+      "--profile",
+      "wasm",
       "--no-default-features",
       ...artifact.features,
       "--target-dir",

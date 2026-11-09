@@ -68,9 +68,22 @@ public protocol NeuralSpeechRuntime: Sendable {
     /// Called once per request, on the whole text, with the locale the voice speaks. Synchronous and
     /// non-throwing: the shared core's C call cannot fail. The default returns `text` unchanged.
     func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String
+
+    /// Releases what the runtime holds (loaded models, sessions). Terminal and idempotent: concurrent
+    /// calls share one close, and a later call returns at once. Once called, nothing is created or
+    /// loaded any more: `availability` and `prepare` report unavailable with the reason
+    /// `runtime closed`, `synthesize` fails with ``NeuralSpeechRuntimeError`` (kind `.unavailable`,
+    /// message `runtime closed`, code `runtime_closed`), and `normalizeText` returns the text unchanged.
+    /// A synthesis in flight ends at its next graph boundary with the same error, unless its last
+    /// chunk was already delivered (it completes) or its consumer cancelled (cancellation wins, the
+    /// stream ends without an error). Graphs are released only after the graph calls in flight have
+    /// returned. The default does nothing.
+    func close() async
 }
 
 extension NeuralSpeechRuntime {
+    public func close() async {}
+
     public func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String { text }
 }
 
@@ -89,10 +102,14 @@ public struct NeuralSpeechRuntimeError: Error, Sendable {
     public let message: String
     /// The underlying error's description, carried as `details.originalError`.
     public let originalErrorDescription: String?
+    /// A stable machine-readable code the provider carries as `details.code`, for example
+    /// `runtime_closed`; `nil` when the failure has none.
+    public let code: String?
 
-    public init(kind: NeuralSpeechRuntimeErrorKind, message: String, originalError: Error? = nil) {
+    public init(kind: NeuralSpeechRuntimeErrorKind, message: String, originalError: Error? = nil, code: String? = nil) {
         self.kind = kind
         self.message = message
+        self.code = code
         self.originalErrorDescription = originalError.map { String(describing: $0) }
     }
 }

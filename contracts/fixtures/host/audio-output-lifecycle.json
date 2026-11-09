@@ -1,5 +1,5 @@
 {
-  "$comment": "Scenario catalog for the audio output host service (ADR 021): what a service guarantees at open, write, drain and stop. 'setup' is normative prose and 'expect' is shared data; each SDK registers one handler per 'id' behind a guard test that fails when the handler ids and the ids here differ. Every SDK runs the catalog against its fixture service, Swift also against AVAudioEngineAudioOutputService, Android also against AudioTrackAudioOutputService on an emulator. Unless the setup says otherwise the format is 24000 Hz, 1 channel, pcm_s16le, and written audio is a 440 Hz sine at -14 dBFS. Elapsed times are read on the target's clock (the fixture's virtual clock, or wall time for a real service). Every wait is bounded by 'timeoutMs'. What a listener hears is a manual check.",
+  "$comment": "Scenario catalog for the audio output host service (ADR 021): what a service guarantees at open, write, drain and stop. 'setup' is normative prose and 'expect' is shared data; each SDK registers one handler per 'id' behind a guard test that fails when the handler ids and the ids here differ. Every SDK runs the catalog against its fixture service, Swift also against AVAudioEngineAudioOutputService, Android also against AudioTrackAudioOutputService on an emulator. Unless the setup says otherwise the format is 24000 Hz, 1 channel, pcm_s16le, and written audio is a 440 Hz sine at -14 dBFS. Elapsed times are read on the target's clock (the fixture's virtual clock, or wall time for a real service). Every wait is bounded by 'timeoutMs'. What a listener hears is a manual check. 'write_fails_when_output_stalls' (a backpressure stall in write()) is not a catalog case: the fixture services do not model queue depth, so that bound is tested on each real service with its own fake.",
   "$expectKeys": {
     "afterOpen": "State after open() and a 200 ms settle: 'firstAudioDefined' is whether firstAudioMs() returned a value.",
     "afterWrites": "State after the writes, waiting up to 'waitAtMostMs' (default 0) for firstAudioMs(): 'firstAudioDefined'; 'firstAudioAtMostMs' bounds its value.",
@@ -8,7 +8,8 @@
     "writeAfterStop": "A write() after stop(): 'elapsedAtMostMs' and 'throws'.",
     "drainAfterStop": "A drain() after stop(): 'elapsedAtMostMs' and 'throws'.",
     "independence": "Two sessions of one service: 'stoppedDrainAtMostMs' for the stopped one; 'otherDrainAtLeastMs' from before the other's first write to its drain; 'timeoutMs'.",
-    "openRejectsWith": "open() threw: the error class and details.code."
+    "openRejectsWith": "open() threw: the error class and details.code.",
+    "drainRejectsWith": "drain() rejected with errorClass Unavailable and this details.code; it combines with 'drain', whose 'elapsedAtLeastMs' is read up to the rejection and whose 'timeoutMs' is only the harness cutoff, with headroom over the service's own bound. That bound (written duration plus the 2000 ms grace, ADR 021 section 5) is pinned by each platform's stall unit tests."
   },
   "cases": [
     {
@@ -77,6 +78,15 @@
       "setup": "open() A and B; write(1000 ms) to A then to B; stop() A; drain() A; drain() B. 800 ms is 0.8 of the written audio, as in drain_waits_for_everything_written.",
       "expect": {
         "independence": { "stoppedDrainAtMostMs": 50, "otherDrainAtLeastMs": 800, "timeoutMs": 4000 }
+      }
+    },
+    {
+      "id": "drain_fails_when_output_stalls",
+      "description": "When the output never advances, drain() fails with audio_output_failed after the written duration plus a 2000 ms grace instead of waiting forever.",
+      "setup": "open(); write(500 ms); the output never advances (a stalled mode of the target, or a fake that freezes playback); drain(). Elapsed is read from before the write to the rejection.",
+      "expect": {
+        "drainRejectsWith": "audio_output_failed",
+        "drain": { "elapsedAtLeastMs": 500, "timeoutMs": 4000 }
       }
     },
     {
