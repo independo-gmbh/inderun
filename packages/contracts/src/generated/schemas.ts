@@ -1285,7 +1285,7 @@ export const modelPackageSchema = {
       "properties": {
         "pipeline": {
           "description": "The text-to-PCM recipe the provider runs for this package: which graphs in which order, with which text frontend. A provider refuses a value it does not implement.",
-          "$comment": "Known values: 'articulino', 'supertonic'. Later: 'kokoro', 'piper', 'pocket_tts'. Open on purpose: a new model family must not force a schema and codegen change.",
+          "$comment": "Known values: 'articulino'. Possible later (#289): 'kokoro', 'piper', 'pocket_tts'. Open on purpose: a new model family must not force a schema and codegen change.",
           "type": "string",
           "minLength": 1
         },

@@ -50,8 +50,8 @@ hand. The demo voices carry a custom licence for demo and evaluation use, and th
   `neural-speech-assets-1`.
 - **Runtime and frontend.** ONNX Runtime and the in-repo normalizer are MIT and have no catalog row, so they have no
   `review.status`.
-- **Families beyond Articulino.** Supertonic 3 is pending (#277); Kokoro, Piper and Pocket TTS are deferred (see #277).
-  None has a catalog entry, so none is admitted.
+- **Families beyond Articulino.** Kokoro, Piper and Pocket TTS are deferred (#289). Supertonic 3 is not integrated:
+  its upstream repositories are archived (owner decision, 2026-11-09, #277). None has a catalog entry, so none is admitted.
 
 ## Update rule
 

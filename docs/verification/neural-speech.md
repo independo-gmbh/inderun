@@ -69,16 +69,15 @@ not pay again.
 
 Family by locale by platform by device. **Real** means the cell is covered by a report in this document.
 
-| Family                           | Locale              | Mac14,6 (macOS 27.2)        | Chrome on the same Mac      | iPhone 15 (iPhone15,4)                                                | Android                      | Core AI             |
-| -------------------------------- | ------------------- | --------------------------- | --------------------------- | --------------------------------------------------------------------- | ---------------------------- | ------------------- |
-| Articulino ONNX int8             | `de-DE`             | Real                        | Real                        | Real (2 of 7 scenarios; the others are not run by the device harness) | pending (no device attached) | pending (#279)      |
-| Articulino ONNX int8             | `en-US`             | Real                        | Real                        | not run (device harness is `de-DE` only)                              | pending (no device attached) | pending (#279)      |
-| Articulino ONNX int8             | `de-AT`             | Real (extended corpus only) | Real (extended corpus only) | not run (device harness is `de-DE` only)                              | pending (no device attached) | pending (#279)      |
-| OS voice (`apple_system_speech`) | `de-DE`, `en-US`    | Real                        | not run                     | not run                                                               | pending (no device attached) | n/a                 |
-| Supertonic 3                     | pending             | pending (#277)              | pending (#277)              | pending (#277)                                                        | pending (#277)               | pending (#277)      |
-| Kokoro                           | deferred (see #277) | deferred (see #277)         | deferred (see #277)         | deferred (see #277)                                                   | deferred (see #277)          | deferred (see #277) |
-| Piper                            | deferred (see #277) | deferred (see #277)         | deferred (see #277)         | deferred (see #277)                                                   | deferred (see #277)          | deferred (see #277) |
-| Pocket TTS                       | deferred (see #277) | deferred (see #277)         | deferred (see #277)         | deferred (see #277)                                                   | deferred (see #277)          | deferred (see #277) |
+| Family                           | Locale           | Mac14,6 (macOS 27.2)        | Chrome on the same Mac      | iPhone 15 (iPhone15,4)                                                | Android                      | Core AI         |
+| -------------------------------- | ---------------- | --------------------------- | --------------------------- | --------------------------------------------------------------------- | ---------------------------- | --------------- |
+| Articulino ONNX int8             | `de-DE`          | Real                        | Real                        | Real (2 of 7 scenarios; the others are not run by the device harness) | pending (no device attached) | pending (#279)  |
+| Articulino ONNX int8             | `en-US`          | Real                        | Real                        | not run (device harness is `de-DE` only)                              | pending (no device attached) | pending (#279)  |
+| Articulino ONNX int8             | `de-AT`          | Real (extended corpus only) | Real (extended corpus only) | not run (device harness is `de-DE` only)                              | pending (no device attached) | pending (#279)  |
+| OS voice (`apple_system_speech`) | `de-DE`, `en-US` | Real                        | not run                     | not run                                                               | pending (no device attached) | n/a             |
+| Kokoro                           | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289) |
+| Piper                            | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289) |
+| Pocket TTS                       | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289) |
 
 The OS voice's own pending list is in [system-speech.md](./system-speech.md). The iPhone 15 report comes from the
 `ios_device_bench` harness, which runs only `first_call_after_prepare` and `render_speed`; the other five scenarios on
@@ -296,5 +295,6 @@ articulino-de-en-int8` (see `tools/neural-speech/README.md`). It runs two of the
 - **Android:** pending, no device attached.
 - **OS voice in the browser:** not run.
 - **Core AI:** pending, after the export spike (#279).
-- **Supertonic 3:** pending (#277). **Kokoro, Piper, Pocket TTS:** deferred (see #277).
+- **Kokoro, Piper, Pocket TTS:** deferred (#289).
+- **Supertonic 3:** not integrated. Its upstream repositories are archived and unmaintained since September 2026 (owner decision, 2026-11-09, #277).
 - **Listening scores:** none yet (PR 12).
