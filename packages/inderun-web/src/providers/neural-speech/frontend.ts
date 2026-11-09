@@ -1,4 +1,6 @@
-const BOUNDARY = /[.!?…]+(?=\s|$)/gu;
+const TERMINATORS = new Set([".", "!", "?", "…"]);
+
+const isWhitespace = (char: string): boolean => /\s/u.test(char);
 
 /**
  * Splits text into sentences, identically on all three SDKs (pinned by
@@ -18,10 +20,19 @@ export function splitSentences(text: string): string[] {
 
   for (const line of text.normalize("NFC").split("\n")) {
     let start = 0;
-    for (const match of line.matchAll(BOUNDARY)) {
-      const end = match.index + match[0].length;
-      push(line.slice(start, end));
-      start = end;
+    let index = 0;
+    while (index < line.length) {
+      if (!TERMINATORS.has(line.charAt(index))) {
+        index += 1;
+        continue;
+      }
+      let end = index;
+      while (end < line.length && TERMINATORS.has(line.charAt(end))) end += 1;
+      if (end === line.length || isWhitespace(line.charAt(end))) {
+        push(line.slice(start, end));
+        start = end;
+      }
+      index = end;
     }
     push(line.slice(start));
   }
