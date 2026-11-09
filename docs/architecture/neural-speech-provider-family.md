@@ -196,6 +196,9 @@ On a real host `firstAudioMs` is not smaller than `firstChunkMs`. The fixture au
 cannot observe that ordering, so the conformance catalog does not pin it. On the Web, `firstAudioMs` carries the caveat
 in ADR 021 about what the browser lets the output observe.
 
+Measured timings, percentiles per scenario on the Mac and in the browser, next to the operating system's voice, are in
+[the neural speech verification record](../verification/neural-speech.md).
+
 ## Error codes
 
 | Code                       | Where it comes from                                                        |
@@ -343,6 +346,8 @@ rows say a phone is fast enough.
 - iPhone 15, measured 2026-11-05 over five rounds of six sentences: `prepare` 347 ms, warm wall time 54-139 ms for
   1.5-4.4 s of audio (realtime factor 0.030-0.038), the first round about 20% slower, thermal state nominal throughout,
   peak process footprint 233 MB. The pipeline returns one chunk per sentence, so time to first audio equals wall time.
+  A later run in the report format (2026-11-09, `first_call_after_prepare` and `render_speed` only) is in
+  [the verification record](../verification/neural-speech.md#iphone-15-iphone154-ios-2720).
 - Device runs are opt-in and not part of CI: with a phone at hand,
   [`ios_device_bench.sh`](../../tools/neural-speech/README.md#time-a-package-on-an-iphone) builds the demo app with a
   temporary benchmark hook, runs it on the phone and reverts the hook. Run it when a model, a runtime or the pipeline

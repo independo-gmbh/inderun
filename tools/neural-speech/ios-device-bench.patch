@@ -1,11 +1,14 @@
 diff --git a/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift b/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
-index 127d2c4..2800be6 100644
+index 127d2c4..b9db2ac 100644
 --- a/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
 +++ b/ios/SampleApps/IndeRunDemo/IndeRunDemo/IndeRunDemoApp.swift
-@@ -1,10 +1,88 @@
+@@ -1,10 +1,286 @@
  import SwiftUI
 +import Darwin
++import IndeRunContracts
++import IndeRunCore
 +import IndeRunOnnxProviders
++import IndeRunSwift
  
  @main
  struct IndeRunDemoApp: App {
@@ -20,74 +23,269 @@ index 127d2c4..2800be6 100644
 +    }
 +}
 +
-+/// Times the ONNX Articulino runtime on a device: one `prepare`, then the sentences below for
-+/// `-inderunBenchRounds` rounds, into `Documents/bench.txt`.
++/// Times the ONNX Articulino package on a device through the public speech API and writes the shared
++/// `inderun-speech-benchmark/1` report (`contracts/fixtures/speech/speech-benchmark-report.schema.json`) to
++/// `Documents/bench.json`, plus a text log (no utterance text) to `Documents/bench.txt`. Runs the
++/// `first_call_after_prepare` and `render_speed` scenarios with the same metrics as
++/// `ios/IndeRun/Tests/IndeRunTests/SpeechBenchmarkTests.swift`, so device and Mac numbers compare. The report
++/// builder is reimplemented here because the demo app cannot import test sources.
 +enum DeviceBenchScratch {
-+    static let sentences: [(locale: String, text: String)] = [
-+        ("de-DE", "Ich habe Hunger."),
-+        ("de-DE", "Kannst du mir bitte das Wasser geben?"),
-+        ("de-DE", "Heute Nachmittag gehen wir gemeinsam in den Park und spielen Fußball."),
-+        ("en-US", "I am hungry."),
-+        ("en-US", "Could you please hand me the water?"),
-+        ("en-US", "This afternoon we are going to the park together to play football."),
-+    ]
++    struct Utterance { let id: String; let locale: String; let text: String }
++    struct Sample {
++        let scenario: String, step: String, utteranceId: String, requestedLocale: String
++        let resolvedLocale: String?
++        let metrics: [String: Double]
++    }
 +
-+    static func footprintMB() -> Double {
++    // Ids, locales and texts copied verbatim from contracts/fixtures/speech/utterance-corpus.json.
++    static let short = Utterance(id: "de_de_short", locale: "de-DE", text: "Ich möchte bitte etwas trinken.")
++    static let long = Utterance(
++        id: "de_de_long", locale: "de-DE",
++        text: "Heute Morgen war es im Park sehr ruhig. Auf dem Weg zum Bäcker habe ich zwei Hunde gesehen, die miteinander gespielt haben. Danach bin ich zur Haltestelle gegangen und habe auf die Straßenbahn gewartet. Sie kam pünktlich, und ich habe einen Sitzplatz am Fenster bekommen. Am Nachmittag möchte ich meine Schwester besuchen. Wir wollen zusammen Kuchen backen, einen Spaziergang machen und am Abend ein Brettspiel spielen. Wenn es regnet, bleiben wir drinnen und hören Musik. Morgen beginnt die neue Woche, und ich freue mich schon auf den Kurs am Dienstag."
++    )
++    static let allScenarios = ["first_call_cold", "first_call_after_prepare", "repeat_same_voice", "switch_language", "speak_after_stop", "text_length", "render_speed"]
++    static let ranScenarios = ["first_call_after_prepare", "render_speed"]
++
++    static func physFootprint() -> UInt64 {
 +        var info = task_vm_info_data_t()
 +        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
 +        let result = withUnsafeMutablePointer(to: &info) {
 +            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
 +        }
-+        return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : -1
++        return result == KERN_SUCCESS ? info.phys_footprint : 0
++    }
++
++    /// Polls `phys_footprint` every 20 ms; `stop()` is the peak minus the footprint at `start()`, at least 0.
++    final class PeakSampler: @unchecked Sendable {
++        private let lock = NSLock()
++        private var baseline: UInt64 = 0
++        private var peak: UInt64 = 0
++        private var polling: Task<Void, Never>?
++
++        func start() {
++            let first = DeviceBenchScratch.physFootprint()
++            baseline = first
++            peak = first
++            polling = Task { [self] in
++                while !Task.isCancelled {
++                    try? await Task.sleep(for: .milliseconds(20))
++                    if Task.isCancelled { break }
++                    sample()
++                }
++            }
++        }
++
++        private func sample() {
++            let value = DeviceBenchScratch.physFootprint()
++            lock.lock(); peak = max(peak, value); lock.unlock()
++        }
++
++        func stop() -> UInt64 {
++            polling?.cancel()
++            sample()
++            lock.lock(); defer { lock.unlock() }
++            return peak > baseline ? peak - baseline : 0
++        }
++    }
++
++    static func measuringPeak<T>(_ body: () async throws -> T) async rethrows -> (value: T, peak: UInt64) {
++        let sampler = PeakSampler()
++        sampler.start()
++        do {
++            let value = try await body()
++            return (value, sampler.stop())
++        } catch {
++            _ = sampler.stop()
++            throw error
++        }
++    }
++
++    /// Nearest rank: index `ceil(q * n) - 1` of the ascending values.
++    static func percentile(_ sorted: [Double], _ q: Double) -> Double {
++        sorted[min(sorted.count - 1, max(0, Int((q * Double(sorted.count)).rounded(.up)) - 1))]
++    }
++
++    static func distinct(_ values: [String]) -> [String] {
++        var seen = Set<String>()
++        return values.filter { seen.insert($0).inserted }
++    }
++
++    /// Per `(scenario, step, utterance)`, in first-seen order.
++    static func percentiles(_ samples: [Sample], _ q: Double) -> [[String: Any]] {
++        var order: [[String]] = []
++        var groups: [[String]: [Sample]] = [:]
++        for sample in samples {
++            let key = [sample.scenario, sample.step, sample.utteranceId]
++            if groups[key] == nil { order.append(key) }
++            groups[key, default: []].append(sample)
++        }
++        return order.map { key in
++            let group = groups[key] ?? []
++            var metrics: [String: Double] = [:]
++            for name in Set(group.flatMap { $0.metrics.keys }) {
++                let values = group.compactMap { $0.metrics[name] }.sorted()
++                if !values.isEmpty { metrics[name] = percentile(values, q) }
++            }
++            return ["scenario": key[0], "step": key[1], "utteranceId": key[2], "metrics": metrics]
++        }
++    }
++
++    /// The error class and `details.code` of an IndeRun error, the type name of anything else. An error message can
++    /// echo the request, and a report never carries utterance text.
++    static func skipReason(_ error: Error) -> String {
++        guard let exception = error as? IndeRunException else { return String(describing: type(of: error)) }
++        if let code = exception.details?["code"]?.value as? String { return "\(exception.errorClass.rawValue): \(code)" }
++        return exception.errorClass.rawValue
++    }
++
++    static func hardwareModel() -> String {
++        var info = utsname()
++        uname(&info)
++        return withUnsafePointer(to: &info.machine) {
++            $0.withMemoryRebound(to: CChar.self, capacity: Int(_SYS_NAMELEN)) { String(cString: $0) }
++        }
 +    }
 +
 +    static func run() async {
 +        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-+        let out = documents.appendingPathComponent("bench.txt")
++        let textOut = documents.appendingPathComponent("bench.txt")
++        // A report left by an earlier run must not pass for this one: the script waits for bench.json.
++        try? FileManager.default.removeItem(at: documents.appendingPathComponent("bench.json"))
 +        var lines: [String] = []
 +        func log(_ line: String) {
 +            print("INDERUN-DEVICE-BENCH " + line)
 +            lines.append(line)
-+            try? lines.joined(separator: "\n").write(to: out, atomically: true, encoding: .utf8)
++            try? lines.joined(separator: "\n").write(to: textOut, atomically: true, encoding: .utf8)
 +        }
++
++        var samples: [Sample] = []
++        var skipped: [(scenario: String, reason: String)] = allScenarios.filter { !ranScenarios.contains($0) }.map { ($0, "not run by the device harness") }
++        var target: [String: Any] = ["name": "articulino_default", "providerId": "local.onnx.speech.neural"]
++        let arguments = UserDefaults.standard
++        let sdkVersion = arguments.string(forKey: "inderunBenchSdkVersion") ?? "dev"
++        let version = ProcessInfo.processInfo.operatingSystemVersion
++        let os = "iOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
++
 +        do {
-+            let rounds = Int(UserDefaults.standard.string(forKey: "inderunBenchRounds") ?? "") ?? 3
-+            let name = UserDefaults.standard.string(forKey: "inderunBenchPackage") ?? "articulino-package-int8"
++            let rounds = Int(arguments.string(forKey: "inderunBenchRounds") ?? "") ?? 3
++            let name = arguments.string(forKey: "inderunBenchPackage") ?? "articulino-package-int8"
 +            let directory = documents.appendingPathComponent(name)
 +            let data = try Data(contentsOf: directory.appendingPathComponent("model-package.json"))
 +            var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 +            json["source"] = ["sourceType": "filesystem", "ref": directory.path]
 +            let package = try JSONDecoder().decode(ModelPackage.self, from: JSONSerialization.data(withJSONObject: json))
-+            let voiceId = package.speech?.voices.first?.id ?? "prompt"
-+            let runtime = OnnxNeuralSpeechRuntime()
-+            log("start footprintMB=\(Int(footprintMB())) cpus=\(ProcessInfo.processInfo.activeProcessorCount) os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
-+            let prepStart = Date()
-+            let prepared = await runtime.prepare(package)
-+            log("prepare available=\(prepared.available) reason=\(prepared.reason ?? "-") ms=\(Int(Date().timeIntervalSince(prepStart) * 1000)) footprintMB=\(Int(footprintMB()))")
-+            var peak = footprintMB()
-+            for round in 1 ... rounds {
-+                for (index, sentence) in sentences.enumerated() {
-+                    let started = Date()
-+                    var firstChunkMs: Double?
-+                    var samples = 0
-+                    let input = NeuralSpeechSynthesisInput(modelPackage: package, text: sentence.text, locale: sentence.locale, voiceId: voiceId)
-+                    for try await chunk in runtime.synthesize(input) {
-+                        if firstChunkMs == nil { firstChunkMs = Date().timeIntervalSince(started) * 1000 }
-+                        samples += chunk.samples.count
-+                    }
-+                    let totalMs = Date().timeIntervalSince(started) * 1000
-+                    let audioS = Double(samples) / 24000
-+                    peak = max(peak, footprintMB())
-+                    log(String(
-+                        format: "round=%d sentence=%d locale=%@ chars=%d audioS=%.2f firstChunkMs=%.0f totalMs=%.0f rtf=%.3f thermal=%d",
-+                        round, index, sentence.locale, sentence.text.count, audioS, firstChunkMs ?? -1, totalMs,
-+                        totalMs / 1000 / max(audioS, 0.001), ProcessInfo.processInfo.thermalState.rawValue
-+                    ))
-+                }
++            let makeProvider = { NeuralSpeechProvider(options: NeuralSpeechProviderOptions(modelPackage: package, runtime: OnnxNeuralSpeechRuntime())) }
++            target["name"] = "articulino_\(package.variant ?? "default")"
++            target["providerId"] = makeProvider().describe().id
++            // The catalog entry id when the script passes one (the Voices lab's id), else the package id.
++            target["model"] = arguments.string(forKey: "inderunBenchModelId") ?? package.id
++            if let variant = package.variant { target["variant"] = variant }
++            if let checksums = package.integrity?.checksums { target["checksums"] = checksums }
++
++            func engine() throws -> IndeRun {
++                let registry = ProviderRegistry()
++                try registry.register(makeProvider())
++                return IndeRun(registry: registry, hostServices: DefaultHostServices.make())
 +            }
-+            log("end peakFootprintMB=\(Int(peak))")
++            func options(_ utterance: Utterance) -> SpeakOptions {
++                SpeakOptions(utterance.text, locale: utterance.locale, voice: nil, execution: SpeechExecutionOptions(privacy: .localRequired))
++            }
++            func record(_ scenario: String, _ step: String, _ utterance: Utterance, _ metrics: [String: Double?], resolved: String? = nil, peak: UInt64) {
++                // JSONSerialization throws an Objective-C exception on NaN and infinity, so only finite metrics are kept.
++                var values = metrics.compactMapValues { $0 }.filter { $0.value.isFinite }
++                values["peakRssDeltaBytes"] = Double(peak)
++                samples.append(Sample(scenario: scenario, step: step, utteranceId: utterance.id, requestedLocale: utterance.locale, resolvedLocale: resolved, metrics: values))
++                log("scenario=\(scenario) step=\(step) utterance=\(utterance.id) " + values.sorted { $0.key < $1.key }.map { "\($0.key)=\(String(format: "%.1f", $0.value))" }.joined(separator: " ")
++                    + " thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
++            }
++
++            log("start footprintMB=\(Int(physFootprint() / 1_048_576)) cpus=\(ProcessInfo.processInfo.activeProcessorCount) os=\(os) rounds=\(rounds)")
++
++            do {
++                for trial in 0 ..< rounds {
++                    let engine = try engine()
++                    let started = Date()
++                    let (_, preparePeak) = try await measuringPeak {
++                        try await engine.prepare(PrepareRequest(tasks: ["text_to_speech"], locale: short.locale)).result()
++                    }
++                    record("first_call_after_prepare", trial == 0 ? "prepare, first in process" : "prepare, new instance", short,
++                           ["prepareMs": Date().timeIntervalSince(started) * 1000], peak: preparePeak)
++                    let speakStarted = Date()
++                    let (ending, speakPeak) = try await measuringPeak { try await engine.speak(options(short)).result() }
++                    record("first_call_after_prepare", trial == 0 ? "first in process" : "new instance", short, [
++                        "firstChunkMs": ending.timing?.firstChunkMs,
++                        "firstAudioMs": ending.timing?.firstAudioMs,
++                        "wallMs": Date().timeIntervalSince(speakStarted) * 1000,
++                        "durationMs": ending.timing?.durationMs,
++                    ], resolved: ending.speech?.locale, peak: speakPeak)
++                }
++            } catch {
++                let reason = skipReason(error)
++                log("error scenario=first_call_after_prepare \(reason)")
++                // A scenario in `skipped` keeps none of its samples.
++                samples.removeAll { $0.scenario == "first_call_after_prepare" }
++                skipped.append(("first_call_after_prepare", reason))
++            }
++
++            do {
++                let engine = try engine()
++                for utterance in [short, long] {
++                    for trial in 0 ... rounds {
++                        let started = Date()
++                        let (speech, peak) = try await measuringPeak {
++                            try await engine.generateSpeech(GenerateSpeechOptions(options(utterance)))
++                        }
++                        let renderMs = Date().timeIntervalSince(started) * 1000
++                        await engine.disposeArtifact(artifact: speech.artifact)
++                        let audioMs = speech.artifact.durationMs
++                        record("render_speed", trial == 0 ? "cold" : "warm", utterance, [
++                            "renderMs": renderMs,
++                            "audioMs": audioMs,
++                            "realTimeFactor": audioMs.flatMap { $0 > 0 ? renderMs / $0 : nil },
++                            "bytes": speech.artifact.byteLength.map(Double.init),
++                        ], resolved: speech.speech?.locale, peak: peak)
++                    }
++                }
++            } catch {
++                let reason = skipReason(error)
++                log("error scenario=render_speed \(reason)")
++                samples.removeAll { $0.scenario == "render_speed" }
++                skipped.append(("render_speed", reason))
++            }
++            log("end peakFootprintMB=\(Int(physFootprint() / 1_048_576))")
 +        } catch {
-+            log("error \(error)")
++            let reason = skipReason(error)
++            log("error \(reason)")
++            for scenario in ranScenarios { skipped.append((scenario, reason)) }
++        }
++
++        let sampleJson: [[String: Any]] = samples.map { sample in
++            var entry: [String: Any] = ["scenario": sample.scenario, "step": sample.step, "utteranceId": sample.utteranceId, "requestedLocale": sample.requestedLocale]
++            if let resolved = sample.resolvedLocale { entry["resolvedLocale"] = resolved }
++            for (name, value) in sample.metrics { entry[name] = value }
++            return entry
++        }
++        let report: [String: Any] = [
++            "schema": "inderun-speech-benchmark/1",
++            "harness": "ios_device_bench",
++            "createdAt": ISO8601DateFormatter().string(from: Date()),
++            "device": hardwareModel(),
++            "os": os,
++            "sdkVersion": sdkVersion,
++            "target": target,
++            "requestedLocale": distinct(samples.map(\.requestedLocale)),
++            "resolvedLocale": distinct(samples.compactMap(\.resolvedLocale)),
++            "locality": "on_device",
++            "samples": sampleJson,
++            "skipped": skipped.map { ["scenario": $0.scenario, "reason": $0.reason] },
++            "p50": percentiles(samples, 0.5),
++            "p95": percentiles(samples, 0.95),
++        ]
++        do {
++            let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
++            try data.write(to: documents.appendingPathComponent("bench.json"), options: .atomic)
++        } catch {
++            log("error writing bench.json: \(skipReason(error))")
          }
      }
  }

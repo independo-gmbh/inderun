@@ -33,6 +33,7 @@ type BenchmarkScenario = {
 
 type Corpus = {
   utterances: Utterance[];
+  extendedUtterances?: Utterance[];
   benchmark: { scenarios: BenchmarkScenario[] };
   scenarios: {
     repeat: { utteranceIds: string[]; count: number };
@@ -111,5 +112,69 @@ describe("utterance corpus", () => {
         expect(corpus.utterances.find((entry) => entry.id === id)?.expect, id).toBe("speak");
       }
     }
+  });
+});
+
+describe("extended utterances", () => {
+  const extended = corpus.extendedUtterances ?? [];
+
+  it("exist", () => {
+    expect(extended.length).toBeGreaterThanOrEqual(18);
+  });
+
+  it("have ids that are unique across both arrays", () => {
+    const all = [...corpus.utterances, ...extended].map((utterance) => utterance.id);
+    expect(new Set(all).size).toBe(all.length);
+    for (const utterance of extended) expect(utterance.id).toMatch(/^ext_[a-z0-9_]+$/);
+  });
+
+  it("are speakable text in a known locale", () => {
+    for (const utterance of extended) {
+      expect(["de-DE", "de-AT", "en-US"], utterance.id).toContain(utterance.locale);
+      expect(utterance.expect, utterance.id).toBe("speak");
+      expect(utterance.text.trim().length, utterance.id).toBeGreaterThan(0);
+    }
+  });
+
+  it("cover every category the neural lab renders", () => {
+    const categories = new Set(extended.map((utterance) => utterance.category));
+    for (const category of [
+      "numbers",
+      "dates",
+      "money",
+      "units",
+      "abbreviations",
+      "long",
+      "mixed_language"
+    ]) {
+      expect(categories, category).toContain(category);
+    }
+  });
+
+  it("keeps long texts above 400 characters", () => {
+    for (const utterance of extended.filter((entry) => entry.category === "long")) {
+      expect(utterance.text.length, utterance.id).toBeGreaterThan(400);
+    }
+  });
+
+  it("has an Austrian entry with Jänner", () => {
+    expect(
+      extended.some(
+        (utterance) => utterance.locale === "de-AT" && utterance.text.includes("Jänner")
+      )
+    ).toBe(true);
+  });
+
+  it("leaves the seven scenarios unchanged", () => {
+    expect(corpus.benchmark.scenarios.map((scenario) => scenario.id)).toEqual([
+      "first_call_cold",
+      "first_call_after_prepare",
+      "repeat_same_voice",
+      "switch_language",
+      "speak_after_stop",
+      "text_length",
+      "render_speed"
+    ]);
+    expect(corpus.utterances.length).toBe(11);
   });
 });

@@ -1,5 +1,6 @@
 import {
   IndeRunException,
+  generateSpeech as sdkGenerateSpeech,
   listVoices as sdkListVoices,
   prepare as sdkPrepare,
   speak as sdkSpeak,
@@ -27,7 +28,18 @@ import {
   type ConsentPrompt,
   type ModelStorage
 } from "./neural-downloader";
+import sdkPackage from "../../inderun-web/package.json";
 import type { VoicesLabEngine } from "./voices-lab-engine";
+import {
+  buildReport,
+  describeBrowser,
+  reportSdkVersion,
+  runCorpus,
+  withAudio,
+  type BenchmarkCorpus,
+  type BenchmarkRun,
+  type ReportTarget
+} from "./voices-lab-benchmark";
 
 const LANGUAGES = [
   { tag: "de-DE", label: "Deutsch (Deutschland)" },
@@ -45,8 +57,9 @@ export interface EntryStore {
   files: SpeechPackageFiles;
 }
 
-export interface VoicesLabCorpus {
-  utterances: { id: string; locale: string; text: string; expect?: string }[];
+export interface VoicesLabCorpus extends BenchmarkCorpus {
+  /** Longer sentences for the presets and the neural render run (#276). */
+  extendedUtterances?: BenchmarkCorpus["utterances"];
 }
 
 /** The SDK calls the panel makes, replaceable in tests. */
@@ -54,6 +67,7 @@ export interface VoicesLabApi {
   speak: typeof sdkSpeak;
   listVoices: typeof sdkListVoices;
   prepare: typeof sdkPrepare;
+  generateSpeech: typeof sdkGenerateSpeech;
 }
 
 export interface VoicesLabOptions {
@@ -74,6 +88,26 @@ export interface VoicesLabOptions {
   /** Builds the lab engine for the installed models; called again after each install. */
   createEngine: (installed: InstalledModel[]) => VoicesLabEngine;
   api?: Partial<VoicesLabApi>;
+  /** Saves an exported report; defaults to a Blob and an `<a download>` click. */
+  download?: (name: string, json: string) => void;
+  /** Millisecond clock for the corpus run; defaults to `performance.now()`. */
+  now?: () => number;
+  /** The corpus runner, replaceable in tests. */
+  runBenchmark?: typeof runCorpus;
+}
+
+function downloadViaAnchor(name: string, json: string): void {
+  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Anything outside `[A-Za-z0-9._-]` becomes `-`. */
+function fileSafe(value: string): string {
+  return Array.from(value, (c) => (/^[A-Za-z0-9._-]$/u.test(c) ? c : "-")).join("");
 }
 
 function megabytes(bytes: number): string {
@@ -103,7 +137,8 @@ export async function mountVoicesLabPanel(
   const api: VoicesLabApi = {
     speak: options.api?.speak ?? sdkSpeak,
     listVoices: options.api?.listVoices ?? sdkListVoices,
-    prepare: options.api?.prepare ?? sdkPrepare
+    prepare: options.api?.prepare ?? sdkPrepare,
+    generateSpeech: options.api?.generateSpeech ?? sdkGenerateSpeech
   };
   const entries = options.catalog.entries;
   const installable = entries.filter(isInstallable);
@@ -131,6 +166,14 @@ export async function mountVoicesLabPanel(
         <button id="lab-download" type="button">Download model</button>
         <button id="lab-cancel-download" type="button" hidden>Cancel download</button>
       </div>
+      <div class="actions">
+        <button id="lab-run-corpus" type="button">Run corpus (plays audio)</button>
+        <button id="lab-export" type="button" disabled>Export report</button>
+        <label for="lab-export-audio">
+          <input id="lab-export-audio" type="checkbox" /> Include rendered audio
+        </label>
+      </div>
+      <p id="lab-run-status" role="status" aria-live="polite"></p>
       <p id="lab-storage-note"></p>
       <p id="lab-unavailable"></p>
       <div id="lab-consent" role="alertdialog" aria-labelledby="lab-consent-title" hidden>
@@ -157,6 +200,10 @@ export async function mountVoicesLabPanel(
   const repeatButton = q<HTMLButtonElement>("lab-repeat");
   const abButton = q<HTMLButtonElement>("lab-ab");
   const downloadButton = q<HTMLButtonElement>("lab-download");
+  const runCorpusButton = q<HTMLButtonElement>("lab-run-corpus");
+  const exportButton = q<HTMLButtonElement>("lab-export");
+  const exportAudio = q<HTMLInputElement>("lab-export-audio");
+  const runStatus = q("lab-run-status");
   const cancelDownloadButton = q<HTMLButtonElement>("lab-cancel-download");
   const storageNote = q("lab-storage-note");
   const consentBox = q("lab-consent");
@@ -176,7 +223,10 @@ export async function mountVoicesLabPanel(
   for (const { tag, label } of LANGUAGES) language.append(option(tag, label));
   language.value = "de-DE";
 
-  const utterances = options.corpus.utterances.filter((u) => u.expect !== "refuse");
+  const utterances = [
+    ...options.corpus.utterances,
+    ...(options.corpus.extendedUtterances ?? [])
+  ].filter((u) => u.expect !== "refuse");
   preset.append(option("", "Custom text"));
   for (const utterance of utterances) {
     preset.append(option(utterance.id, `${utterance.id} (${utterance.locale})`));
@@ -228,8 +278,8 @@ export async function mountVoicesLabPanel(
     return true;
   }
 
-  async function rebuildEngine(): Promise<void> {
-    const installed: InstalledModel[] = installable
+  function installedModels(): InstalledModel[] {
+    return installable
       .filter((entry) => installedIds.has(entry.id))
       .map((entry) => {
         const opened = store.get(entry.id)!;
@@ -239,6 +289,10 @@ export async function mountVoicesLabPanel(
           files: opened.files
         };
       });
+  }
+
+  async function rebuildEngine(): Promise<void> {
+    const installed = installedModels();
     const previous = labEngine;
     labEngine = installed.length === 0 ? undefined : options.createEngine(installed);
     engine = labEngine?.engine;
@@ -347,11 +401,14 @@ export async function mountVoicesLabPanel(
   let aborted = false;
   let last: (() => Promise<void>) | undefined;
 
+  let corpusRunning = false;
+
   function setBusy(busy: boolean): void {
-    speakButton.disabled = busy;
-    abButton.disabled = busy;
+    speakButton.disabled = busy || corpusRunning;
+    abButton.disabled = busy || corpusRunning;
     stopButton.disabled = !busy;
-    repeatButton.disabled = busy || last === undefined;
+    repeatButton.disabled = busy || corpusRunning || last === undefined;
+    runCorpusButton.disabled = busy || corpusRunning;
   }
 
   /**
@@ -470,6 +527,102 @@ export async function mountVoicesLabPanel(
   stopButton.addEventListener("click", () => {
     aborted = true;
     current?.cancel("stopped from the demo");
+  });
+
+  // --- Corpus run and report export -----------------------------------------------------------
+
+  let lastRun: BenchmarkRun | undefined;
+
+  function targetOf(): { target: ReportTarget; voice: SpeechVoiceInfo | undefined } {
+    const chosen = voice.value === "" ? undefined : currentVoices()[Number(voice.value)];
+    if (isControl()) {
+      return {
+        target: { name: SYSTEM_SPEECH_PROVIDER_ID, providerId: SYSTEM_SPEECH_PROVIDER_ID },
+        voice: chosen
+      };
+    }
+    const entry = selectedEntry();
+    if (entry === undefined || engine === undefined || !installedIds.has(entry.id)) {
+      throw new Error("Download the model first.");
+    }
+    return {
+      target: {
+        name: entry.id,
+        providerId: neuralProviderId(entry.id),
+        model: entry.id,
+        variant: entry.variant,
+        checksums: Object.fromEntries(
+          entryFiles(entry).map((file) => [file.path, `sha256:${file.sha256}`])
+        ),
+        ...(chosen?.id !== undefined ? { voiceId: chosen.id } : {})
+      },
+      voice: chosen
+    };
+  }
+
+  runCorpusButton.addEventListener("click", () => {
+    if (corpusRunning) return;
+    void (async () => {
+      corpusRunning = true;
+      setBusy(false);
+      downloadButton.disabled = true;
+      runStatus.textContent = "Running the corpus…";
+      try {
+        const { target, voice: chosen } = targetOf();
+        const control = isControl();
+        const run = await (options.runBenchmark ?? runCorpus)({
+          api,
+          engine: control ? inderun : engine!,
+          ...(control ? {} : { profile: labProfileName(selectedEntry()!.id) }),
+          ...(chosen !== undefined ? { voice: chosen } : {}),
+          corpus: options.corpus,
+          target,
+          now: options.now ?? (() => performance.now()),
+          // A cold trial needs an engine nothing has used yet; the OS control has no such engine.
+          // It holds the benchmarked model alone, so its prepare readies no other installed model
+          // and prepareMs measures that model only.
+          ...(control
+            ? {}
+            : {
+                newEngine: () => {
+                  const benchmarked = target.model;
+                  const fresh = options.createEngine(
+                    installedModels().filter((installed) => installed.entry.id === benchmarked)
+                  );
+                  return { engine: fresh.engine, close: () => fresh.close() };
+                }
+              }),
+          onProgress: (done, total) => {
+            runStatus.textContent = `Running the corpus: scenario ${done} of ${total} done`;
+          }
+        });
+        lastRun = run;
+        exportButton.disabled = false;
+        downloadReport(run, false);
+        runStatus.textContent = `Corpus run finished: ${run.samples.length} samples, ${run.skipped.length} scenarios skipped; report downloaded.`;
+      } catch (error) {
+        runStatus.textContent = `failed: ${describeError(error)}`;
+      } finally {
+        corpusRunning = false;
+        setBusy(false);
+        updateButtons();
+      }
+    })();
+  });
+
+  /** Builds the report for `run` and saves it; the run's own download carries no audio. */
+  function downloadReport(run: BenchmarkRun, includeAudio: boolean): void {
+    const { device, os } = describeBrowser(navigator);
+    const createdAt = new Date().toISOString();
+    const sdkVersion = reportSdkVersion(sdkPackage.version, import.meta.env.DEV);
+    let report = buildReport(run, { device, os, sdkVersion, createdAt });
+    if (includeAudio) report = withAudio(report, run.renders);
+    const name = `web_voices_lab-${fileSafe(run.target.name)}-${fileSafe(device)}-${createdAt.slice(0, 10)}.json`;
+    (options.download ?? downloadViaAnchor)(name, JSON.stringify(report, null, 2));
+  }
+
+  exportButton.addEventListener("click", () => {
+    if (lastRun !== undefined) downloadReport(lastRun, exportAudio.checked);
   });
 
   // --- Download and warm-up ---------------------------------------------------------------

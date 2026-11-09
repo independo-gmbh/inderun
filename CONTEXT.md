@@ -218,9 +218,18 @@ build script prints the install commands when a toolchain is missing.
   the NDK (the test APK packages the route core). CI runs it in the non-required
   `Android emulator speech` job; see `docs/ci.md`. Add
   `-Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true` for the opt-in speech latency
-  benchmark (`SpeechBenchmarkTest`); its Swift counterpart runs with
-  `INDERUN_SPEECH_BENCHMARK=1 swift test --filter SpeechBenchmarkTests`. Both are described in
-  `docs/verification/system-speech.md`.
+  benchmark (`SpeechBenchmarkTest`). Further optional arguments, each prefixed
+  `-Pandroid.testInstrumentationRunnerArguments.`: `speechBenchmarkModelDir` (a model package directory
+  on the device; adds the neural ONNX target), `speechBenchmarkOut` (a directory on the device; one JSON
+  report per target), `speechBenchmarkModelId` (the catalog entry id to record) and `speechBenchmarkSdkVersion`
+  (default `dev`). `speechBenchmarkOut` is a directory name under the app's external files directory
+  (`getExternalFilesDir(null)`, the only place the test app can write); it is created first and the log prints
+  each report's absolute path, to fetch with `adb pull` before the test app is uninstalled. The Swift
+  counterpart runs with `INDERUN_SPEECH_BENCHMARK=1 swift test --filter SpeechBenchmarkTests`, with the matching
+  variables `INDERUN_SPEECH_BENCHMARK_MODEL_DIR`, `INDERUN_SPEECH_BENCHMARK_MODEL_ID`,
+  `INDERUN_SPEECH_BENCHMARK_OUT` and `INDERUN_SPEECH_BENCHMARK_SDK_VERSION`. The latency scenarios are
+  described in `docs/verification/system-speech.md`; the report format and how to reproduce the neural
+  runs are in `docs/verification/neural-speech.md`.
 - `cd android && ./gradlew publishToMavenLocal` — build the library modules' Maven
   artifacts locally (no credentials needed); Maven Central publishing is automated in CI.
 
@@ -281,9 +290,10 @@ Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing 
   — build the Voices lab demo assets (int64-mask `text.onnx`, the seven voice bundles, `SHA256SUMS`), write their
   url/sha256/bytes into `contracts/fixtures/speech/neural-model-catalog.json` and print the `gh release create`
   command for the owner (nothing is uploaded).
-- `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 5]` — opt-in: time an
-  ONNX Articulino package on a connected iPhone through the demo app, with a temporary hook the script reverts (needs
-  Xcode and a paired phone; see the README).
+- `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 3] [--model-id <id>] [--sdk-version <v>] [--out <file>]` — opt-in:
+  time an ONNX Articulino package on a connected iPhone through the demo app, with a temporary hook the script reverts,
+  and write the `inderun-speech-benchmark/1` JSON report (`first_call_after_prepare`, `render_speed`) to `--out`
+  (needs Xcode and a paired phone; see the README).
 - `tools/neural-speech/.venv/bin/python tools/neural-speech/generate_pipeline_fixture.py` — regenerate
   `contracts/fixtures/speech/articulino-pipeline.json`; the output is deterministic.
 

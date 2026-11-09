@@ -1,0 +1,1783 @@
+{
+  "createdAt" : "2026-11-09T19:01:38Z",
+  "device" : "Mac14,6",
+  "harness" : "sdk_tests",
+  "locality" : "on_device",
+  "os" : "macOS 27.2.0",
+  "p50" : [
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1489.5180463790894,
+        "firstChunkMs" : 1385.21409034729,
+        "peakRssDeltaBytes" : 253690072,
+        "wallMs" : 3983.2329750061035
+      },
+      "scenario" : "first_call_cold",
+      "step" : "first in process",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1395.988941192627,
+        "firstChunkMs" : 1290.6479835510254,
+        "peakRssDeltaBytes" : 2818048,
+        "wallMs" : 3889.66703414917
+      },
+      "scenario" : "first_call_cold",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "peakRssDeltaBytes" : 737280,
+        "prepareMs" : 1178.2660484313965
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "prepare, first in process",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 218.52099895477295,
+        "firstChunkMs" : 110.10801792144775,
+        "peakRssDeltaBytes" : 638976,
+        "wallMs" : 2726.6680002212524
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "first in process",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "peakRssDeltaBytes" : 442368,
+        "prepareMs" : 1154.5040607452393
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "prepare, new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 225.4730463027954,
+        "firstChunkMs" : 122.32804298400879,
+        "peakRssDeltaBytes" : 786432,
+        "wallMs" : 2734.2939376831055
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1379.0459632873535,
+        "firstChunkMs" : 1270.5409526824951,
+        "peakRssDeltaBytes" : 933888,
+        "wallMs" : 3884.0949535369873
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 1",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 225.72600841522217,
+        "firstChunkMs" : 117.07103252410889,
+        "peakRssDeltaBytes" : 163840,
+        "wallMs" : 2720.955967903137
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 2",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 213.8270139694214,
+        "firstChunkMs" : 102.38492488861084,
+        "peakRssDeltaBytes" : 344064,
+        "wallMs" : 2715.0449752807617
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 3",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 230.13103008270264,
+        "firstChunkMs" : 119.03905868530273,
+        "peakRssDeltaBytes" : 81920,
+        "wallMs" : 2714.0049934387207
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 4",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 236.08016967773438,
+        "firstChunkMs" : 129.7299861907959,
+        "peakRssDeltaBytes" : 131072,
+        "wallMs" : 2738.5460138320923
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 5",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 1396.7421054840088,
+        "firstChunkMs" : 1291.0360097885132,
+        "peakRssDeltaBytes" : 1425408,
+        "wallMs" : 4893.450021743774
+      },
+      "scenario" : "switch_language",
+      "step" : "call 1 (en-US)",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 215.6820297241211,
+        "firstChunkMs" : 110.89003086090088,
+        "peakRssDeltaBytes" : 131072,
+        "wallMs" : 2711.780071258545
+      },
+      "scenario" : "switch_language",
+      "step" : "call 2 (de-DE)",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 256.00695610046387,
+        "firstChunkMs" : 145.63000202178955,
+        "peakRssDeltaBytes" : 425984,
+        "wallMs" : 3744.852066040039
+      },
+      "scenario" : "switch_language",
+      "step" : "call 3 (en-US)",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 1457.237958908081,
+        "firstChunkMs" : 1349.5479822158813,
+        "peakRssDeltaBytes" : 1409024,
+        "wallMs" : 4956.029057502747
+      },
+      "scenario" : "speak_after_stop",
+      "step" : "warm-up",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "stopLatencyMs" : 32.85098075866699
+      },
+      "scenario" : "speak_after_stop",
+      "step" : "stop",
+      "utteranceId" : "en_us_long"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 288.11001777648926,
+        "firstChunkMs" : 172.69408702850342,
+        "peakRssDeltaBytes" : 458752,
+        "wallMs" : 3790.713906288147
+      },
+      "scenario" : "speak_after_stop",
+      "step" : "next after stop",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1360.5260848999023,
+        "firstChunkMs" : 1247.879981994629,
+        "peakRssDeltaBytes" : 39272448,
+        "wallMs" : 3856.397032737732
+      },
+      "scenario" : "text_length",
+      "step" : "warm-up",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 245.20397186279297,
+        "firstChunkMs" : 132.39896297454834,
+        "peakRssDeltaBytes" : 98304,
+        "wallMs" : 2743.3459758758545
+      },
+      "scenario" : "text_length",
+      "step" : "short",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 36000,
+        "firstAudioMs" : 285.91716289520264,
+        "firstChunkMs" : 178.68709564208984,
+        "peakRssDeltaBytes" : 2588672,
+        "wallMs" : 36429.319024086
+      },
+      "scenario" : "text_length",
+      "step" : "long",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 2350,
+        "bytes" : 112844,
+        "peakRssDeltaBytes" : 39370776,
+        "realTimeFactor" : 0.5485591482608876,
+        "renderMs" : 1289.113998413086
+      },
+      "scenario" : "render_speed",
+      "step" : "cold",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 2350,
+        "bytes" : 112844,
+        "peakRssDeltaBytes" : 0,
+        "realTimeFactor" : 0.041032344736951464,
+        "renderMs" : 96.42601013183594
+      },
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 36000,
+        "bytes" : 1728044,
+        "peakRssDeltaBytes" : 4915200,
+        "realTimeFactor" : 0.03753597206539578,
+        "renderMs" : 1351.294994354248
+      },
+      "scenario" : "render_speed",
+      "step" : "cold",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 36000,
+        "bytes" : 1728044,
+        "peakRssDeltaBytes" : 1523712,
+        "realTimeFactor" : 0.037594000498453774,
+        "renderMs" : 1353.384017944336
+      },
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 6950,
+        "bytes" : 333644,
+        "peakRssDeltaBytes" : 524288,
+        "realTimeFactor" : 0.03574834453116218,
+        "renderMs" : 248.45099449157715
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_numbers_cardinal"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8670,
+        "bytes" : 416204,
+        "peakRssDeltaBytes" : 114688,
+        "realTimeFactor" : 0.03453748861398664,
+        "renderMs" : 299.44002628326416
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_numbers_decimal"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 5790,
+        "bytes" : 277964,
+        "peakRssDeltaBytes" : 0,
+        "realTimeFactor" : 0.03600414964613313,
+        "renderMs" : 208.46402645111084
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_numbers_house"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8790,
+        "bytes" : 421964,
+        "peakRssDeltaBytes" : 196608,
+        "realTimeFactor" : 0.03562673366924195,
+        "renderMs" : 313.1589889526367
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_dates_range"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8630,
+        "bytes" : 414284,
+        "peakRssDeltaBytes" : 32768,
+        "realTimeFactor" : 0.03465411284569379,
+        "renderMs" : 299.0649938583374
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_dates_jaenner"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 4710,
+        "bytes" : 226124,
+        "peakRssDeltaBytes" : 0,
+        "realTimeFactor" : 0.03644840479403291,
+        "renderMs" : 171.67198657989502
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_dates"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 12990,
+        "bytes" : 623564,
+        "peakRssDeltaBytes" : 7487512,
+        "realTimeFactor" : 0.03555404671895862,
+        "renderMs" : 461.84706687927246
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_money_total"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7310,
+        "bytes" : 350924,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03468644602680337,
+        "renderMs" : 253.55792045593262
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_money_small"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 4430,
+        "bytes" : 212684,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03712844633356443,
+        "renderMs" : 164.47901725769043
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_money"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8470,
+        "bytes" : 406604,
+        "peakRssDeltaBytes" : 32768,
+        "realTimeFactor" : 0.03428241015888021,
+        "renderMs" : 290.37201404571533
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_units_speed"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7510,
+        "bytes" : 360524,
+        "peakRssDeltaBytes" : 81920,
+        "realTimeFactor" : 0.035136358715722786,
+        "renderMs" : 263.8740539550781
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_units_kitchen"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 4870,
+        "bytes" : 233804,
+        "peakRssDeltaBytes" : 0,
+        "realTimeFactor" : 0.03653079332512262,
+        "renderMs" : 177.90496349334717
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_units"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7510,
+        "bytes" : 360524,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.034735031356506754,
+        "renderMs" : 260.8600854873657
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_abbr_titles"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8820,
+        "bytes" : 423404,
+        "peakRssDeltaBytes" : 81920,
+        "realTimeFactor" : 0.03647869136057744,
+        "renderMs" : 321.74205780029297
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_abbr_address"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8890,
+        "bytes" : 426764,
+        "peakRssDeltaBytes" : 212992,
+        "realTimeFactor" : 0.03723734811669126,
+        "renderMs" : 331.04002475738525
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_abbr"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 41100,
+        "bytes" : 1972844,
+        "peakRssDeltaBytes" : 3751936,
+        "realTimeFactor" : 0.03579301555661389,
+        "renderMs" : 1471.092939376831
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_long_morning"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 35710,
+        "bytes" : 1714124,
+        "peakRssDeltaBytes" : 1605632,
+        "realTimeFactor" : 0.03465883406695449,
+        "renderMs" : 1237.6669645309448
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_long_travel"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 37430,
+        "bytes" : 1796684,
+        "peakRssDeltaBytes" : 49152,
+        "realTimeFactor" : 0.034856824928383566,
+        "renderMs" : 1304.690957069397
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_long_garden"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7390,
+        "bytes" : 354764,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.032735322583189515,
+        "renderMs" : 241.9140338897705
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_mixed_product"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 5750,
+        "bytes" : 276044,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03545705131862475,
+        "renderMs" : 203.87804508209229
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_mixed_meeting"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 5750,
+        "bytes" : 276044,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03634817703910496,
+        "renderMs" : 209.00201797485352
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_mixed_music"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 6670,
+        "bytes" : 320204,
+        "peakRssDeltaBytes" : 32768,
+        "realTimeFactor" : 0.035344374769631176,
+        "renderMs" : 235.74697971343994
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_mixed"
+    }
+  ],
+  "p95" : [
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1489.5180463790894,
+        "firstChunkMs" : 1385.21409034729,
+        "peakRssDeltaBytes" : 253690072,
+        "wallMs" : 3983.2329750061035
+      },
+      "scenario" : "first_call_cold",
+      "step" : "first in process",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1436.8520975112915,
+        "firstChunkMs" : 1330.4280042648315,
+        "peakRssDeltaBytes" : 116785224,
+        "wallMs" : 3928.460955619812
+      },
+      "scenario" : "first_call_cold",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "peakRssDeltaBytes" : 737280,
+        "prepareMs" : 1178.2660484313965
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "prepare, first in process",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 218.52099895477295,
+        "firstChunkMs" : 110.10801792144775,
+        "peakRssDeltaBytes" : 638976,
+        "wallMs" : 2726.6680002212524
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "first in process",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "peakRssDeltaBytes" : 573440,
+        "prepareMs" : 1313.323974609375
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "prepare, new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 238.51299285888672,
+        "firstChunkMs" : 125.92506408691406,
+        "peakRssDeltaBytes" : 851968,
+        "wallMs" : 2736.662983894348
+      },
+      "scenario" : "first_call_after_prepare",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1379.0459632873535,
+        "firstChunkMs" : 1270.5409526824951,
+        "peakRssDeltaBytes" : 933888,
+        "wallMs" : 3884.0949535369873
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 1",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 225.72600841522217,
+        "firstChunkMs" : 117.07103252410889,
+        "peakRssDeltaBytes" : 163840,
+        "wallMs" : 2720.955967903137
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 2",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 213.8270139694214,
+        "firstChunkMs" : 102.38492488861084,
+        "peakRssDeltaBytes" : 344064,
+        "wallMs" : 2715.0449752807617
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 3",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 230.13103008270264,
+        "firstChunkMs" : 119.03905868530273,
+        "peakRssDeltaBytes" : 81920,
+        "wallMs" : 2714.0049934387207
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 4",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 236.08016967773438,
+        "firstChunkMs" : 129.7299861907959,
+        "peakRssDeltaBytes" : 131072,
+        "wallMs" : 2738.5460138320923
+      },
+      "scenario" : "repeat_same_voice",
+      "step" : "call 5",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 1396.7421054840088,
+        "firstChunkMs" : 1291.0360097885132,
+        "peakRssDeltaBytes" : 1425408,
+        "wallMs" : 4893.450021743774
+      },
+      "scenario" : "switch_language",
+      "step" : "call 1 (en-US)",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 215.6820297241211,
+        "firstChunkMs" : 110.89003086090088,
+        "peakRssDeltaBytes" : 131072,
+        "wallMs" : 2711.780071258545
+      },
+      "scenario" : "switch_language",
+      "step" : "call 2 (de-DE)",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 256.00695610046387,
+        "firstChunkMs" : 145.63000202178955,
+        "peakRssDeltaBytes" : 425984,
+        "wallMs" : 3744.852066040039
+      },
+      "scenario" : "switch_language",
+      "step" : "call 3 (en-US)",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 1457.237958908081,
+        "firstChunkMs" : 1349.5479822158813,
+        "peakRssDeltaBytes" : 1409024,
+        "wallMs" : 4956.029057502747
+      },
+      "scenario" : "speak_after_stop",
+      "step" : "warm-up",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "stopLatencyMs" : 33.60092639923096
+      },
+      "scenario" : "speak_after_stop",
+      "step" : "stop",
+      "utteranceId" : "en_us_long"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 3350,
+        "firstAudioMs" : 309.83495712280273,
+        "firstChunkMs" : 194.42498683929443,
+        "peakRssDeltaBytes" : 507904,
+        "wallMs" : 3800.642967224121
+      },
+      "scenario" : "speak_after_stop",
+      "step" : "next after stop",
+      "utteranceId" : "en_us_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 1360.5260848999023,
+        "firstChunkMs" : 1247.879981994629,
+        "peakRssDeltaBytes" : 39272448,
+        "wallMs" : 3856.397032737732
+      },
+      "scenario" : "text_length",
+      "step" : "warm-up",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 2350,
+        "firstAudioMs" : 245.20397186279297,
+        "firstChunkMs" : 132.39896297454834,
+        "peakRssDeltaBytes" : 98304,
+        "wallMs" : 2743.3459758758545
+      },
+      "scenario" : "text_length",
+      "step" : "short",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "durationMs" : 36000,
+        "firstAudioMs" : 285.91716289520264,
+        "firstChunkMs" : 178.68709564208984,
+        "peakRssDeltaBytes" : 2588672,
+        "wallMs" : 36429.319024086
+      },
+      "scenario" : "text_length",
+      "step" : "long",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 2350,
+        "bytes" : 112844,
+        "peakRssDeltaBytes" : 39370776,
+        "realTimeFactor" : 0.5485591482608876,
+        "renderMs" : 1289.113998413086
+      },
+      "scenario" : "render_speed",
+      "step" : "cold",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 2350,
+        "bytes" : 112844,
+        "peakRssDeltaBytes" : 98304,
+        "realTimeFactor" : 0.04317445957914312,
+        "renderMs" : 101.45998001098633
+      },
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 36000,
+        "bytes" : 1728044,
+        "peakRssDeltaBytes" : 4915200,
+        "realTimeFactor" : 0.03753597206539578,
+        "renderMs" : 1351.294994354248
+      },
+      "scenario" : "render_speed",
+      "step" : "cold",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 36000,
+        "bytes" : 1728044,
+        "peakRssDeltaBytes" : 1982464,
+        "realTimeFactor" : 0.043353527784347534,
+        "renderMs" : 1560.7270002365112
+      },
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 6950,
+        "bytes" : 333644,
+        "peakRssDeltaBytes" : 524288,
+        "realTimeFactor" : 0.03574834453116218,
+        "renderMs" : 248.45099449157715
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_numbers_cardinal"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8670,
+        "bytes" : 416204,
+        "peakRssDeltaBytes" : 114688,
+        "realTimeFactor" : 0.03453748861398664,
+        "renderMs" : 299.44002628326416
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_numbers_decimal"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 5790,
+        "bytes" : 277964,
+        "peakRssDeltaBytes" : 0,
+        "realTimeFactor" : 0.03600414964613313,
+        "renderMs" : 208.46402645111084
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_numbers_house"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8790,
+        "bytes" : 421964,
+        "peakRssDeltaBytes" : 196608,
+        "realTimeFactor" : 0.03562673366924195,
+        "renderMs" : 313.1589889526367
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_dates_range"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8630,
+        "bytes" : 414284,
+        "peakRssDeltaBytes" : 32768,
+        "realTimeFactor" : 0.03465411284569379,
+        "renderMs" : 299.0649938583374
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_dates_jaenner"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 4710,
+        "bytes" : 226124,
+        "peakRssDeltaBytes" : 0,
+        "realTimeFactor" : 0.03644840479403291,
+        "renderMs" : 171.67198657989502
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_dates"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 12990,
+        "bytes" : 623564,
+        "peakRssDeltaBytes" : 7487512,
+        "realTimeFactor" : 0.03555404671895862,
+        "renderMs" : 461.84706687927246
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_money_total"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7310,
+        "bytes" : 350924,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03468644602680337,
+        "renderMs" : 253.55792045593262
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_money_small"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 4430,
+        "bytes" : 212684,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03712844633356443,
+        "renderMs" : 164.47901725769043
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_money"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8470,
+        "bytes" : 406604,
+        "peakRssDeltaBytes" : 32768,
+        "realTimeFactor" : 0.03428241015888021,
+        "renderMs" : 290.37201404571533
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_units_speed"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7510,
+        "bytes" : 360524,
+        "peakRssDeltaBytes" : 81920,
+        "realTimeFactor" : 0.035136358715722786,
+        "renderMs" : 263.8740539550781
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_units_kitchen"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 4870,
+        "bytes" : 233804,
+        "peakRssDeltaBytes" : 0,
+        "realTimeFactor" : 0.03653079332512262,
+        "renderMs" : 177.90496349334717
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_units"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7510,
+        "bytes" : 360524,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.034735031356506754,
+        "renderMs" : 260.8600854873657
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_abbr_titles"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8820,
+        "bytes" : 423404,
+        "peakRssDeltaBytes" : 81920,
+        "realTimeFactor" : 0.03647869136057744,
+        "renderMs" : 321.74205780029297
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_abbr_address"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 8890,
+        "bytes" : 426764,
+        "peakRssDeltaBytes" : 212992,
+        "realTimeFactor" : 0.03723734811669126,
+        "renderMs" : 331.04002475738525
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_abbr"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 41100,
+        "bytes" : 1972844,
+        "peakRssDeltaBytes" : 3751936,
+        "realTimeFactor" : 0.03579301555661389,
+        "renderMs" : 1471.092939376831
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_long_morning"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 35710,
+        "bytes" : 1714124,
+        "peakRssDeltaBytes" : 1605632,
+        "realTimeFactor" : 0.03465883406695449,
+        "renderMs" : 1237.6669645309448
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_long_travel"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 37430,
+        "bytes" : 1796684,
+        "peakRssDeltaBytes" : 49152,
+        "realTimeFactor" : 0.034856824928383566,
+        "renderMs" : 1304.690957069397
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_long_garden"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 7390,
+        "bytes" : 354764,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.032735322583189515,
+        "renderMs" : 241.9140338897705
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_mixed_product"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 5750,
+        "bytes" : 276044,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03545705131862475,
+        "renderMs" : 203.87804508209229
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_mixed_meeting"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 5750,
+        "bytes" : 276044,
+        "peakRssDeltaBytes" : 16384,
+        "realTimeFactor" : 0.03634817703910496,
+        "renderMs" : 209.00201797485352
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_mixed_music"
+    },
+    {
+      "metrics" : {
+        "audioMs" : 6670,
+        "bytes" : 320204,
+        "peakRssDeltaBytes" : 32768,
+        "realTimeFactor" : 0.035344374769631176,
+        "renderMs" : 235.74697971343994
+      },
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_mixed"
+    }
+  ],
+  "requestedLocale" : [
+    "de-DE",
+    "en-US",
+    "de-AT"
+  ],
+  "resolvedLocale" : [
+    "de-DE",
+    "en-US",
+    "de-AT"
+  ],
+  "samples" : [
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 1489.5180463790894,
+      "firstChunkMs" : 1385.21409034729,
+      "peakRssDeltaBytes" : 253690072,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "first_call_cold",
+      "step" : "first in process",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 3983.2329750061035
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 1436.8520975112915,
+      "firstChunkMs" : 1330.4280042648315,
+      "peakRssDeltaBytes" : 116785224,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "first_call_cold",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 3928.460955619812
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 1395.988941192627,
+      "firstChunkMs" : 1290.6479835510254,
+      "peakRssDeltaBytes" : 2818048,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "first_call_cold",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 3889.66703414917
+    },
+    {
+      "peakRssDeltaBytes" : 737280,
+      "prepareMs" : 1178.2660484313965,
+      "requestedLocale" : "de-DE",
+      "scenario" : "first_call_after_prepare",
+      "step" : "prepare, first in process",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 218.52099895477295,
+      "firstChunkMs" : 110.10801792144775,
+      "peakRssDeltaBytes" : 638976,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "first_call_after_prepare",
+      "step" : "first in process",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2726.6680002212524
+    },
+    {
+      "peakRssDeltaBytes" : 573440,
+      "prepareMs" : 1154.5040607452393,
+      "requestedLocale" : "de-DE",
+      "scenario" : "first_call_after_prepare",
+      "step" : "prepare, new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 238.51299285888672,
+      "firstChunkMs" : 125.92506408691406,
+      "peakRssDeltaBytes" : 786432,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "first_call_after_prepare",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2736.662983894348
+    },
+    {
+      "peakRssDeltaBytes" : 442368,
+      "prepareMs" : 1313.323974609375,
+      "requestedLocale" : "de-DE",
+      "scenario" : "first_call_after_prepare",
+      "step" : "prepare, new instance",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 225.4730463027954,
+      "firstChunkMs" : 122.32804298400879,
+      "peakRssDeltaBytes" : 851968,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "first_call_after_prepare",
+      "step" : "new instance",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2734.2939376831055
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 1379.0459632873535,
+      "firstChunkMs" : 1270.5409526824951,
+      "peakRssDeltaBytes" : 933888,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "repeat_same_voice",
+      "step" : "call 1",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 3884.0949535369873
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 225.72600841522217,
+      "firstChunkMs" : 117.07103252410889,
+      "peakRssDeltaBytes" : 163840,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "repeat_same_voice",
+      "step" : "call 2",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2720.955967903137
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 213.8270139694214,
+      "firstChunkMs" : 102.38492488861084,
+      "peakRssDeltaBytes" : 344064,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "repeat_same_voice",
+      "step" : "call 3",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2715.0449752807617
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 230.13103008270264,
+      "firstChunkMs" : 119.03905868530273,
+      "peakRssDeltaBytes" : 81920,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "repeat_same_voice",
+      "step" : "call 4",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2714.0049934387207
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 236.08016967773438,
+      "firstChunkMs" : 129.7299861907959,
+      "peakRssDeltaBytes" : 131072,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "repeat_same_voice",
+      "step" : "call 5",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2738.5460138320923
+    },
+    {
+      "durationMs" : 3350,
+      "firstAudioMs" : 1396.7421054840088,
+      "firstChunkMs" : 1291.0360097885132,
+      "peakRssDeltaBytes" : 1425408,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "switch_language",
+      "step" : "call 1 (en-US)",
+      "utteranceId" : "en_us_short",
+      "wallMs" : 4893.450021743774
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 215.6820297241211,
+      "firstChunkMs" : 110.89003086090088,
+      "peakRssDeltaBytes" : 131072,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "switch_language",
+      "step" : "call 2 (de-DE)",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2711.780071258545
+    },
+    {
+      "durationMs" : 3350,
+      "firstAudioMs" : 256.00695610046387,
+      "firstChunkMs" : 145.63000202178955,
+      "peakRssDeltaBytes" : 425984,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "switch_language",
+      "step" : "call 3 (en-US)",
+      "utteranceId" : "en_us_short",
+      "wallMs" : 3744.852066040039
+    },
+    {
+      "durationMs" : 3350,
+      "firstAudioMs" : 1457.237958908081,
+      "firstChunkMs" : 1349.5479822158813,
+      "peakRssDeltaBytes" : 1409024,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "speak_after_stop",
+      "step" : "warm-up",
+      "utteranceId" : "en_us_short",
+      "wallMs" : 4956.029057502747
+    },
+    {
+      "requestedLocale" : "en-US",
+      "scenario" : "speak_after_stop",
+      "step" : "stop",
+      "stopLatencyMs" : 30.73298931121826,
+      "utteranceId" : "en_us_long"
+    },
+    {
+      "durationMs" : 3350,
+      "firstAudioMs" : 309.83495712280273,
+      "firstChunkMs" : 194.42498683929443,
+      "peakRssDeltaBytes" : 458752,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "speak_after_stop",
+      "step" : "next after stop",
+      "utteranceId" : "en_us_short",
+      "wallMs" : 3800.642967224121
+    },
+    {
+      "requestedLocale" : "en-US",
+      "scenario" : "speak_after_stop",
+      "step" : "stop",
+      "stopLatencyMs" : 32.85098075866699,
+      "utteranceId" : "en_us_long"
+    },
+    {
+      "durationMs" : 3350,
+      "firstAudioMs" : 288.11001777648926,
+      "firstChunkMs" : 172.69408702850342,
+      "peakRssDeltaBytes" : 507904,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "speak_after_stop",
+      "step" : "next after stop",
+      "utteranceId" : "en_us_short",
+      "wallMs" : 3790.713906288147
+    },
+    {
+      "requestedLocale" : "en-US",
+      "scenario" : "speak_after_stop",
+      "step" : "stop",
+      "stopLatencyMs" : 33.60092639923096,
+      "utteranceId" : "en_us_long"
+    },
+    {
+      "durationMs" : 3350,
+      "firstAudioMs" : 264.5491361618042,
+      "firstChunkMs" : 158.38301181793213,
+      "peakRssDeltaBytes" : 409600,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "speak_after_stop",
+      "step" : "next after stop",
+      "utteranceId" : "en_us_short",
+      "wallMs" : 3775.6940126419067
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 1360.5260848999023,
+      "firstChunkMs" : 1247.879981994629,
+      "peakRssDeltaBytes" : 39272448,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "text_length",
+      "step" : "warm-up",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 3856.397032737732
+    },
+    {
+      "durationMs" : 2350,
+      "firstAudioMs" : 245.20397186279297,
+      "firstChunkMs" : 132.39896297454834,
+      "peakRssDeltaBytes" : 98304,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "text_length",
+      "step" : "short",
+      "utteranceId" : "de_de_short",
+      "wallMs" : 2743.3459758758545
+    },
+    {
+      "durationMs" : 36000,
+      "firstAudioMs" : 285.91716289520264,
+      "firstChunkMs" : 178.68709564208984,
+      "peakRssDeltaBytes" : 2588672,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "text_length",
+      "step" : "long",
+      "utteranceId" : "de_de_long",
+      "wallMs" : 36429.319024086
+    },
+    {
+      "audioMs" : 2350,
+      "bytes" : 112844,
+      "peakRssDeltaBytes" : 39370776,
+      "realTimeFactor" : 0.5485591482608876,
+      "renderMs" : 1289.113998413086,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "cold",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "audioMs" : 2350,
+      "bytes" : 112844,
+      "peakRssDeltaBytes" : 0,
+      "realTimeFactor" : 0.03960979745743123,
+      "renderMs" : 93.08302402496338,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "audioMs" : 2350,
+      "bytes" : 112844,
+      "peakRssDeltaBytes" : 0,
+      "realTimeFactor" : 0.041032344736951464,
+      "renderMs" : 96.42601013183594,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "audioMs" : 2350,
+      "bytes" : 112844,
+      "peakRssDeltaBytes" : 98304,
+      "realTimeFactor" : 0.04317445957914312,
+      "renderMs" : 101.45998001098633,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_short"
+    },
+    {
+      "audioMs" : 36000,
+      "bytes" : 1728044,
+      "peakRssDeltaBytes" : 4915200,
+      "realTimeFactor" : 0.03753597206539578,
+      "renderMs" : 1351.294994354248,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "cold",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "audioMs" : 36000,
+      "bytes" : 1728044,
+      "peakRssDeltaBytes" : 1982464,
+      "realTimeFactor" : 0.043353527784347534,
+      "renderMs" : 1560.7270002365112,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "audioMs" : 36000,
+      "bytes" : 1728044,
+      "peakRssDeltaBytes" : 1523712,
+      "realTimeFactor" : 0.036947167581982084,
+      "renderMs" : 1330.098032951355,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "audioMs" : 36000,
+      "bytes" : 1728044,
+      "peakRssDeltaBytes" : 0,
+      "realTimeFactor" : 0.037594000498453774,
+      "renderMs" : 1353.384017944336,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "warm",
+      "utteranceId" : "de_de_long"
+    },
+    {
+      "audioMs" : 6950,
+      "bytes" : 333644,
+      "peakRssDeltaBytes" : 524288,
+      "realTimeFactor" : 0.03574834453116218,
+      "renderMs" : 248.45099449157715,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_numbers_cardinal"
+    },
+    {
+      "audioMs" : 8670,
+      "bytes" : 416204,
+      "peakRssDeltaBytes" : 114688,
+      "realTimeFactor" : 0.03453748861398664,
+      "renderMs" : 299.44002628326416,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_numbers_decimal"
+    },
+    {
+      "audioMs" : 5790,
+      "bytes" : 277964,
+      "peakRssDeltaBytes" : 0,
+      "realTimeFactor" : 0.03600414964613313,
+      "renderMs" : 208.46402645111084,
+      "requestedLocale" : "de-AT",
+      "resolvedLocale" : "de-AT",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_numbers_house"
+    },
+    {
+      "audioMs" : 8790,
+      "bytes" : 421964,
+      "peakRssDeltaBytes" : 196608,
+      "realTimeFactor" : 0.03562673366924195,
+      "renderMs" : 313.1589889526367,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_dates_range"
+    },
+    {
+      "audioMs" : 8630,
+      "bytes" : 414284,
+      "peakRssDeltaBytes" : 32768,
+      "realTimeFactor" : 0.03465411284569379,
+      "renderMs" : 299.0649938583374,
+      "requestedLocale" : "de-AT",
+      "resolvedLocale" : "de-AT",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_dates_jaenner"
+    },
+    {
+      "audioMs" : 4710,
+      "bytes" : 226124,
+      "peakRssDeltaBytes" : 0,
+      "realTimeFactor" : 0.03644840479403291,
+      "renderMs" : 171.67198657989502,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_dates"
+    },
+    {
+      "audioMs" : 12990,
+      "bytes" : 623564,
+      "peakRssDeltaBytes" : 7487512,
+      "realTimeFactor" : 0.03555404671895862,
+      "renderMs" : 461.84706687927246,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_money_total"
+    },
+    {
+      "audioMs" : 7310,
+      "bytes" : 350924,
+      "peakRssDeltaBytes" : 16384,
+      "realTimeFactor" : 0.03468644602680337,
+      "renderMs" : 253.55792045593262,
+      "requestedLocale" : "de-AT",
+      "resolvedLocale" : "de-AT",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_money_small"
+    },
+    {
+      "audioMs" : 4430,
+      "bytes" : 212684,
+      "peakRssDeltaBytes" : 16384,
+      "realTimeFactor" : 0.03712844633356443,
+      "renderMs" : 164.47901725769043,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_money"
+    },
+    {
+      "audioMs" : 8470,
+      "bytes" : 406604,
+      "peakRssDeltaBytes" : 32768,
+      "realTimeFactor" : 0.03428241015888021,
+      "renderMs" : 290.37201404571533,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_units_speed"
+    },
+    {
+      "audioMs" : 7510,
+      "bytes" : 360524,
+      "peakRssDeltaBytes" : 81920,
+      "realTimeFactor" : 0.035136358715722786,
+      "renderMs" : 263.8740539550781,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_units_kitchen"
+    },
+    {
+      "audioMs" : 4870,
+      "bytes" : 233804,
+      "peakRssDeltaBytes" : 0,
+      "realTimeFactor" : 0.03653079332512262,
+      "renderMs" : 177.90496349334717,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_units"
+    },
+    {
+      "audioMs" : 7510,
+      "bytes" : 360524,
+      "peakRssDeltaBytes" : 16384,
+      "realTimeFactor" : 0.034735031356506754,
+      "renderMs" : 260.8600854873657,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_abbr_titles"
+    },
+    {
+      "audioMs" : 8820,
+      "bytes" : 423404,
+      "peakRssDeltaBytes" : 81920,
+      "realTimeFactor" : 0.03647869136057744,
+      "renderMs" : 321.74205780029297,
+      "requestedLocale" : "de-AT",
+      "resolvedLocale" : "de-AT",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_abbr_address"
+    },
+    {
+      "audioMs" : 8890,
+      "bytes" : 426764,
+      "peakRssDeltaBytes" : 212992,
+      "realTimeFactor" : 0.03723734811669126,
+      "renderMs" : 331.04002475738525,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_abbr"
+    },
+    {
+      "audioMs" : 41100,
+      "bytes" : 1972844,
+      "peakRssDeltaBytes" : 3751936,
+      "realTimeFactor" : 0.03579301555661389,
+      "renderMs" : 1471.092939376831,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_long_morning"
+    },
+    {
+      "audioMs" : 35710,
+      "bytes" : 1714124,
+      "peakRssDeltaBytes" : 1605632,
+      "realTimeFactor" : 0.03465883406695449,
+      "renderMs" : 1237.6669645309448,
+      "requestedLocale" : "de-AT",
+      "resolvedLocale" : "de-AT",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_long_travel"
+    },
+    {
+      "audioMs" : 37430,
+      "bytes" : 1796684,
+      "peakRssDeltaBytes" : 49152,
+      "realTimeFactor" : 0.034856824928383566,
+      "renderMs" : 1304.690957069397,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_long_garden"
+    },
+    {
+      "audioMs" : 7390,
+      "bytes" : 354764,
+      "peakRssDeltaBytes" : 16384,
+      "realTimeFactor" : 0.032735322583189515,
+      "renderMs" : 241.9140338897705,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_mixed_product"
+    },
+    {
+      "audioMs" : 5750,
+      "bytes" : 276044,
+      "peakRssDeltaBytes" : 16384,
+      "realTimeFactor" : 0.03545705131862475,
+      "renderMs" : 203.87804508209229,
+      "requestedLocale" : "de-DE",
+      "resolvedLocale" : "de-DE",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_de_mixed_meeting"
+    },
+    {
+      "audioMs" : 5750,
+      "bytes" : 276044,
+      "peakRssDeltaBytes" : 16384,
+      "realTimeFactor" : 0.03634817703910496,
+      "renderMs" : 209.00201797485352,
+      "requestedLocale" : "de-AT",
+      "resolvedLocale" : "de-AT",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_de_at_mixed_music"
+    },
+    {
+      "audioMs" : 6670,
+      "bytes" : 320204,
+      "peakRssDeltaBytes" : 32768,
+      "realTimeFactor" : 0.035344374769631176,
+      "renderMs" : 235.74697971343994,
+      "requestedLocale" : "en-US",
+      "resolvedLocale" : "en-US",
+      "scenario" : "render_speed",
+      "step" : "extended",
+      "utteranceId" : "ext_en_us_mixed"
+    }
+  ],
+  "schema" : "inderun-speech-benchmark\/1",
+  "sdkVersion" : "dev+a8ee554",
+  "skipped" : [
+
+  ],
+  "target" : {
+    "checksums" : {
+      "config.json" : "sha256:407b7553796634d21367546508755763349cf7ee6561842f07bc9d18f7b3ce44",
+      "decoder.onnx" : "sha256:38226532081f6ab1548e243fd5e83943ef0de60a9bbc266f6c48fe972a066685",
+      "dit_step.onnx" : "sha256:19717038305529f9462814929b1ce191e0d4542d1bb0ba68cb2f247dd5179cea",
+      "text.onnx" : "sha256:46579b18a4145b4a579ee56c8bd1558def8bbed158ad79a9548422f01012fb05",
+      "voices\/de-de-f-1.safetensors" : "sha256:f0e7357da8e92cc825adf00b6f7aa84dc86969a819e3ff9620f608b8a26ab88b",
+      "voices\/en-us-f-1.safetensors" : "sha256:e9c5f1145469788677418592d2f739a545a07c3d645e606f81648b6498dc2224"
+    },
+    "model" : "articulino-de-en-int8",
+    "name" : "articulino_onnx-int8",
+    "providerId" : "local.onnx.speech.apple:articulino-de-en",
+    "variant" : "onnx-int8"
+  }
+}

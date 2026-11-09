@@ -310,6 +310,9 @@ and `SpeechBenchmarkTest.kt`. Adding an entry adds a column to the tables above;
 whose delivery a target does not declare is reported as `unsupported` for it, and a target without a voice for the
 locale as `unavailable`.
 
+The neural speech providers run these scenarios too; their results, next to the operating system's voice, are in
+[neural-speech.md](./neural-speech.md).
+
 Candidates this is meant for, none of which IndeRun ships today:
 
 - a neural model on ONNX Runtime or Core ML, wrapped as a `text_to_speech` provider;
