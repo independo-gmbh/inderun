@@ -385,3 +385,28 @@ describe("SystemModelWebProvider error mapping", () => {
     expect(["AuthError", "RateLimited", "Offline"]).not.toContain(error.errorClass);
   });
 });
+
+describe("SystemModelWebProvider runtime descriptors", () => {
+  it("builds the fixture runtime from a JSON descriptor", async () => {
+    const options = JSON.parse(
+      JSON.stringify({ runtime: { kind: "fixture" } })
+    ) as SystemModelProviderOptions;
+
+    const result = await runWithProviders(createRequest(), new SystemModelWebProvider(options));
+
+    expect(result.output).toEqual({ type: "text", text: "[fixture:system-model] Say hello." });
+  });
+
+  it("treats a null runtime like an absent one", () => {
+    const options = JSON.parse(JSON.stringify({ runtime: null })) as SystemModelProviderOptions;
+
+    expect(() => new SystemModelWebProvider(options)).not.toThrow();
+  });
+
+  it("rejects an unknown runtime kind at construction", () => {
+    const build = () => new SystemModelWebProvider({ runtime: { kind: "fixtures" } as never });
+
+    expect(build).toThrow(TypeError);
+    expect(build).toThrow(/fixtures/);
+  });
+});

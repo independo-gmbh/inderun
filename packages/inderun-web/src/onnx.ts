@@ -16,7 +16,8 @@ export {
   OnnxRuntimeWebProvider,
   DEFAULT_ONNX_WEB_PROVIDER_ID,
   SUPPORTED_WEB_MODEL_SOURCE_TYPES,
-  type OnnxProviderOptions
+  type OnnxProviderOptions,
+  type OnnxRuntimeDescriptor
 } from "./providers/onnx/provider.js";
 
 /**

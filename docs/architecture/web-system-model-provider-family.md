@@ -6,7 +6,7 @@ GenAI/Gemini Nano provider (Android). It is the architecture baseline for #78.
 
 ## Classification And Boundaries
 
-A **system-model** provider wraps a model the *system* (here, the browser) owns end to end:
+A **system-model** provider wraps a model the _system_ (here, the browser) owns end to end:
 availability, download, storage, and execution. This is distinct from the
 [ONNX Runtime provider family](onnx-runtime-provider-family.md), where the application supplies
 the model. `ModelPackage` and the model-loading contract do not apply here — there is no
@@ -54,18 +54,18 @@ distinct causes (missing hardware, disabled flag, storage exhaustion) into excep
 than structured availability states. This mapping is best-effort: Chrome does not expose all
 states reliably, so `unavailable` is deliberately the least specific fallback.
 
-| Internal kind           | Source                                              |
-| ------------------------ | --------------------------------------------------- |
-| `available`               | `availability()` → `"available"`                    |
-| `downloadable`             | `availability()` → `"downloadable"`                  |
-| `downloading`              | `availability()` → `"downloading"`                    |
-| `model_unavailable`        | `availability()` → `"unavailable"`                     |
-| `api_missing`               | `LanguageModel` global not defined                       |
-| `browser_unsupported`        | `DOMException.name === "NotSupportedError"`               |
-| `feature_disabled`            | `DOMException.name === "NotAllowedError" \| "SecurityError"` |
-| `hardware_unsupported`          | `NotSupportedError` from `create()` (session creation)       |
-| `resource_constrained`            | `DOMException.name === "QuotaExceededError"`                   |
-| `unavailable`                       | any other thrown error (transient/unclassified)                 |
+| Internal kind          | Source                                                       |
+| ---------------------- | ------------------------------------------------------------ |
+| `available`            | `availability()` → `"available"`                             |
+| `downloadable`         | `availability()` → `"downloadable"`                          |
+| `downloading`          | `availability()` → `"downloading"`                           |
+| `model_unavailable`    | `availability()` → `"unavailable"`                           |
+| `api_missing`          | `LanguageModel` global not defined                           |
+| `browser_unsupported`  | `DOMException.name === "NotSupportedError"`                  |
+| `feature_disabled`     | `DOMException.name === "NotAllowedError" \| "SecurityError"` |
+| `hardware_unsupported` | `NotSupportedError` from `create()` (session creation)       |
+| `resource_constrained` | `DOMException.name === "QuotaExceededError"`                 |
+| `unavailable`          | any other thrown error (transient/unclassified)              |
 
 This vocabulary is provider-internal, not a public enum. It flattens into the shared route
 planner's fixed rejection vocabulary as `capability_unavailable`, carrying the specific reason as
@@ -92,7 +92,9 @@ conservative and consistent with its siblings rather than claiming `hard`.
 ## Runtime Seam
 
 `SystemModelRuntime` has two methods: `availability()` returning `{ kind, reason? }`, and
-`generate(input, signal)` returning normalized text. Two implementations exist:
+`generate(input, signal)` returning normalized text. Two implementations exist. `runtime` also takes a
+`SystemModelRuntimeDescriptor` (`chrome_prompt_api` or `fixture`, JSON-serializable, no extra
+dependency), for configuration that cannot carry a function:
 
 - `createChromePromptApiRuntime()` — the default. Targets the `LanguageModel` global only (no
   legacy `self.ai.languageModel` fallback: that shape predates the current stable API and is not

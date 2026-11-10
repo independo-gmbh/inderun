@@ -43,22 +43,22 @@ registered provider on every request.
 
 ## Options
 
-| Option         | Meaning                                                                                                                                      |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | Replaces the composed id.                                                                                                                    |
-| `modelPackage` | The package. Its `speech` block names the pipeline, graphs, sample rate and voices.                                                          |
-| `runtime`      | Required. Executes the package.                                                                                                              |
+| Option         | Meaning                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Replaces the composed id.                                                                                                                   |
+| `modelPackage` | The package. Its `speech` block names the pipeline, graphs, sample rate and voices.                                                         |
+| `runtime`      | Required. Executes the package: a runtime, or on the Web a `NeuralSpeechRuntimeDescriptor`.                                                 |
 | `timeoutMs`    | Bounds the synthesis until the run commits. A request's `constraints.timeoutMs` wins; zero or less is unbounded. Swift spells it `timeout`. |
 
 `makeCoreAINeuralSpeechProvider` takes `CoreAINeuralSpeechProviderOptions` (`id`, `modelPackage`, `timeout`) plus
 `CoreAINeuralSpeechRuntimeOptions`:
 
-| Runtime option      | Meaning                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `noise`             | The noise source of the pipeline; absent uses the pipeline's default.            |
-| `speed`             | Speech speed factor, default 1.0.                                                |
-| `pauseMs`           | Silence after each sentence, default 150.                                        |
-| `deviceMemoryBytes` | Overrides the device memory that `limits.memBytes` is checked against (tests).   |
+| Runtime option      | Meaning                                                                        |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `noise`             | The noise source of the pipeline; absent uses the pipeline's default.          |
+| `speed`             | Speech speed factor, default 1.0.                                              |
+| `pauseMs`           | Silence after each sentence, default 150.                                      |
+| `deviceMemoryBytes` | Overrides the device memory that `limits.memBytes` is checked against (tests). |
 
 The budget means what `constraints.timeoutMs` means in the request schema: the time until the run commits, not the
 duration of the audio it plays. It counts from the start of synthesis; the turn wait and the model load do not count.
@@ -77,6 +77,13 @@ An optional fourth member, `normalizeText(package, text, locale)`, rewrites the 
 (identity by default; it may be asynchronous on the Web).
 A chunk is mono 16-bit PCM with its `sampleRate` and an `isLast` flag set on the final chunk of a sentence. The chunk's
 rate must equal the package's `speech.sampleRate`; IndeRun never resamples, and a chunk with another rate is `Internal`.
+
+**Selecting a runtime from configuration (Web).** `runtime` also takes a `NeuralSpeechRuntimeDescriptor`, a
+JSON-serializable object with a `kind`, for configuration that cannot carry a function. `fixture` needs no extra
+dependency; `onnx` needs the optional peer `onnxruntime-web` and reads the package files through
+`createUrlPackageFiles(source.ref)`, so it serves `bundled` and `app_managed` packages only (an OPFS-installed
+package still needs the function form). A runtime built from a descriptor is closed with the provider, and
+`createIndeRunWeb` closes it with the engine; an injected one is not.
 
 The provider consumes (copies or hands to the host) a chunk's samples before the yield returns, so a runtime may reuse
 its buffer afterwards.
@@ -107,11 +114,11 @@ over HTTP; Swift and Kotlin read the package directory. An app may inject its ow
 `NeuralSpeechRuntime`, so the app passes a single value as the provider's `runtime`. No ONNX Runtime type appears in a
 public API.
 
-| Platform | Composition                                                                                                                                    |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Platform | Composition                                                                                                                                                                             |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Web      | `createOnnxNeuralSpeechRuntime()`. `onnxruntime-web` is an optional peer dependency, reached structurally; files come from `createUrlPackageFiles` or an injected `SpeechPackageFiles`. |
-| Apple    | `OnnxNeuralSpeechRuntime()` in `IndeRunOnnxProviders`, which re-exports `IndeRunNeuralSpeech`.                                                  |
-| Android  | `OnnxNeuralSpeechRuntime(context)` in `inderun-onnx-providers`, which depends on `inderun-neural-speech` with `api`.                            |
+| Apple    | `OnnxNeuralSpeechRuntime()` in `IndeRunOnnxProviders`, which re-exports `IndeRunNeuralSpeech`.                                                                                          |
+| Android  | `OnnxNeuralSpeechRuntime(context)` in `inderun-onnx-providers`, which depends on `inderun-neural-speech` with `api`.                                                                    |
 
 The executor runs CPU only, with one session per graph; Swift and Kotlin create and run the sessions on the existing ORT
 execution queue or dispatcher, the Web on onnxruntime-web's wasm backend. One pipeline runtime and its sessions are
@@ -201,15 +208,15 @@ Measured timings, percentiles per scenario on the Mac and in the browser, next t
 
 ## Error codes
 
-| Code                       | Where it comes from                                                        |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `audio_output_unavailable` | The host has no `audioOutput`; playback is refused before commit.          |
-| `voice_not_available`      | The bound voice is not in the package; refused before commit.              |
-| `artifact_too_large`       | The WAV would pass 16 MiB; thrown before the artifact commits.             |
-| `audio_format_unsupported` | `audioOutput.open()` cannot take the package's sample rate; propagated.    |
+| Code                       | Where it comes from                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `audio_output_unavailable` | The host has no `audioOutput`; playback is refused before commit.                                                       |
+| `voice_not_available`      | The bound voice is not in the package; refused before commit.                                                           |
+| `artifact_too_large`       | The WAV would pass 16 MiB; thrown before the artifact commits.                                                          |
+| `audio_format_unsupported` | `audioOutput.open()` cannot take the package's sample rate; propagated.                                                 |
 | `audio_not_allowed`        | The platform refuses audio until the app is allowed to play (a browser needs a user gesture); propagated from `open()`. |
-| `audio_output_failed`      | The host output failed to start or render; propagated.                     |
-| `audio_output_interrupted` | The output was interrupted after commit; thrown, not retried.              |
+| `audio_output_failed`      | The host output failed to start or render; propagated.                                                                  |
+| `audio_output_interrupted` | The output was interrupted after commit; thrown, not retried.                                                           |
 
 A runtime's error kinds map to `CapabilityMismatch`, `Unavailable`, `Timeout` and `Internal`. The gesture requirement on the Web comes
 from the audio output, not from this family.
@@ -346,15 +353,15 @@ Hunger." (1.79 s of audio), the CPU execution provider and a model prepared befo
 over wall seconds. The desktop, emulator and simulator rows say the graphs load and run everywhere; only the device
 rows say a phone is fast enough.
 
-| Platform and runtime                                   | Load and run          | Wall time for 1.79 s            | Realtime factor |
-| ------------------------------------------------------ | --------------------- | ------------------------------- | --------------- |
-| Python reference, onnxruntime 1.31.1, Apple silicon, 4 threads | all graphs        | 58-111 ms (first of three sentences)   | 28-46x over three sentences |
-| Web, onnxruntime-web 1.31.1 (wasm), Node 26            | all graphs            | 179 ms                          | about 10x       |
-| Apple, onnxruntime-swift-package-manager 1.24.2, macOS 27.2, debug build | all graphs | 74 ms (provider end to end, `firstChunkMs`) | about 24x |
-| Android, onnxruntime-android 1.31.0, arm64-v8a emulator, API 34 | all graphs  | 187-209 ms                      | about 9x        |
-| iOS simulator, iPhone 17 Pro, iOS 26.2, arm64, onnxruntime-swift-package-manager 1.24.2 | all graphs | 95 ms | about 19x |
-| iPhone 15 (A16), iOS 27.2, onnxruntime-swift-package-manager 1.24.2, demo app Release build | all graphs | 61-79 ms (warm, cold) | about 23-29x; 26-33x over six DE/EN sentences of 1.5-4.4 s |
-| Midrange Android                                       | pending (owner)       | pending (owner)                 | pending (owner) |
+| Platform and runtime                                                                        | Load and run    | Wall time for 1.79 s                        | Realtime factor                                            |
+| ------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------- | ---------------------------------------------------------- |
+| Python reference, onnxruntime 1.31.1, Apple silicon, 4 threads                              | all graphs      | 58-111 ms (first of three sentences)        | 28-46x over three sentences                                |
+| Web, onnxruntime-web 1.31.1 (wasm), Node 26                                                 | all graphs      | 179 ms                                      | about 10x                                                  |
+| Apple, onnxruntime-swift-package-manager 1.24.2, macOS 27.2, debug build                    | all graphs      | 74 ms (provider end to end, `firstChunkMs`) | about 24x                                                  |
+| Android, onnxruntime-android 1.31.0, arm64-v8a emulator, API 34                             | all graphs      | 187-209 ms                                  | about 9x                                                   |
+| iOS simulator, iPhone 17 Pro, iOS 26.2, arm64, onnxruntime-swift-package-manager 1.24.2     | all graphs      | 95 ms                                       | about 19x                                                  |
+| iPhone 15 (A16), iOS 27.2, onnxruntime-swift-package-manager 1.24.2, demo app Release build | all graphs      | 61-79 ms (warm, cold)                       | about 23-29x; 26-33x over six DE/EN sentences of 1.5-4.4 s |
+| Midrange Android                                                                            | pending (owner) | pending (owner)                             | pending (owner)                                            |
 
 - In the reference, `dit_step` dominates (35-64 ms for four steps), then `decoder` (21-38 ms) and `text` (3-9 ms).
 - No ORT operator error occurred on any platform. The fp32 set was run on the desktop only, not on the SDKs.
