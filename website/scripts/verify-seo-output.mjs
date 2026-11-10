@@ -51,10 +51,10 @@ function* htmlFiles(dir) {
 const decode = (value) =>
   value
     .replaceAll("&quot;", '"')
-    .replaceAll("&amp;", "&")
     .replaceAll("&#39;", "'")
     .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">");
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 const tags = (html, re) => [...html.matchAll(re)];
 
 /** Site path of a built file: dist/docs/x/index.html -> /docs/x, dist/index.html -> /. */

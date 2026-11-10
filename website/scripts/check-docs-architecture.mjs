@@ -132,6 +132,15 @@ if (!fs.existsSync(DIST)) {
       .replaceAll("&gt;", ">")
       .replaceAll("&amp;", "&");
   const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Repeat until stable so nested fragments such as "<<b>script>" cannot leave a tag behind.
+  const stripTags = (s) => {
+    let prev;
+    do {
+      prev = s;
+      s = s.replace(/<[^>]+>/g, "");
+    } while (s !== prev);
+    return s;
+  };
 
   // Titles that a published page also uses cannot identify an internal doc; those rely on the URL check.
   const publishedTitles = new Set();
@@ -145,7 +154,7 @@ if (!fs.existsSync(DIST)) {
           .trim()
       );
     for (const h of html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/g))
-      publishedTitles.add(decode(h[1].replace(/<[^>]+>/g, "")).trim());
+      publishedTitles.add(decode(stripTags(h[1])).trim());
   }
   const ambiguousTitles = [];
 
