@@ -50,8 +50,9 @@ as a native ML Kit failure. One gate covers both modes, so the provider never re
 `streamingAvailable`: a model that is downloadable or downloading is provider-unavailable, with its
 own reason, not stream-unavailable.
 
-The provider does not initiate the model download itself (`download()` and `warmup()` are not
-called), so a `DOWNLOADABLE` model stays unroutable until the host app fetches it.
+`prepare` calls `warmup()`. It starts `download()` only under `autoDownload` at registration or
+`PrepareRequest(allowDownload = true)`, because Gemini Nano is large; otherwise a `DOWNLOADABLE`
+model stays `not_prepared`, and a run refuses with `not_ready`. See ADR 019.
 
 ## Device requirements
 

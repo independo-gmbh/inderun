@@ -1,0 +1,56 @@
+{
+  "$comment": "Cross-SDK vectors for the locality execution provenance reports for a provider and the voice bound to it (ADR 018). A local provider is on_device only as far as its voice allows; an absent networkRequired inherits the task's privacy posture, as it does in the planner.",
+  "cases": [
+    {
+      "id": "local_no_voice",
+      "providerType": "local",
+      "expected": "on_device"
+    },
+    {
+      "id": "local_on_device_voice",
+      "providerType": "local",
+      "voice": { "locale": "de-DE", "networkRequired": false },
+      "expected": "on_device"
+    },
+    {
+      "id": "local_network_voice",
+      "providerType": "local",
+      "voice": { "locale": "de-DE", "networkRequired": true },
+      "expected": "unknown"
+    },
+    {
+      "id": "local_voice_inherits_private_task",
+      "providerType": "local",
+      "taskDataLeavesDevice": false,
+      "voice": { "locale": "de-DE" },
+      "expected": "on_device"
+    },
+    {
+      "id": "local_voice_inherits_leaving_task",
+      "providerType": "local",
+      "taskDataLeavesDevice": true,
+      "voice": { "locale": "de-DE" },
+      "expected": "unknown"
+    },
+    {
+      "id": "local_explicit_voice_overrides_task",
+      "providerType": "local",
+      "taskDataLeavesDevice": true,
+      "voice": { "locale": "de-DE", "networkRequired": false },
+      "expected": "on_device"
+    },
+    {
+      "id": "local_speech_without_a_bound_voice",
+      "description": "A speech run with no bound voice cannot say which voice spoke, because an engine that lists none chooses for itself.",
+      "providerType": "local",
+      "unverifiedVoice": true,
+      "expected": "unknown"
+    },
+    {
+      "id": "cloud_is_unaffected",
+      "providerType": "cloud",
+      "voice": { "locale": "de-DE", "networkRequired": true },
+      "expected": "cloud"
+    }
+  ]
+}

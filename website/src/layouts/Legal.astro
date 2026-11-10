@@ -1,0 +1,36 @@
+---
+/**
+ * Layout for the legal pages (imprint, notices, privacy): the site layout with a 44rem reading
+ * column, a page heading and an optional intro. Section headings (h2) and paragraphs in the slot
+ * get the legal reading rhythm from the column, so the pages stay plain markup.
+ */
+import Site from "./Site.astro";
+
+interface Props {
+  /** Full document title. */
+  title: string;
+  /** Meta description, at most 155 characters. */
+  description: string;
+  /** The visible page heading. */
+  heading: string;
+  /** One sentence under the heading. */
+  intro?: string;
+  noindex?: boolean;
+}
+
+const { title, description, heading, intro, noindex } = Astro.props;
+---
+
+<Site title={title} description={description} noindex={noindex}>
+  <article class="mx-auto max-w-site px-gutter pt-[clamp(2.5rem,6vw,4.5rem)]">
+    <div
+      class="max-w-legal [&_:is(p,li)]:max-w-[68ch] [&>h2]:mt-11 [&>h2]:mb-3 [&>h2]:text-xl [&>h2]:font-bold [&>h2]:tracking-[-0.015em] [&>p+p]:mt-3"
+    >
+      <h1 class="text-[clamp(2.25rem,5vw,3.25rem)] leading-[1.05] font-bold tracking-[-0.035em]">
+        {heading}
+      </h1>
+      {intro && <p class="mt-4 max-w-[62ch] text-lg/relaxed text-ink-muted">{intro}</p>}
+      <slot />
+    </div>
+  </article>
+</Site>

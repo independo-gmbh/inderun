@@ -3,13 +3,40 @@ package app.independo.inderun.core
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderReadiness
+import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.RoutePlannerInputTask
 import app.independo.inderun.contracts.TaskRequest
+
+/**
+ * One provider in the planned chain, with the voice the plan bound it to (speech only).
+ */
+data class RouteCandidate(
+    val provider: ProviderAdapter,
+    /**
+     * The voice this provider must use, chosen by the planner within the request's privacy
+     * policy. Null when the task has no voice or the provider does not list its voices.
+     */
+    val voice: ProviderVoice? = null,
+)
 
 data class RouteSelection(
     val provider: ProviderAdapter,
     val fallbackProviders: List<ProviderAdapter>,
     val routePlan: SharedPlannerRoutePlan,
     val explanation: String,
+    /** The whole chain in attempt order ([provider] first, then [fallbackProviders]), each with its bound voice. */
+    val candidates: List<RouteCandidate>,
+)
+
+/** A provider that can prepare a task, with the voice a run would bind and how ready that is. */
+data class PreparationCandidate(
+    val provider: PreparableProviderAdapter,
+    val voice: ProviderVoice?,
+    val readiness: ProviderReadiness,
 )
 
 class Router private constructor(
@@ -59,6 +86,37 @@ class Router private constructor(
         return selectFromRoutePlan(snapshots, routePlan)
     }
 
+    /**
+     * Plans preparation for one task. Unlike [selectRoute] it never throws for an empty plan,
+     * because a task with nothing to prepare is a normal answer.
+     */
+    suspend fun planPreparation(
+        task: RoutePlannerInputTask,
+        privacy: Privacy?,
+        hostServices: HostServices,
+    ): List<PreparationCandidate> {
+        val online = hostServices.connectivity.isOnline()
+        val snapshots = collectProviderSnapshots(hostServices)
+        val routePlan = try {
+            planner.planRoute(buildPreparationPlannerInput(task, privacy, online, snapshots))
+        } catch (failure: RoutePlannerUnavailableException) {
+            throw createInternal(
+                message = "Route planner unavailable (${failure.reason.value}).",
+                details = mapOf("plannerUnavailableReason" to failure.reason.value),
+            )
+        }
+        return routePlan.candidates.mapNotNull { candidate ->
+            val snapshot = snapshots.firstOrNull { it.descriptor.id == candidate.providerId }
+            val provider = snapshot?.provider as? PreparableProviderAdapter ?: return@mapNotNull null
+            val entry = snapshot.capabilities.taskCapabilities?.firstOrNull { it.kind == task.kind }
+            PreparationCandidate(
+                provider = provider,
+                voice = candidate.voice,
+                readiness = candidate.voice?.readiness ?: entry?.readiness ?: ProviderReadiness.Ready,
+            )
+        }
+    }
+
     private suspend fun collectProviderSnapshots(hostServices: HostServices): List<ProviderSnapshot> = registry.list()
         .map { provider ->
             ProviderSnapshot(
@@ -73,24 +131,30 @@ class Router private constructor(
         routePlan: SharedPlannerRoutePlan,
     ): RouteSelection {
         routePlan.selectedProviderId?.let { selectedProviderId ->
+            // Each planned snapshot keeps the voice its candidate was bound to.
             val orderedSnapshots = routePlan.candidates.mapNotNull { candidate ->
                 snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == candidate.providerId }
+                    ?.let { it to candidate.voice }
             }.ifEmpty {
                 snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == selectedProviderId }
-                    ?.let { listOf(it) }
+                    ?.let { listOf(it to null) }
                     .orEmpty()
             }
 
-            val selected = orderedSnapshots.firstOrNull { snapshot ->
+            val selected = orderedSnapshots.firstOrNull { (snapshot) ->
                 snapshot.descriptor.id == selectedProviderId
             } ?: orderedSnapshots.firstOrNull()
 
             if (selected != null) {
+                val candidates = (listOf(selected) + orderedSnapshots.drop(1)).map { (snapshot, voice) ->
+                    RouteCandidate(provider = snapshot.provider, voice = voice)
+                }
                 return RouteSelection(
-                    provider = selected.provider,
-                    fallbackProviders = orderedSnapshots.drop(1).map { it.provider },
+                    provider = selected.first.provider,
+                    fallbackProviders = orderedSnapshots.drop(1).map { (snapshot) -> snapshot.provider },
                     routePlan = routePlan,
                     explanation = routePlan.explanation.summary,
+                    candidates = candidates,
                 )
             }
         }

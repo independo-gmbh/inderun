@@ -73,11 +73,28 @@ class OnnxRuntimeError(
  * deterministic fixture for tests and demos. Applications can supply their own implementation
  * without touching the provider.
  */
-interface AndroidOnnxGenAiRuntime {
-    /** Checks runtime package availability, execution backend availability, and model readiness.
-     * Implementations must resolve with an availability snapshot rather than throwing. */
+interface AndroidOnnxGenAiRuntime : AutoCloseable {
+    /**
+     * Checks whether this runtime could serve the model package, without loading anything. The
+     * router calls it on every request, also for other tasks, so it must stay cheap.
+     * Implementations must return an availability snapshot rather than throwing.
+     */
+    suspend fun availability(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability
+
+    /**
+     * Loads the model, so the first generation starts sooner. Repeating it must be cheap.
+     * Implementations must return an availability snapshot rather than throwing.
+     */
     suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability
 
     /** Runs one Mode-1 generation. */
     suspend fun generate(input: AndroidOnnxGenerationInput): AndroidOnnxGenerationOutput
+
+    /**
+     * Releases what the runtime loaded (model sessions, tokenizer, native memory). Repeating it
+     * must be harmless, and it must not throw. A later `prepare` or `generate` may load the model
+     * again. The provider calls it only for a runtime it created itself, never for one the
+     * application supplied. The default does nothing.
+     */
+    override fun close() {}
 }

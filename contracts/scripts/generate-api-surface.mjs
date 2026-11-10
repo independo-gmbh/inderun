@@ -46,12 +46,13 @@ const banner =
 // read from the spec) to mirror generate-contracts.mjs's convention of hardcoding
 // output paths in the generator rather than the spec.
 //
-// Note on "core"-sourced types (currently only ProviderCapabilitySnapshot): this
-// generator references them by name only. Unlike "contracts"-sourced types, which
-// get cross-language payload-shape parity from the separate JSON-Schema/quicktype
-// pipeline (contracts/schemas/*.schema.json + generate-contracts.mjs), "core" types
-// are handwritten independently per language and their shape is NOT verified to
-// match across TS/Kotlin/Swift by this generator or any other check.
+// Note on "core"-sourced types (currently only StreamRun): this generator references
+// them by name only. Unlike "contracts"-sourced types, which get cross-language
+// payload-shape parity from the separate JSON-Schema/quicktype pipeline
+// (contracts/schemas/*.schema.json + generate-contracts.mjs), "core" types are
+// handwritten per language because they are not payloads — StreamRun carries a live
+// event sequence and a cancel hook in each platform's idiom. Their shape is NOT
+// verified to match across TS/Kotlin/Swift by this generator or any other check.
 const tsSourceModules = {
   contracts: "@independo/inderun-contracts",
   core: "../provider.js"
@@ -93,7 +94,7 @@ function validateSpec(spec) {
 
     const sourcesUsed = [
       ...operation.params.map((param) => param.source),
-      operation.returns.source
+      ...(isVoid(operation.returns) ? [] : [operation.returns.source])
     ];
     for (const source of sourcesUsed) {
       if (!knownSources.has(source)) {
@@ -109,8 +110,19 @@ function validateSpec(spec) {
 // checked-exception type in the signature text (TS/Kotlin have no such syntax, and
 // Swift's `async throws` carries no type name), so `operation.throws` never
 // contributes an import.
+/**
+ * `{ "type": "void" }` declares an operation that returns nothing: `Promise<void>` in
+ * TypeScript, no return type in Kotlin and Swift. It names no source, because there is
+ * no type to import.
+ */
+function isVoid(returns) {
+  return returns.type === "void";
+}
+
 function typesUsedInOperation(operation) {
-  return [...operation.params, operation.returns];
+  return isVoid(operation.returns)
+    ? [...operation.params]
+    : [...operation.params, operation.returns];
 }
 
 function generateTypeScript(spec) {
@@ -181,11 +193,12 @@ function generateKotlin(spec) {
       ? `List<${operation.returns.type}>`
       : operation.returns.type;
     const modifier = operation.async ? "suspend fun" : "fun";
+    const returnClause = isVoid(operation.returns) ? "" : `: ${returnType}`;
     return [
       `    /**`,
       `     * ${operation.description}`,
       `     */`,
-      `    ${modifier} ${name}(${params}): ${returnType}`
+      `    ${modifier} ${name}(${params})${returnClause}`
     ].join("\n");
   });
 
@@ -220,9 +233,10 @@ function generateSwift(spec) {
       ? `[${operation.returns.type}]`
       : operation.returns.type;
     const asyncKeyword = operation.throws ? "async throws" : "async";
+    const returnClause = isVoid(operation.returns) ? "" : ` -> ${returnType}`;
     return [
       `    /// ${operation.description}`,
-      `    func ${name}(${params}) ${asyncKeyword} -> ${returnType}`
+      `    func ${name}(${params}) ${asyncKeyword}${returnClause}`
     ];
   });
 

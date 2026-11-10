@@ -1,0 +1,16 @@
+{
+  "$comment": "Used only by starlight-typedoc: documents the published .d.ts of the pinned packages, not repository source.",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true
+  },
+  "files": [
+    "node_modules/@independo/capacitor-inderun/dist/index.d.ts",
+    "node_modules/@independo/inderun-web/dist/index.d.ts"
+  ]
+}

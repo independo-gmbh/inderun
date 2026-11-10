@@ -148,6 +148,21 @@ export function toTaskRequest(options: TextGenerationOptions): TaskRequest {
   if (options.seed !== undefined) generation.seed = options.seed;
   if (Object.keys(generation).length > 0) request.generation = generation;
 
+  applyEnvelopeOptions(request, options);
+
+  return request;
+}
+
+/** The envelope fields every facade shares; no task reads them differently. */
+export function applyEnvelopeOptions(
+  request: TaskRequest,
+  options: {
+    execution?: TextExecutionOptions;
+    authContextRef?: string;
+    telemetry?: TaskRequest["telemetry"];
+    requestId?: string;
+  }
+): void {
   const execution = options.execution ?? {};
   const constraints: NonNullable<TaskRequest["constraints"]> = {};
   if (execution.privacy !== undefined) constraints.privacy = execution.privacy;
@@ -161,8 +176,6 @@ export function toTaskRequest(options: TextGenerationOptions): TaskRequest {
   if (options.authContextRef !== undefined) request.authContextRef = options.authContextRef;
   if (options.telemetry !== undefined) request.telemetry = options.telemetry;
   if (options.requestId !== undefined) request.requestId = options.requestId;
-
-  return request;
 }
 
 /**
@@ -176,7 +189,9 @@ export async function generateText(
 ): Promise<GeneratedText> {
   const taskResult = await inderun.run(toTaskRequest(options));
   return {
-    text: taskResult.output.text,
+    // A text run always produces text output; the generated type is optional only because
+    // TaskOutput also describes playback and artifacts (ADR 016).
+    text: taskResult.output.text ?? "",
     finishReason: taskResult.finishReason,
     ...(taskResult.usage !== undefined ? { usage: taskResult.usage } : {}),
     runId: taskResult.runId,
@@ -245,7 +260,7 @@ function settle(outcome: StreamTerminalOutcome): StreamedText {
   switch (outcome.outcome) {
     case "completed":
       return {
-        text: outcome.finalText ?? "",
+        text: outcome.finalText ?? outcome.output?.text ?? "",
         ...(outcome.finishReason !== undefined ? { finishReason: outcome.finishReason } : {}),
         ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
         runId: outcome.runId,
@@ -254,26 +269,30 @@ function settle(outcome: StreamTerminalOutcome): StreamedText {
       };
     case "cancelled":
       return {
-        text: outcome.partialText ?? "",
+        text: outcome.partialText ?? outcome.output?.text ?? "",
         finishReason: "cancelled",
         runId: outcome.runId,
         ...provenance,
         outcome
       };
-    case "error": {
-      const error = outcome.error!;
-      throw new IndeRunException({
-        errorClass: error.errorClass,
-        message: error.message,
-        runId: outcome.runId,
-        ...(error.providerId !== undefined ? { providerId: error.providerId } : {}),
-        ...(error.retryable !== undefined ? { retryable: error.retryable } : {}),
-        ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
-        ...(error.details !== undefined ? { details: error.details } : {}),
-        ...(outcome.provenance !== undefined ? { provenance: outcome.provenance } : {})
-      });
-    }
+    case "error":
+      throw exceptionFromOutcome(outcome);
   }
+}
+
+/** The `IndeRunException` a run's `error` terminal outcome stands for. */
+export function exceptionFromOutcome(outcome: StreamTerminalOutcome): IndeRunException {
+  const error = outcome.error!;
+  return new IndeRunException({
+    errorClass: error.errorClass,
+    message: error.message,
+    runId: outcome.runId,
+    ...(error.providerId !== undefined ? { providerId: error.providerId } : {}),
+    ...(error.retryable !== undefined ? { retryable: error.retryable } : {}),
+    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+    ...(error.details !== undefined ? { details: error.details } : {}),
+    ...(outcome.provenance !== undefined ? { provenance: outcome.provenance } : {})
+  });
 }
 
 async function* textIncrements(

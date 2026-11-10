@@ -10,6 +10,7 @@ dist/
 .DS_Store
 packages/inderun-route-core-wasm/generated/*
 !packages/inderun-route-core-wasm/generated/inderun_route_core.d.ts
+!packages/inderun-route-core-wasm/generated/inderun_speech_text.d.ts
 
 .idea
 
@@ -227,6 +228,7 @@ playground.xcworkspace
 # .swiftpm
 
 .build/
+.build-coreai/
 
 # CocoaPods
 # We recommend against adding the Pods directory to your .gitignore. However
@@ -273,3 +275,7 @@ test_dir/
 
 # Local env overrides
 .env.local
+
+# Neural speech preparation tool (tools/neural-speech)
+tools/neural-speech/.venv/
+__pycache__/

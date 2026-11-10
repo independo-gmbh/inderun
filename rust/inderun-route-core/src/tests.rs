@@ -8,33 +8,47 @@ struct ProviderBuilder {
 }
 
 impl ProviderBuilder {
-    fn new(id: &str, descriptor_type: Type, data_leaves_device: bool) -> Self {
+    fn new(id: &str, descriptor_type: ProviderType, data_leaves_device: bool) -> Self {
         let unavailable_reason = match descriptor_type {
-            Type::Cloud => "Cloud runtime unavailable.",
+            ProviderType::Cloud => "Cloud runtime unavailable.",
             _ => "Local runtime unavailable.",
         };
         Self {
             provider: Provider {
-                descriptor: Descriptor {
+                descriptor: ProviderDescriptor {
                     id: id.to_string(),
-                    descriptor_type,
-                    supports: Supports {
-                        run: true,
-                        streaming: None,
+                    provider_descriptor_type: descriptor_type.clone(),
+                    model: None,
+                    transport: match descriptor_type {
+                        ProviderType::Cloud => ProviderTransport::Http,
+                        _ => ProviderTransport::InProcess,
                     },
-                    cancel: None,
+                    streaming_style: None,
+                    supports: ProviderSupports {
+                        run: true,
+                        streaming: false,
+                        realtime: false,
+                        tools: false,
+                        reasoning_events: false,
+                        structured_output: false,
+                        multimodal: false,
+                    },
+                    cancel: CancelSemantics::Hard,
                     tasks: vec!["text_to_text".to_string()],
-                    privacy: Some(PrivacyClass {
+                    task_capabilities: None,
+                    limits: None,
+                    privacy: Some(ProviderPrivacy {
                         data_leaves_device,
                         regions: None,
                     }),
                 },
-                capabilities: Capabilities {
+                capabilities: ProviderDynamicCapabilities {
                     available: true,
                     reason: None,
                     streaming_available: None,
                     streaming_unavailable_reason: None,
                     cancellation_available: None,
+                    task_capabilities: None,
                 },
             },
             unavailable_reason: unavailable_reason.to_string(),
@@ -52,7 +66,7 @@ impl ProviderBuilder {
         self
     }
 
-    fn streaming(mut self, streaming: Option<bool>) -> Self {
+    fn streaming(mut self, streaming: bool) -> Self {
         self.provider.descriptor.supports.streaming = streaming;
         self
     }
@@ -69,12 +83,22 @@ impl ProviderBuilder {
     }
 }
 
+fn text_task() -> Task {
+    Task {
+        kind: "text_to_text".to_string(),
+        inputs: None,
+        delivery: None,
+        locale: None,
+        voice: None,
+    }
+}
+
 fn local_builder(id: &str, private: bool) -> ProviderBuilder {
-    ProviderBuilder::new(id, Type::Local, !private)
+    ProviderBuilder::new(id, ProviderType::Local, !private)
 }
 
 fn cloud_builder(id: &str) -> ProviderBuilder {
-    ProviderBuilder::new(id, Type::Cloud, true)
+    ProviderBuilder::new(id, ProviderType::Cloud, true)
 }
 
 fn local_provider(id: &str, available: bool, private: bool) -> Provider {
@@ -109,9 +133,7 @@ fn plan_with_mode(
     providers: Vec<Provider>,
 ) -> RoutePlan {
     plan_route(RoutePlannerInput {
-        task: Task {
-            kind: "text_to_text".to_string(),
-        },
+        task: text_task(),
         interaction_mode,
         constraints,
         preferences,
@@ -128,9 +150,7 @@ fn plan_in_profile(
     providers: Vec<Provider>,
 ) -> RoutePlan {
     plan_route(RoutePlannerInput {
-        task: Task {
-            kind: "text_to_text".to_string(),
-        },
+        task: text_task(),
         interaction_mode,
         constraints,
         preferences,
@@ -144,7 +164,7 @@ fn plan_in_profile(
 
 fn default_constraints() -> Constraints {
     Constraints {
-        privacy: Some(PrivacyEnum::CloudAllowed),
+        privacy: Some(Privacy::CloudAllowed),
         cloud: Some(Cloud::Allowed),
         network_online: Some(true),
     }
@@ -160,7 +180,7 @@ fn default_preferences() -> Preferences {
 fn selects_local_provider_before_cloud_when_local_is_preferred() {
     let plan = plan(
         Constraints {
-            privacy: Some(PrivacyEnum::LocalPreferred),
+            privacy: Some(Privacy::LocalPreferred),
             cloud: Some(Cloud::Allowed),
             network_online: Some(true),
         },
@@ -202,7 +222,7 @@ fn rejects_cloud_providers_when_cloud_is_forbidden() {
 fn rejects_local_providers_when_cloud_is_required() {
     let plan = plan(
         Constraints {
-            privacy: Some(PrivacyEnum::CloudRequired),
+            privacy: Some(Privacy::CloudRequired),
             cloud: Some(Cloud::Required),
             network_online: Some(true),
         },
@@ -239,7 +259,7 @@ fn returns_offline_failure_for_cloud_when_host_is_offline() {
 fn preserves_deterministic_fallback_order() {
     let plan = plan(
         Constraints {
-            privacy: Some(PrivacyEnum::CloudAllowed),
+            privacy: Some(Privacy::CloudAllowed),
             cloud: Some(Cloud::Allowed),
             network_online: Some(true),
         },
@@ -271,7 +291,7 @@ fn preserves_deterministic_fallback_order() {
 fn rejects_unavailable_providers_with_reasons() {
     let plan = plan(
         Constraints {
-            privacy: Some(PrivacyEnum::LocalRequired),
+            privacy: Some(Privacy::LocalRequired),
             cloud: Some(Cloud::Allowed),
             network_online: Some(true),
         },
@@ -309,7 +329,7 @@ fn run_mode_ignores_streaming_capabilities() {
         default_preferences(),
         vec![
             local_builder("local_a", true)
-                .streaming(Some(false))
+                .streaming(false)
                 .streaming_available(Some(false), Some("No chunked transport."))
                 .build(),
         ],
@@ -325,9 +345,8 @@ fn run_mode_ignores_streaming_capabilities() {
 
 #[test]
 fn missing_interaction_mode_defaults_to_run() {
-    // Wire-level back-compat: a planner input produced before `interactionMode`,
-    // `supports.streaming`, and the dynamic streaming fields existed must still
-    // deserialize and plan exactly as it did before.
+    // Wire-level back-compat: a planner input without `interactionMode` or the
+    // dynamic streaming fields must deserialize and plan as a Mode-1 run.
     let legacy = r#"{
         "task": { "kind": "text_to_text" },
         "constraints": { "privacy": "cloud_allowed", "cloud": "allowed", "networkOnline": true },
@@ -337,7 +356,12 @@ fn missing_interaction_mode_defaults_to_run() {
                 "descriptor": {
                     "id": "local_a",
                     "type": "local",
-                    "supports": { "run": true },
+                    "transport": "in_process",
+                    "supports": {
+                        "run": true, "streaming": false, "realtime": false, "tools": false,
+                        "reasoningEvents": false, "structuredOutput": false, "multimodal": false
+                    },
+                    "cancel": "hard",
                     "tasks": ["text_to_text"]
                 },
                 "capabilities": { "available": true }
@@ -361,11 +385,7 @@ fn rejects_providers_without_static_streaming_in_stream_mode() {
     let plan = plan_streaming(
         default_constraints(),
         default_preferences(),
-        vec![
-            local_builder("local_a", true)
-                .streaming(Some(false))
-                .build(),
-        ],
+        vec![local_builder("local_a", true).streaming(false).build()],
     );
 
     assert_eq!(plan.selected_provider_id, None);
@@ -381,28 +401,13 @@ fn rejects_providers_without_static_streaming_in_stream_mode() {
 }
 
 #[test]
-fn absent_streaming_flag_is_treated_as_not_streaming() {
-    let plan = plan_streaming(
-        default_constraints(),
-        default_preferences(),
-        vec![local_builder("local_a", true).streaming(None).build()],
-    );
-
-    assert_eq!(plan.selected_provider_id, None);
-    assert_eq!(
-        plan.rejected_providers[0].reasons[0].code,
-        Code::StreamingNotSupported
-    );
-}
-
-#[test]
 fn rejects_providers_whose_dynamic_streaming_is_disabled() {
     let plan = plan_streaming(
         default_constraints(),
         default_preferences(),
         vec![
             local_builder("local_a", true)
-                .streaming(Some(true))
+                .streaming(true)
                 .streaming_available(Some(false), Some("Host has no chunked HTTP capability."))
                 .build(),
         ],
@@ -420,7 +425,7 @@ fn absent_dynamic_streaming_flag_inherits_static_capability() {
     let plan = plan_streaming(
         default_constraints(),
         default_preferences(),
-        vec![local_builder("local_a", true).streaming(Some(true)).build()],
+        vec![local_builder("local_a", true).streaming(true).build()],
     );
 
     assert_eq!(plan.selected_provider_id.as_deref(), Some("local_a"));
@@ -434,11 +439,9 @@ fn absent_dynamic_streaming_flag_inherits_static_capability() {
 fn selects_streaming_provider_and_preserves_deterministic_fallback_order() {
     let providers = || {
         vec![
-            cloud_builder("cloud_b").streaming(Some(true)).build(),
-            local_builder("local_a", true).streaming(Some(true)).build(),
-            local_builder("local_b", true)
-                .streaming(Some(false))
-                .build(),
+            cloud_builder("cloud_b").streaming(true).build(),
+            local_builder("local_a", true).streaming(true).build(),
+            local_builder("local_b", true).streaming(false).build(),
         ]
     };
 
@@ -476,12 +479,12 @@ fn selects_streaming_provider_and_preserves_deterministic_fallback_order() {
 fn stream_mode_still_enforces_privacy_and_cloud_constraints() {
     let plan = plan_streaming(
         Constraints {
-            privacy: Some(PrivacyEnum::LocalRequired),
+            privacy: Some(Privacy::LocalRequired),
             cloud: Some(Cloud::Forbidden),
             network_online: Some(true),
         },
         default_preferences(),
-        vec![cloud_builder("cloud_a").streaming(Some(true)).build()],
+        vec![cloud_builder("cloud_a").streaming(true).build()],
     );
 
     assert_eq!(plan.selected_provider_id, None);
@@ -499,12 +502,12 @@ fn stream_mode_still_enforces_privacy_and_cloud_constraints() {
 fn stream_mode_offline_takes_precedence_over_streaming_mismatch() {
     let plan = plan_streaming(
         Constraints {
-            privacy: Some(PrivacyEnum::CloudAllowed),
+            privacy: Some(Privacy::CloudAllowed),
             cloud: Some(Cloud::Allowed),
             network_online: Some(false),
         },
         default_preferences(),
-        vec![cloud_builder("cloud_a").streaming(Some(true)).build()],
+        vec![cloud_builder("cloud_a").streaming(true).build()],
     );
 
     assert_eq!(plan.selected_provider_id, None);
@@ -559,7 +562,7 @@ fn placement_still_ranks_ahead_of_model_profile_order() {
     let plan = plan_in_profile(
         None,
         Constraints {
-            privacy: Some(PrivacyEnum::LocalPreferred),
+            privacy: Some(Privacy::LocalPreferred),
             cloud: Some(Cloud::Allowed),
             network_online: Some(true),
         },
@@ -580,7 +583,7 @@ fn local_required_rejects_a_cloud_provider_listed_in_the_profile() {
     let plan = plan_in_profile(
         None,
         Constraints {
-            privacy: Some(PrivacyEnum::LocalRequired),
+            privacy: Some(Privacy::LocalRequired),
             cloud: Some(Cloud::Allowed),
             network_online: Some(true),
         },
@@ -627,8 +630,8 @@ fn model_profile_stream_chain_is_a_subsequence_of_the_run_chain() {
     let providers = || {
         vec![
             local_builder("local_a", true).build(),
-            cloud_builder("cloud_a").streaming(Some(true)).build(),
-            cloud_builder("cloud_b").streaming(Some(true)).build(),
+            cloud_builder("cloud_a").streaming(true).build(),
+            cloud_builder("cloud_b").streaming(true).build(),
         ]
     };
     let targets = ["cloud_b", "local_a", "cloud_a"];
@@ -659,4 +662,27 @@ fn model_profile_stream_chain_is_a_subsequence_of_the_run_chain() {
         .collect();
     assert_eq!(run_ids, vec!["cloud_b", "local_a", "cloud_a"]);
     assert_eq!(stream_ids, vec!["cloud_b", "cloud_a"]);
+}
+
+/// The shared cross-SDK vectors (`contracts/fixtures/routing/planner-conformance.json`):
+/// each input must plan to exactly the recorded plan, messages included. The SDK
+/// suites run the same file through WASM, the Swift FFI and JNI.
+#[test]
+fn matches_the_shared_planner_conformance_vectors() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/fixtures/routing/planner-conformance.json"
+    ))
+    .expect("conformance fixture parses");
+    let cases = fixture["cases"].as_array().expect("cases array");
+    assert!(!cases.is_empty());
+
+    for case in cases {
+        let id = case["id"].as_str().expect("case id");
+        let input: RoutePlannerInput = serde_json::from_value(case["input"].clone())
+            .unwrap_or_else(|error| {
+                panic!("case '{id}': input does not parse: {error}");
+            });
+        let plan = serde_json::to_value(plan_route(input)).expect("plan serializes");
+        assert_eq!(plan, case["expected"], "case '{id}'");
+    }
 }

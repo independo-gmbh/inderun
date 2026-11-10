@@ -1,149 +1,36 @@
 import type {
+  ProviderDescriptor,
+  ProviderDynamicCapabilities,
+  SharedRoutePlan,
   StreamEvent,
   StreamRunHandle,
+  TaskOutput,
   TaskRequest,
   TaskResult
 } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
+import type { ArtifactSink } from "./artifacts.js";
+
+export type {
+  ArtifactChunk,
+  ArtifactLimits,
+  ArtifactSink,
+  ArtifactSpec,
+  ArtifactWriter
+} from "./artifacts.js";
 
 /**
- * Static metadata descriptor defining the capabilities, requirements, and constraints
- * of a provider. This is used by the routing engine and Router to select candidate providers.
+ * A provider's static declaration, live capability check, and the pair as
+ * `checkCapabilities()` returns it. All three are schema-backed contracts
+ * (`contracts/schemas/provider-*.schema.json`), shared with the Swift and Kotlin
+ * SDKs and with the route planner, so they are re-exported here rather than
+ * declared.
  */
-export interface ProviderDescriptor {
-  /**
-   * Unique identifier of the provider (e.g., 'openai', 'apple-foundation-models').
-   */
-  id: string;
-  /**
-   * Execution target type: 'local' (on-device), 'edge', or 'cloud'.
-   */
-  type: "local" | "edge" | "cloud";
-  /**
-   * The model this provider instance is bound to, when it can name one. A provider
-   * instance bound to one model is a *target* that model profiles list by `id`.
-   * Cloud providers report the model id they send; platform-managed models report
-   * an opaque platform alias rather than a guessed weight name. Absent means the
-   * provider cannot name its model.
-   */
-  model?: string;
-  /**
-   * Connection transport layer protocol.
-   */
-  transport: "in_process" | "system_service" | "http" | "sse" | "realtime";
-  /**
-   * Optional streaming style, if token or chunk streaming is supported.
-   */
-  streamingStyle?: "tokens" | "chunks" | "snapshots";
-
-  /**
-   * Flags representing the features and modes supported by this provider.
-   */
-  supports: {
-    /** Whether the provider supports Mode 1 run (request/response). */
-    run: boolean;
-    /** Whether the provider supports Mode 2 stream. */
-    streaming: boolean;
-    /** Whether the provider supports Mode 3 realtime session. */
-    realtime: boolean;
-    /** Whether the provider supports tool calling definition. */
-    tools: boolean;
-    /** Whether the provider outputs reasoning events alongside contents. */
-    reasoningEvents: boolean;
-    /** Whether the provider supports structured outputs (JSON schema constraints). */
-    structuredOutput: boolean;
-    /** Whether the provider supports multimodal inputs (images, audio, etc.). */
-    multimodal: boolean;
-  };
-
-  /**
-   * Cancellation capabilities support:
-   * - 'hard': fully stops processing and interrupts remote operations.
-   * - 'soft': stops reading the stream locally, but the remote execution continues.
-   * - 'none': cancellation is unsupported.
-   */
-  cancel: "hard" | "soft" | "none";
-
-  /**
-   * List of supported task kinds (e.g., 'text_to_text', 'embeddings').
-   */
-  tasks: string[];
-
-  /**
-   * Optional input/output resource boundaries.
-   */
-  limits?: {
-    maxInputTokens?: number;
-    maxOutputTokens?: number;
-    maxImageBytes?: number;
-    maxAudioSeconds?: number;
-  };
-
-  /**
-   * Privacy settings regarding data egress.
-   */
-  privacy?: {
-    /** Set to true if the model input leaves the host device. */
-    dataLeavesDevice: boolean;
-    /** Geographic regions where the cloud service executes. */
-    regions?: string[];
-  };
-}
-
-/**
- * Dynamic capability snapshot evaluated at runtime.
- */
-export interface ProviderDynamicCapabilities {
-  /**
-   * Whether the provider is available and functional on the host device now.
-   */
-  available: boolean;
-  /**
-   * Detail message if availability check fails.
-   */
-  reason?: string;
-  /**
-   * Whether the provider can stream (Mode 2) right now on this host. Leave
-   * undefined to inherit the static `descriptor.supports.streaming` value —
-   * only set it when the runtime environment can take streaming away from a
-   * provider that otherwise declares it (e.g. the host has no chunked HTTP
-   * capability).
-   */
-  streamingAvailable?: boolean;
-  /**
-   * Detail message used when `streamingAvailable` is false. Omit to let the
-   * route planner synthesize a generic message.
-   */
-  streamingUnavailableReason?: string;
-  /**
-   * Whether cancellation is honored right now on this host. Leave undefined to
-   * inherit the static `descriptor.cancel` value (anything other than `"none"`
-   * means available).
-   */
-  cancellationAvailable?: boolean;
-}
-
-/**
- * One registered provider's identity, fixed capabilities, and live availability,
- * as of the moment checkCapabilities() was called.
- */
-export interface ProviderCapabilitySnapshot {
-  /**
-   * Stable identifier for this provider, matching the value used in routing
-   * preferences/constraints.
-   */
-  providerId: string;
-  /**
-   * The provider's static, unchanging capability declaration (supported modes,
-   * privacy posture, model info).
-   */
-  descriptor: ProviderDescriptor;
-  /**
-   * The provider's current dynamic availability (e.g. whether it's reachable/loaded
-   * right now) — this is the part that can change between calls.
-   */
-  capabilities: ProviderDynamicCapabilities;
-}
+export type {
+  ProviderCapabilitySnapshot,
+  ProviderDescriptor,
+  ProviderDynamicCapabilities
+} from "@independo/inderun-contracts";
 
 /**
  * Execution context passed to provider run commands.
@@ -158,6 +45,37 @@ export interface RunContext {
    * resolve authContextRef through secure storage and dispatch HTTP requests.
    */
   hostServices: HostServices;
+  /**
+   * The voice the route plan bound this provider to for a speech task: provider-neutral
+   * traits the provider must honour when it picks the voice that speaks. Absent for tasks
+   * without a voice and for providers that do not list their voices, which then choose
+   * under the same rule (ADR 016 §4). The engine has re-checked it against the request's
+   * privacy policy immediately before the attempt.
+   */
+  voice?: NonNullable<SharedRoutePlan["candidates"][number]["voice"]>;
+  /**
+   * Commits the run to this provider. Call it immediately before the attempt's first
+   * externally observable effect — for managed playback, no later than the first moment
+   * sound may reach the user. After commit, a failure ends the run instead of falling back
+   * to another provider, because a second provider would repeat what the user may already
+   * have heard.
+   *
+   * Returns `false` when the run can no longer commit (it was cancelled or has already
+   * ended) and when this attempt is over, e.g. a late callback after the engine fell back to
+   * another provider; the provider must then not start the effect and should end the attempt.
+   * Idempotent: calling it again after a successful commit returns `true`.
+   *
+   * Providers whose output is only delivered at the end (text from `run()`) need not call
+   * it. Text streams commit implicitly on their first content event.
+   */
+  commit(): boolean;
+  /**
+   * Where the provider writes retrievable media for an `artifact` request (ADR 017). The
+   * engine holds the bytes; the provider returns the reference `finish()` gives it in an
+   * `artifact` output. Finishing commits the run. Artifacts this attempt does not return,
+   * or that a failed or cancelled attempt wrote, are discarded by the engine.
+   */
+  artifacts: ArtifactSink;
 }
 
 /**
@@ -202,6 +120,17 @@ export type ProviderStreamEvent =
        */
       reportedModel?: string;
     }
+  | {
+      /**
+       * The run's normalized output, for tasks whose output is not streamed text
+       * (playback completion, a media artifact). Ends the stream like `done`; handing it
+       * over commits the run if the provider has not already called `commit()`.
+       */
+      kind: "result";
+      output: TaskOutput;
+      finishReason?: TaskResult["finishReason"];
+      reportedModel?: string;
+    }
   | { kind: "error"; error: unknown };
 
 /**
@@ -226,6 +155,37 @@ export interface ProviderAdapter {
    * `describe().supports.streaming === true` are expected to implement this.
    */
   stream?(req: TaskRequest, ctx: ProviderStreamContext): AsyncIterable<ProviderStreamEvent>;
+}
+
+/**
+ * What a provider gets for {@link PreparableProviderAdapter.prepare}: no sink and no commit,
+ * because a preparation produces nothing and makes no sound.
+ */
+export interface ProviderPrepareContext {
+  runId: string;
+  hostServices: HostServices;
+  /** The task kind to prepare. */
+  task: string;
+  /** Fires on cancel and at the engine's bound. Stop waiting; a platform download may go on. */
+  signal: AbortSignal;
+  /** Absent lets a speech provider use the device's own language. */
+  locale?: string;
+  /** The voice the plan bound, as for a run. */
+  voice?: RunContext["voice"];
+}
+
+/**
+ * A provider that can make something ready ahead of a run (ADR 019). Declared per task with
+ * `interaction.prepare`; a provider that declares it must implement this, and reports what needs
+ * doing through `readiness` in `capabilities()`.
+ *
+ * The engine calls this only when there is work, and only for a download that is permitted, so a
+ * call to it means "go". Iterating to the end means it succeeded. Each yielded value is progress.
+ * Throw to fail. Files stay the platform's: a provider may trigger a platform's own download, but
+ * IndeRun stores nothing.
+ */
+export interface PreparableProviderAdapter extends ProviderAdapter {
+  prepare(context: ProviderPrepareContext): AsyncIterable<{ fractionCompleted?: number }>;
 }
 
 /**

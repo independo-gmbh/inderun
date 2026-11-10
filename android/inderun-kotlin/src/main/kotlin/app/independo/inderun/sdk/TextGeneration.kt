@@ -8,7 +8,8 @@ import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OptimizeFor
 import app.independo.inderun.contracts.Outcome
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Payload
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.TaskRequest
@@ -48,11 +49,19 @@ import kotlinx.coroutines.launch
  * facade and `run` never changes what a constraint means.
  */
 data class TextExecutionOptions(
-    val privacy: PrivacyEnum? = null,
+    val privacy: Privacy? = null,
     val cloud: Cloud? = null,
     val timeoutMs: Long? = null,
     val optimizeFor: OptimizeFor? = null,
-)
+) {
+    internal fun taskConstraints(): TaskRequestConstraints? = if (privacy != null || cloud != null || timeoutMs != null) {
+        TaskRequestConstraints(cloud = cloud, privacy = privacy, timeoutMs = timeoutMs)
+    } else {
+        null
+    }
+
+    internal fun taskPreferences(): TaskRequestPreferences? = optimizeFor?.let { TaskRequestPreferences(optimizeFor = it) }
+}
 
 /**
  * Options for [generateText] and [streamText]: exactly one of [prompt] or [messages].
@@ -92,7 +101,6 @@ data class TextGenerationOptions(
             topP != null ||
             stop != null ||
             seed != null
-        val hasConstraints = execution?.let { it.privacy != null || it.cloud != null || it.timeoutMs != null } == true
 
         return TaskRequest(
             schemaVersion = SchemaVersion.V1_0,
@@ -112,16 +120,8 @@ data class TextGenerationOptions(
             } else {
                 null
             },
-            constraints = if (hasConstraints) {
-                TaskRequestConstraints(
-                    cloud = execution?.cloud,
-                    privacy = execution?.privacy,
-                    timeoutMs = execution?.timeoutMs,
-                )
-            } else {
-                null
-            },
-            preferences = execution?.optimizeFor?.let { TaskRequestPreferences(optimizeFor = it) },
+            constraints = execution?.taskConstraints(),
+            preferences = execution?.taskPreferences(),
             telemetry = telemetry,
             authContextRef = authContextRef,
             requestId = requestId,
@@ -214,7 +214,9 @@ class TextStream internal constructor(
 suspend fun IndeRunApi.generateText(options: TextGenerationOptions): GeneratedText {
     val result = run(options.toTaskRequest())
     return GeneratedText(
-        text = result.output.text,
+        // A text run always produces text; `TaskOutput.text` is optional only because the same
+        // type describes playback and artifacts (ADR 016).
+        text = result.output.text.orEmpty(),
         finishReason = result.finishReason,
         usage = result.usage,
         runId = result.runId,
@@ -276,34 +278,37 @@ private fun settle(terminal: StreamEvent, runId: String): StreamedText {
     }
     return when (payload?.outcome) {
         Outcome.Completed -> StreamedText(
-            text = payload.finalText.orEmpty(),
+            text = (payload.finalText ?: payload.output?.text).orEmpty(),
             finishReason = payload.finishReason,
             usage = usage,
             runId = runId,
             provenance = payload.provenance,
         )
         Outcome.Cancelled -> StreamedText(
-            text = payload.partialText.orEmpty(),
+            text = (payload.partialText ?: payload.output?.text).orEmpty(),
             finishReason = FinishReason.CANCELLED,
             usage = null,
             runId = runId,
             provenance = payload.provenance,
         )
-        Outcome.Error -> {
-            val error = payload.error
-            throw IndeRunException(
-                errorClass = error?.errorClass ?: app.independo.inderun.contracts.IndeRunErrorClass.Internal,
-                message = error?.message ?: "Run $runId failed.",
-                runId = runId,
-                providerId = error?.providerId,
-                retryable = error?.retryable,
-                retryAfterMs = error?.retryAfterMs,
-                details = error?.details,
-                provenance = payload.provenance,
-            )
-        }
+        Outcome.Error -> throw exceptionFromTerminal(payload, runId)
         null -> throw createInternal("Run $runId ended with a malformed terminal event.", runId = runId)
     }
+}
+
+/** The [IndeRunException] a run's `error` terminal outcome stands for. */
+internal fun exceptionFromTerminal(payload: Payload, runId: String): IndeRunException {
+    val error = payload.error
+    return IndeRunException(
+        errorClass = error?.errorClass ?: app.independo.inderun.contracts.IndeRunErrorClass.Internal,
+        message = error?.message ?: "Run $runId failed.",
+        runId = runId,
+        providerId = error?.providerId,
+        retryable = error?.retryable,
+        retryAfterMs = error?.retryAfterMs,
+        details = error?.details,
+        provenance = payload.provenance,
+    )
 }
 
 /** Holds every event read from the single-use run so any number of collectors can replay it. */

@@ -23,11 +23,14 @@ public extension TaskRequest {
         constraints: TaskRequestConstraints? = nil,
         preferences: TaskRequestPreferences? = nil,
         telemetry: TelemetryPreferences? = nil,
-        authContextRef: String? = nil
+        authContextRef: String? = nil,
+        speech: SpeechInput? = nil,
+        delivery: OutputDeliveryRequest? = nil
     ) {
         self.init(
             authContextRef: authContextRef,
             constraints: constraints,
+            delivery: delivery,
             generation: generation,
             messages: messages,
             modelProfile: modelProfile,
@@ -35,6 +38,7 @@ public extension TaskRequest {
             prompt: prompt,
             requestId: requestId,
             schemaVersion: SchemaVersion(rawValue: schemaVersion) ?? .the10,
+            speech: speech,
             task: task,
             telemetry: telemetry
         )
@@ -46,7 +50,7 @@ public extension TaskRequest {
 /// floor, a timeout), so this mirrors the other convenience initializers here and
 /// lets callers name only what they are constraining.
 public extension TaskRequestConstraints {
-    init(privacy: PrivacyEnum? = nil, cloud: Cloud? = nil, timeoutMs: Int? = nil) {
+    init(privacy: Privacy? = nil, cloud: Cloud? = nil, timeoutMs: Int? = nil) {
         self.init(cloud: cloud, privacy: privacy, timeoutMs: timeoutMs)
     }
 }
@@ -57,9 +61,22 @@ public extension Message {
     }
 }
 
-public extension Output {
-    init(type: String = "text", text: String) {
-        self.init(text: text, type: OutputType(rawValue: type) ?? .text)
+/// One initializer per output representation (ADR 016), so a caller cannot build a
+/// `.playback` output without its payload or a `.text` output without its text.
+public extension TaskOutput {
+    /// Inline text.
+    init(text: String) {
+        self.init(artifact: nil, playback: nil, preparation: nil, speech: nil, text: text, type: .text)
+    }
+
+    /// Completion of managed playback; carries no media.
+    init(playback: PlaybackOutput, speech: SpeechOutput? = nil) {
+        self.init(artifact: nil, playback: playback, preparation: nil, speech: speech, text: nil, type: .playback)
+    }
+
+    /// A reference to retrievable media (ADR 017).
+    init(artifact: MediaArtifact, speech: SpeechOutput? = nil) {
+        self.init(artifact: artifact, playback: nil, preparation: nil, speech: speech, text: nil, type: .artifact)
     }
 }
 
@@ -67,7 +84,7 @@ public extension TaskResult {
     init(
         schemaVersion: String = "1.0",
         runId: String,
-        output: Output,
+        output: TaskOutput,
         finishReason: FinishReason,
         usage: UsageInfo? = nil,
         telemetry: TelemetryInfo,
@@ -153,5 +170,275 @@ public extension TelemetryEvent {
             timestamp: Double(timestamp),
             type: TelemetryEventType(rawValue: type) ?? .routeDecided
         )
+    }
+}
+
+// MARK: - Provider capability contracts
+
+// The generated memberwise initializers take every field in alphabetical order with no
+// defaults. These keep provider declarations in the order a descriptor is read — identity,
+// placement, transport, modes, cancellation, tasks — and let optional fields be omitted.
+
+public extension ProviderDescriptor {
+    init(
+        id: String,
+        type: ProviderType,
+        model: String? = nil,
+        transport: ProviderTransport,
+        streamingStyle: StreamingStyle? = nil,
+        supports: ProviderSupports,
+        cancel: CancelSemantics,
+        tasks: [String],
+        taskCapabilities: [ProviderTaskCapability]? = nil,
+        limits: ProviderLimits? = nil,
+        privacy: ProviderPrivacy? = nil
+    ) {
+        self.init(
+            cancel: cancel,
+            id: id,
+            limits: limits,
+            model: model,
+            privacy: privacy,
+            streamingStyle: streamingStyle,
+            supports: supports,
+            taskCapabilities: taskCapabilities,
+            tasks: tasks,
+            transport: transport,
+            type: type
+        )
+    }
+}
+
+public extension ProviderSupports {
+    init(
+        run: Bool,
+        streaming: Bool,
+        realtime: Bool,
+        tools: Bool,
+        reasoningEvents: Bool,
+        structuredOutput: Bool,
+        multimodal: Bool
+    ) {
+        self.init(
+            multimodal: multimodal,
+            realtime: realtime,
+            reasoningEvents: reasoningEvents,
+            run: run,
+            streaming: streaming,
+            structuredOutput: structuredOutput,
+            tools: tools
+        )
+    }
+}
+
+public extension ProviderLimits {
+    init(
+        maxInputTokens: Int? = nil,
+        maxOutputTokens: Int? = nil,
+        maxImageBytes: Int? = nil,
+        maxAudioSeconds: Int? = nil
+    ) {
+        self.init(
+            maxAudioSeconds: maxAudioSeconds,
+            maxImageBytes: maxImageBytes,
+            maxInputTokens: maxInputTokens,
+            maxOutputTokens: maxOutputTokens
+        )
+    }
+}
+
+public extension ProviderPrivacy {
+    /// A privacy declaration without regions. The generated initializer already takes
+    /// `(dataLeavesDevice:regions:)` in that order, so only the shorter form is added here.
+    init(dataLeavesDevice: Bool) {
+        self.init(dataLeavesDevice: dataLeavesDevice, regions: nil)
+    }
+}
+
+public extension ProviderDynamicCapabilities {
+    /// Omitted tri-state fields stay `nil`, which encodes as an absent key: absent
+    /// `streamingAvailable` / `cancellationAvailable` inherit the static declaration.
+    init(
+        available: Bool,
+        reason: String? = nil,
+        streamingAvailable: Bool? = nil,
+        streamingUnavailableReason: String? = nil,
+        cancellationAvailable: Bool? = nil,
+        taskCapabilities: [ProviderTaskAvailability]? = nil
+    ) {
+        self.init(
+            available: available,
+            cancellationAvailable: cancellationAvailable,
+            reason: reason,
+            streamingAvailable: streamingAvailable,
+            streamingUnavailableReason: streamingUnavailableReason,
+            taskCapabilities: taskCapabilities
+        )
+    }
+}
+
+public extension ProviderTaskCapability {
+    init(
+        kind: String,
+        inputs: [TaskInputKind],
+        interaction: ProviderTaskInteraction,
+        cancel: CancelSemantics,
+        outputs: [ProviderTaskOutput],
+        locales: [String]? = nil,
+        privacy: ProviderPrivacy? = nil
+    ) {
+        self.init(
+            cancel: cancel,
+            inputs: inputs,
+            interaction: interaction,
+            kind: kind,
+            locales: locales,
+            outputs: outputs,
+            privacy: privacy
+        )
+    }
+}
+
+public extension ProviderTaskOutput {
+    /// An output that does not declare its media types, e.g. managed playback.
+    init(delivery: OutputDelivery) {
+        self.init(delivery: delivery, mediaTypes: nil)
+    }
+}
+
+public extension ProviderTaskAvailability {
+    /// Omitted fields stay `nil` and inherit the provider-level check.
+    init(
+        kind: String,
+        available: Bool? = nil,
+        reason: String? = nil,
+        streamingAvailable: Bool? = nil,
+        streamingUnavailableReason: String? = nil,
+        cancellationAvailable: Bool? = nil,
+        locales: [String]? = nil,
+        voices: [ProviderVoice]? = nil,
+        readiness: ProviderReadiness? = nil
+    ) {
+        self.init(
+            available: available,
+            cancellationAvailable: cancellationAvailable,
+            kind: kind,
+            locales: locales,
+            readiness: readiness,
+            reason: reason,
+            streamingAvailable: streamingAvailable,
+            streamingUnavailableReason: streamingUnavailableReason,
+            voices: voices
+        )
+    }
+}
+
+public extension ProviderVoice {
+    init(
+        locale: String,
+        gender: VoiceGender? = nil,
+        networkRequired: Bool? = nil,
+        id: String? = nil,
+        name: String? = nil,
+        readiness: ProviderReadiness? = nil,
+        locales: [String]? = nil
+    ) {
+        self.init(
+            gender: gender,
+            id: id,
+            locale: locale,
+            locales: locales,
+            name: name,
+            networkRequired: networkRequired,
+            readiness: readiness
+        )
+    }
+}
+
+public extension TaskOutput {
+    /// Ends a `prepare` run: no content, one item per provider and task.
+    init(preparation: [PreparationItem]) {
+        self.init(artifact: nil, playback: nil, preparation: preparation, speech: nil, text: nil, type: .prepared)
+    }
+}
+
+public extension ProviderTaskInteraction {
+    init(run: Bool, stream: Bool) {
+        self.init(prepare: nil, run: run, stream: stream)
+    }
+}
+
+public extension PrepareRequest {
+    /// Every field is optional: an empty request covers every provider and task.
+    init(
+        tasks: [String]? = nil,
+        locale: String? = nil,
+        localeMatch: LocaleMatch? = nil,
+        voice: PrepareVoice? = nil,
+        allowDownload: Bool? = nil,
+        privacy: Privacy? = nil,
+        requestId: String? = nil
+    ) {
+        self.init(
+            allowDownload: allowDownload,
+            locale: locale,
+            localeMatch: localeMatch,
+            privacy: privacy,
+            requestId: requestId,
+            tasks: tasks,
+            voice: voice
+        )
+    }
+}
+
+public extension SpeechVoice {
+    init(gender: VoiceGender? = nil, requirement: RequirementLevel? = nil) {
+        self.init(gender: gender, id: nil, providerId: nil, requirement: requirement)
+    }
+}
+
+public extension ProviderCapabilitySnapshot {
+    init(providerId: String, descriptor: ProviderDescriptor, capabilities: ProviderDynamicCapabilities) {
+        self.init(capabilities: capabilities, descriptor: descriptor, providerId: providerId)
+    }
+}
+
+/// `speech` and `variant` joined `ModelPackage` after `version` was already the last label callers wrote;
+/// the generated memberwise initializer grew, so this keeps the signature they compiled against.
+public extension ModelPackage {
+    init(
+        files: Files?,
+        format: Format,
+        id: String,
+        integrity: Integrity?,
+        license: License?,
+        limits: Limits?,
+        runtime: Runtime?,
+        source: Source?,
+        tasks: [String]?,
+        version: String?
+    ) {
+        self.init(
+            files: files,
+            format: format,
+            id: id,
+            integrity: integrity,
+            license: license,
+            limits: limits,
+            runtime: runtime,
+            source: source,
+            speech: nil,
+            tasks: tasks,
+            variant: nil,
+            version: version
+        )
+    }
+}
+
+/// `minOsVersion` joined `Runtime` between `minOpset` and `minRuntimeVersion`; this keeps the
+/// three-field signature that callers compiled against.
+public extension Runtime {
+    init(minOpset: Int?, minRuntimeVersion: String?, platforms: [String]?) {
+        self.init(minOpset: minOpset, minOsVersion: nil, minRuntimeVersion: minRuntimeVersion, platforms: platforms)
     }
 }

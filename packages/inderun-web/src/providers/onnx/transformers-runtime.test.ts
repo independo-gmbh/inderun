@@ -75,7 +75,7 @@ afterEach(() => {
   }
 });
 
-describe("createTransformersJsRuntime prepare", () => {
+describe("createTransformersJsRuntime availability", () => {
   it("reports unavailable when the optional dependency is missing", async () => {
     const runtime = createTransformersJsRuntime({
       load: async () => {
@@ -83,7 +83,7 @@ describe("createTransformersJsRuntime prepare", () => {
       }
     });
 
-    const availability = await runtime.prepare(modelPackage());
+    const availability = await runtime.availability(modelPackage());
 
     expect(availability.available).toBe(false);
     expect(availability.reason).toContain("runtime package unavailable");
@@ -93,7 +93,17 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    const availability = await runtime.prepare(modelPackage({ format: "genai" }));
+    const availability = await runtime.availability(modelPackage({ format: "genai" }));
+
+    expect(availability.available).toBe(false);
+    expect(availability.reason).toContain("unsupported model format");
+  });
+
+  it("reports unavailable for Core AI model packages", async () => {
+    const { module } = createFakeModule();
+    const runtime = createTransformersJsRuntime({ load: async () => module });
+
+    const availability = await runtime.availability(modelPackage({ format: "coreai" }));
 
     expect(availability.available).toBe(false);
     expect(availability.reason).toContain("unsupported model format");
@@ -103,7 +113,7 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    const availability = await runtime.prepare(
+    const availability = await runtime.availability(
       modelPackage({ source: { sourceType: "programmatic" } })
     );
 
@@ -115,7 +125,7 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    const availability = await runtime.prepare(
+    const availability = await runtime.availability(
       modelPackage({ source: { sourceType: "registry" } })
     );
 
@@ -127,7 +137,7 @@ describe("createTransformersJsRuntime prepare", () => {
     const { module } = createFakeModule();
     const runtime = createTransformersJsRuntime({ load: async () => module });
 
-    await expect(runtime.prepare(modelPackage())).resolves.toEqual({ available: true });
+    await expect(runtime.availability(modelPackage())).resolves.toEqual({ available: true });
   });
 });
 
@@ -311,5 +321,54 @@ describe("createTransformersJsRuntime generate", () => {
       .catch((err: unknown) => err);
 
     expect((error as OnnxRuntimeError).kind).toBe("timeout");
+  });
+});
+
+describe("createTransformersJsRuntime close()", () => {
+  it("disposes the loaded pipeline and loads a fresh one afterwards", async () => {
+    let disposed = 0;
+    const module: TransformersModule = {
+      env: {},
+      async pipeline() {
+        const generator = (async () => [{ generated_text: "hi" }]) as TransformersTextGenerator;
+        generator.dispose = async () => {
+          disposed += 1;
+        };
+        return generator;
+      }
+    };
+    const runtime = createTransformersJsRuntime({ load: async () => module });
+    await runtime.prepare(modelPackage());
+
+    await runtime.close!();
+    await runtime.close!();
+
+    expect(disposed).toBe(1);
+  });
+
+  it("waits for a pipeline that is still loading, then disposes it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let disposed = 0;
+    const module: TransformersModule = {
+      env: {},
+      async pipeline() {
+        await gate;
+        const generator = (async () => []) as TransformersTextGenerator;
+        generator.dispose = async () => {
+          disposed += 1;
+        };
+        return generator;
+      }
+    };
+    const runtime = createTransformersJsRuntime({ load: async () => module });
+    const loading = runtime.prepare(modelPackage());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const closing = runtime.close!();
+    release();
+    await Promise.all([loading, closing]);
+
+    expect(disposed).toBe(1);
   });
 });

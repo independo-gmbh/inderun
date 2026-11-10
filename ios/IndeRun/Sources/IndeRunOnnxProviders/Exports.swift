@@ -8,3 +8,4 @@
 //
 
 @_exported import IndeRunCore
+@_exported import IndeRunNeuralSpeech

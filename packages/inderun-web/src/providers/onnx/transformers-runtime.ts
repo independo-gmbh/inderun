@@ -26,10 +26,13 @@ export interface TransformersModule {
 /**
  * Structural view of a Transformers.js `text-generation` pipeline.
  */
-export type TransformersTextGenerator = (
+export type TransformersTextGenerator = ((
   input: unknown,
   options?: Record<string, unknown>
-) => Promise<unknown>;
+) => Promise<unknown>) & {
+  /** Releases the pipeline's ONNX Runtime sessions. Transformers.js pipelines expose it. */
+  dispose?: () => Promise<void> | void;
+};
 
 /**
  * Configuration for the Transformers.js-backed ONNX runtime.
@@ -130,7 +133,30 @@ export function createTransformersJsRuntime(
   }
 
   return {
+    async close(): Promise<void> {
+      const pending = generatorPromise;
+      generatorPromise = undefined;
+      if (pending === undefined) return;
+      try {
+        // A pipeline still loading is awaited, so its sessions are not leaked.
+        const generator = await pending;
+        await generator.dispose?.();
+      } catch {
+        // Nothing loaded, or the pipeline would not dispose: there is nothing left to release.
+      }
+    },
+
     async prepare(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability> {
+      try {
+        await loadGenerator(modelPackage);
+        return { available: true };
+      } catch (err) {
+        generatorPromise = undefined;
+        return { available: false, reason: `model failed to load: ${getErrorMessage(err)}` };
+      }
+    },
+
+    async availability(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability> {
       let module: TransformersModule;
       try {
         module = await loadModule();

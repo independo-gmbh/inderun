@@ -13,12 +13,19 @@
 //   let streamRunHandle = try StreamRunHandle(json)
 //   let streamEvent = try StreamEvent(json)
 //   let streamTerminalOutcome = try StreamTerminalOutcome(json)
+//   let providerCapabilitySnapshot = try ProviderCapabilitySnapshot(json)
+//   let prepareRequest = try PrepareRequest(json)
+//   let artifactReadRequest = try ArtifactReadRequest(json)
 
 import Foundation
 
-/// The request payload for a Mode 1 (request/response) text-to-text execution. At least one
-/// of `prompt` (single-turn) or `messages` (multi-turn) must be present — both may be
-/// present together, though callers should typically supply just one;
+/// The request payload for a run() or stream() execution. The common envelope
+/// (schemaVersion, requestId, task, modelProfile, constraints, preferences, telemetry,
+/// authContextRef) is task-agnostic; each task kind owns its payload (ADR 016).
+/// text_to_text: at least one of `prompt` (single-turn) or `messages` (multi-turn) must be
+/// present — both may be present together, though callers should typically supply just one —
+/// and `speech`/`delivery` are forbidden. text_to_speech: `speech` and `delivery` are
+/// required and `prompt`, `messages` and `generation` are forbidden.
 /// `constraints`/`preferences` steer routing but never select a provider directly.
 // MARK: - TaskRequest
 public struct TaskRequest: Codable, Sendable {
@@ -27,6 +34,10 @@ public struct TaskRequest: Codable, Sendable {
     public var authContextRef: String?
     /// Request-level routing constraints used by the planner.
     public var constraints: TaskRequestConstraints?
+    /// How the result of a non-text task must reach the application (ADR 016). Required for
+    /// non-text tasks and forbidden for text_to_text, whose output is implicitly inline. A
+    /// provider never substitutes playback for an artifact or the reverse.
+    public var delivery: OutputDeliveryRequest?
     /// Optional configuration for fine-tuning how the AI model generates its response.
     public var generation: Generation?
     /// A list of interaction messages for multi-turn conversation or chat-style execution.
@@ -45,8 +56,11 @@ public struct TaskRequest: Codable, Sendable {
     public var requestId: String?
     /// Contract schema version used to interpret the request payload.
     public var schemaVersion: SchemaVersion
-    /// A descriptor specifying the type of work to be performed. For text-to-text, the kind must
-    /// be 'text_to_text'.
+    /// The text_to_speech payload. Required for text_to_speech and forbidden for every other
+    /// kind.
+    public var speech: SpeechInput?
+    /// A descriptor specifying the type of work to be performed. The kind selects which payload
+    /// the request must carry.
     public var task: TaskRequestTask
     /// Execution preferences for tracking usage and performance metrics.
     public var telemetry: TaskRequestTelemetry?
@@ -54,6 +68,7 @@ public struct TaskRequest: Codable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case authContextRef = "authContextRef"
         case constraints = "constraints"
+        case delivery = "delivery"
         case generation = "generation"
         case messages = "messages"
         case modelProfile = "modelProfile"
@@ -61,13 +76,15 @@ public struct TaskRequest: Codable, Sendable {
         case prompt = "prompt"
         case requestId = "requestId"
         case schemaVersion = "schemaVersion"
+        case speech = "speech"
         case task = "task"
         case telemetry = "telemetry"
     }
 
-    public init(authContextRef: String?, constraints: TaskRequestConstraints?, generation: Generation?, messages: [Message]?, modelProfile: String?, preferences: TaskRequestPreferences?, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
+    public init(authContextRef: String?, constraints: TaskRequestConstraints?, delivery: OutputDeliveryRequest?, generation: Generation?, messages: [Message]?, modelProfile: String?, preferences: TaskRequestPreferences?, prompt: String?, requestId: String?, schemaVersion: SchemaVersion, speech: SpeechInput?, task: TaskRequestTask, telemetry: TaskRequestTelemetry?) {
         self.authContextRef = authContextRef
         self.constraints = constraints
+        self.delivery = delivery
         self.generation = generation
         self.messages = messages
         self.modelProfile = modelProfile
@@ -75,6 +92,7 @@ public struct TaskRequest: Codable, Sendable {
         self.prompt = prompt
         self.requestId = requestId
         self.schemaVersion = schemaVersion
+        self.speech = speech
         self.task = task
         self.telemetry = telemetry
     }
@@ -101,6 +119,7 @@ public extension TaskRequest {
     func with(
         authContextRef: String?? = nil,
         constraints: TaskRequestConstraints?? = nil,
+        delivery: OutputDeliveryRequest?? = nil,
         generation: Generation?? = nil,
         messages: [Message]?? = nil,
         modelProfile: String?? = nil,
@@ -108,12 +127,14 @@ public extension TaskRequest {
         prompt: String?? = nil,
         requestId: String?? = nil,
         schemaVersion: SchemaVersion? = nil,
+        speech: SpeechInput?? = nil,
         task: TaskRequestTask? = nil,
         telemetry: TaskRequestTelemetry?? = nil
     ) -> TaskRequest {
         return TaskRequest(
             authContextRef: authContextRef ?? self.authContextRef,
             constraints: constraints ?? self.constraints,
+            delivery: delivery ?? self.delivery,
             generation: generation ?? self.generation,
             messages: messages ?? self.messages,
             modelProfile: modelProfile ?? self.modelProfile,
@@ -121,6 +142,7 @@ public extension TaskRequest {
             prompt: prompt ?? self.prompt,
             requestId: requestId ?? self.requestId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
+            speech: speech ?? self.speech,
             task: task ?? self.task,
             telemetry: telemetry ?? self.telemetry
         )
@@ -141,8 +163,11 @@ public struct TaskRequestConstraints: Codable, Sendable {
     /// Cloud execution constraint.
     public var cloud: Cloud?
     /// Privacy requirement or preference for execution placement.
-    public var privacy: PrivacyEnum?
-    /// Optional routing timeout budget in milliseconds.
+    public var privacy: Privacy?
+    /// Optional timeout budget in milliseconds, passed to the planner and to providers. It
+    /// bounds the time until the run commits to a provider -- its first content, its first
+    /// possible audible effect, or its artifact handoff -- not the duration of audio it plays.
+    /// The engines add no timers of their own.
     public var timeoutMs: Int?
 
     public enum CodingKeys: String, CodingKey {
@@ -151,7 +176,7 @@ public struct TaskRequestConstraints: Codable, Sendable {
         case timeoutMs = "timeoutMs"
     }
 
-    public init(cloud: Cloud?, privacy: PrivacyEnum?, timeoutMs: Int?) {
+    public init(cloud: Cloud?, privacy: Privacy?, timeoutMs: Int?) {
         self.cloud = cloud
         self.privacy = privacy
         self.timeoutMs = timeoutMs
@@ -178,7 +203,7 @@ public extension TaskRequestConstraints {
 
     func with(
         cloud: Cloud?? = nil,
-        privacy: PrivacyEnum?? = nil,
+        privacy: Privacy?? = nil,
         timeoutMs: Int?? = nil
     ) -> TaskRequestConstraints {
         return TaskRequestConstraints(
@@ -205,11 +230,90 @@ public enum Cloud: String, Codable, Sendable {
 }
 
 /// Privacy requirement or preference for execution placement.
-public enum PrivacyEnum: String, Codable, Sendable {
+///
+/// The privacy policy of the runs this precedes.
+public enum Privacy: String, Codable, Sendable {
     case cloudAllowed = "cloud_allowed"
     case cloudRequired = "cloud_required"
     case localPreferred = "local_preferred"
     case localRequired = "local_required"
+}
+
+/// How the result of a non-text task must reach the application (ADR 016). Required for
+/// non-text tasks and forbidden for text_to_text, whose output is implicitly inline. A
+/// provider never substitutes playback for an artifact or the reverse.
+// MARK: - OutputDeliveryRequest
+public struct OutputDeliveryRequest: Codable, Sendable {
+    /// Only valid with 'artifact' delivery: an opaque reference to an application destination
+    /// the engine writes the finished artifact to, resolved by the host's artifact-destination
+    /// service (ADR 017) -- never a raw path or URL, like authContextRef for credentials. The
+    /// result's artifact is then application-owned and the engine keeps no copy. A host without
+    /// the service refuses the request before routing.
+    public var destinationRef: String?
+    /// Only valid with 'artifact' delivery: the acceptable media types, always a hard
+    /// requirement. Absent means the provider chooses and the artifact reports what it produced.
+    public var mediaTypes: [String]?
+    public var mode: OutputDelivery
+
+    public enum CodingKeys: String, CodingKey {
+        case destinationRef = "destinationRef"
+        case mediaTypes = "mediaTypes"
+        case mode = "mode"
+    }
+
+    public init(destinationRef: String?, mediaTypes: [String]?, mode: OutputDelivery) {
+        self.destinationRef = destinationRef
+        self.mediaTypes = mediaTypes
+        self.mode = mode
+    }
+}
+
+// MARK: OutputDeliveryRequest convenience initializers and mutators
+
+public extension OutputDeliveryRequest {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(OutputDeliveryRequest.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        destinationRef: String?? = nil,
+        mediaTypes: [String]?? = nil,
+        mode: OutputDelivery? = nil
+    ) -> OutputDeliveryRequest {
+        return OutputDeliveryRequest(
+            destinationRef: destinationRef ?? self.destinationRef,
+            mediaTypes: mediaTypes ?? self.mediaTypes,
+            mode: mode ?? self.mode
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// How a task's result reaches the application: 'inline' content in the result (text),
+/// 'playback' as a managed, audible effect on the device with no retrievable bytes, or
+/// 'artifact' as retrievable media.
+public enum OutputDelivery: String, Codable, Sendable {
+    case artifact = "artifact"
+    case inline = "inline"
+    case playback = "playback"
 }
 
 /// Optional configuration for fine-tuning how the AI model generates its response.
@@ -412,19 +516,191 @@ public enum SchemaVersion: String, Codable, Sendable {
     case the10 = "1.0"
 }
 
-/// A descriptor specifying the type of work to be performed. For text-to-text, the kind must
-/// be 'text_to_text'.
+/// The text_to_speech payload. Required for text_to_speech and forbidden for every other
+/// kind.
+// MARK: - SpeechInput
+public struct SpeechInput: Codable, Sendable {
+    /// BCP 47 tag of the language to speak, e.g. 'de-AT'.
+    public var locale: String
+    /// 'language' (default): the primary language subtag is a hard requirement and the region is
+    /// a preference. 'exact': the full tag is a hard requirement.
+    public var localeMatch: LocaleMatch?
+    /// Plain text to speak. Markup such as SSML is out of scope.
+    public var text: String
+    /// The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+    /// traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+    /// fail; a 'required' one takes part in routing and is never relaxed silently.
+    public var voice: SpeechVoice?
+
+    public enum CodingKeys: String, CodingKey {
+        case locale = "locale"
+        case localeMatch = "localeMatch"
+        case text = "text"
+        case voice = "voice"
+    }
+
+    public init(locale: String, localeMatch: LocaleMatch?, text: String, voice: SpeechVoice?) {
+        self.locale = locale
+        self.localeMatch = localeMatch
+        self.text = text
+        self.voice = voice
+    }
+}
+
+// MARK: SpeechInput convenience initializers and mutators
+
+public extension SpeechInput {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechInput.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        locale: String? = nil,
+        localeMatch: LocaleMatch?? = nil,
+        text: String? = nil,
+        voice: SpeechVoice?? = nil
+    ) -> SpeechInput {
+        return SpeechInput(
+            locale: locale ?? self.locale,
+            localeMatch: localeMatch ?? self.localeMatch,
+            text: text ?? self.text,
+            voice: voice ?? self.voice
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'language' (default): the primary language subtag is a hard requirement and the region is
+/// a preference. 'exact': the full tag is a hard requirement.
+///
+/// 'exact' requires the full tag; 'language' requires only the primary language subtag and
+/// treats the region as a preference.
+///
+/// How locale compares: 'language' (default) or 'exact'.
+public enum LocaleMatch: String, Codable, Sendable {
+    case exact = "exact"
+    case language = "language"
+}
+
+/// The voice to speak with: one catalog voice by providerId and id, or provider-neutral
+/// traits. A 'preferred' voice (default) shapes which voice speaks and is never a reason to
+/// fail; a 'required' one takes part in routing and is never relaxed silently.
+// MARK: - SpeechVoice
+public struct SpeechVoice: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// A voice id read from listVoices(), never written by hand. Opaque, and meaningful only on
+    /// providerId and the device that listed it, so a stored id can go stale: a 'preferred' one
+    /// then falls back to the other traits.
+    public var id: String?
+    /// The provider that listed id. Required with id, because voice ids share no namespace
+    /// across providers.
+    public var providerId: String?
+    /// 'preferred' (default) or 'required'. A required voice must name an id or a trait.
+    public var requirement: RequirementLevel?
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case id = "id"
+        case providerId = "providerId"
+        case requirement = "requirement"
+    }
+
+    public init(gender: VoiceGender?, id: String?, providerId: String?, requirement: RequirementLevel?) {
+        self.gender = gender
+        self.id = id
+        self.providerId = providerId
+        self.requirement = requirement
+    }
+}
+
+// MARK: SpeechVoice convenience initializers and mutators
+
+public extension SpeechVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        providerId: String?? = nil,
+        requirement: RequirementLevel?? = nil
+    ) -> SpeechVoice {
+        return SpeechVoice(
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            providerId: providerId ?? self.providerId,
+            requirement: requirement ?? self.requirement
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Perceived gender of a voice, as the platform reports it.
+public enum VoiceGender: String, Codable, Sendable {
+    case female = "female"
+    case male = "male"
+    case neutral = "neutral"
+}
+
+/// 'preferred' (default) or 'required'. A required voice must name an id or a trait.
+///
+/// 'required' takes part in routing; 'preferred' does not.
+public enum RequirementLevel: String, Codable, Sendable {
+    case preferred = "preferred"
+    case requirementLevelRequired = "required"
+}
+
+/// A descriptor specifying the type of work to be performed. The kind selects which payload
+/// the request must carry.
 // MARK: - TaskRequestTask
 public struct TaskRequestTask: Codable, Sendable {
-    /// The standard task category. Currently supports 'text_to_text' for prompt-based
-    /// interactions.
-    public var kind: Kind
+    /// The operation: 'text_to_text' (prompt-based text generation) or 'text_to_speech' (speech
+    /// synthesis from text). A consumer built against an older revision rejects a kind it does
+    /// not know through validation.
+    public var kind: TaskKind
 
     public enum CodingKeys: String, CodingKey {
         case kind = "kind"
     }
 
-    public init(kind: Kind) {
+    public init(kind: TaskKind) {
         self.kind = kind
     }
 }
@@ -448,7 +724,7 @@ public extension TaskRequestTask {
     }
 
     func with(
-        kind: Kind? = nil
+        kind: TaskKind? = nil
     ) -> TaskRequestTask {
         return TaskRequestTask(
             kind: kind ?? self.kind
@@ -464,7 +740,11 @@ public extension TaskRequestTask {
     }
 }
 
-public enum Kind: String, Codable, Sendable {
+/// The operation: 'text_to_text' (prompt-based text generation) or 'text_to_speech' (speech
+/// synthesis from text). A consumer built against an older revision rejects a kind it does
+/// not know through validation.
+public enum TaskKind: String, Codable, Sendable {
+    case textToSpeech = "text_to_speech"
     case textToText = "text_to_text"
 }
 
@@ -537,12 +817,14 @@ public enum Level: String, Codable, Sendable {
     case off = "off"
 }
 
-/// The response payload for a completed text-to-text execution. A full execution failure
-/// (validation, routing, or every attempted provider failing) is surfaced by run() throwing
-/// an IndeRunError instead of returning a TaskResult; finishReason and telemetry.errorClass
-/// are reserved for a provider reporting a non-fatal, degraded outcome on an
-/// otherwise-successful result (finishReason 'error' is produced by the Android ML Kit GenAI
-/// provider; telemetry.errorClass is not currently set by any provider in this codebase).
+/// The response payload for a completed run() execution, for every task kind; output.type
+/// tells the content representation apart (text, managed playback, retrievable artifact). A
+/// full execution failure (validation, routing, or every attempted provider failing) is
+/// surfaced by run() throwing an IndeRunError instead of returning a TaskResult;
+/// finishReason and telemetry.errorClass are reserved for a provider reporting a non-fatal,
+/// degraded outcome on an otherwise-successful result (finishReason 'error' is produced by
+/// the Android ML Kit GenAI provider; telemetry.errorClass is not currently set by any
+/// provider in this codebase).
 // MARK: - TaskResult
 public struct TaskResult: Codable, Sendable {
     /// How generation ended: 'stop' (natural end), 'length' (hit maxOutputTokens), or
@@ -551,8 +833,8 @@ public struct TaskResult: Codable, Sendable {
     /// Nano reports a finish reason that is neither a natural stop nor the token limit. A full
     /// execution failure is instead surfaced by run() throwing an IndeRunError.
     public var finishReason: FinishReason
-    /// The normalized content returned from the selected provider.
-    public var output: Output
+    /// The normalized output of the selected provider. See task-output.schema.json.
+    public var output: TaskOutput
     /// Normalized execution provenance: which target ran, its declared locality, the configured
     /// and reported model, and how fallback and routing played out. See
     /// execution-provenance.schema.json.
@@ -576,7 +858,7 @@ public struct TaskResult: Codable, Sendable {
         case usage = "usage"
     }
 
-    public init(finishReason: FinishReason, output: Output, provenance: ExecutionProvenance?, runId: String, schemaVersion: SchemaVersion, telemetry: TaskResultTelemetry, usage: TaskResultUsage?) {
+    public init(finishReason: FinishReason, output: TaskOutput, provenance: ExecutionProvenance?, runId: String, schemaVersion: SchemaVersion, telemetry: TaskResultTelemetry, usage: TaskResultUsage?) {
         self.finishReason = finishReason
         self.output = output
         self.provenance = provenance
@@ -607,7 +889,7 @@ public extension TaskResult {
 
     func with(
         finishReason: FinishReason? = nil,
-        output: Output? = nil,
+        output: TaskOutput? = nil,
         provenance: ExecutionProvenance?? = nil,
         runId: String? = nil,
         schemaVersion: SchemaVersion? = nil,
@@ -652,30 +934,67 @@ public enum FinishReason: String, Codable, Sendable {
     case stop = "stop"
 }
 
-/// The normalized content returned from the selected provider.
-// MARK: - Output
-public struct Output: Codable, Sendable {
-    /// The actual text generated by the execution.
-    public var text: String
-    /// Output payload category (e.g., 'text' for Mode 1 text-to-text).
-    public var type: OutputType
+/// The normalized output of the selected provider. See task-output.schema.json.
+///
+/// The normalized output of a run, shared by TaskResult and the completed and cancelled
+/// stream terminal outcomes (ADR 016). 'type' describes the content representation, not the
+/// task: 'text' carries inline text, 'playback' reports a managed, audible effect that has
+/// no retrievable bytes, and 'artifact' references retrievable media (ADR 017). A playback
+/// output is never an artifact, and an artifact output never implies that anything was
+/// played.
+///
+/// The normalized output of the run, the same shape run() returns in TaskResult.output. Set
+/// for every non-text run; a text run may set it alongside finalText. See
+/// task-output.schema.json.
+///
+/// What a cancelled non-text run had already produced: a playback run that committed (audio
+/// may have been heard) carries a playback output, and an artifact run cancelled while the
+/// engine was writing its artifact to an application destination carries that
+/// application-owned artifact, whose bytes the write left at the destination. Absent when
+/// nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+/// whose partial media the engine discards. See task-output.schema.json.
+// MARK: - TaskOutput
+public struct TaskOutput: Codable, Sendable {
+    /// The retrievable media the run produced. Required when type is 'artifact'.
+    public var artifact: MediaArtifact?
+    /// Completion of managed playback. Required when type is 'playback'. Carries no media.
+    public var playback: PlaybackOutput?
+    /// What a prepare() run did, one item per provider and task. Required when type is
+    /// 'prepared'. One failed item does not fail the run.
+    public var preparation: [PreparationItem]?
+    /// The locale and voice a text-to-speech run actually used, so an unmet preference is
+    /// visible without being an error.
+    public var speech: SpeechOutput?
+    /// The text the run produced. Required when type is 'text'.
+    public var text: String?
+    /// The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+    /// run, carries no content, and lists each item in 'preparation'.
+    public var type: TaskOutputType
 
     public enum CodingKeys: String, CodingKey {
+        case artifact = "artifact"
+        case playback = "playback"
+        case preparation = "preparation"
+        case speech = "speech"
         case text = "text"
         case type = "type"
     }
 
-    public init(text: String, type: OutputType) {
+    public init(artifact: MediaArtifact?, playback: PlaybackOutput?, preparation: [PreparationItem]?, speech: SpeechOutput?, text: String?, type: TaskOutputType) {
+        self.artifact = artifact
+        self.playback = playback
+        self.preparation = preparation
+        self.speech = speech
         self.text = text
         self.type = type
     }
 }
 
-// MARK: Output convenience initializers and mutators
+// MARK: TaskOutput convenience initializers and mutators
 
-public extension Output {
+public extension TaskOutput {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Output.self, from: data)
+        self = try newJSONDecoder().decode(TaskOutput.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -690,10 +1009,18 @@ public extension Output {
     }
 
     func with(
-        text: String? = nil,
-        type: OutputType? = nil
-    ) -> Output {
-        return Output(
+        artifact: MediaArtifact?? = nil,
+        playback: PlaybackOutput?? = nil,
+        preparation: [PreparationItem]?? = nil,
+        speech: SpeechOutput?? = nil,
+        text: String?? = nil,
+        type: TaskOutputType? = nil
+    ) -> TaskOutput {
+        return TaskOutput(
+            artifact: artifact ?? self.artifact,
+            playback: playback ?? self.playback,
+            preparation: preparation ?? self.preparation,
+            speech: speech ?? self.speech,
             text: text ?? self.text,
             type: type ?? self.type
         )
@@ -708,7 +1035,449 @@ public extension Output {
     }
 }
 
-public enum OutputType: String, Codable, Sendable {
+/// The retrievable media the run produced. Required when type is 'artifact'.
+///
+/// A reference to retrievable media a run produced (ADR 017). It carries no bytes and no
+/// location: an engine-owned artifact is read through the engine by id, and an
+/// application-owned one was written to an application destination. Media-neutral: audio,
+/// images and video share this shape and differ only in mediaType.
+// MARK: - MediaArtifact
+public struct MediaArtifact: Codable, Sendable {
+    /// Size of the media in bytes. Always set for an artifact the engine materialized.
+    public var byteLength: Int?
+    /// The request's delivery.destinationRef the bytes were written to. Set exactly when owner
+    /// is 'application'.
+    public var destinationRef: String?
+    /// Duration of time-based media in milliseconds, where the producer knows it.
+    public var durationMs: Double?
+    /// Opaque, engine-issued identifier. Never a path, URL or provider identifier.
+    public var id: String
+    /// How long the engine keeps the bytes. 'until_disposed': until the application disposes the
+    /// artifact or the process ends; the artifact outlives the run that produced it.
+    public var lifetime: ArtifactLifetime
+    /// IANA media type of the bytes, e.g. 'audio/wav'. Encoding parameters ride on the media
+    /// type (e.g. 'audio/L16;rate=22050').
+    public var mediaType: String
+    /// 'engine': the engine holds the bytes and the application reads them by id until it
+    /// disposes the artifact. 'application': the bytes were written to the application
+    /// destination named by destinationRef and the engine holds nothing.
+    public var owner: ArtifactOwner
+
+    public enum CodingKeys: String, CodingKey {
+        case byteLength = "byteLength"
+        case destinationRef = "destinationRef"
+        case durationMs = "durationMs"
+        case id = "id"
+        case lifetime = "lifetime"
+        case mediaType = "mediaType"
+        case owner = "owner"
+    }
+
+    public init(byteLength: Int?, destinationRef: String?, durationMs: Double?, id: String, lifetime: ArtifactLifetime, mediaType: String, owner: ArtifactOwner) {
+        self.byteLength = byteLength
+        self.destinationRef = destinationRef
+        self.durationMs = durationMs
+        self.id = id
+        self.lifetime = lifetime
+        self.mediaType = mediaType
+        self.owner = owner
+    }
+}
+
+// MARK: MediaArtifact convenience initializers and mutators
+
+public extension MediaArtifact {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(MediaArtifact.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        byteLength: Int?? = nil,
+        destinationRef: String?? = nil,
+        durationMs: Double?? = nil,
+        id: String? = nil,
+        lifetime: ArtifactLifetime? = nil,
+        mediaType: String? = nil,
+        owner: ArtifactOwner? = nil
+    ) -> MediaArtifact {
+        return MediaArtifact(
+            byteLength: byteLength ?? self.byteLength,
+            destinationRef: destinationRef ?? self.destinationRef,
+            durationMs: durationMs ?? self.durationMs,
+            id: id ?? self.id,
+            lifetime: lifetime ?? self.lifetime,
+            mediaType: mediaType ?? self.mediaType,
+            owner: owner ?? self.owner
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// How long the engine keeps the bytes. 'until_disposed': until the application disposes the
+/// artifact or the process ends; the artifact outlives the run that produced it.
+public enum ArtifactLifetime: String, Codable, Sendable {
+    case untilDisposed = "until_disposed"
+}
+
+/// 'engine': the engine holds the bytes and the application reads them by id until it
+/// disposes the artifact. 'application': the bytes were written to the application
+/// destination named by destinationRef and the engine holds nothing.
+public enum ArtifactOwner: String, Codable, Sendable {
+    case application = "application"
+    case engine = "engine"
+}
+
+/// Completion of managed playback. Required when type is 'playback'. Carries no media.
+// MARK: - PlaybackOutput
+public struct PlaybackOutput: Codable, Sendable {
+    /// What the provider measured about the playback. Absent when it measured nothing.
+    /// 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+    /// run() or stream() started handling the request, so their difference is the provider's
+    /// output latency. The span includes everything the provider does after it starts handling
+    /// the request (queue wait, voice lookup, a cold model load) and excludes routing.
+    public var timing: PlaybackTiming?
+
+    public enum CodingKeys: String, CodingKey {
+        case timing = "timing"
+    }
+
+    public init(timing: PlaybackTiming?) {
+        self.timing = timing
+    }
+}
+
+// MARK: PlaybackOutput convenience initializers and mutators
+
+public extension PlaybackOutput {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PlaybackOutput.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        timing: PlaybackTiming?? = nil
+    ) -> PlaybackOutput {
+        return PlaybackOutput(
+            timing: timing ?? self.timing
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// What the provider measured about the playback. Absent when it measured nothing.
+/// 'firstAudioMs' and 'firstChunkMs' count from the same origin: the moment the provider's
+/// run() or stream() started handling the request, so their difference is the provider's
+/// output latency. The span includes everything the provider does after it starts handling
+/// the request (queue wait, voice lookup, a cold model load) and excludes routing.
+// MARK: - PlaybackTiming
+public struct PlaybackTiming: Codable, Sendable {
+    /// How long audible playback lasted, in milliseconds. For a cancelled run, how long it
+    /// played before it was stopped, when the provider reports it.
+    public var durationMs: Double?
+    /// Milliseconds from the provider receiving the request until the platform's first
+    /// audible-output callback (for a system voice, its first word callback) or the first audio
+    /// frame leaving the output. Absent when nothing reports it.
+    public var firstAudioMs: Double?
+    /// Milliseconds from the provider receiving the request until its first playable PCM chunk
+    /// existed. Absent when the provider does not synthesize PCM itself.
+    public var firstChunkMs: Double?
+
+    public enum CodingKeys: String, CodingKey {
+        case durationMs = "durationMs"
+        case firstAudioMs = "firstAudioMs"
+        case firstChunkMs = "firstChunkMs"
+    }
+
+    public init(durationMs: Double?, firstAudioMs: Double?, firstChunkMs: Double?) {
+        self.durationMs = durationMs
+        self.firstAudioMs = firstAudioMs
+        self.firstChunkMs = firstChunkMs
+    }
+}
+
+// MARK: PlaybackTiming convenience initializers and mutators
+
+public extension PlaybackTiming {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PlaybackTiming.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        durationMs: Double?? = nil,
+        firstAudioMs: Double?? = nil,
+        firstChunkMs: Double?? = nil
+    ) -> PlaybackTiming {
+        return PlaybackTiming(
+            durationMs: durationMs ?? self.durationMs,
+            firstAudioMs: firstAudioMs ?? self.firstAudioMs,
+            firstChunkMs: firstChunkMs ?? self.firstChunkMs
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - PreparationItem
+public struct PreparationItem: Codable, Sendable {
+    /// The provider this item belongs to.
+    public var providerId: String
+    /// Why the item was skipped or failed.
+    public var reason: String?
+    /// 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+    /// needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+    /// reason.
+    public var status: PreparationStatus
+    /// The task kind this item belongs to.
+    public var task: String
+    /// The voice this item prepared, when one was bound.
+    public var voiceId: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case providerId = "providerId"
+        case reason = "reason"
+        case status = "status"
+        case task = "task"
+        case voiceId = "voiceId"
+    }
+
+    public init(providerId: String, reason: String?, status: PreparationStatus, task: String, voiceId: String?) {
+        self.providerId = providerId
+        self.reason = reason
+        self.status = status
+        self.task = task
+        self.voiceId = voiceId
+    }
+}
+
+// MARK: PreparationItem convenience initializers and mutators
+
+public extension PreparationItem {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PreparationItem.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        providerId: String? = nil,
+        reason: String?? = nil,
+        status: PreparationStatus? = nil,
+        task: String? = nil,
+        voiceId: String?? = nil
+    ) -> PreparationItem {
+        return PreparationItem(
+            providerId: providerId ?? self.providerId,
+            reason: reason ?? self.reason,
+            status: status ?? self.status,
+            task: task ?? self.task,
+            voiceId: voiceId ?? self.voiceId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'prepared': this run made it ready. 'already_ready': nothing was needed. 'skipped': it
+/// needs a download that neither autoDownload nor allowDownload permits. 'failed': see
+/// reason.
+public enum PreparationStatus: String, Codable, Sendable {
+    case alreadyReady = "already_ready"
+    case failed = "failed"
+    case prepared = "prepared"
+    case skipped = "skipped"
+}
+
+/// The locale and voice a text-to-speech run actually used, so an unmet preference is
+/// visible without being an error.
+// MARK: - SpeechOutput
+public struct SpeechOutput: Codable, Sendable {
+    /// BCP 47 tag of the locale that was spoken.
+    public var locale: String
+    /// The voice that spoke, as the catalog lists it.
+    public var voice: SpeechOutputVoice?
+
+    public enum CodingKeys: String, CodingKey {
+        case locale = "locale"
+        case voice = "voice"
+    }
+
+    public init(locale: String, voice: SpeechOutputVoice?) {
+        self.locale = locale
+        self.voice = voice
+    }
+}
+
+// MARK: SpeechOutput convenience initializers and mutators
+
+public extension SpeechOutput {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechOutput.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        locale: String? = nil,
+        voice: SpeechOutputVoice?? = nil
+    ) -> SpeechOutput {
+        return SpeechOutput(
+            locale: locale ?? self.locale,
+            voice: voice ?? self.voice
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The voice that spoke, as the catalog lists it.
+// MARK: - SpeechOutputVoice
+public struct SpeechOutputVoice: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// The voice's id, when its provider lists one.
+    public var id: String?
+    /// The voice's display label, when its provider lists one.
+    public var name: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case id = "id"
+        case name = "name"
+    }
+
+    public init(gender: VoiceGender?, id: String?, name: String?) {
+        self.gender = gender
+        self.id = id
+        self.name = name
+    }
+}
+
+// MARK: SpeechOutputVoice convenience initializers and mutators
+
+public extension SpeechOutputVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechOutputVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        name: String?? = nil
+    ) -> SpeechOutputVoice {
+        return SpeechOutputVoice(
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            name: name ?? self.name
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The content representation: 'text', 'playback' or 'artifact'. 'prepared' ends a prepare()
+/// run, carries no content, and lists each item in 'preparation'.
+public enum TaskOutputType: String, Codable, Sendable {
+    case artifact = "artifact"
+    case playback = "playback"
+    case prepared = "prepared"
     case text = "text"
 }
 
@@ -836,6 +1605,11 @@ public extension ExecutionProvenance {
 
 // MARK: - ExecutionProvenanceAttempt
 public struct ExecutionProvenanceAttempt: Codable, Sendable {
+    /// Whether the run committed to this provider during the attempt: its first content was
+    /// delivered, it signalled the first possible audible effect, or it handed over an artifact.
+    /// After commit a failure ends the run instead of falling back. Absent means the attempt did
+    /// not commit.
+    public var committed: Bool?
     /// Normalized error class of a failed attempt.
     public var errorClass: ErrorClass?
     /// 'succeeded' (produced the result or was committed to and completed), 'failed', or
@@ -844,12 +1618,14 @@ public struct ExecutionProvenanceAttempt: Codable, Sendable {
     public var providerId: String
 
     public enum CodingKeys: String, CodingKey {
+        case committed = "committed"
         case errorClass = "errorClass"
         case outcome = "outcome"
         case providerId = "providerId"
     }
 
-    public init(errorClass: ErrorClass?, outcome: AttemptOutcome, providerId: String) {
+    public init(committed: Bool?, errorClass: ErrorClass?, outcome: AttemptOutcome, providerId: String) {
+        self.committed = committed
         self.errorClass = errorClass
         self.outcome = outcome
         self.providerId = providerId
@@ -875,11 +1651,13 @@ public extension ExecutionProvenanceAttempt {
     }
 
     func with(
+        committed: Bool?? = nil,
         errorClass: ErrorClass?? = nil,
         outcome: AttemptOutcome? = nil,
         providerId: String? = nil
     ) -> ExecutionProvenanceAttempt {
         return ExecutionProvenanceAttempt(
+            committed: committed ?? self.committed,
             errorClass: errorClass ?? self.errorClass,
             outcome: outcome ?? self.outcome,
             providerId: providerId ?? self.providerId
@@ -997,17 +1775,29 @@ public extension ExecutionProvenanceRouteRejection {
 /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
 /// but the dynamic capability snapshot reports it cannot stream in the current host
 /// environment. 'not_in_model_profile' means the request named a model profile that does not
-/// list this provider.
+/// list this provider. 'input_not_supported', 'output_delivery_not_supported',
+/// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
+/// provider's task capability lacks an input kind, output delivery, media type, locale or
+/// voice the request requires. 'prepare_not_supported' means the task capability declares no
+/// prepare(). 'not_ready' means the provider, task or required voice exists but is not
+/// prepared yet, so prepare() can make it available.
 public enum Code: String, Codable, Sendable {
     case capabilityUnavailable = "capability_unavailable"
     case cloudConstraint = "cloud_constraint"
+    case inputNotSupported = "input_not_supported"
+    case localeNotSupported = "locale_not_supported"
     case notInModelProfile = "not_in_model_profile"
+    case notReady = "not_ready"
     case offline = "offline"
+    case outputDeliveryNotSupported = "output_delivery_not_supported"
+    case outputFormatNotSupported = "output_format_not_supported"
+    case prepareNotSupported = "prepare_not_supported"
     case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"
     case streamingNotSupported = "streaming_not_supported"
     case streamingUnavailable = "streaming_unavailable"
     case taskNotSupported = "task_not_supported"
+    case voiceNotAvailable = "voice_not_available"
 }
 
 /// Required metadata providing an overview of the execution result and performance metrics.
@@ -1502,9 +2292,13 @@ public struct RoutePlannerInput: Codable, Sendable {
     public var modelProfile: ModelProfile?
     /// Soft route ordering preferences applied after hard filtering.
     public var preferences: RoutePlannerInputPreferences
-    /// Static descriptors plus dynamic capability snapshots for planning.
+    /// Static descriptors plus dynamic capability checks for planning. Both shapes are the
+    /// provider schemas themselves, shared by $ref, so the planner reads exactly what
+    /// checkCapabilities() reports.
     public var providers: [Provider]
-    /// Minimal task descriptor for provider task matching.
+    /// Task descriptor for provider task matching: the kind plus the requirements routing can
+    /// check against declared capabilities. Absent requirement fields are never checked, so a
+    /// text request carries the kind alone.
     public var task: RoutePlannerInputTask
 
     public enum CodingKeys: String, CodingKey {
@@ -1579,7 +2373,7 @@ public struct RoutePlannerInputConstraints: Codable, Sendable {
     /// Current connectivity snapshot used for cloud route planning.
     public var networkOnline: Bool?
     /// Privacy requirement or preference for execution placement.
-    public var privacy: PrivacyEnum?
+    public var privacy: Privacy?
 
     public enum CodingKeys: String, CodingKey {
         case cloud = "cloud"
@@ -1587,7 +2381,7 @@ public struct RoutePlannerInputConstraints: Codable, Sendable {
         case privacy = "privacy"
     }
 
-    public init(cloud: Cloud?, networkOnline: Bool?, privacy: PrivacyEnum?) {
+    public init(cloud: Cloud?, networkOnline: Bool?, privacy: Privacy?) {
         self.cloud = cloud
         self.networkOnline = networkOnline
         self.privacy = privacy
@@ -1615,7 +2409,7 @@ public extension RoutePlannerInputConstraints {
     func with(
         cloud: Cloud?? = nil,
         networkOnline: Bool?? = nil,
-        privacy: PrivacyEnum?? = nil
+        privacy: Privacy?? = nil
     ) -> RoutePlannerInputConstraints {
         return RoutePlannerInputConstraints(
             cloud: cloud ?? self.cloud,
@@ -1637,6 +2431,7 @@ public extension RoutePlannerInputConstraints {
 /// produced before this field existed keep their exact Mode-1 semantics. The mode filters
 /// eligible providers; it never changes candidate ordering.
 public enum InteractionMode: String, Codable, Sendable {
+    case prepare = "prepare"
     case run = "run"
     case stream = "stream"
 }
@@ -1753,15 +2548,19 @@ public extension RoutePlannerInputPreferences {
 
 // MARK: - Provider
 public struct Provider: Codable, Sendable {
-    public var capabilities: Capabilities
-    public var descriptor: Descriptor
+    /// The provider's live capability check, already folded by the engine (for example,
+    /// streamingAvailable is false when the provider declares streaming but does not implement
+    /// it).
+    public var capabilities: ProviderDynamicCapabilities
+    /// The provider's static capability declaration.
+    public var descriptor: ProviderDescriptor
 
     public enum CodingKeys: String, CodingKey {
         case capabilities = "capabilities"
         case descriptor = "descriptor"
     }
 
-    public init(capabilities: Capabilities, descriptor: Descriptor) {
+    public init(capabilities: ProviderDynamicCapabilities, descriptor: ProviderDescriptor) {
         self.capabilities = capabilities
         self.descriptor = descriptor
     }
@@ -1786,8 +2585,8 @@ public extension Provider {
     }
 
     func with(
-        capabilities: Capabilities? = nil,
-        descriptor: Descriptor? = nil
+        capabilities: ProviderDynamicCapabilities? = nil,
+        descriptor: ProviderDescriptor? = nil
     ) -> Provider {
         return Provider(
             capabilities: capabilities ?? self.capabilities,
@@ -1804,19 +2603,34 @@ public extension Provider {
     }
 }
 
-// MARK: - Capabilities
-public struct Capabilities: Codable, Sendable {
+/// The provider's live capability check, already folded by the engine (for example,
+/// streamingAvailable is false when the provider declares streaming but does not implement
+/// it).
+///
+/// A provider's live capability check, evaluated on the current host when routing or when
+/// checkCapabilities() is called. Unlike the descriptor it can change between calls.
+///
+/// The provider's live capability check at the time of the call.
+// MARK: - ProviderDynamicCapabilities
+public struct ProviderDynamicCapabilities: Codable, Sendable {
+    /// Whether the provider is available and functional on this host right now.
     public var available: Bool
-    /// Whether cancellation is honored right now in this host environment. Absent inherits the
-    /// static descriptor.cancel value (any value other than 'none' means available).
+    /// Whether cancellation is honored on this host right now. Absent inherits the static
+    /// descriptor.cancel value: any value other than 'none' means available. Never null.
     public var cancellationAvailable: Bool?
+    /// Why the provider is unavailable, when available is false.
     public var reason: String?
-    /// Whether the provider can stream right now in this host environment. Absent inherits the
-    /// static descriptor.supports.streaming value.
+    /// Whether the provider can stream (Mode 2) on this host right now. Absent inherits the
+    /// static descriptor.supports.streaming value; only set it when the host takes streaming
+    /// away from a provider that otherwise declares it. Never null.
     public var streamingAvailable: Bool?
-    /// Human-readable explanation used when streamingAvailable is false. Absent lets the planner
-    /// synthesize a default message.
+    /// Why streaming is unavailable, when streamingAvailable is false. Absent lets the route
+    /// planner synthesize a default message.
     public var streamingUnavailableReason: String?
+    /// Per-task overrides of the provider-level check, for tasks whose availability differs on
+    /// this host, e.g. a voice that is not installed. Every field of an entry is optional and
+    /// absent inherits the provider-level value; a false at either level wins.
+    public var taskCapabilities: [ProviderTaskAvailability]?
 
     public enum CodingKeys: String, CodingKey {
         case available = "available"
@@ -1824,22 +2638,24 @@ public struct Capabilities: Codable, Sendable {
         case reason = "reason"
         case streamingAvailable = "streamingAvailable"
         case streamingUnavailableReason = "streamingUnavailableReason"
+        case taskCapabilities = "taskCapabilities"
     }
 
-    public init(available: Bool, cancellationAvailable: Bool?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?) {
+    public init(available: Bool, cancellationAvailable: Bool?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, taskCapabilities: [ProviderTaskAvailability]?) {
         self.available = available
         self.cancellationAvailable = cancellationAvailable
         self.reason = reason
         self.streamingAvailable = streamingAvailable
         self.streamingUnavailableReason = streamingUnavailableReason
+        self.taskCapabilities = taskCapabilities
     }
 }
 
-// MARK: Capabilities convenience initializers and mutators
+// MARK: ProviderDynamicCapabilities convenience initializers and mutators
 
-public extension Capabilities {
+public extension ProviderDynamicCapabilities {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Capabilities.self, from: data)
+        self = try newJSONDecoder().decode(ProviderDynamicCapabilities.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -1858,14 +2674,16 @@ public extension Capabilities {
         cancellationAvailable: Bool?? = nil,
         reason: String?? = nil,
         streamingAvailable: Bool?? = nil,
-        streamingUnavailableReason: String?? = nil
-    ) -> Capabilities {
-        return Capabilities(
+        streamingUnavailableReason: String?? = nil,
+        taskCapabilities: [ProviderTaskAvailability]?? = nil
+    ) -> ProviderDynamicCapabilities {
+        return ProviderDynamicCapabilities(
             available: available ?? self.available,
             cancellationAvailable: cancellationAvailable ?? self.cancellationAvailable,
             reason: reason ?? self.reason,
             streamingAvailable: streamingAvailable ?? self.streamingAvailable,
-            streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason
+            streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason,
+            taskCapabilities: taskCapabilities ?? self.taskCapabilities
         )
     }
 
@@ -1878,42 +2696,63 @@ public extension Capabilities {
     }
 }
 
-// MARK: - Descriptor
-public struct Descriptor: Codable, Sendable {
-    /// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
-    /// the planner does not filter on it.
-    public var cancel: Cancel?
-    public var id: String
-    /// Descriptor privacy metadata used to enforce local/cloud routing rules.
-    public var privacy: PrivacyClass?
-    public var supports: Supports
-    public var tasks: [String]
-    public var type: DescriptorType
+/// The live check for one task kind.
+// MARK: - ProviderTaskAvailability
+public struct ProviderTaskAvailability: Codable, Sendable {
+    /// Whether the task can run on this host right now. Absent inherits the provider-level
+    /// available. Never null.
+    public var available: Bool?
+    /// Whether cancellation is honored for this task right now. Absent inherits. Never null.
+    public var cancellationAvailable: Bool?
+    /// The task kind this entry describes.
+    public var kind: String
+    /// BCP 47 locales available for this task right now. Absent means the provider cannot
+    /// enumerate them.
+    public var locales: [String]?
+    /// How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+    /// or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+    /// even when the provider-level available is false.
+    public var readiness: ProviderReadiness?
+    /// Why the task is unavailable, when available is false.
+    public var reason: String?
+    /// Whether the task can stream on this host right now. Absent inherits. Never null.
+    public var streamingAvailable: Bool?
+    /// Why streaming is unavailable for this task, when streamingAvailable is false.
+    public var streamingUnavailableReason: String?
+    /// Every voice available for this task right now, one entry per voice. Absent means the
+    /// provider cannot enumerate them; a request that requires a voice then never routes to it.
+    public var voices: [ProviderVoice]?
 
     public enum CodingKeys: String, CodingKey {
-        case cancel = "cancel"
-        case id = "id"
-        case privacy = "privacy"
-        case supports = "supports"
-        case tasks = "tasks"
-        case type = "type"
+        case available = "available"
+        case cancellationAvailable = "cancellationAvailable"
+        case kind = "kind"
+        case locales = "locales"
+        case readiness = "readiness"
+        case reason = "reason"
+        case streamingAvailable = "streamingAvailable"
+        case streamingUnavailableReason = "streamingUnavailableReason"
+        case voices = "voices"
     }
 
-    public init(cancel: Cancel?, id: String, privacy: PrivacyClass?, supports: Supports, tasks: [String], type: DescriptorType) {
-        self.cancel = cancel
-        self.id = id
-        self.privacy = privacy
-        self.supports = supports
-        self.tasks = tasks
-        self.type = type
+    public init(available: Bool?, cancellationAvailable: Bool?, kind: String, locales: [String]?, readiness: ProviderReadiness?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, voices: [ProviderVoice]?) {
+        self.available = available
+        self.cancellationAvailable = cancellationAvailable
+        self.kind = kind
+        self.locales = locales
+        self.readiness = readiness
+        self.reason = reason
+        self.streamingAvailable = streamingAvailable
+        self.streamingUnavailableReason = streamingUnavailableReason
+        self.voices = voices
     }
 }
 
-// MARK: Descriptor convenience initializers and mutators
+// MARK: ProviderTaskAvailability convenience initializers and mutators
 
-public extension Descriptor {
+public extension ProviderTaskAvailability {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Descriptor.self, from: data)
+        self = try newJSONDecoder().decode(ProviderTaskAvailability.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -1928,19 +2767,273 @@ public extension Descriptor {
     }
 
     func with(
-        cancel: Cancel?? = nil,
+        available: Bool?? = nil,
+        cancellationAvailable: Bool?? = nil,
+        kind: String? = nil,
+        locales: [String]?? = nil,
+        readiness: ProviderReadiness?? = nil,
+        reason: String?? = nil,
+        streamingAvailable: Bool?? = nil,
+        streamingUnavailableReason: String?? = nil,
+        voices: [ProviderVoice]?? = nil
+    ) -> ProviderTaskAvailability {
+        return ProviderTaskAvailability(
+            available: available ?? self.available,
+            cancellationAvailable: cancellationAvailable ?? self.cancellationAvailable,
+            kind: kind ?? self.kind,
+            locales: locales ?? self.locales,
+            readiness: readiness ?? self.readiness,
+            reason: reason ?? self.reason,
+            streamingAvailable: streamingAvailable ?? self.streamingAvailable,
+            streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason,
+            voices: voices ?? self.voices
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
+/// or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
+/// even when the provider-level available is false.
+///
+/// How ready something is to run (ADR 019). 'ready': it runs now at full speed. 'cold': it
+/// runs now, but its first run is slow. 'not_prepared': it cannot run until prepare() has
+/// run. 'preparing': it is being prepared now and cannot run yet.
+///
+/// How ready the voice is to speak. Absent means 'ready'.
+public enum ProviderReadiness: String, Codable, Sendable {
+    case cold = "cold"
+    case notPrepared = "not_prepared"
+    case preparing = "preparing"
+    case ready = "ready"
+}
+
+/// One available voice: its provider-neutral traits, and an id and name for an application
+/// that lets someone choose it.
+///
+/// The voice this candidate must use if it is attempted, chosen by the planner from the
+/// provider's dynamic voice inventory. It is the best voice that satisfies the request's
+/// locale, required voice traits and privacy — under local-required privacy always one that
+/// keeps data on the device — ranked by preferred id, then preferred gender, then exact
+/// locale region, then on-device before network. The adapter must use the voice with this
+/// id, or one with exactly these traits when the voice has no id. Absent when the request
+/// names no locale or voice, or the provider does not list its voices; the adapter then
+/// chooses itself under the same rules.
+// MARK: - ProviderVoice
+public struct ProviderVoice: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// Identifies this voice within its provider, for use as speech.voice.id with
+    /// speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
+    /// and meaningful nowhere else. Absent when the provider cannot address single voices.
+    public var id: String?
+    /// BCP 47 locale the voice speaks.
+    public var locale: String
+    /// Every BCP 47 tag the voice speaks; may repeat `locale`. A request's locale matches
+    /// `locale` or any entry here.
+    public var locales: [String]?
+    /// Label for showing the voice to a person, as the platform reports it. Not unique and not
+    /// localized; never compare it.
+    public var name: String?
+    /// Whether using the voice sends data off the device. Absent inherits the task's privacy
+    /// posture.
+    public var networkRequired: Bool?
+    /// How ready the voice is to speak. Absent means 'ready'.
+    public var readiness: ProviderReadiness?
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case id = "id"
+        case locale = "locale"
+        case locales = "locales"
+        case name = "name"
+        case networkRequired = "networkRequired"
+        case readiness = "readiness"
+    }
+
+    public init(gender: VoiceGender?, id: String?, locale: String, locales: [String]?, name: String?, networkRequired: Bool?, readiness: ProviderReadiness?) {
+        self.gender = gender
+        self.id = id
+        self.locale = locale
+        self.locales = locales
+        self.name = name
+        self.networkRequired = networkRequired
+        self.readiness = readiness
+    }
+}
+
+// MARK: ProviderVoice convenience initializers and mutators
+
+public extension ProviderVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        locale: String? = nil,
+        locales: [String]?? = nil,
+        name: String?? = nil,
+        networkRequired: Bool?? = nil,
+        readiness: ProviderReadiness?? = nil
+    ) -> ProviderVoice {
+        return ProviderVoice(
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            locale: locale ?? self.locale,
+            locales: locales ?? self.locales,
+            name: name ?? self.name,
+            networkRequired: networkRequired ?? self.networkRequired,
+            readiness: readiness ?? self.readiness
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The provider's static capability declaration.
+///
+/// A provider's static capability declaration: identity, placement, transport, supported
+/// interaction modes and tasks, cancellation guarantee, resource limits and privacy posture.
+/// It does not change while the provider is registered. The route planner,
+/// checkCapabilities() and execution provenance all read this one shape.
+// MARK: - ProviderDescriptor
+public struct ProviderDescriptor: Codable, Sendable {
+    /// Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+    /// reading locally while remote work may continue, 'none' means cancellation is unsupported.
+    /// Independently of this value, the engine delivers no event after a cancel.
+    public var cancel: CancelSemantics
+    /// Unique identifier of the provider instance (a target), e.g. 'apple_foundation_models' or
+    /// 'openai_compatible_cloud:gpt-5-mini'. Model profiles list targets by this id.
+    public var id: String
+    /// Optional input and output resource limits.
+    public var limits: ProviderLimits?
+    /// The model this provider instance is bound to, when it can name one. Cloud providers
+    /// report the model id they send; platform-managed models report an opaque platform alias
+    /// rather than a guessed weight name. Absent means the provider cannot name its model.
+    public var model: String?
+    /// Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+    /// or edge provider is treated as keeping data on the device and a cloud provider as sending
+    /// it off.
+    public var privacy: ProviderPrivacy?
+    /// How a streaming provider delivers incremental output: individual tokens, larger chunks,
+    /// or whole snapshots. Absent for providers that do not stream.
+    public var streamingStyle: StreamingStyle?
+    /// Interaction modes and features the provider statically declares.
+    public var supports: ProviderSupports
+    /// What the provider can do for each task: accepted inputs, interaction modes, output
+    /// deliveries and formats, cancellation, locales and privacy. When present it is
+    /// authoritative for routing and must list every task the provider serves. When absent (a
+    /// legacy descriptor), routing infers exactly one entry — 'text_to_text' with text input,
+    /// inline output, run/stream from supports and cancel from cancel — if tasks contains
+    /// 'text_to_text', and nothing for any other task: a legacy descriptor is never treated as
+    /// capable of a non-text task.
+    public var taskCapabilities: [ProviderTaskCapability]?
+    /// Task kinds the provider supports, e.g. 'text_to_text'. When taskCapabilities is present
+    /// it must describe the same kinds and is what routing reads; without it, routing infers
+    /// capabilities for 'text_to_text' alone (see taskCapabilities).
+    public var tasks: [String]
+    /// How the engine reaches the provider: in-process runtime, operating-system service,
+    /// buffered HTTP, server-sent events, or a realtime connection.
+    public var transport: ProviderTransport
+    /// Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+    public var type: ProviderType
+
+    public enum CodingKeys: String, CodingKey {
+        case cancel = "cancel"
+        case id = "id"
+        case limits = "limits"
+        case model = "model"
+        case privacy = "privacy"
+        case streamingStyle = "streamingStyle"
+        case supports = "supports"
+        case taskCapabilities = "taskCapabilities"
+        case tasks = "tasks"
+        case transport = "transport"
+        case type = "type"
+    }
+
+    public init(cancel: CancelSemantics, id: String, limits: ProviderLimits?, model: String?, privacy: ProviderPrivacy?, streamingStyle: StreamingStyle?, supports: ProviderSupports, taskCapabilities: [ProviderTaskCapability]?, tasks: [String], transport: ProviderTransport, type: ProviderType) {
+        self.cancel = cancel
+        self.id = id
+        self.limits = limits
+        self.model = model
+        self.privacy = privacy
+        self.streamingStyle = streamingStyle
+        self.supports = supports
+        self.taskCapabilities = taskCapabilities
+        self.tasks = tasks
+        self.transport = transport
+        self.type = type
+    }
+}
+
+// MARK: ProviderDescriptor convenience initializers and mutators
+
+public extension ProviderDescriptor {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderDescriptor.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        cancel: CancelSemantics? = nil,
         id: String? = nil,
-        privacy: PrivacyClass?? = nil,
-        supports: Supports? = nil,
+        limits: ProviderLimits?? = nil,
+        model: String?? = nil,
+        privacy: ProviderPrivacy?? = nil,
+        streamingStyle: StreamingStyle?? = nil,
+        supports: ProviderSupports? = nil,
+        taskCapabilities: [ProviderTaskCapability]?? = nil,
         tasks: [String]? = nil,
-        type: DescriptorType? = nil
-    ) -> Descriptor {
-        return Descriptor(
+        transport: ProviderTransport? = nil,
+        type: ProviderType? = nil
+    ) -> ProviderDescriptor {
+        return ProviderDescriptor(
             cancel: cancel ?? self.cancel,
             id: id ?? self.id,
+            limits: limits ?? self.limits,
+            model: model ?? self.model,
             privacy: privacy ?? self.privacy,
+            streamingStyle: streamingStyle ?? self.streamingStyle,
             supports: supports ?? self.supports,
+            taskCapabilities: taskCapabilities ?? self.taskCapabilities,
             tasks: tasks ?? self.tasks,
+            transport: transport ?? self.transport,
             type: type ?? self.type
         )
     }
@@ -1954,18 +3047,98 @@ public extension Descriptor {
     }
 }
 
-/// Cancellation guarantee the provider offers. Carried for route explanations and telemetry;
-/// the planner does not filter on it.
-public enum Cancel: String, Codable, Sendable {
+/// Cancellation guarantee: 'hard' stops processing including remote work, 'soft' stops
+/// reading locally while remote work may continue, 'none' means cancellation is unsupported.
+/// Independently of this value, the engine delivers no event after a cancel.
+///
+/// Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+/// when stopping playback is immediate but a synthesis request cannot be aborted.
+public enum CancelSemantics: String, Codable, Sendable {
     case hard = "hard"
     case none = "none"
     case soft = "soft"
 }
 
-/// Descriptor privacy metadata used to enforce local/cloud routing rules.
-// MARK: - PrivacyClass
-public struct PrivacyClass: Codable, Sendable {
+/// Optional input and output resource limits.
+// MARK: - ProviderLimits
+public struct ProviderLimits: Codable, Sendable {
+    /// Longest accepted or produced audio, in seconds.
+    public var maxAudioSeconds: Int?
+    /// Largest accepted image, in bytes.
+    public var maxImageBytes: Int?
+    /// Largest accepted input, in tokens.
+    public var maxInputTokens: Int?
+    /// Largest output the provider produces, in tokens.
+    public var maxOutputTokens: Int?
+
+    public enum CodingKeys: String, CodingKey {
+        case maxAudioSeconds = "maxAudioSeconds"
+        case maxImageBytes = "maxImageBytes"
+        case maxInputTokens = "maxInputTokens"
+        case maxOutputTokens = "maxOutputTokens"
+    }
+
+    public init(maxAudioSeconds: Int?, maxImageBytes: Int?, maxInputTokens: Int?, maxOutputTokens: Int?) {
+        self.maxAudioSeconds = maxAudioSeconds
+        self.maxImageBytes = maxImageBytes
+        self.maxInputTokens = maxInputTokens
+        self.maxOutputTokens = maxOutputTokens
+    }
+}
+
+// MARK: ProviderLimits convenience initializers and mutators
+
+public extension ProviderLimits {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderLimits.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        maxAudioSeconds: Int?? = nil,
+        maxImageBytes: Int?? = nil,
+        maxInputTokens: Int?? = nil,
+        maxOutputTokens: Int?? = nil
+    ) -> ProviderLimits {
+        return ProviderLimits(
+            maxAudioSeconds: maxAudioSeconds ?? self.maxAudioSeconds,
+            maxImageBytes: maxImageBytes ?? self.maxImageBytes,
+            maxInputTokens: maxInputTokens ?? self.maxInputTokens,
+            maxOutputTokens: maxOutputTokens ?? self.maxOutputTokens
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Data-egress posture, used to enforce local and cloud routing rules. Absent means a local
+/// or edge provider is treated as keeping data on the device and a cloud provider as sending
+/// it off.
+///
+/// Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+/// provider whose speech synthesis uses a network service. Absent inherits
+/// descriptor.privacy.
+// MARK: - ProviderPrivacy
+public struct ProviderPrivacy: Codable, Sendable {
+    /// Whether request content leaves the device.
     public var dataLeavesDevice: Bool
+    /// Geographic regions where a cloud provider processes data.
     public var regions: [String]?
 
     public enum CodingKeys: String, CodingKey {
@@ -1979,11 +3152,11 @@ public struct PrivacyClass: Codable, Sendable {
     }
 }
 
-// MARK: PrivacyClass convenience initializers and mutators
+// MARK: ProviderPrivacy convenience initializers and mutators
 
-public extension PrivacyClass {
+public extension ProviderPrivacy {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(PrivacyClass.self, from: data)
+        self = try newJSONDecoder().decode(ProviderPrivacy.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -2000,8 +3173,8 @@ public extension PrivacyClass {
     func with(
         dataLeavesDevice: Bool? = nil,
         regions: [String]?? = nil
-    ) -> PrivacyClass {
-        return PrivacyClass(
+    ) -> ProviderPrivacy {
+        return ProviderPrivacy(
             dataLeavesDevice: dataLeavesDevice ?? self.dataLeavesDevice,
             regions: regions ?? self.regions
         )
@@ -2016,29 +3189,60 @@ public extension PrivacyClass {
     }
 }
 
-// MARK: - Supports
-public struct Supports: Codable, Sendable {
+/// How a streaming provider delivers incremental output: individual tokens, larger chunks,
+/// or whole snapshots. Absent for providers that do not stream.
+public enum StreamingStyle: String, Codable, Sendable {
+    case chunks = "chunks"
+    case snapshots = "snapshots"
+    case tokens = "tokens"
+}
+
+/// Interaction modes and features the provider statically declares.
+// MARK: - ProviderSupports
+public struct ProviderSupports: Codable, Sendable {
+    /// Whether the provider accepts non-text inputs such as images or audio.
+    public var multimodal: Bool
+    /// Whether the provider supports Mode 3 realtime sessions. Reserved; no engine implements
+    /// Mode 3 yet.
+    public var realtime: Bool
+    /// Whether the provider emits reasoning events alongside content.
+    public var reasoningEvents: Bool
+    /// Whether the provider supports Mode 1 run (request/response).
     public var run: Bool
-    /// Whether the provider statically declares Mode-2 streaming. Absent is treated as false: a
-    /// descriptor that predates this field cannot be assumed to stream.
-    public var streaming: Bool?
+    /// Whether the provider supports Mode 2 stream. A provider that declares it must also
+    /// implement the streaming adapter; the engines report it as unavailable otherwise.
+    public var streaming: Bool
+    /// Whether the provider supports structured output constrained by a JSON schema.
+    public var structuredOutput: Bool
+    /// Whether the provider supports tool calling.
+    public var tools: Bool
 
     public enum CodingKeys: String, CodingKey {
+        case multimodal = "multimodal"
+        case realtime = "realtime"
+        case reasoningEvents = "reasoningEvents"
         case run = "run"
         case streaming = "streaming"
+        case structuredOutput = "structuredOutput"
+        case tools = "tools"
     }
 
-    public init(run: Bool, streaming: Bool?) {
+    public init(multimodal: Bool, realtime: Bool, reasoningEvents: Bool, run: Bool, streaming: Bool, structuredOutput: Bool, tools: Bool) {
+        self.multimodal = multimodal
+        self.realtime = realtime
+        self.reasoningEvents = reasoningEvents
         self.run = run
         self.streaming = streaming
+        self.structuredOutput = structuredOutput
+        self.tools = tools
     }
 }
 
-// MARK: Supports convenience initializers and mutators
+// MARK: ProviderSupports convenience initializers and mutators
 
-public extension Supports {
+public extension ProviderSupports {
     init(data: Data) throws {
-        self = try newJSONDecoder().decode(Supports.self, from: data)
+        self = try newJSONDecoder().decode(ProviderSupports.self, from: data)
     }
 
     init(_ json: String, using encoding: String.Encoding = .utf8) throws {
@@ -2053,12 +3257,22 @@ public extension Supports {
     }
 
     func with(
+        multimodal: Bool? = nil,
+        realtime: Bool? = nil,
+        reasoningEvents: Bool? = nil,
         run: Bool? = nil,
-        streaming: Bool?? = nil
-    ) -> Supports {
-        return Supports(
+        streaming: Bool? = nil,
+        structuredOutput: Bool? = nil,
+        tools: Bool? = nil
+    ) -> ProviderSupports {
+        return ProviderSupports(
+            multimodal: multimodal ?? self.multimodal,
+            realtime: realtime ?? self.realtime,
+            reasoningEvents: reasoningEvents ?? self.reasoningEvents,
             run: run ?? self.run,
-            streaming: streaming ?? self.streaming
+            streaming: streaming ?? self.streaming,
+            structuredOutput: structuredOutput ?? self.structuredOutput,
+            tools: tools ?? self.tools
         )
     }
 
@@ -2071,23 +3285,278 @@ public extension Supports {
     }
 }
 
-public enum DescriptorType: String, Codable, Sendable {
+/// The provider's static capabilities for one task kind.
+// MARK: - ProviderTaskCapability
+public struct ProviderTaskCapability: Codable, Sendable {
+    /// Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
+    /// when stopping playback is immediate but a synthesis request cannot be aborted.
+    public var cancel: CancelSemantics
+    /// Input media kinds the provider accepts for this task.
+    public var inputs: [TaskInputKind]
+    /// Interaction modes the provider supports for this task.
+    public var interaction: ProviderTaskInteraction
+    /// The task kind this entry describes, e.g. 'text_to_speech'.
+    public var kind: String
+    /// BCP 47 locales the provider can serve for this task, when it knows them statically.
+    /// Absent means unknown; the dynamic check may report them instead.
+    public var locales: [String]?
+    /// How results of this task can be delivered. A provider lists only what it really produces:
+    /// a provider that can only play audio lists 'playback' and never 'artifact'.
+    public var outputs: [ProviderTaskOutput]
+    /// Data-egress posture for this task when it differs from the provider-level privacy, e.g. a
+    /// provider whose speech synthesis uses a network service. Absent inherits
+    /// descriptor.privacy.
+    public var privacy: ProviderPrivacy?
+
+    public enum CodingKeys: String, CodingKey {
+        case cancel = "cancel"
+        case inputs = "inputs"
+        case interaction = "interaction"
+        case kind = "kind"
+        case locales = "locales"
+        case outputs = "outputs"
+        case privacy = "privacy"
+    }
+
+    public init(cancel: CancelSemantics, inputs: [TaskInputKind], interaction: ProviderTaskInteraction, kind: String, locales: [String]?, outputs: [ProviderTaskOutput], privacy: ProviderPrivacy?) {
+        self.cancel = cancel
+        self.inputs = inputs
+        self.interaction = interaction
+        self.kind = kind
+        self.locales = locales
+        self.outputs = outputs
+        self.privacy = privacy
+    }
+}
+
+// MARK: ProviderTaskCapability convenience initializers and mutators
+
+public extension ProviderTaskCapability {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderTaskCapability.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        cancel: CancelSemantics? = nil,
+        inputs: [TaskInputKind]? = nil,
+        interaction: ProviderTaskInteraction? = nil,
+        kind: String? = nil,
+        locales: [String]?? = nil,
+        outputs: [ProviderTaskOutput]? = nil,
+        privacy: ProviderPrivacy?? = nil
+    ) -> ProviderTaskCapability {
+        return ProviderTaskCapability(
+            cancel: cancel ?? self.cancel,
+            inputs: inputs ?? self.inputs,
+            interaction: interaction ?? self.interaction,
+            kind: kind ?? self.kind,
+            locales: locales ?? self.locales,
+            outputs: outputs ?? self.outputs,
+            privacy: privacy ?? self.privacy
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A kind of input medium a task consumes.
+public enum TaskInputKind: String, Codable, Sendable {
+    case audio = "audio"
+    case image = "image"
+    case text = "text"
+}
+
+/// Interaction modes the provider supports for this task.
+// MARK: - ProviderTaskInteraction
+public struct ProviderTaskInteraction: Codable, Sendable {
+    /// Whether the provider implements prepare() for this task (ADR 019). Absent means false.
+    public var prepare: Bool?
+    /// Whether the provider supports Mode 1 run for this task.
+    public var run: Bool
+    /// Whether the provider supports Mode 2 stream for this task.
+    public var stream: Bool
+
+    public enum CodingKeys: String, CodingKey {
+        case prepare = "prepare"
+        case run = "run"
+        case stream = "stream"
+    }
+
+    public init(prepare: Bool?, run: Bool, stream: Bool) {
+        self.prepare = prepare
+        self.run = run
+        self.stream = stream
+    }
+}
+
+// MARK: ProviderTaskInteraction convenience initializers and mutators
+
+public extension ProviderTaskInteraction {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderTaskInteraction.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        prepare: Bool?? = nil,
+        run: Bool? = nil,
+        stream: Bool? = nil
+    ) -> ProviderTaskInteraction {
+        return ProviderTaskInteraction(
+            prepare: prepare ?? self.prepare,
+            run: run ?? self.run,
+            stream: stream ?? self.stream
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// One way the provider can deliver a task's result.
+// MARK: - ProviderTaskOutput
+public struct ProviderTaskOutput: Codable, Sendable {
+    public var delivery: OutputDelivery
+    /// Media types the provider can produce with this delivery, e.g. 'audio/wav'. Absent means
+    /// the provider does not declare them; a request that requires specific media types never
+    /// routes to such an output.
+    public var mediaTypes: [String]?
+
+    public enum CodingKeys: String, CodingKey {
+        case delivery = "delivery"
+        case mediaTypes = "mediaTypes"
+    }
+
+    public init(delivery: OutputDelivery, mediaTypes: [String]?) {
+        self.delivery = delivery
+        self.mediaTypes = mediaTypes
+    }
+}
+
+// MARK: ProviderTaskOutput convenience initializers and mutators
+
+public extension ProviderTaskOutput {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderTaskOutput.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        delivery: OutputDelivery? = nil,
+        mediaTypes: [String]?? = nil
+    ) -> ProviderTaskOutput {
+        return ProviderTaskOutput(
+            delivery: delivery ?? self.delivery,
+            mediaTypes: mediaTypes ?? self.mediaTypes
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// How the engine reaches the provider: in-process runtime, operating-system service,
+/// buffered HTTP, server-sent events, or a realtime connection.
+public enum ProviderTransport: String, Codable, Sendable {
+    case http = "http"
+    case inProcess = "in_process"
+    case realtime = "realtime"
+    case sse = "sse"
+    case systemService = "system_service"
+}
+
+/// Execution placement: 'local' (on the device), 'edge', or 'cloud'.
+public enum ProviderType: String, Codable, Sendable {
     case cloud = "cloud"
     case edge = "edge"
     case local = "local"
 }
 
-/// Minimal task descriptor for provider task matching.
+/// Task descriptor for provider task matching: the kind plus the requirements routing can
+/// check against declared capabilities. Absent requirement fields are never checked, so a
+/// text request carries the kind alone.
 // MARK: - RoutePlannerInputTask
 public struct RoutePlannerInputTask: Codable, Sendable {
+    /// The output delivery the request requires. Absent for text, whose delivery is implicitly
+    /// inline.
+    public var delivery: DeliveryRequirement?
+    /// Input media kinds the request carries. Every one must be accepted by the provider's task
+    /// capability. The SDKs send ['text'] for text_to_text.
+    public var inputs: [TaskInputKind]?
+    /// The task kind, matched against the providers' task capabilities.
     public var kind: String
+    /// The locale the request requires. Under 'language' matching the region is a preference: a
+    /// provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider
+    /// that cannot enumerate its locales is not rejected on this basis; it must fail before
+    /// committing instead.
+    public var locale: LocaleRequirement?
+    /// The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+    /// voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+    /// candidate to, always within the request's privacy policy, and a preferred id also ranks
+    /// the provider that can bind it ahead of others.
+    public var voice: VoiceRequirement?
 
     public enum CodingKeys: String, CodingKey {
+        case delivery = "delivery"
+        case inputs = "inputs"
         case kind = "kind"
+        case locale = "locale"
+        case voice = "voice"
     }
 
-    public init(kind: String) {
+    public init(delivery: DeliveryRequirement?, inputs: [TaskInputKind]?, kind: String, locale: LocaleRequirement?, voice: VoiceRequirement?) {
+        self.delivery = delivery
+        self.inputs = inputs
         self.kind = kind
+        self.locale = locale
+        self.voice = voice
     }
 }
 
@@ -2110,10 +3579,205 @@ public extension RoutePlannerInputTask {
     }
 
     func with(
-        kind: String? = nil
+        delivery: DeliveryRequirement?? = nil,
+        inputs: [TaskInputKind]?? = nil,
+        kind: String? = nil,
+        locale: LocaleRequirement?? = nil,
+        voice: VoiceRequirement?? = nil
     ) -> RoutePlannerInputTask {
         return RoutePlannerInputTask(
-            kind: kind ?? self.kind
+            delivery: delivery ?? self.delivery,
+            inputs: inputs ?? self.inputs,
+            kind: kind ?? self.kind,
+            locale: locale ?? self.locale,
+            voice: voice ?? self.voice
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The output delivery the request requires. Absent for text, whose delivery is implicitly
+/// inline.
+// MARK: - DeliveryRequirement
+public struct DeliveryRequirement: Codable, Sendable {
+    /// Acceptable media types; the provider must declare at least one for the requested
+    /// delivery. Absent means any.
+    public var mediaTypes: [String]?
+    public var mode: OutputDelivery
+
+    public enum CodingKeys: String, CodingKey {
+        case mediaTypes = "mediaTypes"
+        case mode = "mode"
+    }
+
+    public init(mediaTypes: [String]?, mode: OutputDelivery) {
+        self.mediaTypes = mediaTypes
+        self.mode = mode
+    }
+}
+
+// MARK: DeliveryRequirement convenience initializers and mutators
+
+public extension DeliveryRequirement {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(DeliveryRequirement.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        mediaTypes: [String]?? = nil,
+        mode: OutputDelivery? = nil
+    ) -> DeliveryRequirement {
+        return DeliveryRequirement(
+            mediaTypes: mediaTypes ?? self.mediaTypes,
+            mode: mode ?? self.mode
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The locale the request requires. Under 'language' matching the region is a preference: a
+/// provider known to offer the exact tag ranks ahead of an otherwise equal one. A provider
+/// that cannot enumerate its locales is not rejected on this basis; it must fail before
+/// committing instead.
+// MARK: - LocaleRequirement
+public struct LocaleRequirement: Codable, Sendable {
+    /// 'exact' requires the full tag; 'language' requires only the primary language subtag and
+    /// treats the region as a preference.
+    public var match: LocaleMatch
+    /// BCP 47 tag.
+    public var tag: String
+
+    public enum CodingKeys: String, CodingKey {
+        case match = "match"
+        case tag = "tag"
+    }
+
+    public init(match: LocaleMatch, tag: String) {
+        self.match = match
+        self.tag = tag
+    }
+}
+
+// MARK: LocaleRequirement convenience initializers and mutators
+
+public extension LocaleRequirement {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(LocaleRequirement.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        match: LocaleMatch? = nil,
+        tag: String? = nil
+    ) -> LocaleRequirement {
+        return LocaleRequirement(
+            match: match ?? self.match,
+            tag: tag ?? self.tag
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The voice the request asks for, by providerId and id, or by traits. Only a 'required'
+/// voice can reject a provider; a 'preferred' one shapes which listed voice the plan binds a
+/// candidate to, always within the request's privacy policy, and a preferred id also ranks
+/// the provider that can bind it ahead of others.
+// MARK: - VoiceRequirement
+public struct VoiceRequirement: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// A voice id, compared exactly against the voices of providerId and of no other provider.
+    public var id: String?
+    /// The provider that id belongs to.
+    public var providerId: String?
+    /// 'required' takes part in routing; 'preferred' does not.
+    public var requirement: RequirementLevel
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case id = "id"
+        case providerId = "providerId"
+        case requirement = "requirement"
+    }
+
+    public init(gender: VoiceGender?, id: String?, providerId: String?, requirement: RequirementLevel) {
+        self.gender = gender
+        self.id = id
+        self.providerId = providerId
+        self.requirement = requirement
+    }
+}
+
+// MARK: VoiceRequirement convenience initializers and mutators
+
+public extension VoiceRequirement {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(VoiceRequirement.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        providerId: String?? = nil,
+        requirement: RequirementLevel? = nil
+    ) -> VoiceRequirement {
+        return VoiceRequirement(
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            providerId: providerId ?? self.providerId,
+            requirement: requirement ?? self.requirement
         )
     }
 
@@ -2210,15 +3874,26 @@ public extension RoutePlan {
 public struct Candidate: Codable, Sendable {
     public var order: Int
     public var providerId: String
+    /// The voice this candidate must use if it is attempted, chosen by the planner from the
+    /// provider's dynamic voice inventory. It is the best voice that satisfies the request's
+    /// locale, required voice traits and privacy — under local-required privacy always one that
+    /// keeps data on the device — ranked by preferred id, then preferred gender, then exact
+    /// locale region, then on-device before network. The adapter must use the voice with this
+    /// id, or one with exactly these traits when the voice has no id. Absent when the request
+    /// names no locale or voice, or the provider does not list its voices; the adapter then
+    /// chooses itself under the same rules.
+    public var voice: ProviderVoice?
 
     public enum CodingKeys: String, CodingKey {
         case order = "order"
         case providerId = "providerId"
+        case voice = "voice"
     }
 
-    public init(order: Int, providerId: String) {
+    public init(order: Int, providerId: String, voice: ProviderVoice?) {
         self.order = order
         self.providerId = providerId
+        self.voice = voice
     }
 }
 
@@ -2242,11 +3917,13 @@ public extension Candidate {
 
     func with(
         order: Int? = nil,
-        providerId: String? = nil
+        providerId: String? = nil,
+        voice: ProviderVoice?? = nil
     ) -> Candidate {
         return Candidate(
             order: order ?? self.order,
-            providerId: providerId ?? self.providerId
+            providerId: providerId ?? self.providerId,
+            voice: voice ?? self.voice
         )
     }
 
@@ -2379,7 +4056,12 @@ public struct Reason: Codable, Sendable {
     /// statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming
     /// but the dynamic capability snapshot reports it cannot stream in the current host
     /// environment. 'not_in_model_profile' means the request named a model profile that does not
-    /// list this provider.
+    /// list this provider. 'input_not_supported', 'output_delivery_not_supported',
+    /// 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the
+    /// provider's task capability lacks an input kind, output delivery, media type, locale or
+    /// voice the request requires. 'prepare_not_supported' means the task capability declares no
+    /// prepare(). 'not_ready' means the provider, task or required voice exists but is not
+    /// prepared yet, so prepare() can make it available.
     public var code: Code
     public var message: String
 
@@ -2444,7 +4126,7 @@ public struct ModelPackage: Codable, Sendable {
     public var files: Files?
     /// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
     /// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
-    /// model package.
+    /// model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).
     public var format: Format
     /// Stable application-scoped identifier for the model package.
     public var id: String
@@ -2462,9 +4144,16 @@ public struct ModelPackage: Codable, Sendable {
     /// platform-dependent; see the ONNX Runtime provider-family specification for the
     /// per-platform support matrix.
     public var source: Source?
+    /// What a text_to_speech model package adds: the pipeline that turns text into PCM, the
+    /// graphs it runs, its text frontend and the voices it offers. Required when 'tasks'
+    /// contains 'text_to_speech'.
+    public var speech: SpeechModelPackage?
     /// IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by
     /// dynamic capability checks and route matching.
     public var tasks: [String]?
+    /// Optional concrete artifact variant of this logical model (for example 'onnx-int8',
+    /// 'coreai-fp16'). 'id' names the model, 'variant' the bytes.
+    public var variant: String?
     /// Optional application-defined version for the model package, used for cache invalidation
     /// and compatibility checks.
     public var version: String?
@@ -2478,11 +4167,13 @@ public struct ModelPackage: Codable, Sendable {
         case limits = "limits"
         case runtime = "runtime"
         case source = "source"
+        case speech = "speech"
         case tasks = "tasks"
+        case variant = "variant"
         case version = "version"
     }
 
-    public init(files: Files?, format: Format, id: String, integrity: Integrity?, license: License?, limits: Limits?, runtime: Runtime?, source: Source?, tasks: [String]?, version: String?) {
+    public init(files: Files?, format: Format, id: String, integrity: Integrity?, license: License?, limits: Limits?, runtime: Runtime?, source: Source?, speech: SpeechModelPackage?, tasks: [String]?, variant: String?, version: String?) {
         self.files = files
         self.format = format
         self.id = id
@@ -2491,7 +4182,9 @@ public struct ModelPackage: Codable, Sendable {
         self.limits = limits
         self.runtime = runtime
         self.source = source
+        self.speech = speech
         self.tasks = tasks
+        self.variant = variant
         self.version = version
     }
 }
@@ -2523,7 +4216,9 @@ public extension ModelPackage {
         limits: Limits?? = nil,
         runtime: Runtime?? = nil,
         source: Source?? = nil,
+        speech: SpeechModelPackage?? = nil,
         tasks: [String]?? = nil,
+        variant: String?? = nil,
         version: String?? = nil
     ) -> ModelPackage {
         return ModelPackage(
@@ -2535,7 +4230,9 @@ public extension ModelPackage {
             limits: limits ?? self.limits,
             runtime: runtime ?? self.runtime,
             source: source ?? self.source,
+            speech: speech ?? self.speech,
             tasks: tasks ?? self.tasks,
+            variant: variant ?? self.variant,
             version: version ?? self.version
         )
     }
@@ -2621,8 +4318,9 @@ public extension Files {
 
 /// Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX
 /// graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI
-/// model package.
+/// model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).
 public enum Format: String, Codable, Sendable {
+    case coreai = "coreai"
     case genai = "genai"
     case onnx = "onnx"
     case ort = "ort"
@@ -2798,6 +4496,10 @@ public extension Limits {
 public struct Runtime: Codable, Sendable {
     /// Minimum ONNX opset version the model requires, where known.
     public var minOpset: Int?
+    /// Minimum platform OS version the package needs, where known (for example '27.0' for a Core
+    /// AI asset). Applies to every platform listed in `platforms`; split packages whose
+    /// platforms need different OS floors.
+    public var minOsVersion: String?
     /// Minimum runtime package version required to load the model, where known.
     public var minRuntimeVersion: String?
     /// Platforms the package is expected to run on (for example 'web', 'android', 'apple').
@@ -2806,12 +4508,14 @@ public struct Runtime: Codable, Sendable {
 
     public enum CodingKeys: String, CodingKey {
         case minOpset = "minOpset"
+        case minOsVersion = "minOsVersion"
         case minRuntimeVersion = "minRuntimeVersion"
         case platforms = "platforms"
     }
 
-    public init(minOpset: Int?, minRuntimeVersion: String?, platforms: [String]?) {
+    public init(minOpset: Int?, minOsVersion: String?, minRuntimeVersion: String?, platforms: [String]?) {
         self.minOpset = minOpset
+        self.minOsVersion = minOsVersion
         self.minRuntimeVersion = minRuntimeVersion
         self.platforms = platforms
     }
@@ -2837,11 +4541,13 @@ public extension Runtime {
 
     func with(
         minOpset: Int?? = nil,
+        minOsVersion: String?? = nil,
         minRuntimeVersion: String?? = nil,
         platforms: [String]?? = nil
     ) -> Runtime {
         return Runtime(
             minOpset: minOpset ?? self.minOpset,
+            minOsVersion: minOsVersion ?? self.minOsVersion,
             minRuntimeVersion: minRuntimeVersion ?? self.minRuntimeVersion,
             platforms: platforms ?? self.platforms
         )
@@ -2933,6 +4639,298 @@ public enum SourceType: String, Codable, Sendable {
     case programmatic = "programmatic"
     case registry = "registry"
     case remote = "remote"
+}
+
+/// What a text_to_speech model package adds: the pipeline that turns text into PCM, the
+/// graphs it runs, its text frontend and the voices it offers. Required when 'tasks'
+/// contains 'text_to_speech'.
+// MARK: - SpeechModelPackage
+public struct SpeechModelPackage: Codable, Sendable {
+    /// Channels of the PCM the pipeline produces. Absent means 1.
+    public var channels: Int?
+    /// How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need
+    /// a grapheme-to-phoneme step whose assets are listed here.
+    public var frontend: SpeechFrontend?
+    /// Role to file. Roles are defined by the pipeline (for example 'text', 'dit_step',
+    /// 'decoder'). For a 'coreai' package a value is either the .aimodel file, whose inference
+    /// function is then named after the role, or `<file>#<function>` when the function name
+    /// differs.
+    public var graphs: [String: String]
+    /// The text-to-PCM recipe the provider runs for this package: which graphs in which order,
+    /// with which text frontend. A provider refuses a value it does not implement.
+    public var pipeline: String
+    /// Sample rate of the PCM the pipeline produces, in Hz.
+    public var sampleRate: Int
+    /// The voices this package offers, one entry per selectable voice. Each is listed through
+    /// capabilities as a ProviderVoice.
+    public var voices: [SpeechModelVoice]
+
+    public enum CodingKeys: String, CodingKey {
+        case channels = "channels"
+        case frontend = "frontend"
+        case graphs = "graphs"
+        case pipeline = "pipeline"
+        case sampleRate = "sampleRate"
+        case voices = "voices"
+    }
+
+    public init(channels: Int?, frontend: SpeechFrontend?, graphs: [String: String], pipeline: String, sampleRate: Int, voices: [SpeechModelVoice]) {
+        self.channels = channels
+        self.frontend = frontend
+        self.graphs = graphs
+        self.pipeline = pipeline
+        self.sampleRate = sampleRate
+        self.voices = voices
+    }
+}
+
+// MARK: SpeechModelPackage convenience initializers and mutators
+
+public extension SpeechModelPackage {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechModelPackage.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        channels: Int?? = nil,
+        frontend: SpeechFrontend?? = nil,
+        graphs: [String: String]? = nil,
+        pipeline: String? = nil,
+        sampleRate: Int? = nil,
+        voices: [SpeechModelVoice]? = nil
+    ) -> SpeechModelPackage {
+        return SpeechModelPackage(
+            channels: channels ?? self.channels,
+            frontend: frontend ?? self.frontend,
+            graphs: graphs ?? self.graphs,
+            pipeline: pipeline ?? self.pipeline,
+            sampleRate: sampleRate ?? self.sampleRate,
+            voices: voices ?? self.voices
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need
+/// a grapheme-to-phoneme step whose assets are listed here.
+// MARK: - SpeechFrontend
+public struct SpeechFrontend: Codable, Sendable {
+    /// Role to file for the frontend's own assets (tokenizer, lexicon, G2P graph).
+    public var assets: [String: String]?
+    public var kind: FrontendKind
+    public var license: AssetLicense?
+
+    public enum CodingKeys: String, CodingKey {
+        case assets = "assets"
+        case kind = "kind"
+        case license = "license"
+    }
+
+    public init(assets: [String: String]?, kind: FrontendKind, license: AssetLicense?) {
+        self.assets = assets
+        self.kind = kind
+        self.license = license
+    }
+}
+
+// MARK: SpeechFrontend convenience initializers and mutators
+
+public extension SpeechFrontend {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechFrontend.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        assets: [String: String]?? = nil,
+        kind: FrontendKind? = nil,
+        license: AssetLicense?? = nil
+    ) -> SpeechFrontend {
+        return SpeechFrontend(
+            assets: assets ?? self.assets,
+            kind: kind ?? self.kind,
+            license: license ?? self.license
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+public enum FrontendKind: String, Codable, Sendable {
+    case grapheme = "grapheme"
+    case phoneme = "phoneme"
+}
+
+/// Licence of one asset inside a package (a voice, a frontend), where it differs from the
+/// package's own.
+// MARK: - AssetLicense
+public struct AssetLicense: Codable, Sendable {
+    /// SPDX license identifier where known.
+    public var spdx: String?
+    /// License or model card URL where available.
+    public var url: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case spdx = "spdx"
+        case url = "url"
+    }
+
+    public init(spdx: String?, url: String?) {
+        self.spdx = spdx
+        self.url = url
+    }
+}
+
+// MARK: AssetLicense convenience initializers and mutators
+
+public extension AssetLicense {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(AssetLicense.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        spdx: String?? = nil,
+        url: String?? = nil
+    ) -> AssetLicense {
+        return AssetLicense(
+            spdx: spdx ?? self.spdx,
+            url: url ?? self.url
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - SpeechModelVoice
+public struct SpeechModelVoice: Codable, Sendable {
+    /// The voice asset (style vector or speaker embedding), relative to the package. Absent when
+    /// the voice is built into the graphs and selected by the pipeline (for example a speaker
+    /// index). No speaker encoder runs on the device.
+    public var file: String?
+    public var gender: VoiceGender?
+    /// Identifies the voice within the package and, through the provider, as speech.voice.id.
+    /// Unique within the package.
+    public var id: String
+    public var license: AssetLicense?
+    /// Hyphenated BCP 47 tags the voice speaks (for example 'de-DE', not 'de_DE'); the first is
+    /// its primary locale.
+    public var locales: [String]
+    /// Label for showing the voice to a person.
+    public var name: String
+
+    public enum CodingKeys: String, CodingKey {
+        case file = "file"
+        case gender = "gender"
+        case id = "id"
+        case license = "license"
+        case locales = "locales"
+        case name = "name"
+    }
+
+    public init(file: String?, gender: VoiceGender?, id: String, license: AssetLicense?, locales: [String], name: String) {
+        self.file = file
+        self.gender = gender
+        self.id = id
+        self.license = license
+        self.locales = locales
+        self.name = name
+    }
+}
+
+// MARK: SpeechModelVoice convenience initializers and mutators
+
+public extension SpeechModelVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechModelVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        file: String?? = nil,
+        gender: VoiceGender?? = nil,
+        id: String? = nil,
+        license: AssetLicense?? = nil,
+        locales: [String]? = nil,
+        name: String? = nil
+    ) -> SpeechModelVoice {
+        return SpeechModelVoice(
+            file: file ?? self.file,
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            license: license ?? self.license,
+            locales: locales ?? self.locales,
+            name: name ?? self.name
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
 }
 
 /// The serializable acknowledgment returned when a Mode 2 stream is opened, before any
@@ -3073,6 +5071,8 @@ public struct StreamEvent: Codable, Sendable {
     /// Mechanical/diagnostic: free-form orchestration or provider diagnostic detail. Not
     /// user-visible content.
     ///
+    /// Progress of a prepare() run (ADR 019).
+    ///
     /// Terminal: the last event of the run, carrying the mutually-exclusive
     /// completion/error/cancellation outcome. No further StreamEvent is delivered for this runId
     /// after this event.
@@ -3160,9 +5160,16 @@ public struct Payload: Codable, Sendable {
     public var text: String?
     /// The lifecycle phase reached.
     public var phase: Phase?
+    /// How much of this item is done, from 0 to 1. Absent when the platform reports no fraction.
+    public var fractionCompleted: Double?
+    /// The provider being prepared.
+    public var providerId: String?
+    /// The task kind being prepared.
+    public var task: String?
     public var finalText: String?
     public var finishReason: FinishReason?
     public var outcome: Outcome?
+    public var output: TaskOutput?
     /// Normalized execution provenance: which target ran, its declared locality, the configured
     /// and reported model, and how fallback and routing played out. See
     /// execution-provenance.schema.json.
@@ -3178,9 +5185,13 @@ public struct Payload: Codable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case text = "text"
         case phase = "phase"
+        case fractionCompleted = "fractionCompleted"
+        case providerId = "providerId"
+        case task = "task"
         case finalText = "finalText"
         case finishReason = "finishReason"
         case outcome = "outcome"
+        case output = "output"
         case provenance = "provenance"
         case runId = "runId"
         case schemaVersion = "schemaVersion"
@@ -3191,12 +5202,16 @@ public struct Payload: Codable, Sendable {
         case reason = "reason"
     }
 
-    public init(text: String?, phase: Phase?, finalText: String?, finishReason: FinishReason?, outcome: Outcome?, provenance: ExecutionProvenance?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
+    public init(text: String?, phase: Phase?, fractionCompleted: Double?, providerId: String?, task: String?, finalText: String?, finishReason: FinishReason?, outcome: Outcome?, output: TaskOutput?, provenance: ExecutionProvenance?, runId: String?, schemaVersion: SchemaVersion?, telemetry: PayloadTelemetry?, usage: PayloadUsage?, error: PayloadError?, partialText: String?, reason: String?) {
         self.text = text
         self.phase = phase
+        self.fractionCompleted = fractionCompleted
+        self.providerId = providerId
+        self.task = task
         self.finalText = finalText
         self.finishReason = finishReason
         self.outcome = outcome
+        self.output = output
         self.provenance = provenance
         self.runId = runId
         self.schemaVersion = schemaVersion
@@ -3229,9 +5244,13 @@ public extension Payload {
     func with(
         text: String?? = nil,
         phase: Phase?? = nil,
+        fractionCompleted: Double?? = nil,
+        providerId: String?? = nil,
+        task: String?? = nil,
         finalText: String?? = nil,
         finishReason: FinishReason?? = nil,
         outcome: Outcome?? = nil,
+        output: TaskOutput?? = nil,
         provenance: ExecutionProvenance?? = nil,
         runId: String?? = nil,
         schemaVersion: SchemaVersion?? = nil,
@@ -3244,9 +5263,13 @@ public extension Payload {
         return Payload(
             text: text ?? self.text,
             phase: phase ?? self.phase,
+            fractionCompleted: fractionCompleted ?? self.fractionCompleted,
+            providerId: providerId ?? self.providerId,
+            task: task ?? self.task,
             finalText: finalText ?? self.finalText,
             finishReason: finishReason ?? self.finishReason,
             outcome: outcome ?? self.outcome,
+            output: output ?? self.output,
             provenance: provenance ?? self.provenance,
             runId: runId ?? self.runId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
@@ -3479,22 +5502,24 @@ public extension PayloadUsage {
 /// How a Mode 2 stream run ended. Completion, error, and cancellation are mutually exclusive
 /// terminal outcomes, enforced here as a closed set of three oneOf branches discriminated by
 /// 'outcome' (unlike StreamEvent.type, this set is not open-ended: the three-way terminal
-/// outcome is a fixed architectural guarantee, not something new outcome kinds get added
-/// to). Exactly one StreamTerminalOutcome is produced per run, and no further StreamEvent is
-/// delivered after it (see docs/architecture/architecture.md, 'Cancellation And Fallback').
-/// This shape is also embedded by value as the payload of the terminal StreamEvent
-/// (stream-event.schema.json) so it can additionally be exposed standalone, e.g. as a
-/// completion future/promise a stream handle resolves independently of consuming the full
-/// event sequence; the two copies must stay structurally identical. Note on
-/// additionalProperties: per this repo's forward-compatible convention every branch permits
-/// unknown extra fields, so mutual exclusivity is enforced via the required 'outcome'
-/// discriminator plus each branch's own required peer field (finalText/error/partialText)
-/// being present, not by forbidding a payload from also carrying an unrelated stray field
-/// from another branch's vocabulary.
+/// outcome is a fixed architectural guarantee, not something new outcome kinds get added to;
+/// the payload of each branch may grow additively). Exactly one StreamTerminalOutcome is
+/// produced per run, and no further StreamEvent is delivered after it (see
+/// docs/architecture/architecture.md, 'Cancellation And Fallback'). This shape is also
+/// embedded by value as the payload of the terminal StreamEvent (stream-event.schema.json)
+/// so it can additionally be exposed standalone, e.g. as a completion future/promise a
+/// stream handle resolves independently of consuming the full event sequence; the two copies
+/// must stay structurally identical. Note on additionalProperties: per this repo's
+/// forward-compatible convention every branch permits unknown extra fields, so mutual
+/// exclusivity is enforced via the required 'outcome' discriminator plus each branch's own
+/// required peer field being present (finalText or output / error), and for 'cancelled' by
+/// the discriminator alone, not by forbidding a payload from also carrying an unrelated
+/// stray field from another branch's vocabulary.
 // MARK: - StreamTerminalOutcome
 public struct StreamTerminalOutcome: Codable, Sendable {
-    /// The full, cumulative text produced by the run. Equivalent in role to
-    /// TaskResult.output.text for Mode 1.
+    /// The full, cumulative text produced by a text run. Equivalent in role to
+    /// TaskResult.output.text for Mode 1. A text run sets it; a non-text run carries output
+    /// instead.
     public var finalText: String?
     /// How generation ended, mirroring TaskResult.finishReason for Mode 1: 'stop' (natural end),
     /// 'length' (hit maxOutputTokens), 'error' (provider reported a non-fatal issue on an
@@ -3511,6 +5536,17 @@ public struct StreamTerminalOutcome: Codable, Sendable {
     /// The stream was cancelled. No further StreamEvent is delivered after this outcome, and no
     /// further fallback attempt is made, per the engine's cancellation guarantee.
     public var outcome: Outcome
+    /// The normalized output of the run, the same shape run() returns in TaskResult.output. Set
+    /// for every non-text run; a text run may set it alongside finalText. See
+    /// task-output.schema.json.
+    ///
+    /// What a cancelled non-text run had already produced: a playback run that committed (audio
+    /// may have been heard) carries a playback output, and an artifact run cancelled while the
+    /// engine was writing its artifact to an application destination carries that
+    /// application-owned artifact, whose bytes the write left at the destination. Absent when
+    /// nothing was produced, e.g. an artifact run cancelled before its artifact was handed over,
+    /// whose partial media the engine discards. See task-output.schema.json.
+    public var output: TaskOutput?
     /// Normalized execution provenance: which target ran, its declared locality, the configured
     /// and reported model, and how fallback and routing played out. See
     /// execution-provenance.schema.json.
@@ -3532,9 +5568,13 @@ public struct StreamTerminalOutcome: Codable, Sendable {
     /// shapes in sync; a cross-check test asserts a shared fixture validates against both
     /// schemas.
     public var error: StreamTerminalOutcomeError?
-    /// Whatever cumulative text had already been delivered via content_delta/content_snapshot
-    /// StreamEvents before the cancellation point. May be empty if cancellation occurred before
-    /// any content was produced.
+    /// Whatever cumulative text a text run had already delivered before it failed after
+    /// committing to its provider. Absent when nothing was delivered.
+    ///
+    /// Whatever cumulative text a text run had already delivered via
+    /// content_delta/content_snapshot StreamEvents before the cancellation point. Always set for
+    /// a text run, and empty if cancellation occurred before any content was produced. A
+    /// non-text run never sets it.
     public var partialText: String?
     /// Optional human-readable reason the run was cancelled (e.g. caller-initiated abort). Not a
     /// machine-taxonomy field; use errorClass on the 'error' outcome branch for failure
@@ -3545,6 +5585,7 @@ public struct StreamTerminalOutcome: Codable, Sendable {
         case finalText = "finalText"
         case finishReason = "finishReason"
         case outcome = "outcome"
+        case output = "output"
         case provenance = "provenance"
         case runId = "runId"
         case schemaVersion = "schemaVersion"
@@ -3555,10 +5596,11 @@ public struct StreamTerminalOutcome: Codable, Sendable {
         case reason = "reason"
     }
 
-    public init(finalText: String?, finishReason: FinishReason?, outcome: Outcome, provenance: ExecutionProvenance?, runId: String, schemaVersion: SchemaVersion, telemetry: StreamTerminalOutcomeTelemetry?, usage: StreamTerminalOutcomeUsage?, error: StreamTerminalOutcomeError?, partialText: String?, reason: String?) {
+    public init(finalText: String?, finishReason: FinishReason?, outcome: Outcome, output: TaskOutput?, provenance: ExecutionProvenance?, runId: String, schemaVersion: SchemaVersion, telemetry: StreamTerminalOutcomeTelemetry?, usage: StreamTerminalOutcomeUsage?, error: StreamTerminalOutcomeError?, partialText: String?, reason: String?) {
         self.finalText = finalText
         self.finishReason = finishReason
         self.outcome = outcome
+        self.output = output
         self.provenance = provenance
         self.runId = runId
         self.schemaVersion = schemaVersion
@@ -3592,6 +5634,7 @@ public extension StreamTerminalOutcome {
         finalText: String?? = nil,
         finishReason: FinishReason?? = nil,
         outcome: Outcome? = nil,
+        output: TaskOutput?? = nil,
         provenance: ExecutionProvenance?? = nil,
         runId: String? = nil,
         schemaVersion: SchemaVersion? = nil,
@@ -3605,6 +5648,7 @@ public extension StreamTerminalOutcome {
             finalText: finalText ?? self.finalText,
             finishReason: finishReason ?? self.finishReason,
             outcome: outcome ?? self.outcome,
+            output: output ?? self.output,
             provenance: provenance ?? self.provenance,
             runId: runId ?? self.runId,
             schemaVersion: schemaVersion ?? self.schemaVersion,
@@ -3837,6 +5881,287 @@ public extension StreamTerminalOutcomeUsage {
             inputTokens: inputTokens ?? self.inputTokens,
             outputTokens: outputTokens ?? self.outputTokens,
             totalTokens: totalTokens ?? self.totalTokens
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// One registered provider's identity, static declaration and live capability check, as
+/// returned by checkCapabilities(). A read-only snapshot: producing it executes no task and
+/// has no side effects.
+// MARK: - ProviderCapabilitySnapshot
+public struct ProviderCapabilitySnapshot: Codable, Sendable {
+    /// The provider's live capability check at the time of the call.
+    public var capabilities: ProviderDynamicCapabilities
+    /// The provider's static capability declaration.
+    public var descriptor: ProviderDescriptor
+    /// Identifier of the provider; equal to descriptor.id.
+    public var providerId: String
+
+    public enum CodingKeys: String, CodingKey {
+        case capabilities = "capabilities"
+        case descriptor = "descriptor"
+        case providerId = "providerId"
+    }
+
+    public init(capabilities: ProviderDynamicCapabilities, descriptor: ProviderDescriptor, providerId: String) {
+        self.capabilities = capabilities
+        self.descriptor = descriptor
+        self.providerId = providerId
+    }
+}
+
+// MARK: ProviderCapabilitySnapshot convenience initializers and mutators
+
+public extension ProviderCapabilitySnapshot {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ProviderCapabilitySnapshot.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        capabilities: ProviderDynamicCapabilities? = nil,
+        descriptor: ProviderDescriptor? = nil,
+        providerId: String? = nil
+    ) -> ProviderCapabilitySnapshot {
+        return ProviderCapabilitySnapshot(
+            capabilities: capabilities ?? self.capabilities,
+            descriptor: descriptor ?? self.descriptor,
+            providerId: providerId ?? self.providerId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Optional scope for IndeRunApi.prepare (ADR 019). Every field is optional: an empty
+/// request covers every registered provider and task. It carries no user content.
+// MARK: - PrepareRequest
+public struct PrepareRequest: Codable, Sendable {
+    /// Lets this call start a platform's own download, whatever autoDownload says at
+    /// registration. Call it from a user's decision. Absent follows autoDownload.
+    public var allowDownload: Bool?
+    /// BCP 47 tag of the language to prepare. Absent lets a speech provider use the device's own
+    /// language.
+    public var locale: String?
+    /// How locale compares: 'language' (default) or 'exact'.
+    public var localeMatch: LocaleMatch?
+    /// The privacy policy of the runs this precedes.
+    public var privacy: Privacy?
+    /// Fixes the run id, for correlation.
+    public var requestId: String?
+    /// Task kinds to prepare. Absent means every task a registered provider can prepare.
+    public var tasks: [String]?
+    /// A voice to prepare, as for a speech request.
+    public var voice: PrepareVoice?
+
+    public enum CodingKeys: String, CodingKey {
+        case allowDownload = "allowDownload"
+        case locale = "locale"
+        case localeMatch = "localeMatch"
+        case privacy = "privacy"
+        case requestId = "requestId"
+        case tasks = "tasks"
+        case voice = "voice"
+    }
+
+    public init(allowDownload: Bool?, locale: String?, localeMatch: LocaleMatch?, privacy: Privacy?, requestId: String?, tasks: [String]?, voice: PrepareVoice?) {
+        self.allowDownload = allowDownload
+        self.locale = locale
+        self.localeMatch = localeMatch
+        self.privacy = privacy
+        self.requestId = requestId
+        self.tasks = tasks
+        self.voice = voice
+    }
+}
+
+// MARK: PrepareRequest convenience initializers and mutators
+
+public extension PrepareRequest {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PrepareRequest.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        allowDownload: Bool?? = nil,
+        locale: String?? = nil,
+        localeMatch: LocaleMatch?? = nil,
+        privacy: Privacy?? = nil,
+        requestId: String?? = nil,
+        tasks: [String]?? = nil,
+        voice: PrepareVoice?? = nil
+    ) -> PrepareRequest {
+        return PrepareRequest(
+            allowDownload: allowDownload ?? self.allowDownload,
+            locale: locale ?? self.locale,
+            localeMatch: localeMatch ?? self.localeMatch,
+            privacy: privacy ?? self.privacy,
+            requestId: requestId ?? self.requestId,
+            tasks: tasks ?? self.tasks,
+            voice: voice ?? self.voice
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A voice to prepare, as for a speech request.
+// MARK: - PrepareVoice
+public struct PrepareVoice: Codable, Sendable {
+    public var gender: VoiceGender?
+    /// A voice id read from listVoices().
+    public var id: String?
+    /// The provider that listed id.
+    public var providerId: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case gender = "gender"
+        case id = "id"
+        case providerId = "providerId"
+    }
+
+    public init(gender: VoiceGender?, id: String?, providerId: String?) {
+        self.gender = gender
+        self.id = id
+        self.providerId = providerId
+    }
+}
+
+// MARK: PrepareVoice convenience initializers and mutators
+
+public extension PrepareVoice {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PrepareVoice.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        gender: VoiceGender?? = nil,
+        id: String?? = nil,
+        providerId: String?? = nil
+    ) -> PrepareVoice {
+        return PrepareVoice(
+            gender: gender ?? self.gender,
+            id: id ?? self.id,
+            providerId: providerId ?? self.providerId
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A ranged read of an engine-owned media artifact through IndeRunApi.readArtifact (ADR
+/// 017). Reads are repeatable until the artifact is disposed; each returns at most the
+/// engine's configured maximum read size, which bounds what one call -- and one bridge
+/// message -- carries.
+// MARK: - ArtifactReadRequest
+public struct ArtifactReadRequest: Codable, Sendable {
+    /// MediaArtifact.id of the artifact to read.
+    public var artifactId: String
+    /// Most bytes to return. Absent, or larger than the engine's maximum read size, means that
+    /// maximum.
+    public var maxBytes: Int?
+    /// Byte offset to read from. Absent means 0. An offset equal to the artifact's size returns
+    /// an empty, final chunk; a larger one is rejected.
+    public var offset: Int?
+
+    public enum CodingKeys: String, CodingKey {
+        case artifactId = "artifactId"
+        case maxBytes = "maxBytes"
+        case offset = "offset"
+    }
+
+    public init(artifactId: String, maxBytes: Int?, offset: Int?) {
+        self.artifactId = artifactId
+        self.maxBytes = maxBytes
+        self.offset = offset
+    }
+}
+
+// MARK: ArtifactReadRequest convenience initializers and mutators
+
+public extension ArtifactReadRequest {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ArtifactReadRequest.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        artifactId: String? = nil,
+        maxBytes: Int?? = nil,
+        offset: Int?? = nil
+    ) -> ArtifactReadRequest {
+        return ArtifactReadRequest(
+            artifactId: artifactId ?? self.artifactId,
+            maxBytes: maxBytes ?? self.maxBytes,
+            offset: offset ?? self.offset
         )
     }
 

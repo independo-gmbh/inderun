@@ -11,8 +11,8 @@ A single repository-wide version is applied to every artifact on each release.
 | Channel | Artifacts | Registry |
 | --- | --- | --- |
 | npm | `@independo/inderun-contracts`, `@independo/inderun-route-core-wasm`, `@independo/inderun-web` | npmjs.com (public, provenance) |
-| Swift Package Manager | `IndeRun` (products: `IndeRun`, `IndeRunCore`, `IndeRunContracts`, `IndeRunAppleProviders`, `IndeRunOpenAIProviders`) | git tag `vX.Y.Z` on this repo |
-| Maven Central | `app.independo.inderun:inderun-contracts` / `-core` / `-kotlin` / `-mlkit-providers` / `-openai-providers` | Maven Central (Sonatype Central Portal) |
+| Swift Package Manager | `IndeRun` (products: `IndeRunContracts`, `IndeRun`, `IndeRunCore`, `IndeRunAppleProviders`, `IndeRunOpenAIProviders`, `IndeRunOnnxProviders`, `IndeRunNeuralSpeech`) | git tag `vX.Y.Z` on this repo |
+| Maven Central | `app.independo.inderun:inderun-contracts` / `-core` / `-kotlin` / `-mlkit-providers` / `-openai-providers` / `-onnx-providers` / `-system-speech-providers` / `-neural-speech` | Maven Central (Sonatype Central Portal) |
 
 **Published separately:** `@independo/capacitor-inderun`. CocoaPods is being deprecated and
 Capacitor 8 defaults to SwiftPM, and a repo can only expose one SwiftPM package at its root
@@ -68,6 +68,14 @@ Maven, Gradle, Dependabot, npm, and SwiftPM alike.
 
 `feat:` → minor, `fix:` → patch. Chore/docs/refactor/test/build/ci/perf/style all produce a
 patch (see `release.config.js` for the exact `releaseRules`).
+
+`feat:` is reserved for changes to the SDK itself: the packages, contracts, engines, providers and
+bridges. Changes to the website (`website/`, inderun.dev, its docs pipeline and its deploy) are
+`chore(website):`, never `feat:`, so a site change never announces an SDK feature in the release
+notes. The same applies to a pull request's title, because a squash merge uses it as the commit
+message. Commits scoped `website` cut no release at all: the last rule in `release.config.js` is
+`{ scope: "website", release: false }`, and it must stay last, because the analyzer applies the
+matching rules in order and only a later rule overrides the `chore` patch.
 
 `BREAKING CHANGE:` (or `!`) → **minor while the project is pre-1.0**, not major. 0.x is where
 "the surface is still moving" is expressed; letting a `!` commit cut `1.0.0` automatically
@@ -125,6 +133,58 @@ implementation("app.independo.inderun:inderun-kotlin:latest.release")
 
 Gradle assigns every non-SNAPSHOT Maven version the `release` status, so `latest.release` can
 also resolve to an `-rc.N` prerelease when one is newer than the latest stable release.
+
+## Compatibility matrix
+
+Core releases one version across npm, the SwiftPM tag and Maven Central. The Capacitor bridge
+([independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun)) is versioned separately and
+pins one core version on all three of its platforms. Versions as published on npm:
+
+| Core (npm, SwiftPM tag, Maven) | `@independo/capacitor-inderun` | Speech through the bridge |
+| --- | --- | --- |
+| 0.5.x (`0.5.0-rc.N` on the `dev` dist-tag until stable) | **Pending** (#250) | Pending (#250) |
+| 0.4.0 | 1.2.x | No: 0.4 has no speech API |
+| 0.3.3 | 1.1.x | No |
+| 0.2.x | 1.0.x | No |
+
+Minimum platform versions are in the [README](../README.md#minimum-system-requirements). Update this table whenever a
+bridge release moves its core pin.
+
+What an Android app's build needs to depend on the Maven artifacts (compileSdk, AGP, Gradle, Kotlin Gradle plugin) is
+in [Host requirements](../android/README.md#host-requirements); core 0.2.2 to 0.4.0 and 0.5.0-rc.1 to rc.17 also
+need compileSdk 37 and AGP 9.1.0 or higher.
+
+## Per-platform capabilities for release notes
+
+Release notes name what a platform does not support. For 0.5:
+
+| Capability | Web | iOS / macOS | Android | Capacitor |
+| --- | --- | --- | --- | --- |
+| `generateText()` / `streamText()` | Yes | Yes | Yes | Yes (core 0.4 API) |
+| `speak()` (playback, `cancel()`) | Yes, `web_system_speech` | Yes, `apple_system_speech` | Yes, `android_system_speech` | Pending (#250) |
+| `generateSpeech()` (retrievable `audio/wav`) | **No**: playback only | Yes | Yes | Pending (#250) |
+| `listVoices()` / `prepare()` | Yes | Yes | Yes | Pending (#250) |
+| `local_required` speech | **Refused**: no evidence speech stays on device | Yes | Yes, voices without the network flag | Pending (#250) |
+| `timing.firstAudioMs` | Where the browser sends word boundaries | Yes | Where the engine sends word ranges | Pending (#250) |
+
+What has actually been run on which device is in [verification/system-speech.md](./verification/system-speech.md); a
+release note claims only what is recorded there.
+
+## Release smoke check
+
+Before promoting a prerelease to stable, install what was published, not the workspace, into a scratch project and run
+the speech quick start from the [README](../README.md#speaking-text) on each platform:
+
+1. **npm:** in an empty Vite project, `pnpm add @independo/inderun-web@<version>`, register `systemSpeech: {}`, call
+   `speak()` from a click, then `cancel()`. Expect `stop`, then `cancelled`.
+2. **SwiftPM:** in a new iOS app, add the package with `exact: "<version>"`, register `AppleSystemSpeechProvider()`,
+   and run `speak()` and `generateSpeech()` on a simulator. Expect an `audio/wav` artifact you can read and dispose.
+3. **Maven Central:** in a new Android app, add `app.independo.inderun:inderun-kotlin:<version>` and
+   `inderun-system-speech-providers:<version>`, register `AndroidSystemSpeechProvider(context)`, and run the same two
+   calls on an emulator.
+4. **Capacitor:** once #250 has shipped a bridge on this core, run its consumer smoke tests on all three platforms.
+
+Record each result, with the version, in [verification/system-speech.md](./verification/system-speech.md).
 
 ## Registry configuration requirements (one-time setup)
 

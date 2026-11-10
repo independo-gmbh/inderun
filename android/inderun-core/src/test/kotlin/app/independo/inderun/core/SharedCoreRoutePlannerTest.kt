@@ -1,12 +1,19 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.FinishReason
-import app.independo.inderun.contracts.Output
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskKind
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.contracts.TaskRequestTask
@@ -29,9 +36,9 @@ class SharedCoreRoutePlannerTest {
     fun plannerInputJsonCarriesInteractionModeAndStreamingCapability() {
         val descriptor = ProviderDescriptor(
             id = "provider_a",
-            type = ProviderDescriptor.ProviderType.local,
-            transport = ProviderDescriptor.TransportType.in_process,
-            supports = ProviderDescriptor.SupportsCapabilities(
+            type = ProviderType.Local,
+            transport = ProviderTransport.InProcess,
+            supports = ProviderSupports(
                 run = true,
                 streaming = true,
                 realtime = false,
@@ -40,7 +47,7 @@ class SharedCoreRoutePlannerTest {
                 structuredOutput = false,
                 multimodal = false,
             ),
-            cancel = ProviderDescriptor.CancelSemantics.hard,
+            cancel = CancelSemantics.Hard,
             tasks = listOf("text_to_text"),
         )
         val snapshot = ProviderSnapshot(
@@ -116,8 +123,8 @@ class SharedCoreRoutePlannerTest {
      */
     @Test
     fun sharedCoreRoutePlannerRoundTripsThroughTheJniBoundary() {
-        val local = descriptor("provider_local", ProviderDescriptor.ProviderType.local)
-        val cloud = descriptor("provider_cloud", ProviderDescriptor.ProviderType.cloud)
+        val local = descriptor("provider_local", ProviderType.Local)
+        val cloud = descriptor("provider_cloud", ProviderType.Cloud)
 
         val plan = SharedCoreRoutePlanner.planRoute(
             buildSharedPlannerInput(
@@ -125,7 +132,7 @@ class SharedCoreRoutePlannerTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+                    constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
                 ),
                 online = true,
                 snapshots = listOf(snapshot(cloud), snapshot(local)),
@@ -141,11 +148,11 @@ class SharedCoreRoutePlannerTest {
         )
     }
 
-    private fun descriptor(id: String, type: ProviderDescriptor.ProviderType): ProviderDescriptor = ProviderDescriptor(
+    private fun descriptor(id: String, type: ProviderType): ProviderDescriptor = ProviderDescriptor(
         id = id,
         type = type,
-        transport = ProviderDescriptor.TransportType.in_process,
-        supports = ProviderDescriptor.SupportsCapabilities(
+        transport = ProviderTransport.InProcess,
+        supports = ProviderSupports(
             run = true,
             streaming = false,
             realtime = false,
@@ -154,7 +161,7 @@ class SharedCoreRoutePlannerTest {
             structuredOutput = false,
             multimodal = false,
         ),
-        cancel = ProviderDescriptor.CancelSemantics.soft,
+        cancel = CancelSemantics.Soft,
         tasks = listOf("text_to_text"),
     )
 
@@ -171,7 +178,7 @@ class SharedCoreRoutePlannerTest {
 
         override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
             finishReason = FinishReason.STOP,
-            output = Output(text = "Hello"),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = descriptor.id, totalMs = 0.0),

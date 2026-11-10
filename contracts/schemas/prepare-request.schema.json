@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/prepare-request.schema.json",
+  "title": "PrepareRequest",
+  "description": "Optional scope for IndeRunApi.prepare (ADR 019). Every field is optional: an empty request covers every registered provider and task. It carries no user content.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "requestId": {
+      "description": "Fixes the run id, for correlation.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tasks": {
+      "description": "Task kinds to prepare. Absent means every task a registered provider can prepare.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "locale": {
+      "description": "BCP 47 tag of the language to prepare. Absent lets a speech provider use the device's own language.",
+      "type": "string",
+      "minLength": 1
+    },
+    "localeMatch": {
+      "title": "LocaleMatch",
+      "description": "How locale compares: 'language' (default) or 'exact'.",
+      "enum": [
+        "exact",
+        "language"
+      ]
+    },
+    "voice": {
+      "title": "PrepareVoice",
+      "description": "A voice to prepare, as for a speech request.",
+      "type": "object",
+      "additionalProperties": true,
+      "dependentRequired": {
+        "id": [
+          "providerId"
+        ]
+      },
+      "properties": {
+        "id": {
+          "description": "A voice id read from listVoices().",
+          "type": "string",
+          "minLength": 1
+        },
+        "providerId": {
+          "description": "The provider that listed id.",
+          "type": "string",
+          "minLength": 1
+        },
+        "gender": {
+          "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+        }
+      }
+    },
+    "allowDownload": {
+      "description": "Lets this call start a platform's own download, whatever autoDownload says at registration. Call it from a user's decision. Absent follows autoDownload.",
+      "type": "boolean"
+    },
+    "privacy": {
+      "description": "The privacy policy of the runs this precedes.",
+      "enum": [
+        "local_required",
+        "local_preferred",
+        "cloud_allowed",
+        "cloud_required"
+      ]
+    }
+  }
+}

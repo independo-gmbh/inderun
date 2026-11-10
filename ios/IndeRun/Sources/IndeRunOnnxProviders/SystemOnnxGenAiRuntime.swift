@@ -27,6 +27,17 @@ public final class SystemOnnxGenAiRuntime: OnnxGenAiRuntime {
         self.session = LoadedSessionBox()
     }
 
+    public func availability(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
+        do {
+            _ = try LoadedSessionBox.checkedFiles(modelPackage)
+            return OnnxRuntimeAvailability(available: true)
+        } catch let error as OnnxRuntimeError {
+            return OnnxRuntimeAvailability(available: false, reason: error.message)
+        } catch {
+            return OnnxRuntimeAvailability(available: false, reason: "runtime initialization failed: \(error).")
+        }
+    }
+
     public func prepare(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
         do {
             _ = try await session.loaded(for: modelPackage)
@@ -36,6 +47,13 @@ public final class SystemOnnxGenAiRuntime: OnnxGenAiRuntime {
         } catch {
             return OnnxRuntimeAvailability(available: false, reason: "runtime initialization failed: \(error).")
         }
+    }
+
+    /// Drops the cached ORT session and tokenizer. A generation in flight keeps its own reference and
+    /// finishes; the session is freed when that reference goes. Idempotent; a later `prepare` or
+    /// `generate` loads the model again.
+    public func close() async {
+        await session.clear()
     }
 
     public func generate(_ input: OnnxGenerationInput) async throws -> OnnxGenerationOutput {

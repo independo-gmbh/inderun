@@ -1,0 +1,314 @@
+{
+  "$comment": "Shared utterance corpus for real-audio validation (#251). Every text is synthetic: no user text, no names of real people. Tests and demo harnesses log an utterance's id, never its text, so the corpus can run in CI and on devices without putting text into telemetry. `expect` says what a real provider must do: `speak` means the utterance plays and renders when the host has a voice for its locale, and a test skips it, naming the id, when the host has none; `refuse` means routing must refuse it before any audio starts, with the given error class, on every host. `scenarios` reuse utterances by id. Extended utterances (`extendedUtterances`) serve renders and the lab, never the scenarios. See docs/verification/system-speech.md for how each run is recorded.",
+  "utterances": [
+    {
+      "id": "de_at_short",
+      "locale": "de-AT",
+      "category": "short",
+      "text": "Der Bus kommt in fünf Minuten.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_at_regional",
+      "locale": "de-AT",
+      "category": "dates_times_currency",
+      "text": "Am Montag, dem 3. Jänner, um 14:30 Uhr treffen wir uns beim Stephansplatz. Das Ticket kostet 2,40 €.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_short",
+      "locale": "de-DE",
+      "category": "short",
+      "text": "Ich möchte bitte etwas trinken.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_punctuation",
+      "locale": "de-DE",
+      "category": "punctuation",
+      "text": "Halt! Wer ist da? Ich – ja, genau ich – bin es: deine Nachbarin. „Komm rein“, sagte sie; dann (leise) „danke“.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_numerals",
+      "locale": "de-DE",
+      "category": "numerals",
+      "text": "Das kostet 12,50 € und dauert 3 bis 4 Stunden. Der Termin ist am 24.12.2026 um 9:15 Uhr in Zimmer 101.",
+      "expect": "speak"
+    },
+    {
+      "id": "de_de_long",
+      "locale": "de-DE",
+      "category": "long",
+      "text": "Heute Morgen war es im Park sehr ruhig. Auf dem Weg zum Bäcker habe ich zwei Hunde gesehen, die miteinander gespielt haben. Danach bin ich zur Haltestelle gegangen und habe auf die Straßenbahn gewartet. Sie kam pünktlich, und ich habe einen Sitzplatz am Fenster bekommen. Am Nachmittag möchte ich meine Schwester besuchen. Wir wollen zusammen Kuchen backen, einen Spaziergang machen und am Abend ein Brettspiel spielen. Wenn es regnet, bleiben wir drinnen und hören Musik. Morgen beginnt die neue Woche, und ich freue mich schon auf den Kurs am Dienstag.",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_short",
+      "locale": "en-US",
+      "category": "short",
+      "text": "Your appointment is at 3 pm.",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_punctuation",
+      "locale": "en-US",
+      "category": "punctuation",
+      "text": "Wait! Who's there? It's me – yes, me – your neighbor. \"Come in,\" she said; then (quietly) \"thanks.\"",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_numerals",
+      "locale": "en-US",
+      "category": "dates_times_currency",
+      "text": "It costs $12.50 and takes 3 to 4 hours. The meeting is on December 24, 2026, at 9:15 a.m. in room 101.",
+      "expect": "speak"
+    },
+    {
+      "id": "en_us_long",
+      "locale": "en-US",
+      "category": "long",
+      "text": "This morning the park was very quiet. On the way to the bakery I saw two dogs playing together. Then I walked to the stop and waited for the tram. It arrived on time, and I got a seat by the window. In the afternoon I want to visit my sister. We plan to bake a cake together, go for a walk, and play a board game in the evening. If it rains, we will stay inside and listen to music. Tomorrow a new week begins, and I am already looking forward to the course on Tuesday.",
+      "expect": "speak"
+    },
+    {
+      "id": "unsupported_locale",
+      "locale": "xx-XX",
+      "category": "unsupported_locale",
+      "text": "No installed voice speaks this language.",
+      "expect": "refuse",
+      "errorClass": "CapabilityMismatch"
+    }
+  ],
+  "extendedUtterances": [
+    {
+      "id": "ext_de_de_numbers_cardinal",
+      "locale": "de-DE",
+      "category": "numbers",
+      "text": "Im Lager liegen 1.250 Kartons, 87 Paletten und 3 defekte Regale.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_numbers_decimal",
+      "locale": "de-DE",
+      "category": "numbers",
+      "text": "Die Temperatur stieg von 4,5 auf 17,8 Grad, und der Wert 0,25 blieb konstant.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_at_numbers_house",
+      "locale": "de-AT",
+      "category": "numbers",
+      "text": "Die Hausnummer ist 47, und der Aufzug befindet sich im 2. Stock.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_dates_range",
+      "locale": "de-DE",
+      "category": "dates",
+      "text": "Die Messe läuft vom 12. bis 15. September 2026 und beginnt jeden Tag um 8:45 Uhr.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_at_dates_jaenner",
+      "locale": "de-AT",
+      "category": "dates",
+      "text": "Im Jänner 2027 beginnt der neue Kurs, die erste Stunde ist am 11.1.2027.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_en_us_dates",
+      "locale": "en-US",
+      "category": "dates",
+      "text": "The conference starts on March 4th and ends on March 6th at 5:30 pm.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_money_total",
+      "locale": "de-DE",
+      "category": "money",
+      "text": "Die Rechnung beträgt 1.299,99 € plus 19 % Mehrwertsteuer, also insgesamt 1.547,99 €.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_at_money_small",
+      "locale": "de-AT",
+      "category": "money",
+      "text": "Die Semmel kostet 0,45 €, das Gebäck 1,80 € und der Kaffee 3,20 €.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_en_us_money",
+      "locale": "en-US",
+      "category": "money",
+      "text": "The total comes to $48.75, including a $5 delivery fee and 8 % tax.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_units_speed",
+      "locale": "de-DE",
+      "category": "units",
+      "text": "Der Zug fährt 160 km/h, wiegt 45 t und ist 210 m lang.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_units_kitchen",
+      "locale": "de-DE",
+      "category": "units",
+      "text": "Für den Teig brauchst du 500 g Mehl, 250 ml Milch und 2 EL Zucker.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_en_us_units",
+      "locale": "en-US",
+      "category": "units",
+      "text": "The trail is 12 km long, and the pack weighs 8 kg with 2 l of water.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_abbr_titles",
+      "locale": "de-DE",
+      "category": "abbreviations",
+      "text": "Das Treffen findet z. B. im Büro statt, d. h. nicht zu Hause, und zwar ca. 20 Minuten lang.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_at_abbr_address",
+      "locale": "de-AT",
+      "category": "abbreviations",
+      "text": "Die Redaktion sitzt in der Hauptstr. 12 und ist bis ca. 17 Uhr erreichbar, usw. nach Absprache.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_en_us_abbr",
+      "locale": "en-US",
+      "category": "abbreviations",
+      "text": "Please bring a pen, a notebook, etc., and arrive approx. ten minutes early, e.g. by 9 am.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_long_morning",
+      "locale": "de-DE",
+      "category": "long",
+      "text": "Am Samstagmorgen stand ich früh auf, weil der Wecker um 6:45 Uhr klingelte. Zuerst habe ich Wasser aufgesetzt und das Frühstück für die ganze Familie vorbereitet. Danach sind wir mit dem Fahrrad zum Markt gefahren, wo es frisches Obst, Brot, Käse und viele Blumen gab. Auf dem Rückweg haben wir an einem kleinen See eine Pause gemacht und den Enten beim Schwimmen zugesehen. Zu Hause habe ich die Einkäufe verstaut, die Wäsche aufgehängt und noch einen langen Brief geschrieben. Am Nachmittag kamen Freunde zu Besuch, und wir haben gemeinsam gekocht, gelacht und bis spät in den Abend geredet.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_at_long_travel",
+      "locale": "de-AT",
+      "category": "long",
+      "text": "Im Sommer fahren wir mit dem Zug von Wien nach Salzburg, weil die Strecke durch das Tal besonders schön ist. Unterwegs gibt es mehrere Stationen, und an jeder steigen Reisende mit großen Rucksäcken ein. Der Schaffner kontrolliert die Fahrkarten freundlich und erklärt, wo man am besten umsteigt. In Salzburg angekommen, gehen wir zuerst in ein Kaffeehaus, trinken eine Melange und essen ein Stück Torte. Später spazieren wir entlang des Flusses, besichtigen die Altstadt und kaufen ein paar Mitbringsel für die Verwandten zu Hause.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_en_us_long_garden",
+      "locale": "en-US",
+      "category": "long",
+      "text": "Last weekend we spent the whole day working in the garden behind the house. In the morning I pulled the weeds from the flower beds while my sister watered the tomatoes and the herbs. After lunch we planted three small apple trees along the fence and spread fresh soil around each of them. A neighbor stopped by to offer some advice about pruning, and we talked for almost an hour about the best time to harvest. By the evening we were tired but happy, and we sat on the porch with a cold drink, watching the sun slowly disappear behind the hills.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_mixed_product",
+      "locale": "de-DE",
+      "category": "mixed_language",
+      "text": "Mit dem neuen Update läuft die App im Offline-Modus, und der Download startet automatisch im Hintergrund.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_de_mixed_meeting",
+      "locale": "de-DE",
+      "category": "mixed_language",
+      "text": "Wir treffen uns zum Meeting im Co-Working-Space und besprechen das Feedback zum Release.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_de_at_mixed_music",
+      "locale": "de-AT",
+      "category": "mixed_language",
+      "text": "Am Wochenende gibt es ein Open-Air-Konzert, und der Live-Stream ist auch online verfügbar.",
+      "expect": "speak"
+    },
+    {
+      "id": "ext_en_us_mixed",
+      "locale": "en-US",
+      "category": "mixed_language",
+      "text": "After the Frühstück we took the S-Bahn downtown, and the Kaffee at the corner café was excellent.",
+      "expect": "speak"
+    }
+  ],
+  "scenarios": {
+    "repeat": {
+      "description": "The same utterance rendered several times in a row: every artifact is independent, readable, and released by its own dispose.",
+      "utteranceIds": ["de_de_short", "en_us_short"],
+      "count": 3
+    },
+    "cancelMidUtterance": {
+      "description": "Playback stopped while speaking ends with exactly one cancelled outcome, and a new utterance right after it plays to the end.",
+      "utteranceId": "en_us_long",
+      "cancelAfterMs": 1500,
+      "followUpUtteranceId": "en_us_short"
+    }
+  },
+  "benchmark": {
+    "$comment": "Latency scenarios for choosing a speech provider (#251). Opt-in: they play audio for minutes, so CI does not run them. Each answers one question a developer has before adopting a provider, and each platform runs them through the public API only, against a list of benchmark targets (a provider, optionally pinned to one voice). Adding a target, such as an ONNX or Core ML neural provider or a custom AVSpeechSynthesisProviderAudioUnit voice, adds a column, not a scenario. A scenario whose delivery a target does not declare is reported as unsupported for it. Each platform registers one handler per id behind a guard test. Results are reported per sample with their median and maximum; the numbers are measurements of one device, never thresholds.",
+    "scenarios": [
+      {
+        "id": "first_call_cold",
+        "delivery": "playback",
+        "question": "How long does the very first utterance take to start?",
+        "setup": "A new engine and provider instance, no prepare(). Speak the utterance once. Repeat with a new instance for each trial; the first trial is also the first in the process.",
+        "utteranceIds": ["de_de_short"],
+        "trials": 3
+      },
+      {
+        "id": "first_call_after_prepare",
+        "delivery": "playback",
+        "question": "Does calling prepare() ahead of time make the first utterance start sooner, and what does prepare() cost?",
+        "setup": "A new engine and provider instance. Call prepare() for text_to_speech in the utterance's locale and record how long it took, then speak the utterance once. Repeat with a new instance for each trial.",
+        "utteranceIds": ["de_de_short"],
+        "trials": 3
+      },
+      {
+        "id": "repeat_same_voice",
+        "delivery": "playback",
+        "question": "Do later utterances on the same voice start faster than the first?",
+        "setup": "One engine and provider instance. Speak the utterance the given number of times in a row, each after the previous one finished. Report each call by its position.",
+        "utteranceIds": ["de_de_short"],
+        "trials": 5
+      },
+      {
+        "id": "switch_language",
+        "delivery": "playback",
+        "question": "What does changing language, and so voice, between calls cost?",
+        "setup": "One engine and provider instance. Speak the utterances in order, each after the previous one finished: the first warms the voice, the second switches language, the third switches back. Report each call by its position.",
+        "utteranceIds": ["en_us_short", "de_de_short", "en_us_short"],
+        "trials": 1
+      },
+      {
+        "id": "speak_after_stop",
+        "delivery": "playback",
+        "question": "How quickly does Stop take effect, and does the next utterance start normally?",
+        "setup": "One engine and provider instance, warmed by speaking the second utterance once. Speak the first utterance, stop it after cancelAfterMs, record the time from cancel() to the cancelled ending, then speak the second utterance at once.",
+        "utteranceIds": ["en_us_long", "en_us_short"],
+        "cancelAfterMs": 1500,
+        "trials": 3
+      },
+      {
+        "id": "text_length",
+        "delivery": "playback",
+        "question": "Does the first word wait for the whole text to be synthesized? A streaming engine starts as fast on long text as on short; a non-streaming one does not.",
+        "setup": "One engine and provider instance, warmed by speaking the first utterance once. Speak each utterance, each after the previous one finished.",
+        "utteranceIds": ["de_de_short", "de_de_long"],
+        "trials": 1
+      },
+      {
+        "id": "render_speed",
+        "delivery": "artifact",
+        "question": "How long does it take to produce a retrievable audio file, cold and warm, and how does that scale with length?",
+        "setup": "One engine and provider instance. Render each utterance with generateSpeech(), cold first, then the given number of further trials. Report the render time, the audio duration, and their ratio (the real-time factor; below 1 is faster than real time). Dispose each artifact.",
+        "utteranceIds": ["de_de_short", "de_de_long"],
+        "trials": 3
+      }
+    ]
+  }
+}

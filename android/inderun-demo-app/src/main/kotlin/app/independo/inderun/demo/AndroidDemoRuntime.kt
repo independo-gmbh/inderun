@@ -1,13 +1,19 @@
 package app.independo.inderun.demo
 
 import android.content.Context
+import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.Files
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.Generation
 import app.independo.inderun.contracts.ModelPackage
+import app.independo.inderun.contracts.PreparationStatus
+import app.independo.inderun.contracts.PrepareRequest
+import app.independo.inderun.contracts.PrepareVoice
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.Source
 import app.independo.inderun.contracts.SourceType
+import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestTask
 import app.independo.inderun.contracts.TelemetryEvent
@@ -15,16 +21,28 @@ import app.independo.inderun.contracts.TelemetryEventType
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.HostServicesFactory
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderCapabilitySnapshot
+import app.independo.inderun.core.ModelProfiles
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.providers.mlkit.AndroidMlKitGenAiProvider
+import app.independo.inderun.providers.neuralspeech.NeuralSpeechProvider
 import app.independo.inderun.providers.onnx.AndroidOnnxRuntimeProvider
+import app.independo.inderun.providers.onnx.OnnxNeuralSpeechRuntime
 import app.independo.inderun.providers.onnx.createFixtureOnnxRuntime
 import app.independo.inderun.providers.openai.OpenAIAuthMode
 import app.independo.inderun.providers.openai.OpenAIProvider
 import app.independo.inderun.providers.openai.OpenAIProviderOptions
+import app.independo.inderun.providers.systemspeech.AndroidSystemSpeechProvider
+import app.independo.inderun.sdk.GenerateSpeechOptions
 import app.independo.inderun.sdk.IndeRun
+import app.independo.inderun.sdk.SpeakOptions
+import app.independo.inderun.sdk.SpeechPlayback
+import app.independo.inderun.sdk.SpeechVoiceInfo
+import app.independo.inderun.sdk.generateSpeech
+import app.independo.inderun.sdk.listVoices
+import app.independo.inderun.sdk.prepare
+import app.independo.inderun.sdk.speak
+import kotlinx.coroutines.CoroutineScope
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -38,6 +56,10 @@ internal interface DemoRuntime {
     suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot>
     suspend fun run(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoExecutionOutcome
     suspend fun stream(prompt: String, privacy: PrivacyPreference, settings: DemoSettings): DemoStreamStart
+    suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo>
+    suspend fun prepareSpeech(request: PrepareRequest, settings: DemoSettings, scope: CoroutineScope)
+    suspend fun speak(options: SpeakOptions, settings: DemoSettings, scope: CoroutineScope): SpeechPlayback
+    suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String
     fun lastRouteDecision(): RouteDecision?
 }
 
@@ -47,6 +69,27 @@ internal class AndroidDemoRuntime(
     private val hostServices: HostServices = HostServicesFactory.create(context.applicationContext),
 ) : DemoRuntime {
     private val telemetryService = DemoTelemetryService()
+    private val speechProvider = AndroidSystemSpeechProvider(context)
+
+    override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = makeIndeRun(settings).listVoices(locale)
+
+    override suspend fun prepareSpeech(request: PrepareRequest, settings: DemoSettings, scope: CoroutineScope) {
+        makeIndeRun(settings).prepare(scope, request).result.await()
+    }
+
+    override suspend fun speak(options: SpeakOptions, settings: DemoSettings, scope: CoroutineScope): SpeechPlayback = makeIndeRun(settings).speak(options, scope)
+
+    override suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String {
+        val inderun = makeIndeRun(settings)
+        val started = System.nanoTime()
+        val speech = inderun.generateSpeech(GenerateSpeechOptions(options))
+        val renderedMs = (System.nanoTime() - started) / 1_000_000
+        val first = inderun.readArtifact(ArtifactReadRequest(artifactId = speech.artifact.id))
+        val header = first.bytes.copyOf(4).decodeToString()
+        inderun.disposeArtifact(speech.artifact)
+        return "${speech.artifact.mediaType} · $header · ${first.totalBytes} bytes · ${speech.artifact.durationMs} ms · " +
+            "rendered in $renderedMs ms · ${speech.provenance?.locality?.rawValue}"
+    }
 
     override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = makeIndeRun(settings).checkCapabilities()
 
@@ -56,7 +99,7 @@ internal class AndroidDemoRuntime(
         return try {
             val result = makeIndeRun(settings).run(request)
             DemoExecutionOutcome.Success(
-                outputText = result.output.text,
+                outputText = result.output.text.orEmpty(),
                 metadata = AttemptMetadata(
                     runId = result.runId,
                     providerUsed = result.telemetry.providerUsed,
@@ -139,6 +182,7 @@ internal class AndroidDemoRuntime(
     private fun makeIndeRun(settings: DemoSettings): IndeRun {
         val registry = ProviderRegistry()
         registry.register(AndroidMlKitGenAiProvider())
+        registry.register(speechProvider)
         registry.register(makeOnnxProvider(settings.onnxModelSelection))
         registry.register(
             OpenAIProvider(
@@ -221,4 +265,63 @@ private fun Any?.toDoubleOrNull(): Double? = when (this) {
     is Long -> toDouble()
     is String -> toDoubleOrNull()
     else -> null
+}
+
+/**
+ * The Voices lab's engine (#260): Android system speech plus one [NeuralSpeechProvider] per
+ * installed catalog entry, and the model profiles `voices-lab:<entry id>` =
+ * `[neural provider, android_system_speech]` and `voices-lab:control` = `[android_system_speech]`.
+ * Requests name a profile, never a model id. An engine registers its providers once, so [install]
+ * builds a new one; it is created lazily, so a demo with the lab off registers nothing.
+ */
+internal class AndroidVoicesLabRuntime(
+    private val context: Context,
+    private val hostServices: HostServices = HostServicesFactory.create(context.applicationContext),
+) : VoicesLabRuntime {
+    private val systemSpeech by lazy { AndroidSystemSpeechProvider(context) }
+
+    @Volatile
+    private var engine: IndeRun? = null
+
+    @Volatile
+    private var installed: List<CatalogEntry> = emptyList()
+
+    override fun install(entries: List<CatalogEntry>) {
+        installed = entries
+        val registry = ProviderRegistry()
+        registry.register(systemSpeech)
+        for (entry in entries) {
+            val provider = NeuralSpeechProvider(
+                modelPackage = catalogEntryToModelPackage(entry, entry.ref),
+                runtime = OnnxNeuralSpeechRuntime(context),
+            )
+            registry.register(provider)
+        }
+        val profiles = voicesLabProfiles(entries.map { it.id }) +
+            (VoicesLabViewModel.CONTROL_PROFILE to listOf(AndroidSystemSpeechProvider.DEFAULT_ID))
+        engine = IndeRun(registry, hostServices, null, ModelProfiles(profiles))
+    }
+
+    private fun engine(): IndeRun {
+        if (engine == null) install(installed)
+        return engine!!
+    }
+
+    override suspend fun listVoices(locale: String?): List<SpeechVoiceInfo> = engine().listVoices(locale)
+
+    override suspend fun speak(options: SpeakOptions, scope: CoroutineScope): SpeechPlayback = engine().speak(options, scope)
+
+    override suspend fun warm(entry: CatalogEntry, scope: CoroutineScope): List<String> {
+        val result = engine().prepare(
+            scope,
+            PrepareRequest(
+                allowDownload = false,
+                tasks = listOf(TaskKind.TEXT_TO_SPEECH.rawValue),
+                voice = PrepareVoice(providerId = neuralProviderId(entry.id)),
+            ),
+        ).result.await()
+        val failed = result.items.filter { it.status == PreparationStatus.Failed }
+            .map { "${it.providerId}: ${it.reason ?: "failed"}" }
+        return if (result.cancelled) failed + "cancelled" else failed
+    }
 }

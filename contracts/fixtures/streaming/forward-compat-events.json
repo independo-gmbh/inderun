@@ -1,0 +1,66 @@
+{
+  "$comment": "Forward-compatibility vectors for consumers of the canonical StreamEvent sequence. StreamEvent.type is an open set (stream-event.schema.json): a consumer built against this revision must ignore or pass through a type it does not know -- such as a task-specific progress event a later revision adds -- never fail on it. Each SDK's streamText test feeds 'events' through its facade and checks the text view and the settled result.",
+  "cases": [
+    {
+      "id": "unknown_event_type_between_deltas_is_ignored",
+      "description": "An unrecognized event type, with and without a payload, does not interrupt the text view or change the result.",
+      "events": [
+        {
+          "schemaVersion": "1.0",
+          "runId": "run_fc_1",
+          "sequence": 0,
+          "timestamp": 1,
+          "type": "content_delta",
+          "payload": { "text": "Hel" }
+        },
+        {
+          "schemaVersion": "1.0",
+          "runId": "run_fc_1",
+          "sequence": 1,
+          "timestamp": 2,
+          "type": "speech_progress",
+          "payload": { "spokenCharacters": 3 }
+        },
+        {
+          "schemaVersion": "1.0",
+          "runId": "run_fc_1",
+          "sequence": 2,
+          "timestamp": 3,
+          "type": "future_marker"
+        },
+        {
+          "schemaVersion": "1.0",
+          "runId": "run_fc_1",
+          "sequence": 3,
+          "timestamp": 4,
+          "type": "content_delta",
+          "payload": { "text": "lo" }
+        },
+        {
+          "schemaVersion": "1.0",
+          "runId": "run_fc_1",
+          "sequence": 4,
+          "timestamp": 5,
+          "type": "terminal",
+          "payload": {
+            "schemaVersion": "1.0",
+            "runId": "run_fc_1",
+            "outcome": "completed",
+            "finalText": "Hello"
+          }
+        }
+      ],
+      "expect": {
+        "textIncrements": ["Hel", "lo"],
+        "text": "Hello",
+        "fullStreamTypes": [
+          "content_delta",
+          "speech_progress",
+          "future_marker",
+          "content_delta",
+          "terminal"
+        ]
+      }
+    }
+  ]
+}

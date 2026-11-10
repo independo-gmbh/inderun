@@ -1,13 +1,13 @@
 {
   "name": "@independo/inderun-contracts",
   "version": "0.4.0",
-  "description": "Canonical JSON Schemas, generated TypeScript types, and validators for the IndeRun task, streaming, error, and routing contracts.",
+  "description": "Canonical contracts for IndeRun (on-device AI that uses a cloud only if you allow it): JSON Schemas, generated TypeScript types and validators for task, streaming, error and routing.",
   "license": "MIT",
   "author": {
     "name": "Independo GmbH",
     "url": "https://www.independo.app"
   },
-  "homepage": "https://github.com/independo-gmbh/inderun#readme",
+  "homepage": "https://inderun.dev/docs",
   "bugs": "https://github.com/independo-gmbh/inderun/issues",
   "repository": {
     "type": "git",
@@ -56,7 +56,7 @@
     "ajv": "^8.20.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
-    "vitest": "^5.0.3"
+    "@types/node": "^26.6.6",
+    "vitest": "^5.1.0"
   }
 }

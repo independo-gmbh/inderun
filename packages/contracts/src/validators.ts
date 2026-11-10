@@ -1,24 +1,37 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
+import type { ArtifactReadRequest } from "./generated/artifact-read-request.js";
+import type { PrepareRequest } from "./generated/prepare-request.js";
 import type { ExecutionProvenance } from "./generated/execution-provenance.js";
 import type { IndeRunError } from "./generated/inderun-error.js";
+import type { MediaArtifact } from "./generated/media-artifact.js";
 import type { HttpRequest } from "./generated/http-request.js";
 import type { HttpResponse } from "./generated/http-response.js";
 import type { ModelPackage } from "./generated/model-package.js";
+import type { ProviderCapabilitySnapshot } from "./generated/provider-capability-snapshot.js";
+import type { ProviderDescriptor } from "./generated/provider-descriptor.js";
+import type { ProviderDynamicCapabilities } from "./generated/provider-dynamic-capabilities.js";
 import type { RoutePlan } from "./generated/route-plan.js";
 import type { RoutePlannerInput } from "./generated/route-planner-input.js";
 import {
+  artifactReadRequestSchema,
+  prepareRequestSchema,
   executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
+  mediaArtifactSchema,
   modelPackageSchema,
+  providerCapabilitySnapshotSchema,
+  providerDescriptorSchema,
+  providerDynamicCapabilitiesSchema,
   routePlanSchema,
   routePlannerInputSchema,
   streamEventSchema,
   streamRunSchema,
   streamTerminalOutcomeSchema,
+  taskOutputSchema,
   taskRequestSchema,
   taskResultSchema,
   telemetryEventSchema
@@ -26,6 +39,7 @@ import {
 import type { StreamEvent } from "./generated/stream-event.js";
 import type { StreamRunHandle } from "./generated/stream-run.js";
 import type { StreamTerminalOutcome } from "./generated/stream-terminal-outcome.js";
+import type { TaskOutput } from "./generated/task-output.js";
 import type { TaskRequest } from "./generated/task-request.js";
 import type { TaskResult } from "./generated/task-result.js";
 import type { TelemetryEvent } from "./generated/telemetry-event.js";
@@ -50,6 +64,17 @@ const ajv = new Ajv2020Constructor({
 // Referenced by `$ref` from every schema that carries provenance, so it has to be known
 // to Ajv before any of them compiles. Compiling it registers it under its `$id`.
 const validateExecutionProvenanceSchema = ajv.compile(executionProvenanceSchema);
+// Likewise, the provider descriptor and dynamic capabilities are referenced from the
+// capability snapshot and the route-planner input.
+const validateProviderDescriptorSchema = ajv.compile(providerDescriptorSchema);
+const validateProviderDynamicCapabilitiesSchema = ajv.compile(providerDynamicCapabilitiesSchema);
+const validateProviderCapabilitySnapshotSchema = ajv.compile(providerCapabilitySnapshotSchema);
+// The normalized output (and the media artifact it references) is shared by the result
+// and both terminal-outcome copies.
+const validateMediaArtifactSchema = ajv.compile(mediaArtifactSchema);
+const validateTaskOutputSchema = ajv.compile(taskOutputSchema);
+const validateArtifactReadRequestSchema = ajv.compile(artifactReadRequestSchema);
+const validatePrepareRequestSchema = ajv.compile(prepareRequestSchema);
 const validateTaskRequestSchema = ajv.compile(taskRequestSchema);
 const validateTaskResultSchema = ajv.compile(taskResultSchema);
 const validateIndeRunErrorSchema = ajv.compile(inderunErrorSchema);
@@ -69,6 +94,22 @@ export function validateTaskRequest(value: unknown): value is TaskRequest {
 
 export function validateTaskResult(value: unknown): value is TaskResult {
   return getTaskResultValidationIssues(value).length === 0;
+}
+
+export function validateTaskOutput(value: unknown): value is TaskOutput {
+  return getTaskOutputValidationIssues(value).length === 0;
+}
+
+export function validateMediaArtifact(value: unknown): value is MediaArtifact {
+  return getMediaArtifactValidationIssues(value).length === 0;
+}
+
+export function validatePrepareRequest(value: unknown): value is PrepareRequest {
+  return getPrepareRequestValidationIssues(value).length === 0;
+}
+
+export function validateArtifactReadRequest(value: unknown): value is ArtifactReadRequest {
+  return getArtifactReadRequestValidationIssues(value).length === 0;
 }
 
 export function validateIndeRunError(value: unknown): value is IndeRunError {
@@ -99,6 +140,22 @@ export function validateModelPackage(value: unknown): value is ModelPackage {
   return getModelPackageValidationIssues(value).length === 0;
 }
 
+export function validateProviderDescriptor(value: unknown): value is ProviderDescriptor {
+  return getProviderDescriptorValidationIssues(value).length === 0;
+}
+
+export function validateProviderDynamicCapabilities(
+  value: unknown
+): value is ProviderDynamicCapabilities {
+  return getProviderDynamicCapabilitiesValidationIssues(value).length === 0;
+}
+
+export function validateProviderCapabilitySnapshot(
+  value: unknown
+): value is ProviderCapabilitySnapshot {
+  return getProviderCapabilitySnapshotValidationIssues(value).length === 0;
+}
+
 export function validateStreamRunHandle(value: unknown): value is StreamRunHandle {
   return getStreamRunHandleValidationIssues(value).length === 0;
 }
@@ -124,6 +181,24 @@ export function getTaskResultValidationIssues(value: unknown): ValidationIssue[]
   return getValidationIssues(validateTaskResultSchema, value, {
     forbidInlineSecrets: true
   });
+}
+
+export function getTaskOutputValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateTaskOutputSchema, value, {
+    forbidInlineSecrets: true
+  });
+}
+
+export function getMediaArtifactValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateMediaArtifactSchema, value);
+}
+
+export function getPrepareRequestValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validatePrepareRequestSchema, value);
+}
+
+export function getArtifactReadRequestValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateArtifactReadRequestSchema, value);
 }
 
 export function getIndeRunErrorValidationIssues(value: unknown): ValidationIssue[] {
@@ -165,9 +240,48 @@ export function getRoutePlanValidationIssues(value: unknown): ValidationIssue[] 
 }
 
 export function getModelPackageValidationIssues(value: unknown): ValidationIssue[] {
-  return getValidationIssues(validateModelPackageSchema, value, {
+  const issues = getValidationIssues(validateModelPackageSchema, value, {
     forbidInlineSecrets: true
   });
+  issues.push(...findDuplicateVoiceIds(value));
+  return issues;
+}
+
+/**
+ * A speech package's voice ids become `speech.voice.id` on the provider, so two voices sharing
+ * one would be indistinguishable to a request. JSON Schema cannot express uniqueness of one
+ * property across array items, so it is checked here, mirrored in the native validators.
+ */
+function findDuplicateVoiceIds(value: unknown): ValidationIssue[] {
+  if (typeof value !== "object" || value === null) return [];
+  const speech = (value as { speech?: unknown }).speech;
+  if (typeof speech !== "object" || speech === null) return [];
+  const voices = (speech as { voices?: unknown }).voices;
+  if (!Array.isArray(voices)) return [];
+  const seen = new Set<string>();
+  for (const voice of voices) {
+    const id = (voice as { id?: unknown })?.id;
+    if (typeof id !== "string") continue;
+    if (seen.has(id)) {
+      return [
+        { path: "/speech/voices", keyword: "uniqueVoiceIds", message: "voice ids must be unique" }
+      ];
+    }
+    seen.add(id);
+  }
+  return [];
+}
+
+export function getProviderDescriptorValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateProviderDescriptorSchema, value);
+}
+
+export function getProviderDynamicCapabilitiesValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateProviderDynamicCapabilitiesSchema, value);
+}
+
+export function getProviderCapabilitySnapshotValidationIssues(value: unknown): ValidationIssue[] {
+  return getValidationIssues(validateProviderCapabilitySnapshotSchema, value);
 }
 
 export function getStreamRunHandleValidationIssues(value: unknown): ValidationIssue[] {

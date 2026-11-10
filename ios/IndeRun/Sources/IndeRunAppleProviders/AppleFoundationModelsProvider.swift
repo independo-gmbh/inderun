@@ -12,6 +12,8 @@ import IndeRunCore
 public enum AppleFoundationModelsAvailability: Equatable, Sendable {
     /// The system language model is available for immediate execution.
     case available
+    /// The system is still making the model ready, with a developer-facing reason.
+    case notReady(reason: String)
     /// The system language model cannot currently run, with a developer-facing reason.
     case unavailable(reason: String)
 }
@@ -33,6 +35,9 @@ struct AppleFoundationModelsGenerationOptions: Equatable, Sendable {
 protocol AppleFoundationModelsRuntime: Sendable {
     /// Returns the current dynamic model availability.
     func availability() async -> AppleFoundationModelsAvailability
+
+    /// Asks the system to load the model. Best-effort: the system may ignore it.
+    func prewarm() async
 
     /// Generates a single text response for a normalized prompt.
     ///
@@ -60,6 +65,17 @@ protocol AppleFoundationModelsRuntime: Sendable {
     ) -> AsyncThrowingStream<String, Error>
 }
 
+private final class WarmedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var warmed = false
+
+    var value: Bool { lock.withLock { warmed } }
+
+    func mark() {
+        lock.withLock { warmed = true }
+    }
+}
+
 /// On-device text-to-text provider backed by Apple Foundation Models, supporting
 /// both Mode 1 (`run`) and Mode 2 (`stream`).
 ///
@@ -67,7 +83,12 @@ protocol AppleFoundationModelsRuntime: Sendable {
 /// this adapter directly or by using `AppleProviderRegistryFactory`. Runtime
 /// availability still depends on OS support, device eligibility, Apple
 /// Intelligence enablement, and model readiness.
-public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Sendable {
+public final class AppleFoundationModelsProvider: StreamingProviderAdapter, PreparableProviderAdapter, Sendable {
+    private static let task = "text_to_text"
+
+    /// Set once `prepare` asked the system to load the model.
+    private let warmed = WarmedFlag()
+
     /// Stable provider id used in routing explanations and telemetry.
     public static let defaultId = "apple_foundation_models"
 
@@ -93,7 +114,7 @@ public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Send
             type: .local,
             transport: .systemService,
             streamingStyle: .snapshots,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: true,
                 realtime: false,
@@ -103,9 +124,43 @@ public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Send
                 multimodal: false
             ),
             cancel: .soft,
-            tasks: ["text_to_text"],
-            privacy: ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice: false)
+            tasks: [Self.task],
+            taskCapabilities: [
+                ProviderTaskCapability(
+                    kind: Self.task,
+                    inputs: [.text],
+                    interaction: ProviderTaskInteraction(prepare: true, run: true, stream: true),
+                    cancel: .soft,
+                    outputs: [ProviderTaskOutput(delivery: .inline)]
+                )
+            ],
+            privacy: ProviderPrivacy(dataLeavesDevice: false)
         )
+    }
+
+    /// Waits while the system makes the model ready, then asks it to load. The system owns the
+    /// model and its download, so there is nothing to start; cancelling stops only the waiting.
+    public func prepare(context: ProviderPrepareContext) -> AsyncThrowingStream<PreparationProgress, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    while case .notReady = await runtime.availability() {
+                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                    if case .unavailable(let reason) = await runtime.availability() {
+                        throw createUnavailable(message: reason, runId: context.runId, providerId: id)
+                    }
+                    await runtime.prewarm()
+                    warmed.mark()
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     /// Reports whether Apple's system language model is usable right now.
@@ -122,8 +177,22 @@ public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Send
     /// - Parameter host: Host services supplied by the engine.
     /// - Returns: A dynamic capability snapshot for route selection.
     public func capabilities(host: HostServices) async -> ProviderDynamicCapabilities {
-        let availability = await runtime.availability()
-        return ProviderDynamicCapabilities(available: availability == .available)
+        switch await runtime.availability() {
+        case .available:
+            let readiness: ProviderReadiness = warmed.value ? .ready : .cold
+            return ProviderDynamicCapabilities(
+                available: true,
+                taskCapabilities: [ProviderTaskAvailability(kind: Self.task, readiness: readiness)]
+            )
+        case .notReady(let reason):
+            return ProviderDynamicCapabilities(
+                available: false,
+                reason: reason,
+                taskCapabilities: [ProviderTaskAvailability(kind: Self.task, readiness: .preparing)]
+            )
+        case .unavailable(let reason):
+            return ProviderDynamicCapabilities(available: false, reason: reason)
+        }
     }
 
     /// Executes a normalized Mode-1 text-to-text request on the system model.
@@ -160,7 +229,7 @@ public final class AppleFoundationModelsProvider: StreamingProviderAdapter, Send
 
             return TaskResult(
                 runId: context.runId,
-                output: Output(text: outputText),
+                output: TaskOutput(text: outputText),
                 finishReason: .stop,
                 telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
             )
@@ -315,6 +384,8 @@ private struct SystemAppleFoundationModelsRuntime: AppleFoundationModelsRuntime 
             switch SystemLanguageModel.default.availability {
             case .available:
                 return .available
+            case .unavailable(.modelNotReady):
+                return .notReady(reason: "The system language model is still being made ready.")
             case .unavailable(let reason):
                 return .unavailable(reason: "System language model unavailable: \(reason).")
             }
@@ -322,6 +393,14 @@ private struct SystemAppleFoundationModelsRuntime: AppleFoundationModelsRuntime 
         #endif
 
         return .unavailable(reason: "Apple Foundation Models requires iOS 26.0, macOS 26.0, or visionOS 26.0.")
+    }
+
+    func prewarm() async {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
+            LanguageModelSession().prewarm()
+        }
+        #endif
     }
 
     /// Sends the prompt to `LanguageModelSession` and returns the generated text.
@@ -390,7 +469,7 @@ private extension AppleFoundationModelsAvailability {
         switch self {
         case .available:
             return "available"
-        case .unavailable(let reason):
+        case .notReady(let reason), .unavailable(let reason):
             return reason
         }
     }

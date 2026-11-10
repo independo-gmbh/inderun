@@ -15,6 +15,7 @@ by shared fixtures rather than restated here.
 | Model profiles | Implemented on Web, iOS/macOS, and Android |
 | Execution provenance | Implemented on Web, iOS/macOS, and Android |
 | Primary text API (`generateText` / `streamText`) | Implemented on Web, iOS/macOS, and Android; translation pinned by `contracts/fixtures/facade/text-generation.json` |
+| Primary speech API (`speak` / `generateSpeech` / `listVoices`) | Implemented on Web, iOS/macOS, and Android; translation pinned by `contracts/fixtures/facade/speech.json` |
 | Package surface along these layers | Web: application and provider-authoring entry points (below); Swift and Kotlin: split by module |
 
 ## Layers
@@ -23,14 +24,14 @@ IndeRun exposes three public layers and keeps one internal layer.
 
 | Layer | Who it is for | What it contains | Stability |
 | --- | --- | --- | --- |
-| **Primary** | Application developers | `generateText()` / `streamText()`, model profile names, the compact `execution` policy | Public; the default path in documentation |
-| **Advanced** | Applications that need full control | `IndeRun.run()` / `stream()` / `checkCapabilities()`, `TaskRequest`, `TaskResult`, `StreamEvent`, `StreamTerminalOutcome`, `IndeRunError`, `ExecutionProvenance` | Public; the canonical execution contract |
+| **Primary** | Application developers | `generateText()` / `streamText()`, `speak()` / `generateSpeech()` / `listVoices()`, model profile names, the compact `execution` policy | Public; the default path in documentation |
+| **Advanced** | Applications that need full control | `IndeRun.run()` / `stream()` / `checkCapabilities()` / `readArtifact()` / `disposeArtifact()`, `TaskRequest`, `TaskResult`, `TaskOutput`, `MediaArtifact`, `StreamEvent`, `StreamTerminalOutcome`, `IndeRunError`, `ExecutionProvenance` | Public; the canonical execution contract |
 | **Provider authoring** | Provider and host integrators | `ProviderAdapter` and its streaming variant, `ProviderDescriptor`, dynamic capabilities, `HostServices` and its services, `ProviderRegistry` | Public; changes are called out in release notes |
 | **Internal** | The engine itself | `Router`, the route planner bindings (`WasmRoutePlanner`, `SharedRoutePlanner`, `SharedCoreRoutePlanner`), planner input and plan types, `EventGate` | No compatibility promise; not exported on Web |
 
 The primary layer is a translation layer, not an engine. Every primary call compiles to exactly one canonical
 `TaskRequest` and calls `run()` or `stream()` on the `IndeRunApi` surface. Routing, fallback, cancellation, credential
-resolution, telemetry, and error normalization happen once, in the engine, for both layers. A call through the
+resolution, telemetry (a local hook; nothing is sent to Independo), and error normalization happen once, in the engine, for both layers. A call through the
 facade and the equivalent direct call produce the same canonical outcome.
 
 Because the facade is written against the generated `IndeRunApi` interface rather than the concrete engine class,
@@ -70,6 +71,68 @@ The `execution` object reuses the canonical enum values (`local_required`, `clou
 than inventing a second vocabulary, so moving a call between the layers never changes what a constraint means.
 Fallback has no separate switch: whether a run may fall back to the cloud is exactly what `privacy` and `cloud`
 already decide.
+
+## Primary Speech API
+
+[ADR 018](./decisions/018-speech-application-api.md) records the decisions; this section is the map.
+
+- `speak(inderun, options)` plays text through the device. It compiles to `stream()` with `playback` delivery and
+  returns a handle with `runId`, `result` and `cancel()`. Stopping is an ending, not an error: `result` resolves with
+  `finishReason: "cancelled"`. The application gets a completion and never any bytes.
+- `generateSpeech(inderun, options)` synthesizes retrievable audio. It compiles to `run()` with `artifact` delivery,
+  has no audible effect, and returns a `MediaArtifact` to read with `readArtifact()` and release with
+  `disposeArtifact()`. It is not cancellable, like `generateText()`.
+- `listVoices(inderun, options)` reads `checkCapabilities()` and returns every voice registered providers offer right
+  now, each with `id`, `name`, traits and `providerId`. An entry also carries `locales` (every tag the voice
+  speaks), `kind` (`platform` or `model`, from whether the provider names a model; the neural speech family is the first `model` kind) and `model`. Pass an entry as
+  `voice` to speak with it (`asSpeechVoice()` on Swift and Kotlin). An id is opaque and scoped to its provider and
+  device; ADR 018 section 3 sets the fallback rules.
+
+Playback and retrievable audio are separate capabilities. A provider that can only play is refused for
+`generateSpeech()` by routing, and the two are never substituted for one another.
+
+| Facade option | Canonical `TaskRequest` field |
+| --- | --- |
+| `text`, `locale`, `localeMatch`, `voice` | `speech.*` |
+| `mediaTypes`, `destinationRef` (`generateSpeech` only) | `delivery.*` |
+| `model`, `execution`, `authContextRef`, `telemetry`, `requestId` | as in the text API |
+
+## Preparation
+
+`prepare()` makes registered providers ready ahead of a run. It is optional: the first run of a task prepares that task
+once, and leaves `cold` items alone because a cold run warms itself. An explicit early call is what makes a first call
+fast. A provider's download starts only under `autoDownload` at registration or `allowDownload` on the call. Readiness
+reads through `readiness` on `checkCapabilities()` and `listVoices()`. See
+[ADR 019](./decisions/019-prepare-and-readiness.md).
+
+## Lifecycle and ownership
+
+Whoever constructs a resource closes it. An engine closes only what it built or was explicitly handed
+to own; it never closes something an application supplied, such as a neural speech runtime shared by
+several engines.
+
+- **Engine `close()`** (Web `close(): Promise<void>`, Swift `close() async`, Kotlin `suspend fun close()`)
+  stops the engine accepting work, cancels in-flight streams and prepares, waits for them and for
+  in-flight `run()` calls, disposes engine-owned artifacts, and closes the providers the engine
+  constructed itself (today only the Web factory `createIndeRunWeb` constructs providers). It is
+  idempotent: a concurrent or repeated call returns once the first has finished. After close, new work
+  fails with `Unavailable` / `engine_closed`, except that `checkCapabilities()` and `listVoices()` return an
+  empty list (the Swift signature cannot throw) and `disposeArtifact` does nothing.
+- **Mode 1 runs are awaited, not cancelled.** Mode 1 has no cancel path, so close waits for a running
+  `run()` to settle; provider timeouts keep that wait finite.
+- **Provider `close()`** exists where a provider can build a resource itself: the Web `NeuralSpeechWebProvider` and
+  `OnnxRuntimeWebProvider`, Swift's `NeuralSpeechProvider` returned by `makeCoreAINeuralSpeechProvider`, and the ONNX
+  text providers built with their default runtime (Swift `OnnxRuntimeAppleProvider` without a `runtime`, Kotlin
+  `AndroidOnnxRuntimeProvider(context, …)`). It closes
+  only that built runtime and leaves an injected one to its creator. The application registered the provider, so
+  the application calls it once no engine routes to the provider any more. `createIndeRunWeb` is the exception: it
+  built its providers, so its engine closes them.
+- **Runtime `close()`** is optional on a neural speech runtime and is the application's call. After it,
+  the runtime reports itself unavailable, so routing falls back, and a synthesis that already
+  committed ends with a terminal `Unavailable` error rather than a cancellation.
+- **Error codes.** Calls on a closed engine fail with `Unavailable` and `details.code`
+  `engine_closed`; use of a closed runtime fails with `Unavailable` and `details.code`
+  `runtime_closed`. `disposeArtifact` on a closed engine does nothing.
 
 ## Model Profiles
 
@@ -119,21 +182,33 @@ applications and bridges never need telemetry or provider-id parsing to show it.
 ## Future Capabilities
 
 New task kinds extend the canonical layer first, because routing needs the task. The primary layer then gains a
-capability-specific entry point (for example `generateSpeech()` for `text_to_speech`) that follows the same rules:
-one canonical request per call, the same `execution` object, the same profile mechanism (a profile can list text or
-speech targets), and the same provenance. Nothing about the layering assumes chat-completion semantics.
+capability-specific entry point for the task that follows the same rules: one canonical request per call, the same
+`execution` object, the same profile mechanism (a profile can list text or speech targets), and the same provenance.
+Nothing about the layering assumes chat-completion semantics.
+
+[ADR 016](./decisions/016-modality-extensible-task-contracts.md) fixes how the canonical contract grows for
+`text_to_speech`: task, modalities, interaction mode, output delivery and execution policy are separate axes; each
+task owns one payload object in an otherwise shared envelope; and the change stays additive within schema version
+1.0. The advanced layer's `TaskResult` and terminal outcome carry a task-generic `TaskOutput` (`text`, `playback` or
+`artifact`); the primary text API reads its text and keeps returning a non-optional string. An artifact output is
+a reference, and its bytes are read through `readArtifact()` and released with `disposeArtifact()` on the same
+`IndeRunApi` ([ADR 017](./decisions/017-media-artifacts.md)), so a bridge carries ids, never media. The primary layer
+covers speech with the entry points above.
 
 ## Package Entry Points
 
 Each layer has one import surface per SDK, so the layer a symbol belongs to is visible at the import site.
 
 - **Web.** `@independo/inderun-web` is the application entry point: the primary layer (`generateText`, `streamText`,
-  `toTaskRequest`, `createIndeRunWeb`, model profiles) and the advanced layer (`IndeRun`, `IndeRunApi`, the
+  `speak`, `generateSpeech`, `listVoices`, `toTaskRequest`, `toSpeechRequest`, `createIndeRunWeb`, model profiles) and the advanced layer (`IndeRun`, `IndeRunApi`, the
   contract types, `IndeRunException`, `toIndeRunException`, telemetry). `@independo/inderun-web/provider` is the
   provider-authoring entry point: the provider contract types, `ProviderRegistry`, the host-service interfaces and
   their browser implementations, and the `create*` error constructors. Provider adapters keep their own subpaths
-  (`/openai`, `/onnx`, `/system-model`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
-  because the advanced API returns them. The internal layer is not exported.
+  (`/openai`, `/onnx`, `/system-model`, `/system-speech`, `/neural-speech`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
+  because the advanced API returns them. The internal layer is not exported. The package declares
+  `"sideEffects": false` (no module acts on import, which `src/side-effects.test.ts` checks), so a bundler keeps only
+  what an app uses: the primary functions alone, over an `IndeRunApi` such as a bridge's, bundle without the engine or
+  the WASM route planner.
 - **Swift and Kotlin** split along module boundaries: `IndeRunSwift` / `inderun-kotlin` carry the primary and
   advanced layers, `IndeRunCore` / `inderun-core` the provider-authoring layer, and the provider modules one family
   each. The planner bindings are module-internal. `Router`, `RouteSelection` and `EventGate` are still `public` in
@@ -144,6 +219,6 @@ The [migration guide](../migration.md) lists what moved when the Web entry point
 
 ## Non-Goals
 
-Mode 3 sessions, text-to-speech, speech-to-text, realtime voice, tools and agents, a hosted gateway, a model
-marketplace, and broad provider expansion are outside this layering decision. The layering leaves room for them; it
+Mode 3 sessions, speech-to-text, realtime voice, tools and agents, a hosted gateway, a model marketplace, and broad
+provider expansion are outside this layering decision; text-to-speech is specified separately in ADR 016. The layering leaves room for them; it
 does not specify them.

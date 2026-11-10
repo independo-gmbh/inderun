@@ -1,7 +1,7 @@
 package app.independo.inderun.smoke
 
 import android.content.Context
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.TaskRequest
@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.Flow
 object ReadmeQuickStart {
     fun options(): TextGenerationOptions = TextGenerationOptions(
         prompt = "Translate 'Hello' to Spanish",
-        execution = TextExecutionOptions(privacy = PrivacyEnum.LocalRequired),
+        execution = TextExecutionOptions(privacy = Privacy.LocalRequired),
     )
 
     /** The primary text API, as the README's quick start uses it. */
@@ -45,7 +45,7 @@ object ReadmeQuickStart {
         schemaVersion = SchemaVersion.V1_0,
         prompt = "Translate 'Hello' to Spanish",
         task = TaskRequestTask(),
-        constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+        constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
     )
 
     suspend fun run(context: Context): TaskResult = IndeRun.initialize(context).run(request())

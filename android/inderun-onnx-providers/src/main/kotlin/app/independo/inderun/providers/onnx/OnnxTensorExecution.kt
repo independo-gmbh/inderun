@@ -22,6 +22,15 @@ internal object OnnxExecutionDispatcher {
 }
 
 /**
+ * Runs [closers] on the execution thread after every task queued before them, so a session in use
+ * by a run is closed only once that run has returned. Returns at once; the caller need not suspend.
+ */
+internal fun closeOnExecutionThread(closers: Collection<() -> Unit>) {
+    if (closers.isEmpty()) return
+    OnnxExecutionDispatcher.dispatcher.executor.execute { closers.forEach { it() } }
+}
+
+/**
  * Runs `session.run(inputs, outputNames)` and wraps any raw [OrtException] (missing/mistyped
  * input, shape mismatch, and similar) into an [OnnxRuntimeError] carrying the original error as
  * detail, rather than letting an opaque native error propagate uncaught up to the provider's

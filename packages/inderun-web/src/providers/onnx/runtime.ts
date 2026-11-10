@@ -8,12 +8,12 @@ import type { ModelPackage, TaskRequest, TaskResult } from "@independo/inderun-c
  * flattens every failure into a single `capability_unavailable` route rejection and carries the
  * reason as human-readable text.
  */
-export interface OnnxRuntimeAvailability {
+export type OnnxRuntimeAvailability = {
   /** Whether the runtime can execute the given model package on this host right now. */
   available: boolean;
   /** Human-readable detail describing why the runtime is unavailable. */
   reason?: string;
-}
+};
 
 /**
  * Normalized conversation turn handed to an ONNX text generation runtime.
@@ -89,7 +89,13 @@ export class OnnxRuntimeError extends Error {
  */
 export interface OnnxTextGenerationRuntime {
   /**
-   * Checks runtime package availability, execution backend availability, and model readiness.
+   * Checks whether this runtime could serve the model package, without loading anything. The
+   * router calls it on every request, also for other tasks, so it must stay cheap. Implementations
+   * must resolve with an availability snapshot rather than throwing.
+   */
+  availability(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability>;
+  /**
+   * Loads the model, so the first generation starts sooner. Repeating it must be cheap.
    * Implementations must resolve with an availability snapshot rather than throwing.
    */
   prepare(modelPackage: ModelPackage): Promise<OnnxRuntimeAvailability>;
@@ -98,14 +104,22 @@ export interface OnnxTextGenerationRuntime {
    * runtime allows it; ONNX inference is not hard-interruptible, so cancellation is best effort.
    */
   generate(input: OnnxGenerationInput, signal?: AbortSignal): Promise<OnnxGenerationOutput>;
+  /**
+   * Releases what the runtime loaded (model sessions, WASM or GPU memory). Optional: a runtime with
+   * nothing to release omits it. Repeating it must be harmless. The provider calls it only for a
+   * runtime it created itself, never for one the application supplied.
+   */
+  close?(): Promise<void>;
 }
 
 /**
  * Configuration for the deterministic fixture runtime.
  */
 export interface FixtureOnnxRuntimeOptions {
-  /** Availability snapshot returned by `prepare`. Defaults to `{ available: true }`. */
+  /** Availability snapshot returned by `availability`. Defaults to `{ available: true }`. */
   availability?: OnnxRuntimeAvailability;
+  /** Result of loading, returned by `prepare`. Defaults to `availability`. */
+  loadResult?: OnnxRuntimeAvailability;
   /** Text or full output produced by `generate`. Defaults to a deterministic echo. */
   respond?: (input: OnnxGenerationInput) => string | OnnxGenerationOutput;
   /** Error thrown by `generate` instead of producing output. */
@@ -129,8 +143,11 @@ export function createFixtureOnnxRuntime(
   const availability = options.availability ?? { available: true };
 
   return {
-    async prepare(): Promise<OnnxRuntimeAvailability> {
+    async availability(): Promise<OnnxRuntimeAvailability> {
       return availability;
+    },
+    async prepare(): Promise<OnnxRuntimeAvailability> {
+      return options.loadResult ?? availability;
     },
     async generate(
       input: OnnxGenerationInput,

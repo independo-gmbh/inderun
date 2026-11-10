@@ -17,7 +17,6 @@ inderun-core compile androidx.annotation:annotation
 inderun-core compile app.independo.inderun:inderun-contracts
 inderun-core compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-core compile org.jetbrains.kotlinx:kotlinx-coroutines-core
-inderun-core runtime androidx.core:core-ktx
 inderun-kotlin compile app.independo.inderun:inderun-contracts
 inderun-kotlin compile app.independo.inderun:inderun-core
 inderun-kotlin compile org.jetbrains.kotlin:kotlin-stdlib
@@ -28,8 +27,13 @@ inderun-mlkit-providers compile app.independo.inderun:inderun-core
 inderun-mlkit-providers compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-mlkit-providers compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-mlkit-providers runtime com.google.mlkit:genai-prompt
+inderun-neural-speech compile app.independo.inderun:inderun-contracts
+inderun-neural-speech compile app.independo.inderun:inderun-core
+inderun-neural-speech compile org.jetbrains.kotlin:kotlin-stdlib
+inderun-neural-speech compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-onnx-providers compile app.independo.inderun:inderun-contracts
 inderun-onnx-providers compile app.independo.inderun:inderun-core
+inderun-onnx-providers compile app.independo.inderun:inderun-neural-speech
 inderun-onnx-providers compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-onnx-providers runtime ai.djl.android:tokenizer-native
 inderun-onnx-providers runtime ai.djl.huggingface:tokenizers
@@ -41,3 +45,7 @@ inderun-openai-providers compile app.independo.inderun:inderun-core
 inderun-openai-providers compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-openai-providers compile org.jetbrains.kotlinx:kotlinx-coroutines-core
 inderun-openai-providers runtime org.json:json
+inderun-system-speech-providers compile app.independo.inderun:inderun-contracts
+inderun-system-speech-providers compile app.independo.inderun:inderun-core
+inderun-system-speech-providers compile org.jetbrains.kotlin:kotlin-stdlib
+inderun-system-speech-providers compile org.jetbrains.kotlinx:kotlinx-coroutines-core

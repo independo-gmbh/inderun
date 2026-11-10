@@ -3,6 +3,8 @@ name: entrypoint
 description: entrypoint for coding agents working in this repository
 ---
 
+Context for contributors' coding agents. User documentation: https://inderun.dev/docs
+
 ## 1) Project Intent (Read First)
 
 IndeRun is an open-source (MIT) AI execution framework. It provides one unified app-facing API while routing execution across local, edge, and cloud providers.
@@ -35,10 +37,16 @@ As of this writing, Mode 1 `run()` is implemented and stable, and provider
 breadth (ONNX Runtime, web system-model) has landed. Mode 2 `stream()` — the
 orchestrator, Event Gate, and cancellation semantics — is implemented in all
 three engines (TypeScript, Swift, Kotlin), hosts expose an optional streaming
-HTTP capability, and the OpenAI-compatible provider streams on all three
-platforms. Apple Foundation Models and Android ML Kit GenAI stream on-device; the
-remaining local/platform provider families (ONNX Runtime, web system-model) do not
-stream yet. Mode 3 `openSession()` / realtime sessions remain unimplemented.
+HTTP capability and an optional audio output capability, and the
+OpenAI-compatible provider streams on all three platforms. Apple Foundation
+Models and Android ML Kit GenAI stream on-device; the remaining local/platform
+provider families (ONNX Runtime, web system-model) do not stream yet.
+Text-to-speech is implemented through `speak()` / `generateSpeech()` /
+`listVoices()` and the system speech providers on all three platforms (ADR 018). A neural speech provider family
+(`local.onnx.speech.*`, runtime seam, fixture runtime) exists on all three SDKs; its ONNX executor and the first model
+pipeline (Articulino) ship, the Apple Core AI runtime ships for iOS/macOS 27 (ADR 022, with its conversion record), and the German text frontend (numbers, dates, abbreviations before sentence splitting) ships (ADR 023; see also ADR 020, ADR 021). The three demos carry an opt-in Voices lab (#260 PR 6) that downloads
+neural models from a checksummed catalog.
+Mode 3 `openSession()` / realtime sessions remain unimplemented.
 
 Out of scope now:
 
@@ -75,6 +83,9 @@ Any provider integration should explicitly define:
   forward-looking descriptor seam — see §3). A provider that streams opts into the
   streaming adapter type; declaring `supports.streaming` without implementing it is a
   routing-visible mistake, not a harmless one.
+- what needs preparing, if anything: `readiness` in `capabilities`, and `prepare` declared per task
+  through `interaction.prepare`, like streaming. IndeRun stores nothing and starts a platform's own
+  download only under `autoDownload` or `allowDownload` (ADR 019).
 - cancellation behavior (`hard` / `soft` / `none`)
 - mapped error taxonomy and normalized telemetry
 
@@ -98,20 +109,28 @@ Checked-in JavaScript commands:
   called automatically by `pnpm build` and `pnpm test:js`. Requires `rustup` with the
   `wasm32-unknown-unknown` target and `wasm-bindgen-cli`. The Web SDK has no fallback route
   planner, so the JS tests need these bindings to run at all.
+- `pnpm check:wasm-size` — size gate for the two WASM modules (`scripts/check-wasm-size.mjs`); run after
+  `pnpm build:wasm`. Prints raw and gzip bytes against the budgets in the script and exits 1 when over. Run by
+  `javascript.yml` and `release.yml`. Raise a budget only in the change that grows the module.
 - `pnpm build:route-core-apple` — build the Rust route core for the Apple platforms and
-  package it into `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`
-  (`scripts/build-route-core-apple.mjs`). Requires `rustup` with the five Apple targets and
-  the Xcode command line tools. Unlike the WASM bindings, the XCFramework **is committed**:
-  SwiftPM resolves this package from a git tag, so the tag has to contain the binary. Run it
-  and commit the result — including the regenerated `InderunRouteCoreFFI.provenance.json` —
+  package it into two XCFrameworks under `ios/IndeRun/Frameworks/`
+  (`scripts/build-route-core-apple.mjs`): `InderunRouteCoreFFI.xcframework` (the planner, built
+  with `--no-default-features`, linked by `IndeRunCore`) and `InderunSpeechTextFFI.xcframework`
+  (the German speech text normalizer, the `speech-text` feature, linked only by
+  `IndeRunNeuralSpeech`, so an app that never speaks does not carry it). Requires `rustup` with
+  the five Apple targets and the Xcode command line tools. Unlike the WASM bindings, the
+  XCFrameworks **are committed**: SwiftPM resolves this package from a git tag, so the tag has
+  to contain the binaries. Run it and commit the result — including both regenerated
+  `*.provenance.json` manifests —
   in the same change whenever the route core changes; CI fails otherwise. Pass `--force` to
   repackage unconditionally. A Cargo dependency bump counts as "the route core changes" —
   the provenance manifest hashes `Cargo.lock`. On Dependabot's cargo PRs
   `route-core-apple-refresh.yml` runs this and pushes the result; everywhere else it is a
   manual commit on the branch. See `docs/ci.md`.
-- `pnpm verify:route-core-apple` — check the committed XCFramework against its provenance
-  manifest (pinned compiler, source hashes, per-file hashes) and validate every slice's
-  architectures, deployment target, exported FFI symbols, install name, and linked libraries
+- `pnpm verify:route-core-apple` — check both committed XCFrameworks against their provenance
+  manifests (pinned compiler, source hashes, per-file hashes) and validate every slice's
+  architectures, deployment target, exported FFI symbols (the planner framework must not export
+  the normalizer), install name, and linked libraries
   (`scripts/verify-route-core-apple.mjs`). Run by `swift.yml` before anything is rebuilt and by
   `release.yml` before tagging. `--slices-only` skips the hash comparison, for validating a
   freshly rebuilt artifact whose bytes legitimately differ.
@@ -119,7 +138,11 @@ Checked-in JavaScript commands:
   ABIs (`scripts/build-route-core-android.mjs`). Requires `rustup` with the four Android
   targets and the Android NDK. Normally invoked by Gradle rather than by hand: `:inderun-core`
   registers the output as a generated `jniLibs` source directory, and the same script with
-  `--host` builds the library the JVM unit tests load. Unlike the Apple XCFramework these
+  `--host` builds the library the JVM unit tests load. The same script with `--speech-text` builds
+  a second library, `libinderun_speech_text` (German speech text normalizer, crate feature
+  `speech-text`), that `:inderun-neural-speech` packages; `libinderun_route_core` is planner-only
+  (`--no-default-features --features jni-bindings`) and the script fails if either library carries
+  the other's JNI symbol. Unlike the Apple XCFramework these
   binaries are **not** committed — the AAR is built by CI and published to Maven Central.
 - `pnpm test` — run tests across **all** languages (JS/TS packages via `pnpm -r test`,
   Rust via `cargo test`, Kotlin via Gradle, Swift via `swift test`); requires the
@@ -147,6 +170,15 @@ Checked-in JavaScript commands:
 - `pnpm verify:packaging` — run `publint` and `attw --pack . --profile esm-only` over the three
   published npm packages, checking that every `exports` subpath resolves the way a consumer's
   TypeScript would. Needs `pnpm build` first. Run by `javascript.yml`.
+- `pnpm --filter website build|build:preview|dev|preview|check|sync:markers|check:markers|check:snippets|check:snippets:release|check:versions|update:api|check:api|check:docs|verify:seo`
+  — the inderun.dev site (`website/`, Astro + Starlight); it reads the published docs from `docs/` and installs the
+  published npm packages, so it needs no Rust toolchain. `build` validates internal links; `check:docs` runs after it. See
+  ADR 024 and `CONTRIBUTING.md` ("Where documentation lives"). `pnpm build` and `pnpm test:js` skip it.
+  `check:snippets:release` fails while any `TODO(verify)` snippet is pending; it is the precondition for a production
+  deploy and is not run by CI.
+- `pnpm --filter website render:og` — re-render the social preview image `website/public/og/default.jpg` from the hero
+  copy, the logo and the engine list in `website/scripts/render-og-image.mjs`; commit the JPEG. Needs Chromium once:
+  `pnpm --filter website exec playwright install chromium-headless-shell`. Not run by the build or CI.
 - `pnpm lint`
 - `pnpm format` / `pnpm format:check` — run formatting/verification across **all**
   languages (JS/TS via Prettier, Rust via `cargo fmt`, Kotlin via Spotless, Swift
@@ -192,6 +224,23 @@ build script prints the install commands when a toolchain is missing.
 - `cd android && ./gradlew build`
 - `cd android && ./gradlew test`
 - `cd android && ./gradlew spotlessCheck` (`spotlessApply` to auto-format)
+- `cd android && ./gradlew :inderun-kotlin:connectedAndroidTest` — the real-speech corpus
+  instrumented tests (`src/androidTest`), against a running emulator or connected device. Needs
+  the NDK (the test APK packages the route core). CI runs it in the non-required
+  `Android emulator speech` job; see `docs/ci.md`. Add
+  `-Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true` for the opt-in speech latency
+  benchmark (`SpeechBenchmarkTest`). Further optional arguments, each prefixed
+  `-Pandroid.testInstrumentationRunnerArguments.`: `speechBenchmarkModelDir` (a model package directory
+  on the device; adds the neural ONNX target), `speechBenchmarkOut` (a directory on the device; one JSON
+  report per target), `speechBenchmarkModelId` (the catalog entry id to record) and `speechBenchmarkSdkVersion`
+  (default `dev`). `speechBenchmarkOut` is a directory name under the app's external files directory
+  (`getExternalFilesDir(null)`, the only place the test app can write); it is created first and the log prints
+  each report's absolute path, to fetch with `adb pull` before the test app is uninstalled. The Swift
+  counterpart runs with `INDERUN_SPEECH_BENCHMARK=1 swift test --filter SpeechBenchmarkTests`, with the matching
+  variables `INDERUN_SPEECH_BENCHMARK_MODEL_DIR`, `INDERUN_SPEECH_BENCHMARK_MODEL_ID`,
+  `INDERUN_SPEECH_BENCHMARK_OUT` and `INDERUN_SPEECH_BENCHMARK_SDK_VERSION`. The latency scenarios are
+  described in `docs/verification/system-speech.md`; the report format and how to reproduce the neural
+  runs are in `docs/verification/neural-speech.md`.
 - `cd android && ./gradlew publishToMavenLocal` — build the library modules' Maven
   artifacts locally (no credentials needed); Maven Central publishing is automated in CI.
 
@@ -212,6 +261,11 @@ Checked-in release commands:
   (prerelease). Config: `.releaserc`; workflow: `.github/workflows/release.yml`. See
   `docs/release.md`. Do not bump versions by hand — semantic-release derives them from
   Conventional Commits and fans the version out via `scripts/set-version.mjs`.
+- `feat:` is reserved for changes to the SDK itself (packages, contracts, engines, providers,
+  bridges). Website work (`website/`, inderun.dev, its docs pipeline and deploy) is
+  `chore(website):` — never `feat` — and so is a pull request title for it, because a squash merge
+  uses the title as the commit message. Commits scoped `website` cut no release (last rule in
+  `release.config.js`). See `docs/release.md`.
 - When a commit carries a `BREAKING CHANGE:` footer, that footer goes **last** and the
   trailers (`Co-Authored-By`, `Claude-Session`) move above it — everything after
   `BREAKING CHANGE:` is parsed as part of the note and published verbatim in the release
@@ -229,9 +283,35 @@ Checked-in Rust commands:
 - `cargo test -p inderun_route_core`
 - `cargo fmt -p inderun_route_core -- --check`
 - `cargo clippy -p inderun_route_core --all-targets -- -D warnings`
-- `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown`
-- `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
+- Manual debug builds for local iteration (they exceed the size gate; `pnpm build:wasm` is the shipped release build):
+  - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features`
+  - `wasm-bindgen target/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_route_core`
+  - `RUSTC="$(rustup which rustc --toolchain stable)" rustup run stable cargo build -p inderun_route_core --target wasm32-unknown-unknown --no-default-features --features speech-text --target-dir target/wasm-speech-text`
+  - `wasm-bindgen target/wasm-speech-text/wasm32-unknown-unknown/debug/inderun_route_core.wasm --target web --out-dir packages/inderun-route-core-wasm/generated --out-name inderun_speech_text`
 - `pnpm --filter @independo/inderun-route-core-wasm test`
+
+Checked-in Python tooling (`tools/neural-speech/`, Python 3.12 or 3.13; nothing here runs in CI, see
+`tools/neural-speech/README.md`):
+
+- `python3.13 -m venv tools/neural-speech/.venv && tools/neural-speech/.venv/bin/pip install -r tools/neural-speech/requirements.txt`
+  — create the tool's environment (`onnxruntime` has no wheel for newer Pythons).
+- `tools/neural-speech/.venv/bin/python -m unittest discover -s tools/neural-speech -p 'test_*.py'` — the host-math tests.
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_articulino_package.py --models <onnx-release-dir> --precision int8 --voice <wav>[:<id>] --out <dir>`
+  — build an Articulino model package (graphs, int64-`text_mask` `text.onnx`, voices, `model-package.json`).
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_articulino_voice.py --models <onnx-release-dir> --precision int8 --wav <file> --out <file>.safetensors`
+  — build one voice bundle.
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/prepare_coreai_package.py --asset <articulino.aimodel> --config <config.json> --models <onnx-release-dir> --precision int8 --voice <wav>[:<id>] --out <dir>`
+  — build an Articulino Core AI model package (the exported `.aimodel`, `config.json`, voices, `model-package.json`).
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/build_demo_assets.py --models <onnx-release-dir> --seeds tools/neural-speech/voice-seeds --out <dir>`
+  — build the Voices lab demo assets (int64-mask `text.onnx`, the seven voice bundles, `SHA256SUMS`), write their
+  url/sha256/bytes into `contracts/fixtures/speech/neural-model-catalog.json` and print the `gh release create`
+  command for the owner (nothing is uploaded).
+- `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package-dir> [--rounds 3] [--model-id <id>] [--sdk-version <v>] [--out <file>]` — opt-in:
+  time an ONNX or Core AI Articulino package on a connected iPhone through the demo app, with a temporary hook the script reverts (a Core AI package also links `IndeRunCoreAIProviders` through a temporary `project.pbxproj` edit),
+  and write the `inderun-speech-benchmark/1` JSON report (`first_call_after_prepare`, `render_speed`) to `--out`
+  (needs Xcode and a paired phone; see the README).
+- `tools/neural-speech/.venv/bin/python tools/neural-speech/generate_pipeline_fixture.py` — regenerate
+  `contracts/fixtures/speech/articulino-pipeline.json`; the output is deterministic.
 
 Every generated Kotlin contract enum carries `enum class X(val rawValue: String)` plus a
 `fromRawValue` companion, so the schema spelling is never re-derived by hand — `name` is not the
@@ -275,6 +355,7 @@ When behavior or contracts change, update docs in the same task:
 - provider semantics/capabilities: `docs/architecture/providers.md`
 - project framing/scope: `docs/architecture/technical-brief.md`
 - CI/process behavior: `docs/ci.md`
+- published user docs live in the published docs folders (`docs/index.md` and `docs/{getting-started,concepts,guides,platforms,api}/`); see ADR 024
 
 Any change that adds a provider, changes a provider's capability check, task
 support, interaction modes, cancellation behavior, or error mapping MUST update

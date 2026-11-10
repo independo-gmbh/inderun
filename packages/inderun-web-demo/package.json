@@ -2,7 +2,7 @@
   "name": "@independo/inderun-web-demo",
   "private": true,
   "version": "0.1.0",
-  "description": "Reference web demo: text simplification with the IndeRun text API, on-device first, cloud fallback when permitted, and visible execution provenance.",
+  "description": "Reference web demo: text simplification with the IndeRun text API, on-device first, a cloud route only when configured and permitted, and visible execution provenance.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,13 +11,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.3.1",
-    "@independo/inderun-web": "workspace:^"
+    "@huggingface/transformers": "^4.3.2",
+    "@independo/inderun-web": "workspace:^",
+    "onnxruntime-web": "^1.31.1"
   },
   "devDependencies": {
-    "happy-dom": "^20.14.6",
+    "ajv": "^8.20.0",
+    "happy-dom": "^21.0.4",
     "typescript": "^6.0.3",
-    "vite": "^8.3.4",
-    "vitest": "^5.0.3"
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
   }
 }

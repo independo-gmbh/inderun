@@ -8,15 +8,22 @@ import {
   type IndeRunException
 } from "../../core/errors.js";
 import type { HostServices } from "../../core/host.js";
-import { createChromePromptApiRuntime } from "./chrome-runtime.js";
+import {
+  createChromePromptApiRuntime,
+  type ChromePromptApiRuntimeOptions
+} from "./chrome-runtime.js";
+import { assertKnownKind, isRuntimeDescriptor } from "../runtime-descriptor.js";
 import {
   SystemModelRuntimeError,
+  createFixtureSystemModelRuntime,
+  type FixtureSystemModelRuntimeOptions,
   type SystemModelAvailability,
   type SystemModelPromptMessage,
   type SystemModelRuntime
 } from "./runtime.js";
 import type {
-  ProviderAdapter,
+  PreparableProviderAdapter,
+  ProviderPrepareContext,
   ProviderDescriptor,
   ProviderDynamicCapabilities,
   RunContext
@@ -29,6 +36,17 @@ export const DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID = "local.system-model.web";
 const TEXT_TO_TEXT = "text_to_text";
 
 /**
+ * A JSON-serializable choice of runtime, for configuration that cannot carry a function.
+ * `chrome_prompt_api` builds the Prompt API runtime; `fixture` builds the deterministic fixture
+ * runtime without `respond`.
+ */
+export type SystemModelRuntimeDescriptor =
+  | ({ kind: "chrome_prompt_api" } & ChromePromptApiRuntimeOptions)
+  | ({ kind: "fixture" } & Omit<FixtureSystemModelRuntimeOptions, "respond">);
+
+const SYSTEM_MODEL_RUNTIME_KINDS = ["chrome_prompt_api", "fixture"] as const;
+
+/**
  * Configuration for the Web system-model provider.
  */
 export interface SystemModelProviderOptions {
@@ -37,15 +55,34 @@ export interface SystemModelProviderOptions {
    */
   id?: string;
   /**
-   * Runtime implementation used to check availability and execute generation. Defaults to
-   * `createChromePromptApiRuntime()`; pass `createFixtureSystemModelRuntime()` from
-   * `system-model.js` for tests and offline demos.
+   * Runtime used to check availability and execute generation: an implementation of the seam, or
+   * a {@link SystemModelRuntimeDescriptor} the provider turns into one. Defaults to
+   * `createChromePromptApiRuntime()`; use `{ kind: "fixture" }` or
+   * `createFixtureSystemModelRuntime()` from `system-model.js` for tests and offline demos.
    */
-  runtime?: SystemModelRuntime;
+  runtime?: SystemModelRuntime | SystemModelRuntimeDescriptor;
   /**
    * Optional generation timeout in milliseconds. A request-level `constraints.timeoutMs` wins.
    */
   timeoutMs?: number;
+}
+
+function buildSystemModelRuntime(
+  given: SystemModelRuntime | SystemModelRuntimeDescriptor | undefined
+): SystemModelRuntime {
+  if (given === undefined || given === null) return createChromePromptApiRuntime();
+  if (!isRuntimeDescriptor(given)) return given;
+  assertKnownKind("systemModel.runtime", given.kind, SYSTEM_MODEL_RUNTIME_KINDS);
+  switch (given.kind) {
+    case "chrome_prompt_api": {
+      const { kind: _kind, ...options } = given;
+      return createChromePromptApiRuntime(options);
+    }
+    case "fixture": {
+      const { kind: _kind, ...options } = given;
+      return createFixtureSystemModelRuntime(options);
+    }
+  }
 }
 
 /**
@@ -57,7 +94,7 @@ export interface SystemModelProviderOptions {
  * contract (descriptor, capability checks, error taxonomy) and delegates everything else to an
  * injectable {@link SystemModelRuntime}.
  */
-export class SystemModelWebProvider implements ProviderAdapter {
+export class SystemModelWebProvider implements PreparableProviderAdapter {
   private readonly id: string;
   private readonly runtime: SystemModelRuntime;
 
@@ -67,7 +104,7 @@ export class SystemModelWebProvider implements ProviderAdapter {
    */
   constructor(private readonly options: SystemModelProviderOptions = {}) {
     this.id = options.id ?? DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID;
-    this.runtime = options.runtime ?? createChromePromptApiRuntime();
+    this.runtime = buildSystemModelRuntime(options.runtime);
   }
 
   /**
@@ -89,6 +126,19 @@ export class SystemModelWebProvider implements ProviderAdapter {
       },
       cancel: "soft",
       tasks: [TEXT_TO_TEXT],
+      taskCapabilities: [
+        {
+          kind: TEXT_TO_TEXT,
+          inputs: ["text"],
+          interaction: {
+            run: true,
+            stream: false,
+            ...(this.runtime.prepare !== undefined ? { prepare: true } : {})
+          },
+          cancel: "soft",
+          outputs: [{ delivery: "inline" }]
+        }
+      ],
       privacy: {
         dataLeavesDevice: false
       }
@@ -106,6 +156,40 @@ export class SystemModelWebProvider implements ProviderAdapter {
   async capabilities(_host: HostServices): Promise<ProviderDynamicCapabilities> {
     const availability = await this.runtime.availability();
     return toDynamicCapabilities(availability);
+  }
+
+  /**
+   * Makes the browser download or load its model. The browser owns the model, and Chrome starts a
+   * download only from a user gesture, so call `prepare({ allowDownload: true })` from one.
+   */
+  async *prepare(context: ProviderPrepareContext): AsyncIterable<{ fractionCompleted?: number }> {
+    const fractions: number[] = [];
+    let wake = () => {};
+    let done = false;
+    let failure: unknown;
+    this.runtime.prepare!((fraction) => {
+      fractions.push(fraction);
+      wake();
+    }, context.signal)
+      .catch((error: unknown) => {
+        failure = error;
+      })
+      .finally(() => {
+        done = true;
+        wake();
+      });
+    for (;;) {
+      while (fractions.length > 0) yield { fractionCompleted: fractions.shift()! };
+      if (done) break;
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
+    }
+    if (failure !== undefined) throw this.normalizedPrepareFailure(failure, context.runId);
+  }
+
+  private normalizedPrepareFailure(error: unknown, runId: string) {
+    return toIndeRunException(error, { runId, providerId: this.id });
   }
 
   /**
@@ -229,7 +313,18 @@ function toDynamicCapabilities(availability: SystemModelAvailability): ProviderD
     ? `${prefix}: ${availability.reason}`
     : `${prefix}: the Web system-model provider is unavailable.`;
 
-  return { available: false, reason };
+  // "Not yet" is not "never": the browser can fetch this model.
+  const readiness =
+    availability.kind === "downloadable"
+      ? "not_prepared"
+      : availability.kind === "downloading"
+        ? "preparing"
+        : undefined;
+  return {
+    available: false,
+    reason,
+    ...(readiness !== undefined ? { taskCapabilities: [{ kind: TEXT_TO_TEXT, readiness }] } : {})
+  };
 }
 
 function createMessages(request: TaskRequest): SystemModelPromptMessage[] {

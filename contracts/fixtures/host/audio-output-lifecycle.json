@@ -1,0 +1,101 @@
+{
+  "$comment": "Scenario catalog for the audio output host service (ADR 021): what a service guarantees at open, write, drain and stop. 'setup' is normative prose and 'expect' is shared data; each SDK registers one handler per 'id' behind a guard test that fails when the handler ids and the ids here differ. Every SDK runs the catalog against its fixture service, Swift also against AVAudioEngineAudioOutputService, Android also against AudioTrackAudioOutputService on an emulator. Unless the setup says otherwise the format is 24000 Hz, 1 channel, pcm_s16le, and written audio is a 440 Hz sine at -14 dBFS. Elapsed times are read on the target's clock (the fixture's virtual clock, or wall time for a real service). Every wait is bounded by 'timeoutMs'. What a listener hears is a manual check. 'write_fails_when_output_stalls' (a backpressure stall in write()) is not a catalog case: the fixture services do not model queue depth, so that bound is tested on each real service with its own fake.",
+  "$expectKeys": {
+    "afterOpen": "State after open() and a 200 ms settle: 'firstAudioDefined' is whether firstAudioMs() returned a value.",
+    "afterWrites": "State after the writes, waiting up to 'waitAtMostMs' (default 0) for firstAudioMs(): 'firstAudioDefined'; 'firstAudioAtMostMs' bounds its value.",
+    "drain": "drain() after the writes: 'elapsedAtLeastMs' from before the first write to its resolution, on the target's clock; 'timeoutMs' bounds the wait.",
+    "stop": "stop(): 'throws' for every call, 'calls' how many were made, 'writeSettlesWithinMs' how soon a write that was in flight returns after it.",
+    "writeAfterStop": "A write() after stop(): 'elapsedAtMostMs' and 'throws'.",
+    "drainAfterStop": "A drain() after stop(): 'elapsedAtMostMs' and 'throws'.",
+    "independence": "Two sessions of one service: 'stoppedDrainAtMostMs' for the stopped one; 'otherDrainAtLeastMs' from before the other's first write to its drain; 'timeoutMs'.",
+    "openRejectsWith": "open() threw: the error class and details.code.",
+    "drainRejectsWith": "drain() rejected with errorClass Unavailable and this details.code; it combines with 'drain', whose 'elapsedAtLeastMs' is read up to the rejection and whose 'timeoutMs' is only the harness cutoff, with headroom over the service's own bound. That bound (written duration plus the 2000 ms grace, ADR 021 section 5) is pinned by each platform's stall unit tests."
+  },
+  "cases": [
+    {
+      "id": "open_makes_no_sound",
+      "description": "Opening a session produces no audio; the first write is the first possible audible effect.",
+      "setup": "open(); settle 200 ms; read firstAudioMs(); stop().",
+      "expect": {
+        "afterOpen": { "firstAudioDefined": false }
+      }
+    },
+    {
+      "id": "first_write_starts_playback",
+      "description": "The first write starts playback, and firstAudioMs() reports when the first frame left the output.",
+      "setup": "open(); read firstAudioMs(); write(200 ms); wait up to 2000 ms for firstAudioMs(); drain(); stop().",
+      "expect": {
+        "afterOpen": { "firstAudioDefined": false },
+        "afterWrites": { "firstAudioDefined": true, "waitAtMostMs": 2000, "firstAudioAtMostMs": 2000 }
+      }
+    },
+    {
+      "id": "drain_waits_for_everything_written",
+      "description": "drain() resolves only when everything written has played.",
+      "setup": "open(); write(200 ms) twice; drain(); stop(). Elapsed is read from before the first write to the resolution of drain(). 320 ms is 0.8 of the written audio: a real engine starts a few ms after the first write and reports played-back a few ms late, and the fixture reports exactly 400 ms.",
+      "expect": {
+        "drain": { "elapsedAtLeastMs": 320, "timeoutMs": 3000 }
+      }
+    },
+    {
+      "id": "stop_discards_buffered_audio",
+      "description": "stop() ends the session now: buffered audio is discarded and a write still in flight returns.",
+      "setup": "open(); start write(3000 ms) without awaiting; settle 100 ms; stop(); await the write; drain().",
+      "expect": {
+        "stop": { "throws": false, "writeSettlesWithinMs": 500 },
+        "drainAfterStop": { "elapsedAtMostMs": 50, "throws": false }
+      }
+    },
+    {
+      "id": "stop_is_idempotent",
+      "description": "stop() may be called any number of times.",
+      "setup": "open(); write(200 ms); stop() twice; drain().",
+      "expect": {
+        "stop": { "throws": false, "calls": 2 },
+        "drainAfterStop": { "elapsedAtMostMs": 50, "throws": false }
+      }
+    },
+    {
+      "id": "write_after_stop_is_ignored",
+      "description": "After stop(), write() returns at once and nothing renders.",
+      "setup": "open(); stop(); write(200 ms); settle 300 ms; read firstAudioMs().",
+      "expect": {
+        "writeAfterStop": { "elapsedAtMostMs": 50, "throws": false },
+        "afterWrites": { "firstAudioDefined": false }
+      }
+    },
+    {
+      "id": "drain_after_stop_resolves_at_once",
+      "description": "After stop(), drain() returns at once without effect.",
+      "setup": "open(); write(200 ms); stop(); drain().",
+      "expect": {
+        "drainAfterStop": { "elapsedAtMostMs": 50, "throws": false }
+      }
+    },
+    {
+      "id": "sessions_are_independent",
+      "description": "Stopping one session does not disturb another session of the same service.",
+      "setup": "open() A and B; write(1000 ms) to A then to B; stop() A; drain() A; drain() B. 800 ms is 0.8 of the written audio, as in drain_waits_for_everything_written.",
+      "expect": {
+        "independence": { "stoppedDrainAtMostMs": 50, "otherDrainAtLeastMs": 800, "timeoutMs": 4000 }
+      }
+    },
+    {
+      "id": "drain_fails_when_output_stalls",
+      "description": "When the output never advances, drain() fails with audio_output_failed after the written duration plus a 2000 ms grace instead of waiting forever.",
+      "setup": "open(); write(500 ms); the output never advances (a stalled mode of the target, or a fake that freezes playback); drain(). Elapsed is read from before the write to the rejection.",
+      "expect": {
+        "drainRejectsWith": "audio_output_failed",
+        "drain": { "elapsedAtLeastMs": 500, "timeoutMs": 4000 }
+      }
+    },
+    {
+      "id": "unsupported_format_refused",
+      "description": "open() refuses a format outside the shared rule before making any sound.",
+      "setup": "open() with sampleRate 4000, 1 channel, pcm_s16le.",
+      "expect": {
+        "openRejectsWith": { "errorClass": "CapabilityMismatch", "code": "audio_format_unsupported" }
+      }
+    }
+  ]
+}

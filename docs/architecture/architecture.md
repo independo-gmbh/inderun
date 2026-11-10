@@ -8,12 +8,26 @@ IndeRun is organized into four layers:
 
 - Application consumers, such as web apps, native mobile apps, and demo apps
 - Public SDK surfaces, such as the TypeScript, Swift, and Kotlin entrypoints
-- Engine core and host services, which own routing, orchestration, telemetry, and platform access
+- Engine core and host services, which own routing, orchestration, telemetry (a local hook for the application; IndeRun sends no data to Independo), and platform access, including, optionally, audio output
 - Provider adapters, which wrap local runtimes, system services, or cloud APIs
 
 The separation matters because provider-specific details should remain behind adapter boundaries whenever a normalized IndeRun shape exists.
 
 The public SDK surface is itself split into a primary familiar API, the advanced task-based execution API, and a provider-authoring surface, with the engine internals behind them carrying no compatibility promise. [api-layering.md](./api-layering.md) defines those layers, model profiles, and the mapping from the familiar API onto the canonical contract.
+
+## Host Services
+
+Host services are the layer that reaches the platform: connectivity, secure storage, timing, HTTP, telemetry, and
+audio output. Providers and the engine ask a host service instead of calling the operating system, which keeps platform
+access out of adapters and lets a host replace any service. `connectivity` is the one required service; the rest are
+optional (`deviceConstraints`, `secureStorage`, `clock`, `httpClient`, `streamingHttpClient`, `telemetry`,
+`artifactDestinations`, `audioOutput`), and Kotlin also requires `secureStorage` and `clock`. When an optional service
+is absent, the provider that depends on it reports or refuses before it commits, so routing falls through to the next
+target instead of failing mid-run: a missing streaming HTTP client gives `streamingAvailable: false`, a missing
+artifact destination gives `artifact_destination_unsupported`, and a missing audio output gives
+`audio_output_unavailable`. Artifact destinations are described in [ADR 017](./decisions/017-media-artifacts.md) and
+audio output in [ADR 021](./decisions/021-audio-output-host-service.md). The
+[neural speech family](./neural-speech-provider-family.md) is the first consumer of `audioOutput`.
 
 ## Execution Model
 
@@ -26,9 +40,17 @@ The same conceptual model is shared across platforms:
 - provider adapters advertise static and dynamic capability information
 - routing stays deterministic for a fixed request, policy, and capability snapshot
 
+What a request asks for is described along five separate axes — the task, the input and output modalities the task
+implies, the interaction mode, the output delivery (inline content, managed playback, or a retrievable artifact),
+and the execution policy — so that adding a modality never makes text or audio assumptions universal. [ADR
+016](./decisions/016-modality-extensible-task-contracts.md) records that decision and the contract shapes it implies.
+
 Capacitor is treated as an app-facing bridge layer over the existing platform SDKs, not as a separate execution engine. The Capacitor package should forward canonical requests into the existing Web, Swift, and Kotlin SDKs and return the same normalized result and error shapes.
 
 For Mode 2 the same rule holds, with one consequence worth stating: a live event sequence is not serializable, so the bridge cannot hand one across the JS boundary the way it hands back a `TaskResult`. It instead carries the run's canonical `StreamEvent` sequence across as serialized events correlated by the run, and reassembles them on the app-facing side into the same stream shape the platform SDKs return directly. That reassembly is transport plumbing only — `sequence` remains the ordering authority the bridge must respect rather than reinterpret, and the single-terminal guarantee remains the engines' Event Gate. A bridge never synthesizes a terminal outcome, retries, or applies fallback; where events are lost in transit it reports a transport failure rather than inventing an ending. See the [Capacitor bridge repository](https://github.com/independo-gmbh/capacitor-inderun) for the mechanics.
+
+Before the first run of a task, the engine prepares what that task needs, and `prepare()` does the same on request
+(ADR 019). `readiness` separates "not yet" from "not on this device".
 
 Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introspection call that returns each registered provider's static descriptor and current dynamic capability check without executing a task or producing side effects. It exists with the same shape on the TypeScript, Swift, and Kotlin engines, and is intended for UI that needs to show live provider availability before a run (for example, the Web demo's provider badges).
 
@@ -38,9 +60,11 @@ Alongside `run()`, the engine exposes `checkCapabilities()`: a read-only introsp
 
 Routing separates two operations that are easy to conflate. A constraint either **rejects** a provider — removing it from the chain entirely, so fallback cannot reach it either — or **ranks** it, leaving it reachable but later. `local_required` and `cloud_required` reject; `local_preferred` only ranks. That distinction is the whole reason a `local_required` run cannot silently reach the cloud while a `local_preferred` one can and should.
 
-Order among the survivors is the tuple `(placement_rank, profile_rank, preference_rank)` with the provider id as the final tiebreak, so a fixed request, policy, and capability snapshot always produce the same chain — including the same fallback order, which is what makes a routing decision reproducible from its inputs rather than only observable after the fact. Within `placement_rank`, `constraints.cloud` outranks `constraints.privacy`; for rejection the two axes apply independently.
+Order among the survivors is the tuple `(placement_rank, profile_rank, preference_rank, locale_rank)` with the provider id as the final tiebreak, so a fixed request, policy, and capability snapshot always produce the same chain — including the same fallback order, which is what makes a routing decision reproducible from its inputs rather than only observable after the fact. Within `placement_rank`, `constraints.cloud` outranks `constraints.privacy`; for rejection the two axes apply independently.
 
-A request's model profile (see [api-layering.md](./api-layering.md#model-profiles)) is a third input of the same kind: it **rejects** every target it does not list (`not_in_model_profile`) and **ranks** the ones it does by their position in the profile. That rank sits after placement on purpose — a profile expresses which models an application considers interchangeable, not where its data may go, so it can never pull a cloud target ahead of a local one that placement puts first. Because profile positions are unique, `optimizeFor` only orders targets within a named profile when placement and profile position tie, which in practice means only under `auto`. The engines resolve the profile name; an unknown name is a request validation failure, raised before any provider is probed, rather than a routing outcome. The rules live in `rust/inderun-route-core/src/planner.rs` and are exercised by that crate's `tests.rs`; the root `README.md` carries the consumer-facing table.
+A request's model profile (see [api-layering.md](./api-layering.md#model-profiles)) is a third input of the same kind: it **rejects** every target it does not list (`not_in_model_profile`) and **ranks** the ones it does by their position in the profile. That rank sits after placement on purpose — a profile expresses which models an application considers interchangeable, not where its data may go, so it can never pull a cloud target ahead of a local one that placement puts first. Because profile positions are unique, `optimizeFor` only orders targets within a named profile when placement and profile position tie, which in practice means only under `auto`. The engines resolve the profile name; an unknown name is a request validation failure, raised before any provider is probed, rather than a routing outcome. The rules live in `rust/inderun-route-core/src/planner.rs` and are exercised by that crate's `tests.rs`; the consumer-facing explanation of the four rules is [When on-device AI is unavailable](../concepts/routing-and-privacy.md).
+
+Routing matches the whole task, not only its name. A provider declares per-task capabilities (`taskCapabilities` on its descriptor: accepted inputs, interaction modes, output deliveries and media types, cancellation, locales, privacy), and its dynamic check can narrow them per task (availability, streaming, locales, voices). The planner rejects a provider whose declaration cannot satisfy what the request requires — `input_not_supported`, `output_delivery_not_supported`, `output_format_not_supported`, `locale_not_supported`, `voice_not_available` join the same rejection vocabulary — so an unsupported speech request is refused during planning rather than failing late inside a provider. A descriptor without `taskCapabilities` is projected onto `text_to_text` alone and is never routed a non-text task, which is what keeps every existing text plan unchanged. A requirement takes part in routing only when it can be verified, with the asymmetry recorded in the planner's module documentation. Each engine projects a request onto those requirements through one per-kind table (`task-profiles.ts`, `TaskProfiles.swift`, `TaskProfiles.kt`), the only place an engine branches on the task kind; `contracts/fixtures/task-contracts/` pins the projection every SDK must produce. A fake third task — `text_to_image` with a PNG artifact — runs through routing, the commit rule, output normalization and the artifact store with nothing added but its profile (`engine.third-task.test.ts`, and the planner case `third_task_image_artifact_routed`), which is what keeps that claim tested rather than asserted. A preference never rejects: the locale region ranks (`locale_rank`, after every explicit priority, and constant for requests without a locale), and when a provider lists its voices the plan binds each candidate to the voice it must use, chosen within the request's privacy policy — so `local_required` constrains the voice that actually speaks, not only the provider, and preferring privacy ranks a provider by that voice. The engine hands that voice to the attempt and re-checks it against the privacy policy immediately before the attempt, so the constraint is enforced at route selection and again before any data reaches the provider; a failed re-check fails that attempt before it commits. One file of shared vectors, `contracts/fixtures/routing/planner-conformance.json`, holds the planner to identical plans through Rust, WASM, the Swift FFI and JNI.
 
 ### Streaming Contracts And Orchestration (Mode 2)
 
@@ -72,7 +96,9 @@ This section records why the guarantees are shaped the way they are; [streaming.
 
 Cancellation produces exactly one terminal `cancelled` outcome and no further user-visible events after the cancel point; repeated or concurrent `cancel()` calls are idempotent by construction (first-writer-wins in the Event Gate). The engine normalizes `ProviderDescriptor.cancel`'s three values (`hard`/`soft`/`none`) into that single caller-facing guarantee: `cancel` only ever affects how promptly a provider stops emitting internally (immediate teardown for `hard`, stop-relaying-only for `soft`, engine-enforced-regardless for `none`) — never whether the caller sees a correct, single outcome.
 
-Cancellation always forecloses fallback, and with it any further route attempt: once a signal is observed as aborted, the engine synthesizes the `cancelled` terminal outcome and stops, regardless of whether any content has been delivered yet, and no additional provider from the planned chain is tried. Independent of cancellation, streaming fallback itself is narrower than Mode 1's: a provider failure is only fallback-eligible *before* the first content event (`content_delta`/`content_snapshot`) has been admitted for the run. Once one has been delivered, the run is committed to that provider — a later provider failure becomes a terminal `error` outcome, never a silent provider swap, since splicing partial text from two different providers would be both undetectable to the caller and a leak of provider-specific mechanics.
+Cancellation always forecloses fallback, and with it any further route attempt: once a signal is observed as aborted, the engine synthesizes the `cancelled` terminal outcome and stops, regardless of whether any content has been delivered yet, and no additional provider from the planned chain is tried. Independent of cancellation, fallback ends at a **commit boundary**, one rule for every task and both modes: an attempt commits on the first of its first admitted content event (`content_delta`/`content_snapshot`, text streams only), the provider's explicit `commit()` on its run or stream context, or the provider handing over its result. A provider failure before commit is fallback-eligible; after it, the failure is the run's — a terminal `error` outcome in Mode 2, the thrown error in Mode 1 — never a silent provider swap. For text the reason is that splicing partial text from two providers would be undetectable to the caller; for managed playback it is that a second provider would speak text the user may already have heard, which is why a playback provider must commit no later than its first possible audible effect, and why the engine answers a commit requested after cancellation, or from an attempt the run has already left, with a refusal. A text `run()` attempt never commits, so its fallback is unchanged. Provenance marks the committed attempt, and the engine checks every output against the requested delivery: an output of the wrong kind is a provider fault (`Internal`, `output_mismatch`), never a result.
+
+The engine adds no timers of its own for any task. `constraints.timeoutMs` is the budget a provider has until it commits — its first content, its first audible effect, or its artifact handoff — not the length of the audio it plays, which is the user's to stop by cancelling.
 
 Because the whole candidate chain comes from the planner rather than from a post-hoc filter, every fallback candidate is mode-compatible *and* constraint-compatible by construction: a `local_required` stream can never fall back to a cloud provider.
 
@@ -82,9 +108,36 @@ The route *planner* is deliberately not covered by that fallback principle. All 
 
 How the core is reached differs by platform, and so does the reason vocabulary. The Web SDK fetches and instantiates a WASM module at runtime, so it can fail to load (`"import_failed"`, `"invalid_module_shape"`, `"init_failed"`, `"plan_failed"`). The Swift SDK links the core from an XCFramework, so a missing planner is a build-time link error and cannot be a runtime state; only encoding and decoding failures remain (`"input_encode_failed"`, `"plan_failed"`, `"invalid_plan_shape"`). The Kotlin SDK loads the core with `System.loadLibrary` from the AAR's `jniLibs`, so an absent library is a runtime state again (`"library_unavailable"`, `"plan_failed"`, `"invalid_plan_shape"`). In every case the reason travels on the `Internal` error's `plannerUnavailableReason` detail; `route_decided` carries no planner fields, since with one planner they could only ever report constants. See `docs/architecture/providers.md` for the distribution mechanisms, and `packages/inderun-web/src/core/route-planner.ts`, `ios/IndeRun/Sources/IndeRunCore/SharedRoutePlanner.swift` and `android/inderun-core/src/main/kotlin/app/independo/inderun/core/SharedCoreRoutePlanner.kt` for the reason taxonomies.
 
+## Media Artifacts
+
+A run that delivers retrievable media returns a `MediaArtifact` reference, not bytes
+([ADR 017](./decisions/017-media-artifacts.md), `contracts/schemas/media-artifact.schema.json`). Each `IndeRun`
+instance owns one in-memory artifact store: a provider writes into it through the sink on its run or stream context,
+and `finish()` hands the artifact over and commits the run. The application reads the bytes with
+`readArtifact()` — ranged, repeatable, and bounded per call by the engine's `maxReadBytes` — and releases them
+with `disposeArtifact()`. Because only ids cross the result, the stream and the Capacitor bridge, no result or event
+grows with the media, and v0.5 streams no media chunks at all.
+
+An artifact outlives its run and ends when the application disposes it or the process ends; there are no temporary
+files, so abnormal termination leaves nothing behind. The engine discards on its own only what the application never
+received: artifacts of attempts that failed, were cancelled or lost to fallback, and artifacts a winning attempt
+finished but did not return. Size limits (`maxArtifactBytes`, `maxStoreBytes`) fail the writing attempt before it
+commits, so the run can still fall back. The reference a run returns is the store's record, not the provider's
+claim: its media type, size and ownership are what the provider wrote, and that media type is the one matched against
+`delivery.mediaTypes`. Artifact bytes, like request content, never appear in telemetry, provenance
+or error details. `contracts/fixtures/execution/artifact-lifecycle.json` holds the cases every engine runs.
+
+An application that wants the bytes somewhere specific names a destination with `delivery.destinationRef`. The
+engine resolves it through the host's optional artifact-destination service, refuses the request before routing when
+the host has none (the default browser host) or refuses the reference, and after the winning attempt hands its
+artifact over writes it there and drops its own copy; the result's artifact is then application-owned. Providers
+never see destinations, so there is one write path per engine. A failed write is post-commit, so it fails the run
+and never falls back. A cancel never starts a write and does not interrupt one in progress; a stream cancelled during
+the write ends `cancelled`, and its outcome carries the application-owned artifact the write left at the destination.
+
 ## Security And Parity
 
-Credentials must be referenced through secure storage, not embedded in request payloads. Cross-platform behavior should stay aligned even when the underlying runtime differs by OS or provider.
+Credentials must be referenced through secure storage, not embedded in request payloads. Artifact destinations follow the same pattern: a request carries an opaque `destinationRef` the host resolves, never a path or URL, so a request that came from a webview cannot address arbitrary storage. Cross-platform behavior should stay aligned even when the underlying runtime differs by OS or provider.
 
 Bridge packages may accept minimal provider bootstrap options when the underlying platform SDK cannot infer required cloud-provider configuration from the canonical request alone. That bootstrap must stay limited to provider registration inputs and must not duplicate routing or orchestration semantics.
 

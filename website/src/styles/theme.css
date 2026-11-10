@@ -1,0 +1,278 @@
+/*
+ * IndeRun design tokens for Tailwind. Imported by both entry stylesheets: site.css (landing and
+ * legal pages) and docs.css (Starlight). Nothing here styles an element except the base layer at
+ * the end of site.css; components use the utilities these tokens generate.
+ *
+ * Brand: off-white #FAF5EF, black #000000, lilac #A0B3FF, Inter.
+ *
+ * Two layers:
+ * 1. Raw `--ir-*` custom properties that switch with the theme. The light theme is the paper, the
+ *    dark theme is the black ground. Without JavaScript (no data-theme attribute) the OS setting
+ *    decides.
+ * 2. `@theme inline` maps them onto Tailwind colour names, so `bg-ground text-ink` follows the
+ *    theme with no `dark:` variant. Use `dark:` only where a component needs a different shape,
+ *    not a different colour.
+ *
+ * Lilac rule: lilac is a lamp or a background behind black text (10.4:1). Lilac text is allowed
+ * only on black or near-black grounds: the panel in both themes, and the page in the dark theme.
+ * Lilac text on off-white is never allowed (1.9:1). Ratios below are WCAG 2.x against the surface
+ * named.
+ */
+
+@font-face {
+  /* Inter (SIL Open Font License 1.1), self-hosted subset copied from independo.app. */
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  /* Metric-matched local fallback so the swap to Inter does not move the layout (CLS). */
+  font-family: "Inter Fallback";
+  src: local("Arial");
+  size-adjust: 107.4%;
+  ascent-override: 90.2%;
+  descent-override: 22.5%;
+  line-gap-override: 0%;
+}
+
+:root {
+  /* Fixed in both themes */
+  --ir-paper: #faf5ef;
+  --ir-black: #000000;
+  --ir-lamp: #a0b3ff; /* 10.4:1 on black */
+
+  /* Code on the panel (Shiki css-variables theme, see components/landing/CodePlate.astro) */
+  --ir-code-fg: #faf5ef; /* 19.4:1 on black */
+  --ir-code-keyword: #a0b3ff; /* 10.4:1 */
+  --ir-code-string: #e2dbd2; /* 15.3:1 */
+  --ir-code-constant: #c9d3ff; /* 14.3:1 */
+  --ir-code-comment: #a8a39c; /* 8.4:1 */
+  --ir-code-punctuation: #bdb7af; /* 10.6:1 */
+
+  --ir-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Light: the paper. */
+:root {
+  --ir-ground: #faf5ef;
+  --ir-ground-sunk: #f1eae1; /* inset plates; black text 17.3:1 */
+  --ir-ink: #000000; /* 19.4:1 */
+  --ir-ink-body: #24211e; /* 14.8:1 */
+  --ir-ink-muted: #4a4641; /* 8.6:1 */
+  --ir-ink-faint: #67625b; /* 5.6:1, the faintest text allowed */
+  --ir-rule: #d6cec3; /* decorative hairline */
+  --ir-rule-strong: #000000; /* control and table boundaries */
+  --ir-edge: #8c857c; /* field and key outline, 3.4:1 (non-text 3:1 floor) */
+  --ir-focus: #000000;
+
+  /* The panel: black in the light theme */
+  --ir-panel: #000000;
+  --ir-panel-raised: #121212; /* plates and keys set into the panel */
+  --ir-panel-rule: #3a3835;
+  --ir-panel-seam: rgb(250 245 239 / 0.05);
+  --ir-panel-edge: #969390; /* key outline on the panel, 6.9:1 */
+  --ir-plate-edge: rgb(250 245 239 / 0.24);
+  --ir-engrave: #faf5ef; /* 19.4:1 */
+  --ir-engrave-muted: #bdb7af; /* 10.6:1 */
+  --ir-ghost: #77736d; /* unset track, 4.5:1 */
+  --ir-focus-panel: #a0b3ff;
+
+  /* Primary push button and docs accent: black with a lilac lamp on paper. */
+  --ir-push: #000000;
+  --ir-push-ink: #faf5ef; /* 19.4:1 */
+  --ir-push-hover: #a0b3ff; /* behind black text, 10.4:1 */
+  --ir-push-mark: #a0b3ff;
+  --ir-link-line: currentColor; /* link underline */
+  --ir-logo-plate: transparent; /* behind dark-on-transparent partner logos */
+  --ir-plate-rule: rgb(0 0 0 / 0.14); /* outline of sunk plates (inline code, asides) */
+
+  color-scheme: light;
+}
+
+/* Dark: the black ground. The panel lifts one step off it and keeps its own hairline. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ir-ground: #000000;
+    --ir-ground-sunk: #121212;
+    --ir-ink: #faf5ef; /* 19.4:1 */
+    --ir-ink-body: #e2dbd2; /* 15.3:1 */
+    --ir-ink-muted: #bdb7af; /* 10.6:1 */
+    --ir-ink-faint: #a8a39c; /* 8.4:1 */
+    --ir-rule: #2e2c2a;
+    --ir-rule-strong: #faf5ef;
+    --ir-edge: #8f8a83; /* 6.1:1 */
+    --ir-focus: #a0b3ff;
+    --ir-panel: #0e0e0e;
+    --ir-panel-raised: #1a1a1a;
+    --ir-panel-rule: #3a3835;
+    --ir-push: #a0b3ff; /* the lit lamp, black text 10.4:1 */
+    --ir-push-ink: #000000;
+    --ir-push-hover: #faf5ef;
+    --ir-push-mark: #000000;
+    --ir-link-line: #a0b3ff; /* lilac underline on black */
+    --ir-logo-plate: #faf5ef;
+    --ir-plate-rule: rgb(250 245 239 / 0.24);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ir-ground: #000000;
+  --ir-ground-sunk: #121212;
+  --ir-ink: #faf5ef;
+  --ir-ink-body: #e2dbd2;
+  --ir-ink-muted: #bdb7af;
+  --ir-ink-faint: #a8a39c;
+  --ir-rule: #2e2c2a;
+  --ir-rule-strong: #faf5ef;
+  --ir-edge: #8f8a83;
+  --ir-focus: #a0b3ff;
+  --ir-panel: #0e0e0e;
+  --ir-panel-raised: #1a1a1a;
+  --ir-panel-rule: #3a3835;
+  --ir-push: #a0b3ff;
+  --ir-push-ink: #000000;
+  --ir-push-hover: #faf5ef;
+  --ir-push-mark: #000000;
+  --ir-link-line: #a0b3ff;
+  --ir-logo-plate: #faf5ef;
+  --ir-plate-rule: rgb(250 245 239 / 0.24);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-ground: var(--ir-ground);
+  --color-ground-sunk: var(--ir-ground-sunk);
+  --color-ink: var(--ir-ink);
+  --color-ink-body: var(--ir-ink-body);
+  --color-ink-muted: var(--ir-ink-muted);
+  --color-ink-faint: var(--ir-ink-faint);
+  --color-rule: var(--ir-rule);
+  --color-rule-strong: var(--ir-rule-strong);
+  --color-edge: var(--ir-edge);
+  --color-focus: var(--ir-focus);
+
+  --color-panel: var(--ir-panel);
+  --color-panel-raised: var(--ir-panel-raised);
+  --color-panel-rule: var(--ir-panel-rule);
+  --color-panel-seam: var(--ir-panel-seam);
+  --color-panel-edge: var(--ir-panel-edge);
+  --color-plate-edge: var(--ir-plate-edge);
+  --color-engrave: var(--ir-engrave);
+  --color-engrave-muted: var(--ir-engrave-muted);
+  --color-ghost: var(--ir-ghost);
+  --color-focus-panel: var(--ir-focus-panel);
+  --color-push: var(--ir-push);
+  --color-push-ink: var(--ir-push-ink);
+  --color-push-hover: var(--ir-push-hover);
+  --color-push-mark: var(--ir-push-mark);
+  --color-logo-plate: var(--ir-logo-plate);
+  --color-link-line: var(--ir-link-line);
+  --color-plate-rule: var(--ir-plate-rule);
+
+  --color-paper: var(--ir-paper);
+  --color-black: var(--ir-black);
+  --color-lamp: var(--ir-lamp);
+}
+
+@theme {
+  --font-sans: "Inter", "Inter Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-sans--font-feature-settings: "cv11", "ss01";
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --radius-key: 2px;
+  --radius-plate: 3px;
+  --radius-panel: 4px;
+
+  /* 80rem of content plus the widest gutter on each side, so the content measure stays 80rem. */
+  --container-site: 86rem;
+  /* Page side gutter: `mx-auto max-w-site px-gutter` is the page container everywhere. */
+  --spacing-gutter: clamp(1rem, 4vw, 3rem);
+
+  /* Depth is set-in only (DESIGN.md): the panel's recessed ring, the push button's drop, the
+     mobile menu sheet's long soft shadow. */
+  --shadow-set-in:
+    inset 0 0 0 1px var(--ir-panel-rule), 0 0 0 5px var(--ir-ground-sunk), 0 0 0 6px var(--ir-rule);
+  --shadow-push: 0 1px 0 rgb(0 0 0 / 0.2), 0 8px 18px -10px rgb(0 0 0 / 0.55);
+  --shadow-sheet: 0 18px 30px -22px rgb(0 0 0 / 0.45);
+
+  /* Legal pages: the reading column. */
+  --container-legal: 44rem;
+
+  /* Weights between Tailwind's steps: links (550), strong docs text (650), display (750). */
+  --font-weight-link: 550;
+  --font-weight-strong: 650;
+  --font-weight-heavy: 750;
+
+  /* Small text: footer, compact controls, docs tables. */
+  --text-small: 0.9375rem;
+  /* Panel text: device lines and code plates (meta), engraved caps on tablets and labels (plate). */
+  --text-meta: 0.8125rem;
+  --text-plate: 0.75rem;
+
+
+  /* Display type, fluid. */
+  --text-display: clamp(2.375rem, 1.25rem + 3vw, 4rem);
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.04em;
+  --text-headline: clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem);
+  --text-headline--line-height: 1.08;
+  --text-headline--letter-spacing: -0.03em;
+  --text-title: clamp(1.25rem, 1.05rem + 0.75vw, 1.5rem);
+  --text-title--line-height: 1.3;
+  --text-title--letter-spacing: -0.015em;
+
+  /*
+   * Gray and accent scales for Starlight (read by @astrojs/starlight-tailwind). --color-white is
+   * the paper, so Starlight's light page ground is off-white and its dark text is off-white.
+   */
+  --color-white: #faf5ef;
+  --color-gray-50: #faf5ef;
+  --color-gray-100: #f1eae1;
+  --color-gray-200: #e2dbd2;
+  --color-gray-300: #d6cec3;
+  --color-gray-400: #bdb7af;
+  --color-gray-500: #67625b;
+  --color-gray-600: #4a4641;
+  --color-gray-700: #3a3835;
+  --color-gray-800: #121212;
+  --color-gray-900: #000000;
+  --color-gray-950: #000000;
+
+  --color-accent-50: #f3f5ff;
+  --color-accent-100: #e4e9ff;
+  --color-accent-200: #a0b3ff;
+  --color-accent-300: #a0b3ff;
+  --color-accent-400: #8a9ff7;
+  --color-accent-500: #7088ec;
+  --color-accent-600: #a0b3ff;
+  --color-accent-700: #2c3a7a;
+  --color-accent-800: #1b2456;
+  --color-accent-900: #000000;
+  --color-accent-950: #161c38;
+}
+
+/* Shared utilities, available to both entry stylesheets. */
+
+/* Engraved caps: plates, table heads, small labels. */
+@utility caps {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The panel's mosaic tile seams, decorative. */
+@utility panel-seams {
+  background-image:
+    linear-gradient(var(--color-panel-seam) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-panel-seam) 1px, transparent 1px);
+  background-size: 2.25rem 2.25rem;
+  background-position: -1px -1px;
+}

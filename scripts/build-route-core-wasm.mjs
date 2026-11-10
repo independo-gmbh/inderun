@@ -25,25 +25,41 @@ import { wasmBindgenVersion } from "./wasm-bindgen-version.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(repoRoot, "packages", "inderun-route-core-wasm", "generated");
-const wasmInput = join(
-  repoRoot,
-  "target",
-  "wasm32-unknown-unknown",
-  "debug",
-  "inderun_route_core.wasm"
-);
-const outputs = [
-  join(outDir, "inderun_route_core.js"),
-  join(outDir, "inderun_route_core_bg.wasm"),
-  join(outDir, "inderun_route_core_bg.wasm.d.ts")
-];
+
+/**
+ * The two Web artifacts. The planner module is what every Web SDK app loads for routing, so it is
+ * built without the `speech-text` feature and stays small; the speech module adds the German text
+ * frontend (and its regex engine) and is fetched only when `normalizeSpeechText` is first called.
+ * Each gets its own cargo target directory: the two feature sets would otherwise overwrite the same
+ * `inderun_route_core.wasm` and force a rebuild on every run.
+ */
+const artifacts = [
+  {
+    name: "inderun_route_core",
+    features: [],
+    targetDir: join(repoRoot, "target")
+  },
+  {
+    name: "inderun_speech_text",
+    features: ["--features", "speech-text"],
+    targetDir: join(repoRoot, "target", "wasm-speech-text")
+  }
+].map((artifact) => ({
+  ...artifact,
+  wasmInput: join(artifact.targetDir, "wasm32-unknown-unknown", "wasm", "inderun_route_core.wasm"),
+  outputs: [
+    join(outDir, `${artifact.name}.js`),
+    join(outDir, `${artifact.name}_bg.wasm`),
+    join(outDir, `${artifact.name}_bg.wasm.d.ts`)
+  ]
+}));
 
 /**
  * True when every wasm-bindgen output already exists and is newer than the
  * `.wasm` cargo just produced — i.e. cargo did not rebuild and the bindings on
  * disk were generated from exactly this artifact.
  */
-function bindingsMatchBuiltWasm() {
+function bindingsMatchBuiltWasm({ wasmInput, outputs }) {
   if (!outputs.every((output) => existsSync(output))) {
     return false;
   }
@@ -85,31 +101,39 @@ try {
   process.exit(1);
 }
 
-run(
-  "rustup",
-  [
-    "run",
-    toolchain,
-    "cargo",
-    "build",
-    "-p",
-    "inderun_route_core",
-    "--target",
-    "wasm32-unknown-unknown"
-  ],
-  TOOLCHAIN_HINT
-);
-if (bindingsMatchBuiltWasm()) {
-  console.log(
-    "[build-route-core-wasm] Bindings already match the built WASM; skipping wasm-bindgen."
+for (const artifact of artifacts) {
+  run(
+    "rustup",
+    [
+      "run",
+      toolchain,
+      "cargo",
+      "build",
+      "-p",
+      "inderun_route_core",
+      "--target",
+      "wasm32-unknown-unknown",
+      "--profile",
+      "wasm",
+      "--no-default-features",
+      ...artifact.features,
+      "--target-dir",
+      artifact.targetDir
+    ],
+    TOOLCHAIN_HINT
   );
-  process.exit(0);
-}
+  if (bindingsMatchBuiltWasm(artifact)) {
+    console.log(
+      `[build-route-core-wasm] ${artifact.name} bindings already match the built WASM; skipping wasm-bindgen.`
+    );
+    continue;
+  }
 
-run(
-  "wasm-bindgen",
-  [wasmInput, "--target", "web", "--out-dir", outDir, "--out-name", "inderun_route_core"],
-  TOOLCHAIN_HINT
-);
+  run(
+    "wasm-bindgen",
+    [artifact.wasmInput, "--target", "web", "--out-dir", outDir, "--out-name", artifact.name],
+    TOOLCHAIN_HINT
+  );
+}
 
 console.log(`[build-route-core-wasm] Wrote bindings to ${outDir}`);

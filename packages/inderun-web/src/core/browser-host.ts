@@ -8,6 +8,7 @@ import type {
   HttpStreamResponse,
   HttpStreamingClientService
 } from "./host.js";
+import { createWebAudioOutputService } from "./browser-audio-output.js";
 
 /**
  * Configuration for the fetch-backed HTTP host service.
@@ -322,6 +323,8 @@ export function createBrowserHostServices(
   } else {
     hostServices.streamingHttpClient = new FetchStreamingHttpClient();
   }
+
+  hostServices.audioOutput = options.audioOutput ?? createWebAudioOutputService();
 
   if (options.deviceConstraints) {
     hostServices.deviceConstraints = options.deviceConstraints;

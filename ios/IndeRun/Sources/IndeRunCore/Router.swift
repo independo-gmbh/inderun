@@ -1,23 +1,51 @@
 import Foundation
 import IndeRunContracts
 
+/// One provider in the planned chain, with the voice the plan bound it to (speech only).
+public struct RouteCandidate: Sendable {
+    public let provider: any ProviderAdapter
+    /// The voice this provider must use, chosen by the planner within the request's
+    /// privacy policy. `nil` when the task has no voice or the provider does not list
+    /// its voices.
+    public let voice: ProviderVoice?
+
+    public init(provider: any ProviderAdapter, voice: ProviderVoice? = nil) {
+        self.provider = provider
+        self.voice = voice
+    }
+}
+
 public struct RouteSelection: Sendable {
     public let provider: any ProviderAdapter
     public let fallbackProviders: [any ProviderAdapter]
+    /// The whole chain in attempt order (`provider` first), each with its bound voice.
+    public let candidates: [RouteCandidate]
     public let routePlan: RoutePlan
     public let explanation: String
 
+    /// `candidates` defaults to the chain without bound voices, so a selection built
+    /// before voices existed keeps its meaning.
     public init(
         provider: any ProviderAdapter,
         fallbackProviders: [any ProviderAdapter],
+        candidates: [RouteCandidate]? = nil,
         routePlan: RoutePlan,
         explanation: String
     ) {
         self.provider = provider
         self.fallbackProviders = fallbackProviders
+        self.candidates = candidates
+            ?? ([provider] + fallbackProviders).map { RouteCandidate(provider: $0) }
         self.routePlan = routePlan
         self.explanation = explanation
     }
+}
+
+/// A provider that can prepare a task, with the voice a run would bind and how ready that is.
+public struct PreparationCandidate: Sendable {
+    public let provider: any PreparableProviderAdapter
+    public let voice: ProviderVoice?
+    public let readiness: ProviderReadiness
 }
 
 public final class Router: Sendable {
@@ -32,6 +60,51 @@ public final class Router: Sendable {
     init(registry: ProviderRegistry, planner: any RoutePlanning) {
         self.registry = registry
         self.planner = planner
+    }
+
+    /// Plans preparation for one task. Unlike `selectRoute` it never throws for an empty plan,
+    /// because a task with nothing to prepare is a normal answer.
+    public func planPreparation(
+        task: RoutePlannerInputTask,
+        privacy: Privacy?,
+        hostServices: HostServices
+    ) async throws -> [PreparationCandidate] {
+        let online = await hostServices.connectivity.isOnline()
+        let snapshots = await collectProviderSnapshots(hostServices: hostServices)
+        let input = SharedPlannerInput(
+            constraints: SharedPlannerConstraints(cloud: nil, networkOnline: online, privacy: privacy),
+            interactionMode: .prepare,
+            modelProfile: nil,
+            preferences: SharedPlannerPreferences(optimizeFor: nil),
+            providers: snapshots.map { snapshot in
+                SharedPlannerProviderInput(
+                    capabilities: streamingAwareCapabilities(for: snapshot),
+                    descriptor: snapshot.descriptor
+                )
+            },
+            task: task
+        )
+
+        let routePlan: SharedPlannerRoutePlan
+        do {
+            routePlan = try planner.planRoute(input: input)
+        } catch let failure as RoutePlannerUnavailable {
+            throw createInternal(
+                message: "Route planner unavailable (\(failure.reason.rawValue)).",
+                details: ["plannerUnavailableReason": JSONAny(failure.reason.rawValue)]
+            )
+        }
+
+        return routePlan.candidates.compactMap { candidate in
+            guard let snapshot = snapshots.first(where: { $0.descriptor.id == candidate.providerId }),
+                  let provider = snapshot.provider as? any PreparableProviderAdapter else { return nil }
+            let entry = snapshot.capabilities.taskCapabilities?.first { $0.kind == task.kind }
+            return PreparationCandidate(
+                provider: provider,
+                voice: candidate.voice,
+                readiness: candidate.voice?.readiness ?? entry?.readiness ?? .ready
+            )
+        }
     }
 
     /// Plans a route for `request`.
@@ -112,18 +185,24 @@ public final class Router: Sendable {
         snapshots: [ProviderSnapshot],
         routePlan: RoutePlan
     ) throws -> RouteSelection {
-        let orderedSnapshots = routePlan.candidates.compactMap { candidate in
-            snapshots.first(where: { $0.descriptor.id == candidate.providerId })
+        let planned: [(id: String, candidate: RouteCandidate)] = routePlan.candidates.compactMap { candidate in
+            snapshots.first(where: { $0.descriptor.id == candidate.providerId }).map { snapshot in
+                (snapshot.descriptor.id, RouteCandidate(provider: snapshot.provider, voice: candidate.voice))
+            }
         }
 
-        guard let selectedId = routePlan.selectedProviderId ?? orderedSnapshots.first?.descriptor.id,
+        guard let selectedId = routePlan.selectedProviderId ?? planned.first?.id,
               let selected = snapshots.first(where: { $0.descriptor.id == selectedId }) else {
             throw createInternal(message: "Route plan selected a provider that is no longer registered.")
         }
 
+        let primary = planned.first { $0.id == selectedId }?.candidate ?? RouteCandidate(provider: selected.provider)
+        let fallbacks = planned.filter { $0.id != selectedId }.map(\.candidate)
+
         return RouteSelection(
-            provider: selected.provider,
-            fallbackProviders: orderedSnapshots.filter { $0.descriptor.id != selectedId }.map { $0.provider },
+            provider: primary.provider,
+            fallbackProviders: fallbacks.map(\.provider),
+            candidates: [primary] + fallbacks,
             routePlan: routePlan,
             explanation: routePlan.explanation.summary
         )
@@ -190,33 +269,26 @@ private func buildSharedPlannerInput(
         providers: snapshots.map { snapshot in
             SharedPlannerProviderInput(
                 capabilities: streamingAwareCapabilities(for: snapshot),
-                descriptor: SharedPlannerProviderDescriptor(
-                    cancel: cancelSemantics(from: snapshot.descriptor.cancel),
-                    id: snapshot.descriptor.id,
-                    privacy: snapshot.descriptor.privacy.map { privacy in
-                        PrivacyClass(
-                            dataLeavesDevice: privacy.dataLeavesDevice,
-                            regions: privacy.regions
-                        )
-                    },
-                    supports: SharedPlannerProviderSupports(
-                        run: snapshot.descriptor.supports.run,
-                        streaming: snapshot.descriptor.supports.streaming
-                    ),
-                    tasks: snapshot.descriptor.tasks,
-                    type: descriptorType(from: snapshot.descriptor.type)
-                )
+                descriptor: snapshot.descriptor
             )
         },
-        task: SharedPlannerTask(kind: request.task.kind.rawValue)
+        task: plannerTask(for: request)
     )
+}
+
+/// Projects the request's task onto the requirements the planner can check, through the
+/// kind's task profile. Mirrors `plannerTask` in the Web SDK's route planner, whose
+/// fallback for a kind without a profile has no Swift counterpart: such a kind does not
+/// decode into `TaskKind`.
+private func plannerTask(for request: TaskRequest) -> SharedPlannerTask {
+    TaskProfiles.profile(for: request.task.kind).plannerTask(request)
 }
 
 /// Folds the "declares streaming but does not implement it" check into the
 /// dynamic capability the planner sees, so the mismatch is rejected during
 /// planning with an explanation instead of surfacing as an unexplained failure
 /// later. Mirrors `toSharedPlannerCapabilities` in the Web SDK's route planner.
-private func streamingAwareCapabilities(for snapshot: ProviderSnapshot) -> SharedPlannerCapabilities {
+private func streamingAwareCapabilities(for snapshot: ProviderSnapshot) -> ProviderDynamicCapabilities {
     let declaresStreaming = snapshot.capabilities.streamingAvailable
         ?? snapshot.descriptor.supports.streaming
     let implementsStream = snapshot.provider is any StreamingProviderAdapter
@@ -226,39 +298,16 @@ private func streamingAwareCapabilities(for snapshot: ProviderSnapshot) -> Share
             ? "Provider '\(snapshot.descriptor.id)' declares streaming but does not implement stream()."
             : nil)
 
-    return SharedPlannerCapabilities(
-        available: snapshot.capabilities.available,
-        cancellationAvailable: snapshot.capabilities.cancellationAvailable,
-        reason: snapshot.capabilities.reason,
-        streamingAvailable: streamingAvailable,
-        streamingUnavailableReason: streamingUnavailableReason
-    )
+    // Copy and override rather than rebuild, so a field added to the schema reaches the
+    // planner without touching this function.
+    var capabilities = snapshot.capabilities
+    capabilities.streamingAvailable = streamingAvailable
+    capabilities.streamingUnavailableReason = streamingAvailable ? nil : streamingUnavailableReason
+    return capabilities
 }
 
 private struct ProviderSnapshot: Sendable {
     let provider: any ProviderAdapter
     let descriptor: ProviderDescriptor
     let capabilities: ProviderDynamicCapabilities
-}
-
-private func cancelSemantics(from value: ProviderDescriptor.CancelSemantics) -> Cancel {
-    switch value {
-    case .hard:
-        return .hard
-    case .soft:
-        return .soft
-    case .none:
-        return .none
-    }
-}
-
-private func descriptorType(from value: ProviderDescriptor.ProviderType) -> DescriptorType {
-    switch value {
-    case .local:
-        return .local
-    case .edge:
-        return .edge
-    case .cloud:
-        return .cloud
-    }
 }

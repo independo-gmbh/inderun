@@ -58,7 +58,7 @@ struct KvCacheLayout: Sendable {
 /// should be created before and destroyed after other ORT API usage" -- creating a fresh one per
 /// model load (the previous behavior) worked but discarded that shared-lifecycle intent for no
 /// benefit.
-private enum SharedOnnxEnvironment {
+enum SharedOnnxEnvironment {
     static let instance: Result<ORTEnv, OnnxRuntimeError> = {
         do {
             return .success(try ORTEnv(loggingLevel: .warning))
@@ -83,6 +83,8 @@ private enum SharedOnnxEnvironment {
 /// so repeated `prepare`/`generate` calls do not reload the model and tokenizer every time.
 actor LoadedSessionBox {
     private var cached: (key: String, loaded: LoadedSession)?
+    /// Bumped by `clear()`, so a load that was suspended across it does not cache its session.
+    private var epoch = 0
 
     func loaded(for modelPackage: ModelPackage) async throws -> LoadedSession {
         let key = Self.cacheKey(for: modelPackage)
@@ -90,9 +92,16 @@ actor LoadedSessionBox {
             return cached.loaded
         }
 
+        let startEpoch = epoch
         let loaded = try await Self.load(modelPackage)
-        cached = (key, loaded)
+        if epoch == startEpoch { cached = (key, loaded) }
         return loaded
+    }
+
+    /// Drops the cached session. Callers holding it keep it until they return; ARC frees it then.
+    func clear() {
+        epoch += 1
+        cached = nil
     }
 
     /// Cache key covering everything that identifies *which bytes* this session was built from --
@@ -111,7 +120,9 @@ actor LoadedSessionBox {
         return parts.joined(separator: "|")
     }
 
-    private static func load(_ modelPackage: ModelPackage) async throws -> LoadedSession {
+    /// Checks that the package's files are where it says, without reading them. Cheap enough for
+    /// the capability check, which runs on every request.
+    static func checkedFiles(_ modelPackage: ModelPackage) throws -> (directory: URL, modelPath: URL) {
         guard modelPackage.format == .onnx || modelPackage.format == .ort else {
             let format = modelPackage.format.rawValue
             throw OnnxRuntimeError(
@@ -152,16 +163,21 @@ actor LoadedSessionBox {
             )
         }
 
+        return (directory, modelPath)
+    }
+
+    private static func load(_ modelPackage: ModelPackage) async throws -> LoadedSession {
+        let (directory, modelPath) = try checkedFiles(modelPackage)
+
         try verifyChecksums(modelPackage, directory: directory)
 
         // Loads tokenizer config from an already-resolved local directory with hardcoded literal
         // filenames only -- no Hub network/download/cache APIs (`HubApi.snapshot(from:)`,
-        // `.from(pretrained:)`, `HubCache`/`HubClient`) are called. Those Hub-network/cache-path
-        // APIs have open CodeQL swift/path-injection findings upstream (`HubCache.cachedFilePath`
-        // builds cache paths from `revision`/`filename` without the same validation
-        // `storeFile`/`storeData` apply; tracked in huggingface/swift-huggingface#62). Before
-        // calling those APIs with a repo ID or filename that isn't a hardcoded literal, check
-        // whether that issue is resolved, and if not, validate repo-id/filename inputs first.
+        // `.from(pretrained:)`, `HubCache`/`HubClient`) are called. `HubCache.cachedFilePath` only
+        // validates `revision`/`filename` from swift-huggingface 0.10.0 on
+        // (huggingface/swift-huggingface#62), and `codeql.yml` drops findings in SwiftPM
+        // dependencies, so no scan covers those APIs. Before calling them with a repo ID or
+        // filename that isn't a hardcoded literal, validate those inputs first.
         let tokenizer: Tokenizer
         do {
             tokenizer = try await AutoTokenizer.from(modelFolder: directory)

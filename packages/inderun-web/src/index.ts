@@ -1,8 +1,8 @@
 /**
  * Application entry point for the IndeRun Web SDK (`@independo/inderun-web`).
  *
- * It leads with the primary text API (`generateText` / `streamText`) and the
- * factory that builds a ready engine, then carries the advanced task API
+ * It leads with the primary APIs (`generateText` / `streamText`, `speak` /
+ * `generateSpeech`) and the factory that builds a ready engine, then carries the advanced task API
  * (`run()` / `stream()` / `checkCapabilities()`) and the contract, error and
  * telemetry types those signatures use. See `docs/architecture/api-layering.md`.
  *
@@ -10,7 +10,7 @@
  * - provider-authoring and host-integration APIs ship from
  *   `@independo/inderun-web/provider`;
  * - provider adapters ship from their own subpaths (`/openai`, `/onnx`,
- *   `/system-model`), so this surface stays provider-agnostic.
+ *   `/system-model`, `/system-speech`), so this surface stays provider-agnostic.
  *
  * The engine's internals (router, route planner bindings, Event Gate) are not
  * exported at all.
@@ -30,6 +30,36 @@ export {
   type TextGenerationOptions,
   type TextStream
 } from "./facade/text.js";
+
+/**
+ * The primary speech API: managed playback, retrievable audio and voice discovery,
+ * over any `IndeRunApi`.
+ */
+export {
+  generateSpeech,
+  listVoices,
+  speak,
+  toSpeechRequest,
+  type GeneratedSpeech,
+  type GenerateSpeechOptions,
+  type ListVoicesOptions,
+  type SpeakOptions,
+  type SpeechExecutionOptions,
+  type SpeechPlayback,
+  type SpokenSpeech,
+  type SpeechVoiceInfo
+} from "./facade/speech.js";
+
+/**
+ * Optional preparation: makes providers ready ahead of a run, with progress and cancellation.
+ */
+export {
+  prepare,
+  type Preparation,
+  type PreparationItem,
+  type PreparationResult,
+  type PrepareOptions
+} from "./facade/prepare.js";
 
 /**
  * The recommended way in: builds host services, registers the providers named in
@@ -54,7 +84,12 @@ export { AUTO_MODEL_PROFILE, type ModelProfiles } from "./core/model-profiles.js
  */
 export { IndeRun, type IndeRunOptions, type StreamHandleResult } from "./core/engine.js";
 export type { IndeRunApi } from "./core/generated/inderun-api.js";
-export type { ProviderCapabilitySnapshot, StreamRun } from "./core/provider.js";
+export type {
+  ArtifactChunk,
+  ArtifactLimits,
+  ProviderCapabilitySnapshot,
+  StreamRun
+} from "./core/provider.js";
 
 /**
  * The contract types this SDK's own signatures take and return.
@@ -72,12 +107,21 @@ export type { ProviderCapabilitySnapshot, StreamRun } from "./core/provider.js";
  * re-exported here: the JSON Schemas and the `get*ValidationIssues` validators.
  */
 export type {
+  ArtifactReadRequest,
+  ArtifactTaskOutput,
   ExecutionProvenance,
   IndeRunError,
   IndeRunErrorClass,
+  MediaArtifact,
+  PlaybackTaskOutput,
+  PlaybackTiming,
+  PrepareRequest,
+  ProviderReadiness,
+  SpeechTaskRequest,
   StreamEvent,
   StreamRunHandle,
   StreamTerminalOutcome,
+  TaskOutput,
   TaskRequest,
   TaskResult
 } from "@independo/inderun-contracts";

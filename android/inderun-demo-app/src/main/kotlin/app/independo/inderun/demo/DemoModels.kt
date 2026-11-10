@@ -1,12 +1,15 @@
 package app.independo.inderun.demo
 
 import app.independo.inderun.contracts.Outcome
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.TaskRequestConstraints
 import app.independo.inderun.core.StreamRun
+import app.independo.inderun.sdk.SpeechVoiceInfo
 import java.util.Locale
 
 internal object DemoDefaults {
+    const val DEFAULT_SPEECH_TEXT = "Der Bus kommt in fünf Minuten."
+    const val DEFAULT_SPEECH_LOCALE = "de-DE"
     const val DEFAULT_CLOUD_ENDPOINT_URL = "http://10.0.2.2:8787/api/inderun/openai-responses"
     const val DEFAULT_CLOUD_MODEL = "gpt-5.2"
 
@@ -24,10 +27,10 @@ internal object DemoDefaults {
  * mirroring the web demo's `Privacy` selector and the iOS demo's `PrivacyPreference`.
  */
 internal enum class PrivacyPreference(val title: String, val constraints: TaskRequestConstraints) {
-    LocalRequired(title = "Local Only", constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired)),
-    LocalPreferred(title = "Prefer Local", constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalPreferred)),
-    CloudAllowed(title = "Cloud Allowed", constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudAllowed)),
-    CloudRequired(title = "Cloud Only", constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired)),
+    LocalRequired(title = "Local Only", constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired)),
+    LocalPreferred(title = "Prefer Local", constraints = TaskRequestConstraints(privacy = Privacy.LocalPreferred)),
+    CloudAllowed(title = "Cloud Allowed", constraints = TaskRequestConstraints(privacy = Privacy.CloudAllowed)),
+    CloudRequired(title = "Cloud Only", constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired)),
 }
 
 internal data class ProviderBadge(
@@ -54,6 +57,8 @@ internal data class DemoSettings(
     val endpointUrl: String,
     val model: String,
     val onnxModelSelection: DemoOnnxModelSelection,
+    /** The opt-in Voices lab (#260). Off: no catalog read, no provider registration. */
+    val voicesLabEnabled: Boolean = false,
 )
 
 internal data class AttemptMetadata(
@@ -132,7 +137,19 @@ internal data class DemoUiState(
     val isRunning: Boolean = false,
     val stream: DemoStreamState? = null,
     val isStreaming: Boolean = false,
+    val speechText: String = DemoDefaults.DEFAULT_SPEECH_TEXT,
+    val speechLocale: String = DemoDefaults.DEFAULT_SPEECH_LOCALE,
+    val speechVoices: List<SpeechVoiceInfo> = emptyList(),
+    /** The selected voice. Null lets routing choose. */
+    val speechVoiceId: String? = null,
+    val isSpeaking: Boolean = false,
+    val canStopSpeaking: Boolean = false,
+    val speechOutcome: String? = null,
+    val voicesLabEnabled: Boolean = false,
 ) {
+    val selectedSpeechVoice: SpeechVoiceInfo?
+        get() = speechVoices.firstOrNull { it.id == speechVoiceId }
+
     val cloudSettingsHint: String
         get() = "The default emulator endpoint targets the local demo proxy through 10.0.2.2:8787. Physical devices need a LAN IP or remote server URL instead."
 
@@ -164,5 +181,6 @@ internal data class DemoUiState(
         endpointUrl = cloudEndpointUrl,
         model = cloudModel,
         onnxModelSelection = onnxModelSelection,
+        voicesLabEnabled = voicesLabEnabled,
     )
 }

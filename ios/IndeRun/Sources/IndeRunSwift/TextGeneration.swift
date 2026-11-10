@@ -20,13 +20,13 @@ public enum TextInput: Sendable {
 /// Compact execution policy. Reuses the canonical enum values, so moving a call between
 /// the facade and `run` never changes what a constraint means.
 public struct TextExecutionOptions: Sendable {
-    public var privacy: PrivacyEnum?
+    public var privacy: Privacy?
     public var cloud: Cloud?
     public var timeoutMs: Int?
     public var optimizeFor: OptimizeFor?
 
     public init(
-        privacy: PrivacyEnum? = nil,
+        privacy: Privacy? = nil,
         cloud: Cloud? = nil,
         timeoutMs: Int? = nil,
         optimizeFor: OptimizeFor? = nil
@@ -35,6 +35,15 @@ public struct TextExecutionOptions: Sendable {
         self.cloud = cloud
         self.timeoutMs = timeoutMs
         self.optimizeFor = optimizeFor
+    }
+
+    var taskConstraints: TaskRequestConstraints? {
+        guard privacy != nil || cloud != nil || timeoutMs != nil else { return nil }
+        return TaskRequestConstraints(privacy: privacy, cloud: cloud, timeoutMs: timeoutMs)
+    }
+
+    var taskPreferences: TaskRequestPreferences? {
+        optimizeFor.map { TaskRequestPreferences(optimizeFor: $0) }
     }
 }
 
@@ -104,16 +113,6 @@ public struct TextGenerationOptions: Sendable {
 
         let hasGeneration = maxOutputTokens != nil || temperature != nil || topP != nil
             || stop != nil || seed != nil
-        let constraints = execution.flatMap { execution -> TaskRequestConstraints? in
-            guard execution.privacy != nil || execution.cloud != nil || execution.timeoutMs != nil else {
-                return nil
-            }
-            return TaskRequestConstraints(
-                privacy: execution.privacy,
-                cloud: execution.cloud,
-                timeoutMs: execution.timeoutMs
-            )
-        }
 
         return TaskRequest(
             requestId: requestId,
@@ -129,8 +128,8 @@ public struct TextGenerationOptions: Sendable {
                     topP: topP
                 )
                 : nil,
-            constraints: constraints,
-            preferences: execution?.optimizeFor.map { TaskRequestPreferences(optimizeFor: $0) },
+            constraints: execution?.taskConstraints,
+            preferences: execution?.taskPreferences,
             telemetry: telemetry,
             authContextRef: authContextRef
         )
@@ -282,7 +281,7 @@ private func settle(_ terminal: StreamEvent, runId: String) throws -> StreamedTe
     switch payload?.outcome {
     case .some(.completed):
         return StreamedText(
-            text: payload?.finalText ?? "",
+            text: payload?.finalText ?? payload?.output?.text ?? "",
             finishReason: payload?.finishReason,
             usage: usage,
             runId: runId,
@@ -290,27 +289,32 @@ private func settle(_ terminal: StreamEvent, runId: String) throws -> StreamedTe
         )
     case .some(.cancelled):
         return StreamedText(
-            text: payload?.partialText ?? "",
+            text: payload?.partialText ?? payload?.output?.text ?? "",
             finishReason: .cancelled,
             usage: nil,
             runId: runId,
             provenance: payload?.provenance
         )
     case .some(.error):
-        let error = payload?.error
-        throw IndeRunException(
-            errorClass: error?.errorClass ?? .Internal,
-            message: error?.message ?? "Run \(runId) failed.",
-            runId: runId,
-            providerId: error?.providerId,
-            retryable: error?.retryable,
-            retryAfterMs: error?.retryAfterMs,
-            details: error?.details,
-            provenance: payload?.provenance
-        )
+        throw exceptionFromTerminal(payload, runId: runId)
     case .none:
         throw createInternal(message: "Run \(runId) ended with a malformed terminal event.", runId: runId)
     }
+}
+
+/// The `IndeRunException` a run's `error` terminal outcome stands for.
+func exceptionFromTerminal(_ payload: Payload?, runId: String) -> IndeRunException {
+    let error = payload?.error
+    return IndeRunException(
+        errorClass: error?.errorClass ?? .Internal,
+        message: error?.message ?? "Run \(runId) failed.",
+        runId: runId,
+        providerId: error?.providerId,
+        retryable: error?.retryable,
+        retryAfterMs: error?.retryAfterMs,
+        details: error?.details,
+        provenance: payload?.provenance
+    )
 }
 
 /// Holds every event read from the single-use run so any number of readers can replay it.
@@ -377,7 +381,9 @@ public extension IndeRunApi {
     func generateText(_ options: TextGenerationOptions) async throws -> GeneratedText {
         let result = try await run(request: options.taskRequest())
         return GeneratedText(
-            text: result.output.text,
+            // A text run always produces text; `TaskOutput.text` is optional only because the
+            // same type describes playback and artifacts (ADR 016).
+            text: result.output.text ?? "",
             finishReason: result.finishReason,
             usage: result.usage,
             runId: result.runId,

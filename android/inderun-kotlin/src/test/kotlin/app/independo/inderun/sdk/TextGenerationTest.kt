@@ -1,36 +1,45 @@
 package app.independo.inderun.sdk
 
+import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.AttemptOutcome
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Cloud
 import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.ExecutionProvenanceAttempt
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Locality
+import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OptimizeFor
-import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.StreamTerminalOutcomeError
 import app.independo.inderun.contracts.StreamTerminalOutcomeTelemetry
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestTelemetry
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.contracts.TelemetryLevel
+import app.independo.inderun.core.ArtifactChunk
 import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderCapabilitySnapshot
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
 import app.independo.inderun.core.ProviderRegistry
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
@@ -80,6 +89,8 @@ private class FakeApi(
         return result!!
     }
 
+    override suspend fun prepare(request: app.independo.inderun.contracts.PrepareRequest): app.independo.inderun.core.StreamRun = error("not scripted")
+
     override suspend fun stream(request: TaskRequest): StreamRun {
         requests += request
         return StreamRun(
@@ -89,23 +100,29 @@ private class FakeApi(
     }
 
     override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = emptyList()
+
+    override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk = error("the text facade never reads artifacts")
+
+    override suspend fun disposeArtifact(artifact: MediaArtifact) = Unit
+
+    override suspend fun close() = Unit
 }
 
 @RunWith(RobolectricTestRunner::class)
 class TextGenerationTest {
     // --- shared facade vectors ---------------------------------------------------------------
 
-    private fun fixtureCases(): List<JSONObject> {
+    private fun fixtureCases(path: String = "contracts/fixtures/facade/text-generation.json"): List<JSONObject> {
         var directory: File? = File("").absoluteFile
         while (directory != null) {
-            val candidate = File(directory, "contracts/fixtures/facade/text-generation.json")
+            val candidate = File(directory, path)
             if (candidate.exists()) {
                 val cases = JSONObject(candidate.readText()).getJSONArray("cases")
                 return (0 until cases.length()).map { cases.getJSONObject(it) }
             }
             directory = directory.parentFile
         }
-        error("Could not locate contracts/fixtures/facade/text-generation.json")
+        error("Could not locate $path")
     }
 
     private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
@@ -132,7 +149,7 @@ class TextGenerationTest {
         seed = if (json.has("seed")) json.getLong("seed") else null,
         execution = json.optJSONObject("execution")?.let { execution ->
             TextExecutionOptions(
-                privacy = execution.stringOrNull("privacy")?.let(PrivacyEnum::fromRawValue),
+                privacy = execution.stringOrNull("privacy")?.let(Privacy::fromRawValue),
                 cloud = execution.stringOrNull("cloud")?.let(Cloud::fromRawValue),
                 timeoutMs = if (execution.has("timeoutMs")) execution.getLong("timeoutMs") else null,
                 optimizeFor = execution.stringOrNull("optimizeFor")?.let(OptimizeFor::fromRawValue),
@@ -233,7 +250,7 @@ class TextGenerationTest {
     fun generateTextRunsTheCanonicalRequestAndSummarizesTheResult() = runTest {
         val taskResult = TaskResult(
             finishReason = FinishReason.STOP,
-            output = Output(text = "Hello"),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = "run_1",
             schemaVersion = SchemaVersion.V1_0,
             telemetry = TaskResultTelemetry(providerUsed = "p1", totalMs = 5.0),
@@ -255,9 +272,9 @@ class TextGenerationTest {
         val provider = object : ProviderAdapter {
             override fun describe() = ProviderDescriptor(
                 id = "local_a",
-                type = ProviderDescriptor.ProviderType.local,
-                transport = ProviderDescriptor.TransportType.in_process,
-                supports = ProviderDescriptor.SupportsCapabilities(
+                type = ProviderType.Local,
+                transport = ProviderTransport.InProcess,
+                supports = ProviderSupports(
                     run = true,
                     streaming = false,
                     realtime = false,
@@ -266,7 +283,7 @@ class TextGenerationTest {
                     structuredOutput = false,
                     multimodal = false,
                 ),
-                cancel = ProviderDescriptor.CancelSemantics.none,
+                cancel = CancelSemantics.None,
                 tasks = listOf("text_to_text"),
             )
 
@@ -274,7 +291,7 @@ class TextGenerationTest {
 
             override suspend fun run(request: TaskRequest, context: RunContext) = TaskResult(
                 finishReason = FinishReason.STOP,
-                output = Output(text = "Echo: ${request.prompt}"),
+                output = TaskOutput(type = TaskOutputType.TEXT, text = "Echo: ${request.prompt}"),
                 runId = context.runId,
                 schemaVersion = SchemaVersion.V1_0,
                 telemetry = TaskResultTelemetry(providerUsed = "local_a", totalMs = 0.0),
@@ -481,5 +498,46 @@ class TextGenerationTest {
         assertEquals(deltas, stream.textStream.toList())
         assertEquals(deltas.size + 1, stream.fullStream.toList().size)
         assertEquals(deltas.joinToString(""), stream.result.await().text)
+    }
+
+    // --- shared forward-compatibility vectors ------------------------------------------------
+
+    private fun eventFrom(json: JSONObject) = StreamEvent(
+        payload = json.optJSONObject("payload")?.let(::payloadFrom),
+        runId = json.getString("runId"),
+        schemaVersion = SchemaVersion.fromRawValue(json.getString("schemaVersion"))!!,
+        sequence = json.getLong("sequence"),
+        timestamp = json.getDouble("timestamp"),
+        type = json.getString("type"),
+    )
+
+    /**
+     * Decodes the payload fields the facade reads. Anything else -- including fields only an
+     * unknown event type carries -- is dropped, as a decoder that ignores unknown fields would.
+     */
+    private fun payloadFrom(json: JSONObject) = Payload(
+        text = json.stringOrNull("text"),
+        finalText = json.stringOrNull("finalText"),
+        partialText = json.stringOrNull("partialText"),
+        outcome = json.stringOrNull("outcome")?.let { Outcome.fromRawValue(it)!! },
+        runId = json.stringOrNull("runId"),
+        schemaVersion = json.stringOrNull("schemaVersion")?.let { SchemaVersion.fromRawValue(it)!! },
+    )
+
+    @Test
+    fun streamTextPassesUnknownEventTypesThroughTheSharedForwardCompatibilityVectors() = runTest {
+        val cases = fixtureCases("contracts/fixtures/streaming/forward-compat-events.json")
+        assertTrue(cases.isNotEmpty())
+        for (vector in cases) {
+            val id = vector.getString("id")
+            val events = vector.getJSONArray("events").let { array -> (0 until array.length()).map { eventFrom(array.getJSONObject(it)) } }
+            val expected = vector.getJSONObject("expect")
+
+            val stream = FakeApi(events = events).streamText(TextGenerationOptions(prompt = "Hello"), backgroundScope)
+
+            assertEquals(id, expected.getJSONArray("textIncrements").strings(), stream.textStream.toList())
+            assertEquals(id, expected.getJSONArray("fullStreamTypes").strings(), stream.fullStream.toList().map { it.type })
+            assertEquals(id, expected.getString("text"), stream.result.await().text)
+        }
     }
 }

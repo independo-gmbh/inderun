@@ -1,6 +1,9 @@
 # Technical Brief
 
-IndeRun is an MIT-licensed AI execution framework for applications that need one consistent API across local, edge, and cloud execution.
+IndeRun is an MIT-licensed AI execution framework: on-device AI for the devices your users actually have. It gives
+applications one consistent API that runs a task on the device when it can and on a cloud provider only when the
+application configures one and the request allows it. The contracts reserve an `edge` locality, but no edge provider
+ships today.
 
 It is intended for developers who want:
 
@@ -18,6 +21,12 @@ The core problem it solves is provider fragmentation: apps should not need separ
 ## Current Focus
 
 The current product scope is Mode 1 `run()` execution plus Mode 2 `stream()`. All three engines implement the Mode 2 orchestrator against the canonical streaming event/outcome contracts, and the OpenAI-compatible provider streams on Web, iOS, and Android (see `docs/architecture/architecture.md`). Realtime sessions remain part of the architecture but are not implemented.
+
+Text-to-speech is the first non-text task: `speak()`, `generateSpeech()` and `listVoices()` over the system speech
+providers on all three platforms, with playback and retrievable audio as separate deliveries.
+
+Out of scope for now: speech-to-text, embeddings and image tasks, video, voice cloning, a general model registry, hosted
+services, realtime sessions, and job queues.
 
 ## Source Of Truth
 

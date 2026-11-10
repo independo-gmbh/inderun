@@ -2,6 +2,7 @@ import type { TaskRequest } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
 import type { ProviderAdapter } from "./provider.js";
 import type { ProviderRegistry } from "./registry.js";
+import type { BoundVoice } from "./task-profiles.js";
 import {
   createCapabilityMismatch,
   createInternal,
@@ -20,6 +21,18 @@ import {
 } from "./route-planner.js";
 
 /**
+ * One provider in the planned chain, with the voice the plan bound it to (speech only).
+ */
+export interface RouteCandidate {
+  provider: ProviderAdapter;
+  /**
+   * The voice this provider must use, chosen by the planner within the request's privacy
+   * policy. Absent when the task has no voice or the provider does not list its voices.
+   */
+  voice?: BoundVoice;
+}
+
+/**
  * Output structure from the Router containing the chosen provider and a route selection description.
  */
 export interface RouteSelection {
@@ -31,6 +44,10 @@ export interface RouteSelection {
    * Ordered fallback providers to try if the primary provider fails before producing a final result.
    */
   fallbackProviders: ProviderAdapter[];
+  /**
+   * The whole chain in attempt order (`provider` first), each with its bound voice.
+   */
+  candidates: RouteCandidate[];
   /**
    * The shared route plan used to select this provider chain.
    */
@@ -98,6 +115,40 @@ export class Router {
     return this.selectFromSharedPlan(snapshots, outcome.routePlan);
   }
 
+  /**
+   * Plans preparation for one task: which providers can prepare it, each with the voice a run
+   * would bind. Unlike {@link selectRoute} it never throws for an empty plan, because a task with
+   * nothing to prepare is a normal answer.
+   */
+  async planPreparation(
+    task: SharedPlannerInput["task"],
+    privacy: NonNullable<TaskRequest["constraints"]>["privacy"],
+    hostServices: HostServices
+  ): Promise<{ snapshots: ProviderRuntimeSnapshot[]; routePlan: SharedPlannerRoutePlan }> {
+    const online = await hostServices.connectivity.isOnline();
+    const snapshots = await collectProviderRuntimeSnapshots(this.registry.list(), hostServices);
+    // The planner reads the task from `task`; this request only carries the envelope defaults.
+    const planInput = buildSharedPlannerInput(
+      {
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: " ",
+        ...(privacy !== undefined ? { constraints: { privacy } } : {})
+      },
+      snapshots,
+      online,
+      "prepare"
+    );
+    const outcome = await this.planner.planRoute({ ...planInput, task });
+    if (!outcome.routePlan) {
+      const reason = outcome.unavailableReason ?? "import_failed";
+      throw createInternal(`Route planner unavailable (${reason}).`, {
+        details: { plannerUnavailableReason: reason }
+      });
+    }
+    return { snapshots, routePlan: outcome.routePlan };
+  }
+
   private selectFromSharedPlan(
     snapshots: ProviderRuntimeSnapshot[],
     routePlan: SharedPlannerRoutePlan
@@ -113,20 +164,26 @@ export class Router {
     snapshots: ProviderRuntimeSnapshot[],
     routePlan: SharedPlannerRoutePlan
   ): RouteSelection {
-    const orderedProviders = routePlan.candidates
-      .map((candidate) =>
-        snapshots.find((snapshot) => snapshot.descriptor.id === candidate.providerId)
-      )
-      .filter((snapshot): snapshot is ProviderRuntimeSnapshot => snapshot !== undefined);
+    const candidates = routePlan.candidates.flatMap((candidate): RouteCandidate[] => {
+      const snapshot = snapshots.find((s) => s.descriptor.id === candidate.providerId);
+      if (snapshot === undefined) return [];
+      return [
+        {
+          provider: snapshot.provider,
+          ...(candidate.voice !== undefined ? { voice: candidate.voice } : {})
+        }
+      ];
+    });
 
-    const selected = orderedProviders[0];
+    const selected = candidates[0];
     if (!selected) {
       throw createInternal("Route plan selected a provider that is no longer registered.");
     }
 
     return {
       provider: selected.provider,
-      fallbackProviders: orderedProviders.slice(1).map((snapshot) => snapshot.provider),
+      fallbackProviders: candidates.slice(1).map((candidate) => candidate.provider),
+      candidates,
       routePlan,
       explanation: routePlan.explanation.summary
     };

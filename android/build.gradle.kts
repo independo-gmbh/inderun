@@ -8,10 +8,10 @@ import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.kotlin.dsl.support.serviceOf
 
 plugins {
-    id("com.android.application") version "9.4.1" apply false
-    id("com.android.library") version "9.4.1" apply false
+    id("com.android.application") version "9.5.1" apply false
+    id("com.android.library") version "9.5.1" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
-    id("com.diffplug.spotless") version "8.10.4" apply false
+    id("com.diffplug.spotless") version "8.11.0" apply false
     id("com.vanniktech.maven.publish") version "0.37.0" apply false
 }
 
@@ -19,13 +19,16 @@ plugins {
 // tests reach the real planner through the same `System.loadLibrary` call the
 // Android runtime uses -- see SharedCoreRoutePlanner -- so they only need the
 // library on `java.library.path`. Registered on the root project because two
-// modules' tests route: :inderun-core and :inderun-kotlin.
+// modules' tests route: :inderun-core and :inderun-kotlin. The speech text library is built
+// into the same directory.
 val routeCoreHostDir = File(rootProject.projectDir.parentFile, "target/route-core-host")
 
-// The cross-SDK conformance vectors live outside every module, so Gradle would
-// otherwise report a test task up to date after the fixtures change and quietly
-// skip the suites that read them -- which is exactly when they most need to run.
-val sharedStreamingFixtures = File(rootProject.projectDir.parentFile, "contracts/fixtures/streaming")
+// The cross-SDK conformance vectors and the schemas some tests walk live outside
+// every module, so Gradle would otherwise report a test task up to date after they
+// change and quietly skip the suites that read them -- which is exactly when they
+// most need to run.
+val sharedContractFixtures = File(rootProject.projectDir.parentFile, "contracts/fixtures")
+val sharedContractSchemas = File(rootProject.projectDir.parentFile, "contracts/schemas")
 
 val buildRouteCoreHost = tasks.register<Exec>("buildRouteCoreHost") {
     group = "verification"
@@ -33,6 +36,16 @@ val buildRouteCoreHost = tasks.register<Exec>("buildRouteCoreHost") {
     workingDir = rootProject.projectDir.parentFile
     commandLine("node", "scripts/build-route-core-android.mjs", "--host")
     // Freshness is cargo's job; see the same note in inderun-core/build.gradle.kts.
+    outputs.upToDateWhen { false }
+}
+
+// The speech text normalizer is its own library (libinderun_speech_text), built from the same
+// crate with a different feature set; only the neural speech modules' tests load it.
+val buildSpeechTextHost = tasks.register<Exec>("buildSpeechTextHost") {
+    group = "verification"
+    description = "Builds the speech text library for this machine, for the JVM unit tests."
+    workingDir = rootProject.projectDir.parentFile
+    commandLine("node", "scripts/build-route-core-android.mjs", "--host", "--speech-text")
     outputs.upToDateWhen { false }
 }
 
@@ -64,8 +77,11 @@ subprojects {
             }
         )
 
-        inputs.dir(sharedStreamingFixtures)
-            .withPropertyName("sharedStreamingFixtures")
+        inputs.dir(sharedContractFixtures)
+            .withPropertyName("sharedContractFixtures")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.dir(sharedContractSchemas)
+            .withPropertyName("sharedContractSchemas")
             .withPathSensitivity(PathSensitivity.RELATIVE)
 
         // Routing has a single planner, so these modules' tests fail without the
@@ -73,8 +89,10 @@ subprojects {
         // is a test dependency, not a nicety.
         // Prepended rather than replacing java.library.path: Robolectric resolves
         // its own native dependencies through the inherited value.
-        if (project.name == "inderun-core" || project.name == "inderun-kotlin") {
-            dependsOn(buildRouteCoreHost)
+        val needsRouteCore = project.name in setOf("inderun-core", "inderun-kotlin")
+        val needsSpeechText = project.name in setOf("inderun-neural-speech", "inderun-onnx-providers")
+        if (needsRouteCore || needsSpeechText) {
+            dependsOn(if (needsRouteCore) buildRouteCoreHost else buildSpeechTextHost)
             systemProperty(
                 "java.library.path",
                 listOfNotNull(
@@ -88,6 +106,12 @@ subprojects {
     // Maven Central publishing for the library modules that apply the plugin
     // (the demo app and Capacitor bridge do not). Coordinates share the repo-wide
     // version from gradle.properties (updated on release by scripts/set-version.mjs).
+    //
+    // Every published module builds with compileSdk 36, not the newest SDK: AGP writes a
+    // library's compileSdk into its AAR metadata as the compileSdk each consuming app must use,
+    // so this value is the consumer floor (Capacitor 8 apps default to 36), and compiling against
+    // 36 is what keeps API 37 types out of the published code. Raising it raises the floor for
+    // every app; see "Host requirements" in android/README.md and #214.
     plugins.withId("com.vanniktech.maven.publish") {
         configure<MavenPublishBaseExtension> {
             // Central requires a javadoc jar, but AGP 9.2's Dokka-backed javadoc is

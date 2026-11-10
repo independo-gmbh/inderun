@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Builds the Rust route core for the Apple platforms and packages it into
- * `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework`, which `Package.swift`
- * links as a binaryTarget. That XCFramework is how the Swift SDK reaches the
+ * `ios/IndeRun/Frameworks/InderunRouteCoreFFI.xcframework` (the planner, features off) and
+ * `InderunSpeechTextFFI.xcframework` (the German speech text normalizer, the `speech-text`
+ * feature), which `Package.swift` links as binaryTargets. That XCFramework is how the Swift SDK reaches the
  * shared planner; there is no second planner behind it.
  *
  * Unlike the WASM bindings, the XCFramework is committed to git. SwiftPM has no
@@ -31,17 +32,39 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pinnedRustcPath, pinnedRustcVersion, pinnedToolchain } from "./rust-toolchain.mjs";
-import { manifestPath, provenanceManifest, writeManifest } from "./route-core-apple-provenance.mjs";
+import { artifacts, provenanceManifest, writeManifest } from "./route-core-apple-provenance.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const headersDir = join(repoRoot, "rust", "inderun-route-core", "include");
 const stagingDir = join(repoRoot, "target", "apple");
 
-// The framework, the module Swift imports, and the binaryTarget in Package.swift
-// all have to carry this one name.
-const NAME = "InderunRouteCoreFFI";
-const BUNDLE_ID = "app.independo.inderun.routecore";
-const xcframework = join(repoRoot, "ios", "IndeRun", "Frameworks", `${NAME}.xcframework`);
+/**
+ * Two XCFrameworks from one crate. The framework, the module Swift imports, and the binaryTarget in
+ * Package.swift all have to carry the artifact's one name. The speech text build has its own cargo
+ * target directory: the same crate with different features would otherwise overwrite the planner's
+ * libraries, and cargo would rebuild both every time.
+ *
+ * The two C modules never declare the same symbol (the speech one frees with its own
+ * `inderun_speech_text_free`), or a Swift target that saw both would find an ambiguity.
+ */
+const builds = [
+  {
+    ...artifacts[0],
+    bundleId: "app.independo.inderun.routecore",
+    header: "inderun_route_core.h",
+    targetDir: "target",
+    cargoArgs: ["--no-default-features"],
+    cargoFeatures: "none"
+  },
+  {
+    ...artifacts[1],
+    bundleId: "app.independo.inderun.speechtext",
+    header: "inderun_speech_text.h",
+    targetDir: join("target", "speech-text"),
+    cargoArgs: ["--no-default-features", "--features", "speech-text"],
+    cargoFeatures: "speech-text"
+  }
+];
 const DYLIB = "libinderun_route_core.dylib";
 const PROFILE = "apple";
 
@@ -97,11 +120,11 @@ function run(command, args, options = {}) {
   }
 }
 
-function libraryFor(rustTarget) {
-  return join(repoRoot, "target", rustTarget, PROFILE, DYLIB);
+function libraryFor(build, rustTarget) {
+  return join(repoRoot, build.targetDir, rustTarget, PROFILE, DYLIB);
 }
 
-function infoPlist(slice) {
+function infoPlist(build, slice) {
   const platforms = slice.platforms
     .map((platform) => `    <string>${platform}</string>`)
     .join("\n");
@@ -116,13 +139,13 @@ function infoPlist(slice) {
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>${NAME}</string>
+  <string>${build.name}</string>
   <key>CFBundleIdentifier</key>
-  <string>${BUNDLE_ID}</string>
+  <string>${build.bundleId}</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>${NAME}</string>
+  <string>${build.name}</string>
   <key>CFBundlePackageType</key>
   <string>FMWK</string>
   <key>CFBundleShortVersionString</key>
@@ -144,17 +167,22 @@ ${minimum}
  * path. Flat (rather than the versioned macOS layout) throughout: xcodebuild
  * accepts it for every platform, and one layout is one thing to get right.
  */
-function buildFramework(slice) {
-  const framework = join(stagingDir, slice.name, `${NAME}.framework`);
+function buildFramework(build, slice) {
+  const framework = join(stagingDir, build.name, slice.name, `${build.name}.framework`);
   rmSync(framework, { recursive: true, force: true });
   mkdirSync(join(framework, "Headers"), { recursive: true });
   mkdirSync(join(framework, "Modules"), { recursive: true });
 
-  const binary = join(framework, NAME);
+  const binary = join(framework, build.name);
   if (slice.rustTargets.length === 1) {
-    copyFileSync(libraryFor(slice.rustTargets[0]), binary);
+    copyFileSync(libraryFor(build, slice.rustTargets[0]), binary);
   } else {
-    run("lipo", ["-create", ...slice.rustTargets.map(libraryFor), "-output", binary]);
+    run("lipo", [
+      "-create",
+      ...slice.rustTargets.map((target) => libraryFor(build, target)),
+      "-output",
+      binary
+    ]);
   }
 
   // Local symbols only: the exported FFI entry points must survive. Done here with
@@ -164,17 +192,14 @@ function buildFramework(slice) {
 
   // Rust emits an install name of the raw dylib path. dyld resolves the framework
   // through the embedding app's rpath, so it has to say so.
-  run("install_name_tool", ["-id", `@rpath/${NAME}.framework/${NAME}`, binary]);
+  run("install_name_tool", ["-id", `@rpath/${build.name}.framework/${build.name}`, binary]);
 
-  copyFileSync(
-    join(headersDir, "inderun_route_core.h"),
-    join(framework, "Headers", "inderun_route_core.h")
-  );
+  copyFileSync(join(headersDir, build.header), join(framework, "Headers", build.header));
   writeFileSync(
     join(framework, "Modules", "module.modulemap"),
-    `framework module ${NAME} {\n    umbrella header "inderun_route_core.h"\n    export *\n}\n`
+    `framework module ${build.name} {\n    umbrella header "${build.header}"\n    export *\n}\n`
   );
-  writeFileSync(join(framework, "Info.plist"), infoPlist(slice));
+  writeFileSync(join(framework, "Info.plist"), infoPlist(build, slice));
   return framework;
 }
 
@@ -183,12 +208,16 @@ function buildFramework(slice) {
  * produced and newer than the packaged header -- i.e. nothing it was built from
  * has changed since.
  */
-function xcframeworkIsCurrent() {
+function xcframeworkIsCurrent(build) {
+  const xcframework = build.xcframeworkPath;
   if (!existsSync(xcframework)) {
     return false;
   }
   const builtAt = statSync(join(xcframework, "Info.plist")).mtimeMs;
-  const inputs = [...rustTargets.map(libraryFor), join(headersDir, "inderun_route_core.h")];
+  const inputs = [
+    ...rustTargets.map((target) => libraryFor(build, target)),
+    join(headersDir, build.header)
+  ];
   return inputs.every((input) => existsSync(input) && statSync(input).mtimeMs < builtAt);
 }
 
@@ -211,52 +240,61 @@ const env = {
   MACOSX_DEPLOYMENT_TARGET: MACOS_MIN
 };
 
-for (const rustTarget of rustTargets) {
-  run(
-    "rustup",
-    [
-      "run",
-      toolchain,
-      "cargo",
-      "build",
-      "-p",
-      "inderun_route_core",
-      "--profile",
-      PROFILE,
-      "--target",
-      rustTarget
-    ],
-    { env }
-  );
-}
-
-// --force is what CI uses: skipping on an mtime comparison is a convenience for
-// local iteration, not a statement about what the artifact contains, and a
-// verification run must never be handed a package it did not just produce.
 const force = process.argv.includes("--force");
-if (!force && xcframeworkIsCurrent()) {
-  console.log(
-    "[build-route-core-apple] XCFramework already matches the built libraries; skipping packaging."
+
+for (const build of builds) {
+  for (const rustTarget of rustTargets) {
+    run(
+      "rustup",
+      [
+        "run",
+        toolchain,
+        "cargo",
+        "build",
+        "-p",
+        "inderun_route_core",
+        "--profile",
+        PROFILE,
+        "--target",
+        rustTarget,
+        "--target-dir",
+        build.targetDir,
+        ...build.cargoArgs
+      ],
+      { env }
+    );
+  }
+
+  // --force is what CI uses: skipping on an mtime comparison is a convenience for
+  // local iteration, not a statement about what the artifact contains, and a
+  // verification run must never be handed a package it did not just produce.
+  if (!force && xcframeworkIsCurrent(build)) {
+    console.log(
+      `[build-route-core-apple] ${build.name}.xcframework already matches the built libraries; skipping packaging.`
+    );
+    continue;
+  }
+
+  const createArgs = ["-create-xcframework"];
+  for (const slice of slices) {
+    createArgs.push("-framework", buildFramework(build, slice));
+  }
+
+  // xcodebuild refuses to write over an existing XCFramework.
+  rmSync(build.xcframeworkPath, { recursive: true, force: true });
+  mkdirSync(dirname(build.xcframeworkPath), { recursive: true });
+  createArgs.push("-output", build.xcframeworkPath);
+  run("xcodebuild", createArgs);
+
+  // The manifest is what makes the committed binary checkable: it records the exact
+  // compiler plus content hashes of every source the artifact was built from, so CI
+  // can prove the executable being shipped belongs to the source under review
+  // without needing byte-reproducible builds. See scripts/verify-route-core-apple.mjs.
+  writeManifest(
+    build,
+    provenanceManifest(build, { rustcVersion, toolchain, cargoFeatures: build.cargoFeatures })
   );
-  process.exit(0);
+
+  console.log(`[build-route-core-apple] Wrote ${build.xcframeworkPath}`);
+  console.log(`[build-route-core-apple] Wrote ${build.manifestPath}`);
 }
-
-const createArgs = ["-create-xcframework"];
-for (const slice of slices) {
-  createArgs.push("-framework", buildFramework(slice));
-}
-
-// xcodebuild refuses to write over an existing XCFramework.
-rmSync(xcframework, { recursive: true, force: true });
-mkdirSync(dirname(xcframework), { recursive: true });
-createArgs.push("-output", xcframework);
-run("xcodebuild", createArgs);
-
-// The manifest is what makes the committed binary checkable: it records the exact
-// compiler plus content hashes of every source the artifact was built from, so CI
-// can prove the executable being shipped belongs to the source under review
-// without needing byte-reproducible builds. See scripts/verify-route-core-apple.mjs.
-writeManifest(provenanceManifest({ rustcVersion, toolchain }));
-
-console.log(`[build-route-core-apple] Wrote ${xcframework}`);
-console.log(`[build-route-core-apple] Wrote ${manifestPath}`);

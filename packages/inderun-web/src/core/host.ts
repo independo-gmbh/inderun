@@ -1,5 +1,9 @@
 export type {
   AbortSignalLike,
+  ArtifactDestinationService,
+  AudioOutputFormat,
+  AudioOutputService,
+  AudioOutputSession,
   ClockService,
   ConnectivityService,
   DeviceConstraintsService,

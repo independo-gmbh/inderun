@@ -1,0 +1,6 @@
+---
+/** The landing page's JSON-LD graph. Docs pages add their own WebPage in src/routeData.ts. */
+import { landingGraph } from "../../seo";
+---
+
+<script is:inline type="application/ld+json" set:html={JSON.stringify(landingGraph())} />

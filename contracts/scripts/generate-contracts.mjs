@@ -111,6 +111,48 @@ const schemas = [
     constName: "streamTerminalOutcomeSchema"
   },
   {
+    input: "provider-capability-snapshot.schema.json",
+    typeOutput: "provider-capability-snapshot.ts",
+    constName: "providerCapabilitySnapshotSchema"
+  },
+  {
+    input: "provider-descriptor.schema.json",
+    typeOutput: "provider-descriptor.ts",
+    constName: "providerDescriptorSchema",
+    // Reached through `$ref` from the capability snapshot and the route-planner input.
+    nativeRoot: false
+  },
+  {
+    input: "provider-dynamic-capabilities.schema.json",
+    typeOutput: "provider-dynamic-capabilities.ts",
+    constName: "providerDynamicCapabilitiesSchema",
+    nativeRoot: false
+  },
+  {
+    input: "prepare-request.schema.json",
+    typeOutput: "prepare-request.ts",
+    constName: "prepareRequestSchema"
+  },
+  {
+    input: "artifact-read-request.schema.json",
+    typeOutput: "artifact-read-request.ts",
+    constName: "artifactReadRequestSchema"
+  },
+  {
+    input: "task-output.schema.json",
+    typeOutput: "task-output.ts",
+    constName: "taskOutputSchema",
+    // Reached through `$ref` from TaskResult and both terminal outcome copies.
+    nativeRoot: false
+  },
+  {
+    input: "media-artifact.schema.json",
+    typeOutput: "media-artifact.ts",
+    constName: "mediaArtifactSchema",
+    // Reached through `$ref` from TaskOutput.
+    nativeRoot: false
+  },
+  {
     input: "execution-provenance.schema.json",
     typeOutput: "execution-provenance.ts",
     constName: "executionProvenanceSchema",
@@ -367,11 +409,10 @@ function normalizeKotlinContractsSource(source, wireValues) {
     ["data class HTTPRequest (", "data class HttpRequest ("],
     ["data class HTTPResponse (", "data class HttpResponse ("],
     ["val role: Role", "val role: MessageRole"],
-    ["val kind: Kind", "val kind: TaskKind = TaskKind.TEXT_TO_TEXT"],
+    ["val kind: TaskKind\n", "val kind: TaskKind = TaskKind.TEXT_TO_TEXT\n"],
     ["val level: Level? = null", "val level: TelemetryLevel? = null"],
     ["val errorClass: ErrorClass? = null", "val errorClass: IndeRunErrorClass? = null"],
-    ["val errorClass: ErrorClass,", "val errorClass: IndeRunErrorClass,"],
-    ["val type: OutputType", "val type: OutputType = OutputType.TEXT"]
+    ["val errorClass: ErrorClass,", "val errorClass: IndeRunErrorClass,"]
   ]);
 
   output = normalizeKotlinMessageClass(output);
@@ -481,6 +522,9 @@ async function generateRustContracts(tempDir) {
     "--derive-debug",
     "--derive-clone",
     "--derive-partial-eq",
+    // An absent optional is omitted rather than written as `null`: the schemas do not
+    // admit null, and the SDK parsers read a missing key as absent.
+    "--skip-serializing-none",
     "--no-leading-comments",
     ...rustSchemaInputs.map((input) => join(schemasDir, input)),
     "--out",

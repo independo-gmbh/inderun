@@ -8,6 +8,10 @@ import android.content.Context
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.SourceType
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -34,27 +38,137 @@ internal data class LoadedSession(
 }
 
 /**
+ * One cached value with a count of the callers using it. Retiring it releases the value only once
+ * the last user has returned, so nothing ever runs on a released session.
+ */
+private class Lease<T>(val value: T, private val onRelease: (T) -> Unit) {
+    private var users = 0
+    private var retired = false
+    private var released = false
+
+    @Synchronized
+    fun acquire() {
+        users += 1
+    }
+
+    fun release() = settle { users -= 1 }
+
+    fun retire() = settle { retired = true }
+
+    private inline fun settle(change: () -> Unit) {
+        val releaseNow = synchronized(this) {
+            change()
+            (retired && users == 0 && !released).also { if (it) released = true }
+        }
+        if (releaseNow) onRelease(value)
+    }
+}
+
+/**
+ * Caches the value loaded for the most recently requested key, and releases what it drops only once
+ * the callers using it have returned. A different key evicts the cached value. [close] drops the
+ * cached value without suspending, and a later [use] loads again. A load still running when [close]
+ * is called is not cached: its value is released once its caller is done with it.
+ */
+internal class LeasedCache<T>(private val onRelease: (T) -> Unit) {
+    /** Serializes loading, so concurrent callers load one key once. */
+    private val mutex = Mutex()
+
+    /** Guards [cached] and [epoch], which [close] changes without suspending. */
+    private val lock = Any()
+    private var cached: Pair<String, Lease<T>>? = null
+
+    /** Bumped by [close], so a load that started before it does not cache its value. */
+    private var epoch = 0
+
+    /** Runs [block] with the value cached for [key], loading it with [load] first when needed. */
+    suspend fun <R> use(key: String, load: suspend () -> T, block: suspend (T) -> R): R {
+        val lease = acquire(key, load)
+        try {
+            return block(lease.value)
+        } finally {
+            lease.release()
+        }
+    }
+
+    /** Drops the cached value; idempotent, never throws, never suspends. */
+    fun close() {
+        synchronized(lock) {
+            epoch += 1
+            cached?.second?.retire()
+            cached = null
+        }
+    }
+
+    private suspend fun acquire(key: String, load: suspend () -> T): Lease<T> = mutex.withLock {
+        val startEpoch = synchronized(lock) {
+            val current = cached
+            if (current != null && current.first == key) {
+                current.second.acquire()
+                return current.second
+            }
+            current?.second?.retire()
+            cached = null
+            epoch
+        }
+
+        // NonCancellable: a load is blocking native work that runs to the end anyway, and a cancelled
+        // `withContext` would drop its result before any lease owns it, leaking the session.
+        val lease = Lease(withContext(NonCancellable) { load() }, onRelease)
+        lease.acquire()
+        synchronized(lock) {
+            if (epoch == startEpoch) cached = key to lease else lease.retire()
+        }
+        // The caller was cancelled during the load: the cache keeps (or the retired lease releases)
+        // the value, and the caller sees its cancellation.
+        if (!currentCoroutineContext().isActive) {
+            lease.release()
+            currentCoroutineContext().ensureActive()
+        }
+        lease
+    }
+}
+
+/**
  * Lazily resolves and caches the loaded session for the most recently requested model package, so
  * repeated `prepare`/`generate` calls do not reload the model and tokenizer every time. A changed
  * `version`/`ref`/checksum evicts the stale session rather than silently reusing it.
+ *
+ * A session the cache drops (on eviction or [close]) is closed on the execution thread once the
+ * generations using it have returned: an ORT session and the tokenizer hold native memory the
+ * garbage collector does not free.
  */
-internal class LoadedSessionBox(private val context: Context) {
-    private val mutex = Mutex()
-    private var cached: LoadedSession? = null
+internal class LoadedSessionBox(context: Context) {
+    private val directories = OnnxModelDirectory(context)
+    private val cache = LeasedCache<LoadedSession> { closeOnExecutionThread(listOf(it::close)) }
 
-    suspend fun loaded(modelPackage: ModelPackage): LoadedSession = mutex.withLock {
+    /** Loads the package's session (or reuses the cached one) and runs [block] with it. */
+    suspend fun <R> use(modelPackage: ModelPackage, block: suspend (LoadedSession) -> R): R {
         val cacheKey = sessionCacheKey(modelPackage)
-        cached?.takeIf { it.cacheKey == cacheKey }?.let { return it }
-
-        cached?.close()
-        cached = null
-
-        val loaded = withContext(OnnxExecutionDispatcher.dispatcher) { load(modelPackage, cacheKey) }
-        cached = loaded
-        loaded
+        return cache.use(
+            key = cacheKey,
+            load = { withContext(OnnxExecutionDispatcher.dispatcher) { load(modelPackage, cacheKey) } },
+            block = block,
+        )
     }
 
-    private fun load(modelPackage: ModelPackage, cacheKey: String): LoadedSession {
+    /** Drops the cached session; see the class documentation. */
+    fun close() = cache.close()
+
+    /**
+     * Checks what can be checked without loading, cheaply enough for the capability check, which
+     * runs on every request. Bundled files stay unchecked: reaching them means extracting them.
+     */
+    fun check(modelPackage: ModelPackage) {
+        val sourceType = checkedSourceType(modelPackage)
+        val requiredFiles = checkedRequiredFiles(modelPackage)
+        if (sourceType != SourceType.Bundled) {
+            val directory = directories.resolve(modelPackage, sourceType, sessionCacheKey(modelPackage))
+            directories.checkFilesExist(directory, requiredFiles)
+        }
+    }
+
+    private fun checkedSourceType(modelPackage: ModelPackage): SourceType {
         if (modelPackage.format != Format.Onnx && modelPackage.format != Format.Ort) {
             throw OnnxRuntimeError(
                 kind = OnnxRuntimeErrorKind.CAPABILITY,
@@ -63,13 +177,14 @@ internal class LoadedSessionBox(private val context: Context) {
             )
         }
 
-        val sourceType = modelPackage.source?.sourceType
+        return modelPackage.source?.sourceType
             ?: throw OnnxRuntimeError(
                 kind = OnnxRuntimeErrorKind.CAPABILITY,
                 message = "model source unavailable: no model source was configured.",
             )
+    }
 
-        val directory = resolveDirectory(modelPackage, sourceType, cacheKey)
+    private fun checkedRequiredFiles(modelPackage: ModelPackage): List<String> {
         val requiredFiles = modelPackage.files?.required.orEmpty()
         if (requiredFiles.isEmpty()) {
             throw OnnxRuntimeError(
@@ -77,18 +192,16 @@ internal class LoadedSessionBox(private val context: Context) {
                 message = "model files missing: model package '${modelPackage.id}' declares no required files.",
             )
         }
+        return requiredFiles
+    }
 
+    private fun load(modelPackage: ModelPackage, cacheKey: String): LoadedSession {
+        val sourceType = checkedSourceType(modelPackage)
+        val directory = directories.resolve(modelPackage, sourceType, cacheKey)
+        val requiredFiles = checkedRequiredFiles(modelPackage)
         val graphFile = File(directory, requiredFiles.first())
-        requiredFiles.forEach { relativePath ->
-            val file = File(directory, relativePath)
-            if (!file.exists()) {
-                throw OnnxRuntimeError(
-                    kind = OnnxRuntimeErrorKind.CAPABILITY,
-                    message = "model files missing: '$relativePath' not found at ${file.absolutePath}.",
-                )
-            }
-        }
-        verifyChecksums(directory, modelPackage)
+        directories.checkFilesExist(directory, requiredFiles)
+        directories.verifyChecksums(directory, modelPackage)
 
         val tokenizerFile = modelPackage.files?.tokenizer?.let { File(directory, it) }
 
@@ -183,117 +296,6 @@ internal class LoadedSessionBox(private val context: Context) {
         return options
     }
 
-    private fun resolveDirectory(modelPackage: ModelPackage, sourceType: SourceType, cacheKey: String): File {
-        val ref = modelPackage.source?.ref
-        return when (sourceType) {
-            SourceType.Bundled -> {
-                val relative = ref.orEmpty()
-                val assetDir = File(
-                    context.filesDir,
-                    "inderun-onnx-assets/${modelPackage.id}/${cacheKeyDigest(cacheKey)}",
-                )
-                extractAssetDirectory(relative, assetDir)
-                assetDir
-            }
-            SourceType.Filesystem -> {
-                if (ref.isNullOrEmpty()) {
-                    throw OnnxRuntimeError(
-                        kind = OnnxRuntimeErrorKind.CAPABILITY,
-                        message = "model source unavailable: a 'filesystem' model source requires 'source.ref'.",
-                    )
-                }
-                File(ref)
-            }
-            SourceType.AppManaged -> {
-                val base = context.filesDir
-                if (ref.isNullOrEmpty()) base else File(base, ref)
-            }
-            SourceType.Programmatic -> throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "runtime package unavailable: 'programmatic' model sources have no files to " +
-                    "resolve; supply a custom AndroidOnnxGenAiRuntime instead.",
-            )
-            SourceType.Registry, SourceType.Remote -> throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "model source unavailable: '${sourceType.rawValue}' model sources are " +
-                    "deferred on Android.",
-            )
-        }
-    }
-
-    /**
-     * Extracts a bundled asset directory into app-private storage exactly once per
-     * [cacheKeyDigest], atomically: the copy lands in a sibling temp directory, a completion
-     * marker is written last, and only then is the temp directory moved into place. A directory
-     * missing the marker (never completed, or a previous run crashed mid-copy) is re-extracted
-     * rather than trusted.
-     */
-    private fun extractAssetDirectory(assetPath: String, targetDir: File) {
-        if (File(targetDir, EXTRACTION_COMPLETE_MARKER).exists()) return
-
-        val tempDir = File(targetDir.parentFile, "${targetDir.name}.tmp-${System.nanoTime()}")
-        tempDir.deleteRecursively()
-        tempDir.mkdirs()
-        try {
-            copyAssetTree(assetPath, tempDir)
-            val completionMarker = File(tempDir, EXTRACTION_COMPLETE_MARKER)
-            if (!completionMarker.createNewFile()) {
-                throw IllegalStateException(
-                    "failed to create extraction completion marker '$EXTRACTION_COMPLETE_MARKER'.",
-                )
-            }
-        } catch (error: Throwable) {
-            tempDir.deleteRecursively()
-            throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "model source unavailable: failed to extract bundled model assets for '$assetPath'.",
-                originalError = error,
-            )
-        }
-
-        targetDir.deleteRecursively()
-        if (!tempDir.renameTo(targetDir)) {
-            tempDir.deleteRecursively()
-            throw OnnxRuntimeError(
-                kind = OnnxRuntimeErrorKind.CAPABILITY,
-                message = "model source unavailable: failed to install extracted model assets for '$assetPath'.",
-            )
-        }
-    }
-
-    private fun copyAssetTree(assetPath: String, targetDir: File) {
-        val assetManager = context.assets
-        val entries = assetManager.list(assetPath).orEmpty()
-        entries.forEach { entry ->
-            val childAssetPath = if (assetPath.isEmpty()) entry else "$assetPath/$entry"
-            val childEntries = assetManager.list(childAssetPath)
-            if (childEntries.isNullOrEmpty()) {
-                assetManager.open(childAssetPath).use { input ->
-                    File(targetDir, entry).outputStream().use { output -> input.copyTo(output) }
-                }
-            } else {
-                val childDir = File(targetDir, entry)
-                childDir.mkdirs()
-                copyAssetTree(childAssetPath, childDir)
-            }
-        }
-    }
-
-    /**
-     * Verifies every file named in `integrity.checksums`, not only the required-file list, so a
-     * checksum declared for the tokenizer or config file is enforced too. Files the map names but
-     * that this runtime did not resolve a path for are skipped; an unsupported checksum algorithm
-     * is a capability failure rather than a silently skipped check.
-     */
-    private fun verifyChecksums(directory: File, modelPackage: ModelPackage) {
-        val checksums = modelPackage.integrity?.checksums ?: return
-        for ((relativePath, expected) in checksums) {
-            val file = File(directory, relativePath)
-            if (!file.exists()) continue
-            verifyChecksum(file, relativePath, expected)
-        }
-    }
-
     /**
      * Resolves the tokenizer's end-of-sequence token id from the model config JSON's
      * `eos_token_id` field. The DJL tokenizer binding does not expose special token ids directly,
@@ -312,10 +314,6 @@ internal class LoadedSessionBox(private val context: Context) {
         } catch (error: Throwable) {
             null
         }
-    }
-
-    private companion object {
-        const val EXTRACTION_COMPLETE_MARKER = ".inderun-onnx-extraction-complete"
     }
 }
 

@@ -19,14 +19,21 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.independo.inderun.contracts.Outcome
+import app.independo.inderun.contracts.ProviderReadiness
 
 @Composable
 internal fun DemoScreen(
@@ -47,6 +55,14 @@ internal fun DemoScreen(
     onRunClick: () -> Unit,
     onStreamClick: () -> Unit,
     onCancelStreamClick: () -> Unit,
+    onSpeechTextChange: (String) -> Unit = {},
+    onSpeechLocaleChange: (String) -> Unit = {},
+    onSpeechVoiceChange: (String?) -> Unit = {},
+    onSpeakClick: () -> Unit = {},
+    onStopSpeakingClick: () -> Unit = {},
+    onSynthesizeClick: () -> Unit = {},
+    onVoicesLabEnabledChange: (Boolean) -> Unit = {},
+    voicesLab: @Composable () -> Unit = {},
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -143,6 +159,18 @@ internal fun DemoScreen(
             }
 
             StreamingSection(stream = uiState.stream, isStreaming = uiState.isStreaming)
+            SpeechSection(
+                uiState = uiState,
+                onTextChange = onSpeechTextChange,
+                onLocaleChange = onSpeechLocaleChange,
+                onVoiceChange = onSpeechVoiceChange,
+                onSpeakClick = onSpeakClick,
+                onStopClick = onStopSpeakingClick,
+                onSynthesizeClick = onSynthesizeClick,
+            )
+
+            VoicesLabSwitch(enabled = uiState.voicesLabEnabled, onEnabledChange = onVoicesLabEnabledChange)
+            if (uiState.voicesLabEnabled) voicesLab()
 
             RoutingDecisionSection(uiState.lastRouteDecision)
             LimitationsSection()
@@ -334,6 +362,79 @@ private fun StreamingSection(stream: DemoStreamState?, isStreaming: Boolean) {
 }
 
 @Composable
+private fun SpeechSection(
+    uiState: DemoUiState,
+    onTextChange: (String) -> Unit,
+    onLocaleChange: (String) -> Unit,
+    onVoiceChange: (String?) -> Unit,
+    onSpeakClick: () -> Unit,
+    onStopClick: () -> Unit,
+    onSynthesizeClick: () -> Unit,
+) {
+    Section(title = "Speech") {
+        OutlinedTextField(
+            value = uiState.speechText,
+            onValueChange = onTextChange,
+            label = { Text("Text to speak") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("de-AT", "de-DE", "en-US").forEach { locale ->
+                FilterChip(
+                    selected = uiState.speechLocale == locale,
+                    onClick = { onLocaleChange(locale) },
+                    label = { Text(locale) },
+                )
+            }
+        }
+        VoicePicker(uiState, onVoiceChange)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onSpeakClick, enabled = !uiState.isSpeaking && uiState.speechText.isNotBlank()) {
+                Text("Speak")
+            }
+            TextButton(onClick = onStopClick, enabled = uiState.canStopSpeaking) {
+                Text("Stop speaking")
+            }
+            TextButton(onClick = onSynthesizeClick, enabled = !uiState.isSpeaking && uiState.speechText.isNotBlank()) {
+                Text("Synthesize")
+            }
+        }
+        uiState.speechOutcome?.let { Text(it) }
+    }
+}
+
+@Composable
+private fun VoicePicker(uiState: DemoUiState, onVoiceChange: (String?) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text("Voice: ${uiState.selectedSpeechVoice?.name ?: "Automatic"}")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Automatic") },
+                onClick = {
+                    expanded = false
+                    onVoiceChange(null)
+                },
+            )
+            uiState.speechVoices.forEach { voice ->
+                DropdownMenuItem(
+                    text = {
+                        val needsDownload = voice.readiness == ProviderReadiness.NotPrepared
+                        Text((voice.name ?: voice.id.orEmpty()) + if (needsDownload) " (download)" else "")
+                    },
+                    onClick = {
+                        expanded = false
+                        onVoiceChange(voice.id)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun RoutingDecisionSection(decision: RouteDecision?) {
     Section(title = "Routing Decision") {
         if (decision == null) {
@@ -390,7 +491,7 @@ private fun LimitationsSection() {
 }
 
 @Composable
-private fun Section(
+internal fun Section(
     title: String,
     content: @Composable () -> Unit,
 ) {
@@ -513,5 +614,19 @@ private fun DemoScreenPreview() {
             onStreamClick = {},
             onCancelStreamClick = {},
         )
+    }
+}
+
+@Composable
+private fun VoicesLabSwitch(enabled: Boolean, onEnabledChange: (Boolean) -> Unit) {
+    Section(title = "Voices lab") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            Text(
+                text = "Opt-in lab for neural speech voices. Off by default; nothing is read or downloaded until it is on.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

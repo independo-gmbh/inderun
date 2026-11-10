@@ -1,0 +1,9 @@
+/docs
+/docs/getting-started/capacitor
+/docs/getting-started/example
+/docs/concepts/routing-and-privacy
+/docs/concepts/architecture
+/docs/guides/speech
+/docs/guides/troubleshooting
+/docs/platforms/compatibility
+/docs/api/typescript

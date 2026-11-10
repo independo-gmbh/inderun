@@ -1,0 +1,76 @@
+{
+  "$comment": "Shared MediaArtifact vectors (ADR 017). 'valid' references must validate against media-artifact.schema.json and, wrapped as an artifact TaskOutput, against task-output.schema.json; 'invalid' ones must be rejected. The image reference is the hypothetical non-audio artifact: it uses the same fields, owner and lifetime as audio, which is what makes the reference media-neutral.",
+  "valid": [
+    {
+      "id": "audio_wav_engine_owned",
+      "artifact": {
+        "id": "art_5b1f0c2e",
+        "mediaType": "audio/wav",
+        "owner": "engine",
+        "lifetime": "until_disposed",
+        "byteLength": 94508,
+        "durationMs": 2140
+      }
+    },
+    {
+      "id": "audio_pcm_with_parameters",
+      "artifact": {
+        "id": "art_0d9e44a1",
+        "mediaType": "audio/L16;rate=22050;channels=1",
+        "owner": "engine",
+        "lifetime": "until_disposed",
+        "byteLength": 44100
+      }
+    },
+    {
+      "id": "image_png_engine_owned",
+      "artifact": {
+        "id": "art_7c2a19f0",
+        "mediaType": "image/png",
+        "owner": "engine",
+        "lifetime": "until_disposed",
+        "byteLength": 20481
+      }
+    },
+    {
+      "id": "audio_application_owned",
+      "artifact": {
+        "id": "art_91ab03d4",
+        "mediaType": "audio/mpeg",
+        "owner": "application",
+        "lifetime": "until_disposed",
+        "byteLength": 31744,
+        "durationMs": 1980
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "id": "missing_id",
+      "artifact": { "mediaType": "audio/wav", "owner": "engine", "lifetime": "until_disposed" }
+    },
+    {
+      "id": "unknown_owner",
+      "artifact": {
+        "id": "art_1",
+        "mediaType": "audio/wav",
+        "owner": "provider",
+        "lifetime": "until_disposed"
+      }
+    },
+    {
+      "id": "unknown_lifetime",
+      "artifact": { "id": "art_1", "mediaType": "audio/wav", "owner": "engine", "lifetime": "run" }
+    },
+    {
+      "id": "negative_byte_length",
+      "artifact": {
+        "id": "art_1",
+        "mediaType": "audio/wav",
+        "owner": "engine",
+        "lifetime": "until_disposed",
+        "byteLength": -1
+      }
+    }
+  ]
+}

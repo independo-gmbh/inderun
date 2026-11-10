@@ -63,6 +63,13 @@ export type ExecutionProvenance = {
 
 export type ExecutionProvenanceAttempt = {
     /**
+     * Whether the run committed to this provider during the attempt: its first content was
+     * delivered, it signalled the first possible audible effect, or it handed over an artifact.
+     * After commit a failure ends the run instead of falling back. Absent means the attempt did
+     * not commit.
+     */
+    committed?: boolean;
+    /**
      * Normalized error class of a failed attempt.
      */
     errorClass?: ErrorClass;
@@ -99,4 +106,4 @@ export type ExecutionProvenanceRouteRejection = {
     [property: string]: unknown;
 }
 
-export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile";
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available" | "prepare_not_supported" | "not_ready";

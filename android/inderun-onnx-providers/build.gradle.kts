@@ -5,7 +5,9 @@ plugins {
 
 android {
     namespace = "app.independo.inderun.providers.onnx"
-    compileSdk = 37
+    // The consumer compileSdk floor, kept below the newest SDK on purpose; see the root build.gradle.kts.
+    //noinspection GradleDependency
+    compileSdk = 36
     ndkVersion = "27.2.12479018"
 
     defaultConfig {
@@ -46,11 +48,15 @@ dependencies {
     api(project(":inderun-contracts"))
     api(project(":inderun-core"))
 
+    // OnnxSpeechGraphExecutor and OnnxNeuralSpeechRuntime implement and compose this module's
+    // SpeechGraphExecutor / NeuralSpeechRuntime types in their public signatures.
+    api(project(":inderun-neural-speech"))
+
     // ONNX Runtime and the tokenizer are reached only through `internal` declarations
     // (LoadedSession, runOnnxSession), and this module publishes no `Flow` of its own.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.0")
-    implementation("ai.djl.huggingface:tokenizers:0.38.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.1")
+    implementation("ai.djl.huggingface:tokenizers:0.40.0")
     implementation("ai.djl.android:tokenizer-native:0.33.0")
     implementation("org.json:json:20260814")
 

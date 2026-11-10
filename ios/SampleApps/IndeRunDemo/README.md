@@ -15,6 +15,44 @@ registered providers:
   an alternate selection.
 - an OpenAI-compatible cloud endpoint configured in the app, typically via `@independo/inderun-demo-proxy`
 
+The app has two tabs, and an optional third. **Text** holds everything above: the privacy preference, the prompt, run,
+stream and cancel, the result and routing panels, provider availability, and the cloud and ONNX
+settings. **Speech** speaks text through the device's system voices. **Voices lab** is opt-in (below).
+
+## Voices lab (opt-in)
+
+Switch on **Voices lab** at the bottom of the Speech tab (persisted in `UserDefaults`, off by default) and a third tab
+appears. While the switch is off the tab is hidden and nothing is read, registered, downloaded or created on disk.
+
+- It downloads the Articulino neural speech model and seven demo voices (about 113 MB) only after a consent sheet that
+  shows the real total size, the model licence and attribution, and each distinct voice licence. Declining makes no
+  request. Files stream to `<name>.part` with an incremental SHA-256 and a byte check (a slow disk suspends the request
+  once a few MB wait unwritten, so a file is never held in memory whole), then move into
+  `Application Support/voices-lab/<entry id>/<version>/`, which is where the SDK resolves the `app_managed` package
+  `ref`. A mismatch deletes the file (`checksum mismatch: <path>`); a retry resumes by skipping verified files.
+  **Cancel** stops a download; verified files are kept.
+- The tab speaks the same text through the neural voice and the OS voice (**Speak**, **Repeat**, **A/B** = neural then
+  OS control). The status card names the provider that actually spoke; a neural request answered by the OS voice reads
+  "fell back to OS voice", and an A/B run whose neural leg fell back stops there with "comparison invalid: neural fell
+  back to <provider>" instead of playing the OS voice twice. The Core AI entry is listed as unavailable with the catalog's reason (this app does not link
+  `IndeRunCoreAIProviders`).
+- The catalog (`contracts/fixtures/speech/neural-model-catalog.json`) and the utterance corpus used for presets are
+  referenced from the repository by relative path and bundled as resources, so there is one copy.
+- The model files come from Hugging Face; the voices and the rewritten `text.onnx` come from the GitHub release
+  `neural-speech-assets-1`. **Until that release is published those downloads fail with "asset not published yet
+  (HTTP 404)".** The voices are demo assets (`review.status: benchmark_only`, legal sign-off pending, #260).
+- Switching the lab off (not leaving the tab) stops a running download or playback.
+
+## Tests
+
+`IndeRunDemoTests` is a unit-test bundle hosted by the app. It runs the shared catalog-to-package fixture, the
+consent downloader against a fake transport and a temporary directory, and the Voices lab view model:
+
+```bash
+xcodebuild test -project ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj -scheme IndeRunDemo \
+  -destination "platform=iOS Simulator,name=iPhone 17 Pro"
+```
+
 ## Requirements
 
 - Xcode 26.0 or newer with the iOS 26.0 SDK installed
@@ -58,7 +96,7 @@ The app depends on the local Swift package at `ios/IndeRun` and imports:
 2. Configure a signing team for the app target if Xcode requests one.
 3. Build and run the app; for full Apple Foundation Models coverage, run on a real supported
    iOS 26.0+ device.
-4. Choose a Privacy Preference: `Local Only`, `Prefer Local`, `Cloud Allowed`, or `Cloud Only`.
+4. On the **Text** tab, choose a Privacy Preference: `Local Only`, `Prefer Local`, `Cloud Allowed`, or `Cloud Only`.
    IndeRun selects the provider automatically based on this preference and each provider's
    reported capabilities — there is no manual per-provider toggle.
 5. If you plan to exercise the cloud route, confirm the endpoint and model settings:
@@ -95,6 +133,35 @@ outright — the panel is not updated at all, because no route was decided.
 - **Cancellation**: tap **Cancel** mid-generation. The run ends with a `cancelled` outcome —
   shown on the panel's **Outcome** row — carrying whatever text had already been delivered. No
   event arrives after it, and repeated taps are harmless.
+
+## Manual Speech Test
+
+1. On the **Speech** tab, open the **Language** picker. It lists one entry per locale that
+   `listVoices()` reports for this device, sorted by name, and starts on the device's own locale,
+   then on one with the same language, then on the first entry. Edit the text to suit the language:
+   the sample sentence is German, and a voice for another language reads it as best it can.
+   The **Voice** picker lists every voice of that locale, and **Automatic** leaves the choice to
+   routing. A repeated name gets a number.
+2. Tap **Speak**. Local system speech plays under `local_required`, and the outcome line shows the
+   finish reason, locale, voice, provider, and locality.
+3. Tap **Stop** while it plays. The audio stops at once and the outcome reads `cancelled`. **Stop**
+   stays disabled until routing has produced a playback handle.
+   With a finished utterance the line also shows the time to the first word; after **Stop** it
+   shows how long stopping took.
+4. Tap **Synthesize**. The app renders the text silently through `generateSpeech()`, reads the
+   WAV header back and releases the artifact; the line shows the media type, header, byte count,
+   audio duration, render time, and locality.
+5. Install or remove a voice in Settings under Accessibility, then come back. The list reloads each
+   time the tab appears or the app returns to the foreground, and the selection moves only if its
+   locale is gone.
+
+The picker offers only locales that have a voice, so a language with no installed voice cannot be
+chosen and that routing refusal cannot be reached from this screen. A device with no voices shows
+a message in place of the picker and disables **Speak**.
+
+The app calls `speak()`, `generateSpeech()`, `listVoices()` and `prepare()` only; it never touches
+`AVSpeechSynthesizer`. Record device results in
+[docs/verification/system-speech.md](../../../docs/verification/system-speech.md).
 
 ## Demo Proxy Setup
 

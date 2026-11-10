@@ -16,13 +16,20 @@ import {
 import type { HostServices } from "../../core/host.js";
 import {
   OnnxRuntimeError,
+  createFixtureOnnxRuntime,
+  type FixtureOnnxRuntimeOptions,
   type OnnxGenerationMessage,
   type OnnxGenerationOutput,
   type OnnxTextGenerationRuntime
 } from "./runtime.js";
-import { createTransformersJsRuntime } from "./transformers-runtime.js";
+import {
+  createTransformersJsRuntime,
+  type TransformersJsRuntimeOptions
+} from "./transformers-runtime.js";
+import { assertKnownKind, isRuntimeDescriptor } from "../runtime-descriptor.js";
 import type {
-  ProviderAdapter,
+  PreparableProviderAdapter,
+  ProviderPrepareContext,
   ProviderDescriptor,
   ProviderDynamicCapabilities,
   RunContext
@@ -49,6 +56,21 @@ export const SUPPORTED_WEB_MODEL_SOURCE_TYPES: readonly ModelSourceType[] = [
 ];
 
 /**
+ * A JSON-serializable choice of runtime, for configuration that cannot carry a function (a
+ * bridge marshals `configure(options)` as JSON). `transformers_js` builds the Transformers.js
+ * runtime from its serializable options; `fixture` builds the deterministic fixture runtime
+ * without `respond`.
+ */
+export type OnnxRuntimeDescriptor =
+  | ({ kind: "transformers_js" } & Pick<
+      TransformersJsRuntimeOptions,
+      "device" | "dtype" | "localModelPath" | "pipelineOptions"
+    >)
+  | ({ kind: "fixture" } & Omit<FixtureOnnxRuntimeOptions, "respond">);
+
+const ONNX_RUNTIME_KINDS = ["transformers_js", "fixture"] as const;
+
+/**
  * Configuration for the Web ONNX Runtime provider.
  */
 export interface OnnxProviderOptions {
@@ -61,14 +83,33 @@ export interface OnnxProviderOptions {
    */
   modelPackage: ModelPackage;
   /**
-   * Runtime implementation used to execute generation. Defaults to the Transformers.js-backed
-   * runtime; applications can inject their own implementation of the seam.
+   * Runtime used to execute generation: an implementation of the seam, or an
+   * {@link OnnxRuntimeDescriptor} the provider turns into one. Defaults to the
+   * Transformers.js-backed runtime. A runtime built from a descriptor or by default is closed with
+   * the provider; an injected implementation stays the application's to close.
    */
-  runtime?: OnnxTextGenerationRuntime;
+  runtime?: OnnxTextGenerationRuntime | OnnxRuntimeDescriptor;
   /**
    * Optional generation timeout in milliseconds. A request-level `constraints.timeoutMs` wins.
    */
   timeoutMs?: number;
+}
+
+function buildOnnxRuntime(
+  descriptor: OnnxRuntimeDescriptor | undefined
+): OnnxTextGenerationRuntime {
+  if (descriptor === undefined) return createTransformersJsRuntime();
+  assertKnownKind("onnx.runtime", descriptor.kind, ONNX_RUNTIME_KINDS);
+  switch (descriptor.kind) {
+    case "transformers_js": {
+      const { kind: _kind, ...options } = descriptor;
+      return createTransformersJsRuntime(options);
+    }
+    case "fixture": {
+      const { kind: _kind, ...options } = descriptor;
+      return createFixtureOnnxRuntime(options);
+    }
+  }
 }
 
 /**
@@ -79,10 +120,13 @@ export interface OnnxProviderOptions {
  * delegates execution to an injectable {@link OnnxTextGenerationRuntime}. ONNX Runtime execution
  * backends (WASM, WebGPU, WebNN) stay behind that seam and are never public routing concepts.
  */
-export class OnnxRuntimeWebProvider implements ProviderAdapter {
+export class OnnxRuntimeWebProvider implements PreparableProviderAdapter {
+  private loaded = false;
+  private loadFailure: string | undefined;
   private readonly id: string;
   private readonly modelPackage: ModelPackage;
   private readonly runtime: OnnxTextGenerationRuntime;
+  private readonly ownsRuntime: boolean;
 
   /**
    * Creates a Web ONNX Runtime provider.
@@ -91,7 +135,23 @@ export class OnnxRuntimeWebProvider implements ProviderAdapter {
   constructor(private readonly options: OnnxProviderOptions) {
     this.id = options.id ?? DEFAULT_ONNX_WEB_PROVIDER_ID;
     this.modelPackage = options.modelPackage;
-    this.runtime = options.runtime ?? createTransformersJsRuntime();
+    const given = options.runtime ?? undefined;
+    if (given !== undefined && !isRuntimeDescriptor(given)) {
+      this.runtime = given;
+      this.ownsRuntime = false;
+    } else {
+      this.runtime = buildOnnxRuntime(given);
+      this.ownsRuntime = true;
+    }
+  }
+
+  /**
+   * Releases the loaded model. Closes the runtime only when this provider created it (by default or
+   * from a descriptor); a runtime the application supplied through `options.runtime` stays the
+   * application's to close.
+   */
+  async close(): Promise<void> {
+    if (this.ownsRuntime) await this.runtime.close?.();
   }
 
   /**
@@ -114,6 +174,19 @@ export class OnnxRuntimeWebProvider implements ProviderAdapter {
       },
       cancel: "soft",
       tasks: getDeclaredTasks(this.modelPackage),
+      ...(getDeclaredTasks(this.modelPackage).includes(TEXT_TO_TEXT)
+        ? {
+            taskCapabilities: [
+              {
+                kind: TEXT_TO_TEXT,
+                inputs: ["text" as const],
+                interaction: { run: true, stream: false, prepare: true },
+                cancel: "soft" as const,
+                outputs: [{ delivery: "inline" as const }]
+              }
+            ]
+          }
+        : {}),
       privacy: {
         dataLeavesDevice: false
       }
@@ -161,7 +234,37 @@ export class OnnxRuntimeWebProvider implements ProviderAdapter {
       };
     }
 
-    return this.runtime.prepare(this.modelPackage);
+    const availability = await this.runtime.availability(this.modelPackage);
+    if (!availability.available) return availability;
+    if (this.loadFailure !== undefined) return { available: false, reason: this.loadFailure };
+    return {
+      ...availability,
+      ...(this.loaded
+        ? {}
+        : { taskCapabilities: [{ kind: TEXT_TO_TEXT, readiness: "cold" as const }] })
+    };
+  }
+
+  /** Loads the model ahead of the first run. Nothing here downloads for a host-managed model. */
+  async *prepare(context: ProviderPrepareContext): AsyncIterable<{ fractionCompleted?: number }> {
+    yield {};
+    await this.ensureLoaded(context.runId);
+  }
+
+  /**
+   * Loads the model once. A failed load is remembered, so routing stops choosing this provider
+   * instead of every call retrying a load that failed. It refuses before any output, so the run
+   * can still fall back.
+   */
+  private async ensureLoaded(runId: string): Promise<void> {
+    if (this.loaded) return;
+    const result = await this.runtime.prepare(this.modelPackage);
+    if (result.available) {
+      this.loaded = true;
+      return;
+    }
+    this.loadFailure = result.reason ?? "The model failed to load.";
+    throw createCapabilityMismatch(this.loadFailure, { providerId: this.id, runId });
   }
 
   /**
@@ -179,6 +282,8 @@ export class OnnxRuntimeWebProvider implements ProviderAdapter {
         { providerId: this.id, runId: context.runId }
       );
     }
+
+    await this.ensureLoaded(context.runId);
 
     const messages = createMessages(request);
     if (messages.length === 0) {

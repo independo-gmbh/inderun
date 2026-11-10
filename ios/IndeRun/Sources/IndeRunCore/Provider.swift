@@ -1,194 +1,64 @@
 import Foundation
 import IndeRunContracts
 
-// MARK: - ProviderDescriptor
-public struct ProviderDescriptor: Codable, Sendable {
-    public enum ProviderType: String, Codable, Sendable {
-        case local
-        case edge
-        case cloud
-    }
-
-    public enum TransportType: String, Codable, Sendable {
-        case inProcess = "in_process"
-        case systemService = "system_service"
-        case http
-        case sse
-        case realtime
-    }
-
-    public enum StreamingStyle: String, Codable, Sendable {
-        case tokens
-        case chunks
-        case snapshots
-    }
-
-    public struct SupportsCapabilities: Codable, Sendable {
-        public let run: Bool
-        public let streaming: Bool
-        public let realtime: Bool
-        public let tools: Bool
-        public let reasoningEvents: Bool
-        public let structuredOutput: Bool
-        public let multimodal: Bool
-
-        public init(
-            run: Bool,
-            streaming: Bool,
-            realtime: Bool,
-            tools: Bool,
-            reasoningEvents: Bool,
-            structuredOutput: Bool,
-            multimodal: Bool
-        ) {
-            self.run = run
-            self.streaming = streaming
-            self.realtime = realtime
-            self.tools = tools
-            self.reasoningEvents = reasoningEvents
-            self.structuredOutput = structuredOutput
-            self.multimodal = multimodal
-        }
-    }
-
-    public enum CancelSemantics: String, Codable, Sendable {
-        case hard
-        case soft
-        case none
-    }
-
-    public struct ResourceLimits: Codable, Sendable {
-        public let maxInputTokens: Int?
-        public let maxOutputTokens: Int?
-        public let maxImageBytes: Int?
-        public let maxAudioSeconds: Int?
-
-        public init(
-            maxInputTokens: Int? = nil,
-            maxOutputTokens: Int? = nil,
-            maxImageBytes: Int? = nil,
-            maxAudioSeconds: Int? = nil
-        ) {
-            self.maxInputTokens = maxInputTokens
-            self.maxOutputTokens = maxOutputTokens
-            self.maxImageBytes = maxImageBytes
-            self.maxAudioSeconds = maxAudioSeconds
-        }
-    }
-
-    public struct PrivacyDescriptor: Codable, Sendable {
-        public let dataLeavesDevice: Bool
-        public let regions: [String]?
-
-        public init(dataLeavesDevice: Bool, regions: [String]? = nil) {
-            self.dataLeavesDevice = dataLeavesDevice
-            self.regions = regions
-        }
-    }
-
-    public let id: String
-    public let type: ProviderType
-    /// The model this provider instance is bound to, when it can name one. A
-    /// provider instance bound to one model is a *target* that model profiles
-    /// list by `id`. Cloud providers report the model id they send;
-    /// platform-managed models report nothing rather than a guessed weight name.
-    public let model: String?
-    public let transport: TransportType
-    public let streamingStyle: StreamingStyle?
-    public let supports: SupportsCapabilities
-    public let cancel: CancelSemantics
-    public let tasks: [String]
-    public let limits: ResourceLimits?
-    public let privacy: PrivacyDescriptor?
-
-    public init(
-        id: String,
-        type: ProviderType,
-        model: String? = nil,
-        transport: TransportType,
-        streamingStyle: StreamingStyle? = nil,
-        supports: SupportsCapabilities,
-        cancel: CancelSemantics,
-        tasks: [String],
-        limits: ResourceLimits? = nil,
-        privacy: PrivacyDescriptor? = nil
-    ) {
-        self.id = id
-        self.type = type
-        self.model = model
-        self.transport = transport
-        self.streamingStyle = streamingStyle
-        self.supports = supports
-        self.cancel = cancel
-        self.tasks = tasks
-        self.limits = limits
-        self.privacy = privacy
-    }
-}
-
-// MARK: - ProviderDynamicCapabilities
-public struct ProviderDynamicCapabilities: Codable, Sendable {
-    public let available: Bool
-    /// Detail message explaining why the provider is unavailable, when `available` is false.
-    public let reason: String?
-    /// Whether the provider can stream (Mode 2) right now on this host. Leave `nil`
-    /// to inherit the static `descriptor.supports.streaming` value — only set it
-    /// when the runtime environment can take streaming away from a provider that
-    /// otherwise declares it.
-    public let streamingAvailable: Bool?
-    /// Detail message used when `streamingAvailable` is false. Leave `nil` to let
-    /// the route planner synthesize a generic message.
-    public let streamingUnavailableReason: String?
-    /// Whether cancellation is honored right now on this host. Leave `nil` to
-    /// inherit the static `descriptor.cancel` value (anything other than `none`
-    /// means available).
-    public let cancellationAvailable: Bool?
-
-    public init(
-        available: Bool,
-        reason: String? = nil,
-        streamingAvailable: Bool? = nil,
-        streamingUnavailableReason: String? = nil,
-        cancellationAvailable: Bool? = nil
-    ) {
-        self.available = available
-        self.reason = reason
-        self.streamingAvailable = streamingAvailable
-        self.streamingUnavailableReason = streamingUnavailableReason
-        self.cancellationAvailable = cancellationAvailable
-    }
-}
-
-// MARK: - ProviderCapabilitySnapshot
-
-/// Snapshot of a registered provider's static descriptor and current dynamic
-/// capability check, without executing a task.
-public struct ProviderCapabilitySnapshot: Sendable {
-    /// Stable identifier for this provider, matching the value used in routing
-    /// preferences/constraints.
-    public let providerId: String
-    /// The provider's static, unchanging capability declaration (supported modes,
-    /// privacy posture, model info).
-    public let descriptor: ProviderDescriptor
-    /// The provider's current dynamic availability (e.g. whether it's reachable/loaded
-    /// right now) — this is the part that can change between calls.
-    public let capabilities: ProviderDynamicCapabilities
-
-    public init(providerId: String, descriptor: ProviderDescriptor, capabilities: ProviderDynamicCapabilities) {
-        self.providerId = providerId
-        self.descriptor = descriptor
-        self.capabilities = capabilities
-    }
-}
+// ProviderDescriptor, ProviderDynamicCapabilities and ProviderCapabilitySnapshot are
+// generated from contracts/schemas/provider-*.schema.json into IndeRunContracts, which
+// this module re-exports. The convenience initializers live in
+// IndeRunContracts/Compatibility.swift.
 
 // MARK: - RunContext
 public struct RunContext: Sendable {
     public let runId: String
     public let hostServices: HostServices
+    /// The voice the route plan bound this provider to for a speech task: provider-neutral
+    /// traits the provider must honour when it picks the voice that speaks. `nil` for tasks
+    /// without a voice and for providers that do not list their voices, which then choose
+    /// under the same rule (ADR 016 §4). The engine has re-checked it against the request's
+    /// privacy policy immediately before the attempt.
+    public let voice: ProviderVoice?
+    /// Where the provider writes retrievable media for an `artifact` request (ADR 017). The
+    /// engine holds the bytes; the provider returns the reference `finish()` gives it in an
+    /// `artifact` output. Finishing commits the run. Artifacts this attempt does not return,
+    /// or that a failed or cancelled attempt wrote, are discarded by the engine.
+    public let artifacts: any ArtifactSink
+    private let commitHandler: @Sendable () -> Bool
 
-    public init(runId: String, hostServices: HostServices) {
+    /// - Parameters:
+    ///   - artifacts: Where the provider writes artifacts. The engine supplies the attempt's
+    ///     view of its own store; when `nil`, a context built elsewhere writes into a
+    ///     standalone ``ArtifactStore`` of its own, handing over under `commit`.
+    ///   - commit: What ``commit()`` does. The engine supplies its own; a context built
+    ///     elsewhere (e.g. to call a provider directly) commits unless the calling task is
+    ///     cancelled, which is the engine's rule for `run()`.
+    public init(
+        runId: String,
+        hostServices: HostServices,
+        voice: ProviderVoice? = nil,
+        artifacts: (any ArtifactSink)? = nil,
+        commit: @escaping @Sendable () -> Bool = { !Task.isCancelled }
+    ) {
         self.runId = runId
         self.hostServices = hostServices
+        self.voice = voice
+        self.artifacts = artifacts ?? ArtifactStore().attempt(commit: commit)
+        self.commitHandler = commit
+    }
+
+    /// Commits the run to this provider. Call it immediately before the attempt's first
+    /// externally observable effect -- for managed playback, no later than the first moment
+    /// sound may reach the user. After commit, a failure ends the run instead of falling back
+    /// to another provider, because a second provider would repeat what the user may already
+    /// have heard.
+    ///
+    /// Returns `false` when the run can no longer commit (the calling task was cancelled)
+    /// and when this attempt is over, e.g. a late callback after the engine fell back to
+    /// another provider; the provider must then not start the effect and should end the
+    /// attempt. Idempotent: calling it again after a successful commit returns `true`.
+    ///
+    /// Providers whose output is only delivered at the end (text from `run()`) need not call
+    /// it.
+    public func commit() -> Bool {
+        commitHandler()
     }
 }
 

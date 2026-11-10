@@ -89,6 +89,54 @@ the routing decision read from `route_decided` telemetry. These panels build a `
 and send it without a model profile, so they route across every registered target, and they offer
 `Cloud Only` (`cloud_required`) as well.
 
+## Speech
+
+The **Speech** panel (`src/speech-panel.ts`) uses only the primary speech API: `listVoices()`, `prepare()`, `speak()`
+and `generateSpeech()`. It never touches `speechSynthesis` and never branches on a provider id.
+
+- **Speak** plays the text through whichever registered provider routing picks; **Stop** cancels it. The status line
+  shows the ending (`stop` or `cancelled`), the locale and voice that spoke, the provider and locality, and, where the
+  platform reports it, the time to the first word and how long stopping took.
+- **Generate audio** asks for a retrievable artifact, reads it whole, disposes it and offers the copy in an audio
+  player. The button is enabled only when `checkCapabilities()` shows a provider whose `text_to_speech` capability
+  declares `artifact` delivery. In a browser the only speech provider is `web_system_speech`, which declares playback
+  only, so the panel says so and the button stays disabled.
+- The status line is a live region. Stop takes focus while speech plays, and focus returns to Speak afterwards.
+
+## Voices lab (opt-in)
+
+Set `VITE_INDERUN_VOICES_LAB=1` (for example `VITE_INDERUN_VOICES_LAB=1 pnpm --filter @independo/inderun-web-demo dev`)
+to add a **Voices lab** panel below Speech. Without the flag nothing of it is loaded, fetched or registered.
+
+- It downloads the Articulino neural speech model and seven demo voices from
+  [`neural-model-catalog.json`](../../contracts/fixtures/speech/neural-model-catalog.json) into the browser's Origin
+  Private File System (`voices-lab/<model>/<version>/`), after a consent step that shows the size (about 113 MB) and the
+  licences. Every file is checked against its sha256 and size, on download and again whenever the panel opens (a stored
+  file that no longer matches makes the model read as not downloaded); a mismatch on download deletes the file
+  (`checksum mismatch: <path>`), and a retry resumes with the verified files, and **Cancel download** stops it and keeps them. The browser is asked to keep the storage
+  (`navigator.storage.persist()`, best effort). Browsers without OPFS get "This browser cannot store models".
+- Pick a language (de-DE, de-AT, en-US, en-GB), a model (or **OS TTS (control)**), a voice and a preset text from the
+  utterance corpus, then **Speak**, **Stop**, **Repeat** or **A/B** (neural, then the OS voice). The status card shows
+  provider, model and variant, the `text.onnx` checksum, voice, resolved locale, locality, runtime and delivery; an A/B
+  run whose neural leg fell back stops there with "comparison invalid: neural fell back to <provider>". The Core AI entry is listed as unavailable (no `.aimodel` exists yet).
+- **Run corpus (plays audio)** runs the seven scenarios of the shared benchmark corpus (`benchmark.scenarios`) against
+  the selected model and voice (or the OS control), with the sentences played aloud and a new engine per cold-start
+  trial. A scenario the target cannot serve is listed as skipped; the OS control skips the two cold-start scenarios.
+  **Export report** downloads `speech-benchmark-<target>-<yyyy-mm-dd>.json` (harness `web_voices_lab`, see
+  [`speech-benchmark-report.schema.json`](../../contracts/fixtures/speech/speech-benchmark-report.schema.json)); it holds
+  utterance ids and timings, a browser family plus platform, and the rendered audio only when **Include rendered audio**
+  is ticked. The corpus's `extendedUtterances` also appear in the preset list.
+- Requests go through the model profile `voices-lab:<model>` (`[neural provider, web_system_speech]`) on a lab engine
+  that is rebuilt after each install; the control uses the demo's own engine.
+- Hugging Face files are fetched directly. **The demo proxy must be running for the GitHub release assets** (the voices
+  and `text.onnx`): GitHub sends no CORS headers, so the browser calls the proxy's `GET /assets?url=...` route (see
+  [`@independo/inderun-demo-proxy`](../inderun-demo-proxy/README.md)). With the Vite dev server the page calls
+  `/api/inderun/assets`, which is forwarded to the proxy's `/assets`; with an absolute `VITE_INDERUN_DEMO_PROXY_URL` the
+  origin's `/assets` is used (`VITE_INDERUN_DEMO_ASSETS_URL` overrides both) and the proxy's
+  `INDERUN_DEMO_PROXY_CORS_ORIGIN` must allow the page.
+- Those assets answer 404 ("asset not published yet") until the `neural-speech-assets-1` release is published.
+- onnxruntime-web runs the model; it is a dependency of this demo only for the lab (`load` is passed to the SDK).
+
 ## Configuration
 
 | Env var                              | Effect                                                                        |
@@ -97,6 +145,8 @@ and send it without a model profile, so they route across every registered targe
 | `VITE_INDERUN_ONNX_MODEL_PACKAGE_ID` | Model package id the ONNX target declares (default `inderun-demo-fixture`)    |
 | `VITE_INDERUN_OPENAI_MODEL`          | Cloud model the browser registers as `openai:<model>` (default `gpt-5.2`)     |
 | `VITE_INDERUN_DEMO_PROXY_URL`        | Proxy endpoint for the cloud target (default `/api/inderun/openai-responses`) |
+| `VITE_INDERUN_VOICES_LAB`            | `1` switches the Voices lab on (default off)                                  |
+| `VITE_INDERUN_DEMO_ASSETS_URL`       | Overrides the proxy's `/assets` URL the lab downloads release assets through  |
 
 The Vite dev server forwards `/api/inderun` to the demo proxy on `127.0.0.1:8787`. The proxy owns
 the upstream endpoint, model and key (`OPENAI_API_KEY`, `INDERUN_OPENAI_ENDPOINT_URL`,
@@ -148,6 +198,10 @@ incrementally — so check these by hand:
 - **Advanced stream**: in the advanced section, *Local Only* + **Stream** is refused at routing (no
   run handle, no events); an unreachable `VITE_INDERUN_DEMO_PROXY_URL` ends a stream with a terminal
   `error` outcome, which is an event, not a rejection.
+
+- **Speech**: press **Speak** in `de-DE` and `en-US`, then **Stop** mid-utterance; the status reads `cancelled` and no
+  speech continues. Confirm **Generate audio** is disabled with the playback-only note. Record each browser in
+  [docs/verification/system-speech.md](../../docs/verification/system-speech.md#web-web_system_speech).
 
 ## Security Model
 

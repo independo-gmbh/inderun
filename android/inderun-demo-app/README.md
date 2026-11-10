@@ -99,6 +99,49 @@ This is the only test that covers ML Kit's real behavior. The unit suites drive 
 they prove the adapter's event, error and cancellation contract — not that ML Kit chunks
 incrementally, reports finish reasons, or stops generating when cancelled.
 
+## Manual Speech Test
+
+1. In the speech section, pick a language and, optionally, a voice. Voices come from
+   `listVoices()`, including ones the engine has not installed yet; speaking with one of those
+   lets the engine download it.
+2. Tap **Speak**. System speech plays under `local_required`, and the outcome line shows the finish
+   reason, locale, voice, provider, locality, and, where the engine reports word ranges, the time to
+   the first word.
+3. Tap **Stop speaking** while it plays. The outcome reads `cancelled` and shows how long stopping
+   took.
+4. Tap **Synthesize**. The app renders the text silently through `generateSpeech()`, also under
+   `local_required`, reads the WAV header back and releases the artifact; the line shows the media
+   type, header, byte count, audio duration, render time, and locality.
+
+The app never touches `TextToSpeech`. Record device results in
+[docs/verification/system-speech.md](../../docs/verification/system-speech.md). The automated
+real-speech checks are `./gradlew :inderun-kotlin:connectedAndroidTest`.
+
+## Voices lab (opt-in, #260)
+
+Switch **Voices lab** on at the bottom of the screen (persisted in the app's settings; off by
+default). Off, the app reads no catalog, registers no neural provider and touches no storage.
+
+On, the lab reads `neural-model-catalog.json` (copied from `contracts/fixtures/speech/` into the
+app's assets at build time) and offers the Articulino model with seven own voices. **Download model**
+first asks for consent, showing the total size and the model and voice licences; only then does it
+fetch the files directly from Hugging Face and the GitHub release `neural-speech-assets-1` into
+`filesDir/voices-lab/<entry>/<version>/`. Every file's size and sha256 are checked (a mismatch
+deletes it and fails with `checksum mismatch: <path>`); a retry skips files that already verify.
+Pick a language, voice and preset text, then **Speak**, **Stop**, **Repeat**, or **A/B** (neural
+voice, then the OS voice as control). The status card names the provider that actually spoke and
+says "fell back to OS voice" when the neural model did not; an A/B run whose neural leg fell back
+stops there with "comparison invalid: neural fell back to <provider>" instead of playing the OS voice twice.
+
+The release assets are published by the owner: until `neural-speech-assets-1` exists, downloads of
+the derived files (`text.onnx`, the voices) fail with "asset not published yet (HTTP 404)". The Core
+AI entry is iOS/macOS only and shows as unavailable here.
+
+Files: `NeuralCatalog.kt` (catalog and the `ModelPackage` mapping), `DemoNeuralModelDownloader.kt`,
+`VoicesLabViewModel.kt`, `VoicesLabScreen.kt`, and `AndroidVoicesLabRuntime` in
+`AndroidDemoRuntime.kt` (system speech plus one neural provider per installed model, and the profile
+`voices-lab:<entry id>` = `[neural provider, android_system_speech]`).
+
 ## Demo Proxy Setup
 
 The sample app never embeds OpenAI credentials in `TaskRequest`. For cloud testing, the intended

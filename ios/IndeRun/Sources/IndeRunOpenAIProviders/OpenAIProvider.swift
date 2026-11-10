@@ -226,7 +226,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
             model: options.model,
             transport: .http,
             streamingStyle: .tokens,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: true,
                 realtime: false,
@@ -237,7 +237,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
             ),
             cancel: .hard,
             tasks: ["text_to_text"],
-            privacy: ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice: true)
+            privacy: ProviderPrivacy(dataLeavesDevice: true)
         )
     }
 
@@ -409,7 +409,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
 
         var result = TaskResult(
             finishReason: finishReason(responseBody: responseBody),
-            output: Output(text: outputText, type: .text),
+            output: TaskOutput(text: outputText),
             provenance: nil,
             runId: context.runId,
             schemaVersion: .the10,

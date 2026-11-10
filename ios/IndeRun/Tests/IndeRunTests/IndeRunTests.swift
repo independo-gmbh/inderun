@@ -81,11 +81,11 @@ struct TestCancellationError: Error {}
 
 final class MockProvider: ProviderAdapter, @unchecked Sendable {
     let id: String
-    let type: ProviderDescriptor.ProviderType
+    let type: ProviderType
     var isAvailable: Bool = true
     var shouldFail: Bool = false
     
-    init(id: String, type: ProviderDescriptor.ProviderType) {
+    init(id: String, type: ProviderType) {
         self.id = id
         self.type = type
     }
@@ -95,7 +95,7 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
             id: id,
             type: type,
             transport: type == .local ? .inProcess : .http,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: false,
                 realtime: false,
@@ -119,7 +119,7 @@ final class MockProvider: ProviderAdapter, @unchecked Sendable {
         }
         return TaskResult(
             runId: context.runId,
-            output: Output(text: "Hello from \(id)"),
+            output: TaskOutput(text: "Hello from \(id)"),
             finishReason: FinishReason.stop,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)
         )
@@ -163,6 +163,9 @@ final class CapturingRoutePlanner: RoutePlanning, @unchecked Sendable {
 /// Apple Intelligence model readiness.
 final class MockAppleFoundationModelsRuntime: AppleFoundationModelsRuntime, @unchecked Sendable {
     var availabilityValue: AppleFoundationModelsAvailability = .available
+
+    func prewarm() async {}
+
     var responseText = "Apple response"
     var thrownError: Error?
     /// Cumulative snapshots `streamResponse` yields, in order -- Apple's partial
@@ -499,8 +502,8 @@ final class IndeRunTests: XCTestCase {
             planner: MockRoutePlanner(
                 plan: SharedPlannerRoutePlan(
                     candidates: [
-                        Candidate(order: 0, providerId: "local_b"),
-                        Candidate(order: 1, providerId: "local_a")
+                        Candidate(order: 0, providerId: "local_b", voice: nil),
+                        Candidate(order: 1, providerId: "local_a", voice: nil)
                     ],
                     explanation: SharedPlannerExplanation(
                         selectedProviderId: "local_b",
@@ -612,24 +615,26 @@ final class IndeRunTests: XCTestCase {
                 preferences: SharedPlannerPreferences(optimizeFor: nil),
                 providers: [
                     SharedPlannerProviderInput(
-                        capabilities: SharedPlannerCapabilities(
-                            available: true,
-                            cancellationAvailable: nil,
-                            reason: nil,
-                            streamingAvailable: nil,
-                            streamingUnavailableReason: nil
-                        ),
-                        descriptor: SharedPlannerProviderDescriptor(
-                            cancel: .soft,
+                        capabilities: ProviderDynamicCapabilities(available: true),
+                        descriptor: ProviderDescriptor(
                             id: "local_p",
-                            privacy: nil,
-                            supports: SharedPlannerProviderSupports(run: true, streaming: false),
-                            tasks: ["text_to_text"],
-                            type: .local
+                            type: .local,
+                            transport: .inProcess,
+                            supports: ProviderSupports(
+                                run: true,
+                                streaming: false,
+                                realtime: false,
+                                tools: false,
+                                reasoningEvents: false,
+                                structuredOutput: false,
+                                multimodal: false
+                            ),
+                            cancel: .soft,
+                            tasks: ["text_to_text"]
                         )
                     )
                 ],
-                task: SharedPlannerTask(kind: "text_to_text")
+                task: SharedPlannerTask(delivery: nil, inputs: nil, kind: "text_to_text", locale: nil, voice: nil)
             )
         )
 
@@ -644,7 +649,7 @@ final class IndeRunTests: XCTestCase {
 
         let planner = CapturingRoutePlanner(
             plan: SharedPlannerRoutePlan(
-                candidates: [Candidate(order: 0, providerId: "local_a")],
+                candidates: [Candidate(order: 0, providerId: "local_a", voice: nil)],
                 explanation: SharedPlannerExplanation(
                     selectedProviderId: "local_a",
                     summary: "Selected provider 'local_a'."
@@ -892,6 +897,10 @@ final class IndeRunTests: XCTestCase {
         XCTAssertGreaterThan(clock.monotonicNow() ?? 0, 0)
     }
 
+    func testDefaultHostServicesIncludeAudioOutput() {
+        XCTAssertNotNil(DefaultHostServices.make().audioOutput)
+    }
+
     func testKeychainSecureStorageRoundTripBySlotId() async throws {
         // The keychain needs a signed bundle with a keychain-access group. An
         // xctest bundle running on the simulator has neither, so SecItemAdd fails
@@ -1064,7 +1073,7 @@ final class IndeRunTests: XCTestCase {
             case let .done(text, reason, _, _):
                 finalText = text
                 finishReason = reason
-            case .delta, .failure:
+            case .delta, .result, .failure:
                 XCTFail("Apple streaming must emit snapshots, not \(event)")
             }
         }
@@ -1191,7 +1200,7 @@ final class IndeRunTests: XCTestCase {
                 runtime.releaseStreamGate()
             case .done:
                 sawDone = true
-            case .delta, .failure:
+            case .delta, .result, .failure:
                 XCTFail("Unexpected event \(event)")
             }
         }
@@ -1514,7 +1523,9 @@ final class IndeRunTests: XCTestCase {
             limits: nil,
             runtime: nil,
             source: Source(ref: "models/test-model", sourceType: sourceType),
+            speech: nil,
             tasks: ["text_to_text"],
+            variant: nil,
             version: "1.0"
         )
     }
@@ -1535,10 +1546,109 @@ final class IndeRunTests: XCTestCase {
         XCTAssertEqual(descriptor.privacy?.dataLeavesDevice, false)
     }
 
+    func testOnnxAppleCapabilityCheckNeverLoadsTheModelAndReportsItCold() async {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+
+        let capabilities = await provider.capabilities(host: HostServices(connectivity: MockConnectivityService()))
+
+        XCTAssertEqual(runtime.loads, 0)
+        XCTAssertTrue(capabilities.available)
+        XCTAssertEqual(capabilities.taskCapabilities?.first?.readiness, .cold)
+    }
+
+    func testOnnxApplePrepareLoadsOnceAndThenReportsReady() async throws {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let host = HostServices(connectivity: MockConnectivityService())
+        let registry = ProviderRegistry()
+        try registry.register(provider)
+        let inderun = IndeRun(registry: registry, hostServices: host)
+
+        let result = try await inderun.prepare().result()
+        _ = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+
+        XCTAssertEqual(result.items.map(\.status), [.prepared])
+        XCTAssertEqual(runtime.loads, 1)
+        let capabilities = await provider.capabilities(host: host)
+        XCTAssertNil(capabilities.taskCapabilities)
+    }
+
+    func testOnnxAppleCloseLeavesAnInjectedRuntimeOpen() async {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+
+        await provider.close()
+        await provider.close()
+
+        XCTAssertEqual(runtime.closes, 0)
+    }
+
+    func testOnnxAppleCloseClosesARuntimeTheProviderOwns() async {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage()),
+            runtime: runtime,
+            ownsRuntime: true
+        )
+
+        await provider.close()
+
+        XCTAssertEqual(runtime.closes, 1)
+    }
+
+    func testOnnxAppleDefaultRuntimeClosesAndStaysUsable() async throws {
+        // The default runtime: close drops nothing loaded yet and leaves the capability check working.
+        let provider = OnnxRuntimeAppleProvider(options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage()))
+        let host = HostServices(connectivity: MockConnectivityService())
+        let before = await provider.capabilities(host: host)
+
+        await provider.close()
+        await provider.close()
+
+        let after = await provider.capabilities(host: host)
+        XCTAssertEqual(after.available, before.available)
+        XCTAssertEqual(after.reason, before.reason)
+    }
+
+    func testOnnxAppleRemembersAFailedLoadAndFallsBack() async throws {
+        let runtime = CountingOnnxRuntime(loadResult: OnnxRuntimeAvailability(available: false, reason: "model corrupt"))
+        let broken = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(id: "a_broken", modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+        let healthy = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(
+                id: "b_healthy",
+                modelPackage: makeOnnxModelPackage(),
+                runtime: createFixtureOnnxRuntime()
+            )
+        )
+        let host = HostServices(connectivity: MockConnectivityService())
+        let registry = ProviderRegistry()
+        try registry.register(broken)
+        try registry.register(healthy)
+        let inderun = IndeRun(registry: registry, hostServices: host)
+
+        let first = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+        _ = try await inderun.run(request: TaskRequest(prompt: "Hi"))
+
+        XCTAssertEqual(first.telemetry.providerUsed, "b_healthy")
+        XCTAssertEqual(runtime.loads, 1)
+        let capabilities = await broken.capabilities(host: host)
+        XCTAssertFalse(capabilities.available)
+        XCTAssertEqual(capabilities.reason, "model corrupt")
+    }
+
     func testOnnxAppleCapabilitiesRejectsMalformedModelPackage() async {
         let modelPackage = ModelPackage(
             files: nil, format: .onnx, id: "", integrity: nil, license: nil, limits: nil,
-            runtime: nil, source: nil, tasks: nil, version: nil
+            runtime: nil, source: nil, speech: nil, tasks: nil, variant: nil, version: nil
         )
         let provider = OnnxRuntimeAppleProvider(
             options: OnnxProviderOptions(modelPackage: modelPackage, runtime: createFixtureOnnxRuntime())
@@ -1588,6 +1698,15 @@ final class IndeRunTests: XCTestCase {
 
         XCTAssertFalse(capabilities.available)
         XCTAssertTrue(capabilities.reason?.contains("unsupported task") ?? false)
+    }
+
+    func testOnnxAppleCheckedFilesRefusesCoreAIFormat() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.format = .coreai
+
+        XCTAssertThrowsError(try LoadedSessionBox.checkedFiles(modelPackage)) { error in
+            XCTAssertTrue((error as? OnnxRuntimeError)?.message.contains("unsupported model format") ?? false)
+        }
     }
 
     func testOnnxAppleRunReturnsTaskResultFromFixture() async throws {
@@ -1676,6 +1795,107 @@ final class IndeRunTests: XCTestCase {
         let issues = getModelPackageValidationIssues(modelPackage)
 
         XCTAssertTrue(issues.isEmpty)
+    }
+
+    func testModelPackageKeepsPreSpeechInitializerSignatures() {
+        let runtime = Runtime(minOpset: 17, minRuntimeVersion: "1.20", platforms: ["ios"])
+        let modelPackage = ModelPackage(
+            files: Files(config: nil, external: nil, filesRequired: ["model.onnx"], tokenizer: "tokenizer.json"),
+            format: .onnx,
+            id: "my-onnx-model",
+            integrity: nil, license: nil, limits: nil, runtime: runtime,
+            source: Source(ref: "my-model", sourceType: .bundled),
+            tasks: ["text_to_text"],
+            version: "1.0"
+        )
+
+        XCTAssertNil(modelPackage.speech)
+        XCTAssertNil(modelPackage.variant)
+        XCTAssertNil(runtime.minOsVersion)
+        XCTAssertEqual(modelPackage.runtime?.minOpset, 17)
+    }
+
+    func testModelPackageValidationRequiresSpeechForTextToSpeech() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.tasks = ["text_to_speech"]
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertTrue(issues.contains { $0.path == "/speech" })
+    }
+
+    func testModelPackageValidationRejectsDuplicateSpeechVoiceIds() {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.tasks = ["text_to_speech"]
+        let voice = SpeechModelVoice(file: "v.bin", gender: nil, id: "v", license: nil, locales: ["de-DE"], name: "V")
+        modelPackage.speech = SpeechModelPackage(
+            channels: nil,
+            frontend: nil,
+            graphs: ["acoustic": "a.onnx"],
+            pipeline: "articulino",
+            sampleRate: 24000,
+            voices: [voice, voice]
+        )
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertTrue(issues.contains { $0.path == "/speech/voices" })
+    }
+
+    private func makeSpeechModelPackage(
+        sampleRate: Int = 24000,
+        graphs: [String: String] = ["acoustic": "a.onnx"],
+        voices: [SpeechModelVoice]
+    ) -> ModelPackage {
+        var modelPackage = makeOnnxModelPackage()
+        modelPackage.tasks = ["text_to_speech"]
+        modelPackage.speech = SpeechModelPackage(
+            channels: nil,
+            frontend: nil,
+            graphs: graphs,
+            pipeline: "articulino",
+            sampleRate: sampleRate,
+            voices: voices
+        )
+        return modelPackage
+    }
+
+    private func makeSpeechVoice(locales: [String]) -> SpeechModelVoice {
+        SpeechModelVoice(file: "v.bin", gender: nil, id: "v", license: nil, locales: locales, name: "V")
+    }
+
+    func testModelPackageValidationRejectsStructurallyEmptySpeech() {
+        let modelPackage = makeSpeechModelPackage(sampleRate: 0, graphs: [:], voices: [])
+
+        let issues = getModelPackageValidationIssues(modelPackage)
+
+        XCTAssertEqual(issues.map(\.path), ["/speech/sampleRate", "/speech/graphs", "/speech/voices"])
+        XCTAssertEqual(issues.map(\.message), [
+            "must be >= 1",
+            "must list at least one graph",
+            "must list at least one voice"
+        ])
+    }
+
+    func testModelPackageValidationRejectsMalformedVoiceLocales() {
+        let emptyLocales = getModelPackageValidationIssues(
+            makeSpeechModelPackage(voices: [makeSpeechVoice(locales: [])])
+        )
+        XCTAssertEqual(emptyLocales.map(\.path), ["/speech/voices/0/locales"])
+        XCTAssertEqual(emptyLocales.map(\.message), ["must list at least one locale"])
+
+        let malformed = ["de_DE", "-de-DE", "de-DE!", "", "de-DE\n"]
+        let badTags = getModelPackageValidationIssues(
+            makeSpeechModelPackage(voices: [makeSpeechVoice(locales: malformed)])
+        )
+        XCTAssertEqual(badTags.map(\.path), malformed.indices.map { "/speech/voices/0/locales/\($0)" })
+        XCTAssertEqual(badTags.map(\.message), Array(repeating: "must be a hyphenated BCP 47 tag", count: malformed.count))
+    }
+
+    func testModelPackageValidationAcceptsAWellFormedSpeechPackage() {
+        let modelPackage = makeSpeechModelPackage(voices: [makeSpeechVoice(locales: ["de-DE", "en-US"])])
+
+        XCTAssertEqual(getModelPackageValidationIssues(modelPackage), [])
     }
 
     func testOnnxAppleRunThrowsRawCancellationErrorWithoutNormalizing() async {
@@ -2519,5 +2739,38 @@ final class OpenAIRunVectorTests: XCTestCase {
                 XCTFail("Unknown expected kind \(expected.kind) in \(label)")
             }
         }
+    }
+}
+
+/// An ONNX runtime that counts model loads.
+private final class CountingOnnxRuntime: OnnxGenAiRuntime, @unchecked Sendable {
+    private let lock = NSLock()
+    private var loadCount = 0
+    private var closeCount = 0
+    private let loadResult: OnnxRuntimeAvailability
+    private let fixture = createFixtureOnnxRuntime()
+
+    var loads: Int { lock.withLock { loadCount } }
+    var closes: Int { lock.withLock { closeCount } }
+
+    init(loadResult: OnnxRuntimeAvailability = OnnxRuntimeAvailability(available: true)) {
+        self.loadResult = loadResult
+    }
+
+    func availability(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
+        OnnxRuntimeAvailability(available: true)
+    }
+
+    func prepare(_ modelPackage: ModelPackage) async -> OnnxRuntimeAvailability {
+        lock.withLock { loadCount += 1 }
+        return loadResult
+    }
+
+    func generate(_ input: OnnxGenerationInput) async throws -> OnnxGenerationOutput {
+        try await fixture.generate(input)
+    }
+
+    func close() async {
+        lock.withLock { closeCount += 1 }
     }
 }

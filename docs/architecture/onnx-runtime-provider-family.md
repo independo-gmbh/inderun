@@ -109,12 +109,18 @@ the host's secure storage via `authContextRef`.
 
 The normative field shapes are defined by the `ModelPackage` schema
 (`contracts/schemas/model-package.schema.json`), generated into the TypeScript, Kotlin, and Swift
-contracts. The schema is intentionally lean and forward-compatible: only `id` and `format` are
-required, and unknown fields are permitted. This document does not restate the fields; consult the
+contracts. The schema is intentionally lean and forward-compatible: only `id` and `format` (and
+`speech` when `tasks` contains `text_to_speech`) are required, and unknown fields are permitted. This document does not restate the fields; consult the
 schema.
 
 IndeRun does not own model download/update flows today. Host applications may bundle,
 download, cache, or otherwise supply model files; the model package's `source` describes how.
+
+Loading is separate from checking (ADR 019). `capabilities(host)` runs on every request, so it only
+makes cheap checks through the runtime's `availability`. The runtime's `prepare` loads the model,
+called from `prepare()` or, failing that, by the first run. A failed load is remembered for the
+provider instance and then reported as unavailable. On Web, a `registry` source fetches its files at
+load, through `@huggingface/transformers`.
 
 ## Model Source Support Matrix
 
@@ -173,7 +179,10 @@ planner consumes.
 The shared route planner uses a fixed rejection vocabulary
 (`route-plan.schema.json` → `rejectedProviders[].reasons[].code`):
 `task_not_supported`, `run_not_supported`, `privacy_constraint`, `cloud_constraint`, `offline`,
-`capability_unavailable`. The ONNX family adds no new codes. Every capability failure above maps to
+`capability_unavailable`, plus the mode, model-profile and per-task codes the planner applies to every family. The
+ONNX family adds no new codes. Its descriptor declares `text_to_text` with `prepare` in `taskCapabilities`,
+so routing sees that task alone: a model package that declares another task (say `image_to_text`) is reported as `task_not_supported` for
+it. Every capability failure above maps to
 `capability_unavailable`, with the specific condition carried in the human-readable `reason`/
 `message` string.
 
@@ -222,6 +231,12 @@ IndeRun), a `createFixtureOnnxRuntime()` test/demo seam, and support for an appl
 implementation. Model sources: `registry`, `bundled`, `programmatic`, `app_managed` (see
 [Model Source Support Matrix](#model-source-support-matrix) for the full per-platform picture).
 
+**Selecting a runtime from configuration.** `runtime` also takes an `OnnxRuntimeDescriptor`, a
+JSON-serializable object with a `kind`, so configuration that cannot carry a function (a bridge
+marshals `configure(options)` as JSON) can still choose one. `transformers_js` needs the optional
+peer `@huggingface/transformers`; `fixture` needs no extra dependency. A runtime built from a
+descriptor is closed with the provider; an injected one is not.
+
 Implementation detail (runtime seam internals, quantization defaults, capability gate order, error
 mapping, browser/WASM constraints) lives in code comments in
 [`packages/inderun-web/src/providers/onnx/`](../../packages/inderun-web/src/providers/onnx/) and in
@@ -231,6 +246,11 @@ duplicate it, to avoid drifting out of sync with the implementation.
 **Authoring a custom local provider:** implement `OnnxTextGenerationRuntime`, per
 [Authoring A Custom Local ONNX Provider](#authoring-a-custom-local-onnx-provider) below.
 
+**Speech.** The same modules also host the ONNX Runtime `SpeechGraphExecutor` and the composed neural speech runtime
+(`createOnnxNeuralSpeechRuntime` on the Web, with `onnxruntime-web` as an optional peer; `OnnxNeuralSpeechRuntime` in
+`IndeRunOnnxProviders` and `inderun-onnx-providers`). They serve the neural speech provider, not
+`local.onnx.genai.*`; see [neural-speech-provider-family.md](neural-speech-provider-family.md).
+
 ## Apple Implementation
 
 Ships as its own SwiftPM library product, `IndeRunOnnxProviders`
@@ -239,7 +259,9 @@ Ships as its own SwiftPM library product, `IndeRunOnnxProviders`
 SPM bindings + `swift-transformers` tokenizer), a `createFixtureOnnxRuntime(options:)` test/demo
 seam, and support for an application-supplied implementation. Model sources: `bundled`,
 `programmatic`, `app_managed`, `filesystem` (see
-[Model Source Support Matrix](#model-source-support-matrix)).
+[Model Source Support Matrix](#model-source-support-matrix)). Without a `runtime` in the options the provider builds
+the default runtime and owns it: its `close()` releases the loaded session; an injected runtime is left to the
+application.
 
 Landing this member raised the whole SDK's minimum platforms to **iOS 16 / macOS 14** — a
 package-wide, breaking bump for every IndeRun Apple consumer, not only ONNX users — because its
@@ -263,7 +285,9 @@ Provider id: `local.onnx.genai.android`. Runtime seam: `AndroidOnnxGenAiRuntime`
 Java bindings + a Hugging Face tokenizer via `ai.djl`), a `createFixtureOnnxRuntime(options)`
 test/demo seam, and support for an application-supplied implementation. Model sources: `bundled`,
 `programmatic`, `app_managed`, `filesystem` (see
-[Model Source Support Matrix](#model-source-support-matrix)).
+[Model Source Support Matrix](#model-source-support-matrix)). The `Context` constructor builds the default runtime and
+the provider owns it: `close()` (the provider is `AutoCloseable`) releases the ORT session and tokenizer, whose native
+memory the garbage collector does not free; a runtime passed in is left to the application.
 
 Implementation detail (decode-strategy auto-detection, execution-provider fallback and the
 KV-cache/NNAPI incompatibility, buffer reuse, sampling, the Android-specific

@@ -1,28 +1,46 @@
 package app.independo.inderun.providers.onnx
 
 import android.content.Context
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.ModelPackage
-import app.independo.inderun.contracts.Output
+import app.independo.inderun.contracts.OutputDelivery
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderPrivacy
+import app.independo.inderun.contracts.ProviderReadiness
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTaskAvailability
+import app.independo.inderun.contracts.ProviderTaskCapability
+import app.independo.inderun.contracts.ProviderTaskInteraction
+import app.independo.inderun.contracts.ProviderTaskOutput
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.SourceType
+import app.independo.inderun.contracts.TaskInputKind
+import app.independo.inderun.contracts.TaskOutput
+import app.independo.inderun.contracts.TaskOutputType
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.contracts.TaskResultTelemetry
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
-import app.independo.inderun.core.ProviderAdapter
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
+import app.independo.inderun.core.PreparableProviderAdapter
+import app.independo.inderun.core.PreparationProgress
+import app.independo.inderun.core.ProviderPrepareContext
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.createCapabilityMismatch
 import app.independo.inderun.core.createInternal
 import app.independo.inderun.core.createTimeout
 import app.independo.inderun.core.createUnavailable
+import app.independo.inderun.core.getModelPackageValidationIssues
 import app.independo.inderun.core.toIndeRunException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
 
 private const val TEXT_TO_TEXT = "text_to_text"
@@ -47,15 +65,33 @@ val supportedAndroidOnnxModelSourceTypes: List<SourceType> = listOf(
  * The adapter owns the IndeRun-facing contract (descriptor, capability checks, error taxonomy) and
  * delegates execution to an injectable [AndroidOnnxGenAiRuntime]. ONNX Runtime execution backends
  * (CPU, NNAPI, XNNPACK) stay behind that seam and are never public routing concepts.
+ *
+ * Ownership: the [Context] constructor builds the default runtime, so this provider owns it and
+ * [close] releases the loaded model. A runtime passed in stays the application's to close.
  */
-class AndroidOnnxRuntimeProvider(
+class AndroidOnnxRuntimeProvider internal constructor(
     private val modelPackage: ModelPackage,
     private val runtime: AndroidOnnxGenAiRuntime,
-    private val id: String = DEFAULT_ID,
-    private val timeoutMs: Long? = null,
-) : ProviderAdapter {
+    private val id: String,
+    private val timeoutMs: Long?,
+    private val ownsRuntime: Boolean,
+) : PreparableProviderAdapter,
+    AutoCloseable {
+    @Volatile
+    private var loaded = false
 
-    /** Convenience constructor wiring the default ORT-Mobile-backed runtime. */
+    @Volatile
+    private var loadFailure: String? = null
+
+    /** A provider over [runtime], which stays the caller's: [close] leaves it open. */
+    constructor(
+        modelPackage: ModelPackage,
+        runtime: AndroidOnnxGenAiRuntime,
+        id: String = DEFAULT_ID,
+        timeoutMs: Long? = null,
+    ) : this(modelPackage, runtime, id, timeoutMs, ownsRuntime = false)
+
+    /** Convenience constructor wiring the default ORT-Mobile-backed runtime, which this provider owns. */
     constructor(
         context: Context,
         modelPackage: ModelPackage,
@@ -66,14 +102,25 @@ class AndroidOnnxRuntimeProvider(
         runtime = SystemAndroidOnnxGenAiRuntime(context),
         id = id,
         timeoutMs = timeoutMs,
+        ownsRuntime = true,
     )
+
+    /**
+     * Releases the loaded model when this provider built its runtime (the [Context] constructor); a
+     * runtime the application passed in stays the application's to close. The engine never calls
+     * this: the application registered the provider, so it closes it once no engine routes to it.
+     * Idempotent. A run after close loads the model again. Mirrors `OnnxRuntimeWebProvider.close()`.
+     */
+    override fun close() {
+        if (ownsRuntime) runtime.close()
+    }
 
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = id,
-        type = ProviderDescriptor.ProviderType.local,
+        type = ProviderType.Local,
         model = modelPackage.id,
-        transport = ProviderDescriptor.TransportType.in_process,
-        supports = ProviderDescriptor.SupportsCapabilities(
+        transport = ProviderTransport.InProcess,
+        supports = ProviderSupports(
             run = true,
             streaming = false,
             realtime = false,
@@ -82,9 +129,18 @@ class AndroidOnnxRuntimeProvider(
             structuredOutput = false,
             multimodal = false,
         ),
-        cancel = ProviderDescriptor.CancelSemantics.soft,
+        cancel = CancelSemantics.Soft,
         tasks = declaredTasks(modelPackage),
-        privacy = ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice = false),
+        taskCapabilities = listOf(
+            ProviderTaskCapability(
+                kind = TEXT_TO_TEXT,
+                inputs = listOf(TaskInputKind.Text),
+                interaction = ProviderTaskInteraction(prepare = true, run = true, stream = false),
+                cancel = CancelSemantics.Soft,
+                outputs = listOf(ProviderTaskOutput(delivery = OutputDelivery.Inline)),
+            ),
+        ).takeIf { TEXT_TO_TEXT in declaredTasks(modelPackage) },
+        privacy = ProviderPrivacy(dataLeavesDevice = false),
     )
 
     /**
@@ -130,8 +186,41 @@ class AndroidOnnxRuntimeProvider(
             )
         }
 
-        val availability = runtime.prepare(modelPackage)
-        return ProviderDynamicCapabilities(available = availability.available, reason = availability.reason)
+        val availability = runtime.availability(modelPackage)
+        if (!availability.available) {
+            return ProviderDynamicCapabilities(available = false, reason = availability.reason)
+        }
+        loadFailure?.let { return ProviderDynamicCapabilities(available = false, reason = it) }
+        return ProviderDynamicCapabilities(
+            available = true,
+            taskCapabilities = if (loaded) {
+                null
+            } else {
+                listOf(ProviderTaskAvailability(kind = TEXT_TO_TEXT, readiness = ProviderReadiness.Cold))
+            },
+        )
+    }
+
+    /** Loads the model ahead of the first run. Nothing here downloads: files are host-managed. */
+    override fun prepare(context: ProviderPrepareContext): Flow<PreparationProgress> = flow {
+        ensureLoaded(context.runId)
+    }
+
+    /**
+     * Loads the model once. A failed load is remembered, so routing stops choosing this provider
+     * instead of every call retrying a load that failed. It refuses before any output, so the run
+     * can still fall back.
+     */
+    private suspend fun ensureLoaded(runId: String) {
+        if (loaded) return
+        val result = runtime.prepare(modelPackage)
+        if (result.available) {
+            loaded = true
+        } else {
+            val reason = result.reason ?: "The model failed to load."
+            loadFailure = reason
+            throw createCapabilityMismatch(message = reason, runId = runId, providerId = id)
+        }
     }
 
     /**
@@ -148,6 +237,8 @@ class AndroidOnnxRuntimeProvider(
                 providerId = id,
             )
         }
+
+        ensureLoaded(context.runId)
 
         val messages = createMessages(request)
         if (messages.isEmpty()) {
@@ -193,7 +284,7 @@ class AndroidOnnxRuntimeProvider(
         return TaskResult(
             runId = context.runId,
             schemaVersion = SchemaVersion.V1_0,
-            output = Output(text = output.text),
+            output = TaskOutput(type = TaskOutputType.TEXT, text = output.text),
             finishReason = output.finishReason ?: FinishReason.STOP,
             usage = output.usage,
             telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),

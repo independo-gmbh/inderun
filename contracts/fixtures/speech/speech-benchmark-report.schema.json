@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inderun.dev/schemas/speech-benchmark-report.schema.json",
+  "title": "IndeRun speech benchmark report",
+  "description": "One run of a speech benchmark harness on one device against one target (#276). Reports carry utterance ids, never utterance text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "harness",
+    "createdAt",
+    "device",
+    "os",
+    "sdkVersion",
+    "target",
+    "requestedLocale",
+    "resolvedLocale",
+    "locality",
+    "samples",
+    "skipped",
+    "p50",
+    "p95"
+  ],
+  "properties": {
+    "schema": {
+      "description": "Report format version.",
+      "const": "inderun-speech-benchmark/1"
+    },
+    "harness": {
+      "description": "Which harness produced the report.",
+      "enum": ["sdk_tests", "ios_device_bench", "web_voices_lab"]
+    },
+    "createdAt": {
+      "description": "When the run finished, ISO 8601 timestamp.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+    },
+    "device": {
+      "description": "Device or machine the run used.",
+      "type": "string",
+      "minLength": 1
+    },
+    "os": {
+      "description": "Operating system name and version.",
+      "type": "string",
+      "minLength": 1
+    },
+    "sdkVersion": {
+      "description": "IndeRun SDK version under test.",
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "description": "The provider and model the run measured.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "providerId"],
+      "properties": {
+        "name": {
+          "description": "Short target name, for example system or articulino-int8.",
+          "type": "string",
+          "minLength": 1
+        },
+        "providerId": {
+          "description": "Provider id as the route plan reports it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "description": "Model id or package name, when the target has one.",
+          "type": "string"
+        },
+        "variant": {
+          "description": "Model variant, for example int8.",
+          "type": "string"
+        },
+        "checksums": {
+          "description": "SHA-256 of each model file, keyed by file role or path.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "voiceId": {
+          "description": "Voice id used for the run.",
+          "type": "string"
+        }
+      }
+    },
+    "requestedLocale": {
+      "description": "Locale the run asked for. Empty when no scenario ran.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "resolvedLocale": {
+      "description": "Locale the provider resolved.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "locality": {
+      "description": "Where the target executes.",
+      "enum": ["on_device", "edge", "cloud"]
+    },
+    "samples": {
+      "description": "Every measured step, one entry per trial.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenario", "step", "utteranceId", "requestedLocale"],
+        "properties": {
+          "scenario": {
+            "description": "Benchmark scenario id from utterance-corpus.json.",
+            "type": "string",
+            "minLength": 1
+          },
+          "step": {
+            "description": "Step within the scenario, for example cold, warm or after_stop.",
+            "type": "string",
+            "minLength": 1
+          },
+          "utteranceId": {
+            "description": "Corpus utterance id (utterances or extendedUtterances). Never the utterance text.",
+            "type": "string",
+            "minLength": 1
+          },
+          "requestedLocale": {
+            "description": "Locale this sample asked for.",
+            "type": "string",
+            "minLength": 1
+          },
+          "resolvedLocale": {
+            "description": "Locale this sample resolved.",
+            "type": "string"
+          },
+          "firstChunkMs": {
+            "description": "Milliseconds from the speak call to the first streamed chunk.",
+            "type": "number",
+            "minimum": 0
+          },
+          "firstAudioMs": {
+            "description": "Milliseconds from the speak call to the first audible audio.",
+            "type": "number",
+            "minimum": 0
+          },
+          "wallMs": {
+            "description": "Wall-clock milliseconds of the whole step.",
+            "type": "number",
+            "minimum": 0
+          },
+          "durationMs": {
+            "description": "Milliseconds the step took, as the provider reports it.",
+            "type": "number",
+            "minimum": 0
+          },
+          "prepareMs": {
+            "description": "Milliseconds spent preparing the model or voice before synthesis.",
+            "type": "number",
+            "minimum": 0
+          },
+          "stopLatencyMs": {
+            "description": "Milliseconds from a stop request to the terminal cancellation outcome.",
+            "type": "number",
+            "minimum": 0
+          },
+          "renderMs": {
+            "description": "Milliseconds to render the utterance to an audio artifact.",
+            "type": "number",
+            "minimum": 0
+          },
+          "audioMs": {
+            "description": "Milliseconds of audio produced.",
+            "type": "number",
+            "minimum": 0
+          },
+          "realTimeFactor": {
+            "description": "Render time divided by audio duration; below 1 is faster than real time.",
+            "type": "number",
+            "minimum": 0
+          },
+          "bytes": {
+            "description": "Bytes of audio produced.",
+            "type": "number",
+            "minimum": 0
+          },
+          "peakRssDeltaBytes": {
+            "description": "Growth of the process peak resident set size across the step, in bytes.",
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "skipped": {
+      "description": "Scenarios the run did not execute, with the reason.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenario", "reason"],
+        "properties": {
+          "scenario": {
+            "description": "Skipped scenario id.",
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "description": "Why it was skipped.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "p50": {
+      "description": "Median per scenario, step and utterance.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenario", "step", "utteranceId", "metrics"],
+        "properties": {
+          "scenario": {
+            "description": "Benchmark scenario id from utterance-corpus.json.",
+            "type": "string",
+            "minLength": 1
+          },
+          "step": {
+            "description": "Step within the scenario, for example cold, warm or after_stop.",
+            "type": "string",
+            "minLength": 1
+          },
+          "utteranceId": {
+            "description": "Corpus utterance id (utterances or extendedUtterances). Never the utterance text.",
+            "type": "string",
+            "minLength": 1
+          },
+          "metrics": {
+            "description": "Percentile value per metric.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "firstChunkMs": {
+                "description": "Milliseconds from the speak call to the first streamed chunk.",
+                "type": "number",
+                "minimum": 0
+              },
+              "firstAudioMs": {
+                "description": "Milliseconds from the speak call to the first audible audio.",
+                "type": "number",
+                "minimum": 0
+              },
+              "wallMs": {
+                "description": "Wall-clock milliseconds of the whole step.",
+                "type": "number",
+                "minimum": 0
+              },
+              "durationMs": {
+                "description": "Milliseconds the step took, as the provider reports it.",
+                "type": "number",
+                "minimum": 0
+              },
+              "prepareMs": {
+                "description": "Milliseconds spent preparing the model or voice before synthesis.",
+                "type": "number",
+                "minimum": 0
+              },
+              "stopLatencyMs": {
+                "description": "Milliseconds from a stop request to the terminal cancellation outcome.",
+                "type": "number",
+                "minimum": 0
+              },
+              "renderMs": {
+                "description": "Milliseconds to render the utterance to an audio artifact.",
+                "type": "number",
+                "minimum": 0
+              },
+              "audioMs": {
+                "description": "Milliseconds of audio produced.",
+                "type": "number",
+                "minimum": 0
+              },
+              "realTimeFactor": {
+                "description": "Render time divided by audio duration; below 1 is faster than real time.",
+                "type": "number",
+                "minimum": 0
+              },
+              "bytes": {
+                "description": "Bytes of audio produced.",
+                "type": "number",
+                "minimum": 0
+              },
+              "peakRssDeltaBytes": {
+                "description": "Growth of the process peak resident set size across the step, in bytes.",
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "p95": {
+      "description": "95th percentile per scenario, step and utterance.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenario", "step", "utteranceId", "metrics"],
+        "properties": {
+          "scenario": {
+            "description": "Benchmark scenario id from utterance-corpus.json.",
+            "type": "string",
+            "minLength": 1
+          },
+          "step": {
+            "description": "Step within the scenario, for example cold, warm or after_stop.",
+            "type": "string",
+            "minLength": 1
+          },
+          "utteranceId": {
+            "description": "Corpus utterance id (utterances or extendedUtterances). Never the utterance text.",
+            "type": "string",
+            "minLength": 1
+          },
+          "metrics": {
+            "description": "Percentile value per metric.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "firstChunkMs": {
+                "description": "Milliseconds from the speak call to the first streamed chunk.",
+                "type": "number",
+                "minimum": 0
+              },
+              "firstAudioMs": {
+                "description": "Milliseconds from the speak call to the first audible audio.",
+                "type": "number",
+                "minimum": 0
+              },
+              "wallMs": {
+                "description": "Wall-clock milliseconds of the whole step.",
+                "type": "number",
+                "minimum": 0
+              },
+              "durationMs": {
+                "description": "Milliseconds the step took, as the provider reports it.",
+                "type": "number",
+                "minimum": 0
+              },
+              "prepareMs": {
+                "description": "Milliseconds spent preparing the model or voice before synthesis.",
+                "type": "number",
+                "minimum": 0
+              },
+              "stopLatencyMs": {
+                "description": "Milliseconds from a stop request to the terminal cancellation outcome.",
+                "type": "number",
+                "minimum": 0
+              },
+              "renderMs": {
+                "description": "Milliseconds to render the utterance to an audio artifact.",
+                "type": "number",
+                "minimum": 0
+              },
+              "audioMs": {
+                "description": "Milliseconds of audio produced.",
+                "type": "number",
+                "minimum": 0
+              },
+              "realTimeFactor": {
+                "description": "Render time divided by audio duration; below 1 is faster than real time.",
+                "type": "number",
+                "minimum": 0
+              },
+              "bytes": {
+                "description": "Bytes of audio produced.",
+                "type": "number",
+                "minimum": 0
+              },
+              "peakRssDeltaBytes": {
+                "description": "Growth of the process peak resident set size across the step, in bytes.",
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "audio": {
+      "description": "Optional rendered audio kept for listening.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["voiceId", "locale", "mimeType", "base64"],
+        "properties": {
+          "utteranceId": {
+            "description": "Corpus utterance id.",
+            "type": "string"
+          },
+          "voiceId": {
+            "description": "Voice that rendered the audio.",
+            "type": "string"
+          },
+          "locale": {
+            "description": "Locale of the audio.",
+            "type": "string"
+          },
+          "mimeType": {
+            "description": "Audio media type, for example audio/wav.",
+            "type": "string"
+          },
+          "base64": {
+            "description": "Base64-encoded audio bytes.",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

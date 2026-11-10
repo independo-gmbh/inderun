@@ -13,6 +13,7 @@ import app.independo.inderun.contracts.StreamTerminalOutcome
 import app.independo.inderun.contracts.StreamTerminalOutcomeError
 import app.independo.inderun.contracts.StreamTerminalOutcomeTelemetry
 import app.independo.inderun.contracts.StreamTerminalOutcomeUsage
+import app.independo.inderun.contracts.TaskOutput
 
 /**
  * Per-run gatekeeper for Mode 2 streaming. Enforces the two structural
@@ -110,21 +111,28 @@ fun StreamTerminalOutcome.toPayload(): Payload = Payload(
         )
     },
     partialText = partialText,
+    output = output,
     reason = reason,
 )
 
-/** The `completed` outcome: the provider delivered every event it was going to. */
+/**
+ * The `completed` outcome: the provider delivered every event it was going to. A text run
+ * carries [finalText]; a non-text run carries [output]; a text run that handed over a
+ * normalized output carries both.
+ */
 fun completedOutcome(
     runId: String,
-    finalText: String,
+    finalText: String?,
     finishReason: FinishReason?,
     usage: StreamTerminalOutcomeUsage?,
     telemetry: StreamTerminalOutcomeTelemetry,
     provenance: ExecutionProvenance,
+    output: TaskOutput? = null,
 ): StreamTerminalOutcome = StreamTerminalOutcome(
     finalText = finalText,
     finishReason = finishReason,
     outcome = Outcome.Completed,
+    output = output,
     provenance = provenance,
     runId = runId,
     schemaVersion = SchemaVersion.V1_0,
@@ -132,11 +140,14 @@ fun completedOutcome(
     usage = usage,
 )
 
-/** The `error` outcome: validation, routing, or every attempted provider failing. */
+/**
+ * The `error` outcome: validation, routing, or every attempted provider failing. [partialText]
+ * is set for a text run only; a non-text run passes null.
+ */
 fun errorOutcome(
     runId: String,
     error: StreamTerminalOutcomeError,
-    partialText: String,
+    partialText: String?,
     provenance: ExecutionProvenance,
 ): StreamTerminalOutcome = StreamTerminalOutcome(
     outcome = Outcome.Error,
@@ -147,14 +158,20 @@ fun errorOutcome(
     partialText = partialText,
 )
 
-/** The `cancelled` outcome, carrying whatever content was delivered first. */
+/**
+ * The `cancelled` outcome. A text run carries whatever content was delivered first as
+ * [partialText]; a playback run that committed carries a playback [output], because sound may
+ * have been heard; any other non-text run carries neither.
+ */
 fun cancelledOutcome(
     runId: String,
-    partialText: String,
+    partialText: String?,
     reason: String?,
     provenance: ExecutionProvenance,
+    output: TaskOutput? = null,
 ): StreamTerminalOutcome = StreamTerminalOutcome(
     outcome = Outcome.Cancelled,
+    output = output,
     provenance = provenance,
     runId = runId,
     schemaVersion = SchemaVersion.V1_0,

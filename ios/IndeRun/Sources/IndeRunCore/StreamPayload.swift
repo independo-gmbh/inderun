@@ -2,7 +2,7 @@ import Foundation
 import IndeRunContracts
 
 /// The generated `Payload` is the flattened union of every `StreamEvent` variant's
-/// payload, so constructing one means naming all twelve fields. These factories
+/// payload, so constructing one means naming every field. These factories
 /// keep that noise out of the orchestrator and, more importantly, keep the
 /// terminal payload a faithful copy of ``StreamTerminalOutcome`` — the two shapes
 /// are required by contract to stay structurally identical.
@@ -12,9 +12,36 @@ extension Payload {
         Payload(
             text: text,
             phase: nil,
+            fractionCompleted: nil,
+            providerId: nil,
+            task: nil,
             finalText: nil,
             finishReason: nil,
             outcome: nil,
+            output: nil,
+            provenance: nil,
+            runId: nil,
+            schemaVersion: nil,
+            telemetry: nil,
+            usage: nil,
+            error: nil,
+            partialText: nil,
+            reason: nil
+        )
+    }
+
+    /// Payload for a `preparation_progress` event.
+    public static func preparation(providerId: String, task: String, fractionCompleted: Double?) -> Payload {
+        Payload(
+            text: nil,
+            phase: nil,
+            fractionCompleted: fractionCompleted,
+            providerId: providerId,
+            task: task,
+            finalText: nil,
+            finishReason: nil,
+            outcome: nil,
+            output: nil,
             provenance: nil,
             runId: nil,
             schemaVersion: nil,
@@ -31,9 +58,13 @@ extension Payload {
         self.init(
             text: nil,
             phase: nil,
+            fractionCompleted: nil,
+            providerId: nil,
+            task: nil,
             finalText: outcome.finalText,
             finishReason: outcome.finishReason,
             outcome: outcome.outcome,
+            output: outcome.output,
             provenance: outcome.provenance,
             runId: outcome.runId,
             schemaVersion: outcome.schemaVersion,
@@ -67,9 +98,12 @@ extension Payload {
 
 extension StreamTerminalOutcome {
     /// The `completed` outcome: the provider delivered every event it was going to.
+    /// A text run carries `finalText`; a run that ended with a normalized output carries
+    /// `output`, and also `finalText` when that output is text.
     public static func completed( // swiftlint:disable:this function_parameter_count
         runId: String,
-        finalText: String,
+        finalText: String?,
+        output: TaskOutput? = nil,
         finishReason: FinishReason?,
         usage: TaskResultUsage?,
         telemetry: StreamTerminalOutcomeTelemetry,
@@ -79,6 +113,7 @@ extension StreamTerminalOutcome {
             finalText: finalText,
             finishReason: finishReason,
             outcome: .completed,
+            output: output,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
@@ -97,16 +132,18 @@ extension StreamTerminalOutcome {
     }
 
     /// The `error` outcome: validation, routing, or every attempted provider failing.
+    /// `partialText` is set for a text run only.
     public static func failed(
         runId: String,
         error: IndeRunError,
-        partialText: String,
+        partialText: String?,
         provenance: ExecutionProvenance
     ) -> StreamTerminalOutcome {
         StreamTerminalOutcome(
             finalText: nil,
             finishReason: nil,
             outcome: .error,
+            output: nil,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,
@@ -127,10 +164,13 @@ extension StreamTerminalOutcome {
         )
     }
 
-    /// The `cancelled` outcome, carrying whatever content was delivered first.
+    /// The `cancelled` outcome, carrying whatever content was delivered first: `partialText`
+    /// for a text run, `output` for a non-text run that had already produced something
+    /// (committed playback), neither for a non-text run that had not.
     public static func cancelled(
         runId: String,
-        partialText: String,
+        partialText: String?,
+        output: TaskOutput? = nil,
         reason: String?,
         provenance: ExecutionProvenance
     ) -> StreamTerminalOutcome {
@@ -138,6 +178,7 @@ extension StreamTerminalOutcome {
             finalText: nil,
             finishReason: nil,
             outcome: .cancelled,
+            output: output,
             provenance: provenance,
             runId: runId,
             schemaVersion: .the10,

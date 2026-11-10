@@ -1,13 +1,13 @@
 {
   "name": "@independo/inderun-web",
   "version": "0.4.0",
-  "description": "On-device AI with automatic cloud fallback for web apps. Runs ONNX Runtime or the Chrome Prompt API in the browser and falls back to an OpenAI-compatible endpoint, with streaming and cancellation behind one API.",
+  "description": "On-device AI for the devices your users actually have. One API for web apps that keeps requests on the device when it can and uses a cloud only if you allow it.",
   "license": "MIT",
   "author": {
     "name": "Independo GmbH",
     "url": "https://www.independo.app"
   },
-  "homepage": "https://github.com/independo-gmbh/inderun#readme",
+  "homepage": "https://inderun.dev/docs",
   "bugs": "https://github.com/independo-gmbh/inderun/issues",
   "repository": {
     "type": "git",
@@ -27,8 +27,7 @@
     "on-device",
     "on-device-ai",
     "local-llm",
-    "offline",
-    "cloud-fallback",
+    "local-first",
     "streaming",
     "onnx",
     "onnxruntime",
@@ -40,6 +39,7 @@
     "node": ">=24"
   },
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -62,6 +62,14 @@
     "./system-model": {
       "types": "./dist/system-model.d.ts",
       "default": "./dist/system-model.js"
+    },
+    "./system-speech": {
+      "types": "./dist/system-speech.d.ts",
+      "default": "./dist/system-speech.js"
+    },
+    "./neural-speech": {
+      "types": "./dist/neural-speech.d.ts",
+      "default": "./dist/neural-speech.js"
     }
   },
   "files": [
@@ -82,16 +90,21 @@
     "@independo/inderun-route-core-wasm": "workspace:^"
   },
   "peerDependencies": {
-    "@huggingface/transformers": "^4.0.0"
+    "@huggingface/transformers": "^4.0.0",
+    "onnxruntime-web": "^1.30.0"
   },
   "peerDependenciesMeta": {
     "@huggingface/transformers": {
       "optional": true
+    },
+    "onnxruntime-web": {
+      "optional": true
     }
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
+    "onnxruntime-web": "^1.30.0",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.3"
+    "vitest": "^5.1.0"
   }
 }

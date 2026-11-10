@@ -7,7 +7,7 @@ import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.Method
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskRequestConstraints
@@ -129,7 +129,7 @@ class OpenAIProviderTest {
                 schemaVersion = SchemaVersion.V1_0,
                 prompt = "Say hello.",
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
                 authContextRef = "openai-dev",
             ),
             context = RunContext("run_123", fakeHostServices(httpClient = httpClient)),
@@ -175,7 +175,7 @@ class OpenAIProviderTest {
                     Message(MessageRole.USER, "Say hello."),
                 ),
                 task = TaskRequestTask(),
-                constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
+                constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
             ),
             context = RunContext("run_messages", fakeHostServices(httpClient = httpClient, includeSecret = false)),
         )
@@ -205,7 +205,7 @@ class OpenAIProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
+                    constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
                 ),
                 context = RunContext("run_rate", fakeHostServices(httpClient = httpClient, includeSecret = false)),
             )
@@ -249,7 +249,7 @@ class OpenAIProviderTest {
                         schemaVersion = SchemaVersion.V1_0,
                         prompt = "Hello",
                         task = TaskRequestTask(),
-                        constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
+                        constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
                     ),
                     context = RunContext("run_vector", fakeHostServices(httpClient = httpClient, includeSecret = false)),
                 )
@@ -309,7 +309,7 @@ class OpenAIProviderTest {
                     schemaVersion = SchemaVersion.V1_0,
                     prompt = "Hello",
                     task = TaskRequestTask(),
-                    constraints = TaskRequestConstraints(privacy = PrivacyEnum.CloudRequired),
+                    constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
                 ),
                 context = RunContext("run_cancel", fakeHostServices(httpClient = httpClient, includeSecret = false)),
             )

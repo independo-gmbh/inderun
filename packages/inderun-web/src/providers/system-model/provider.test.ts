@@ -1,6 +1,6 @@
 import type { TaskRequest } from "@independo/inderun-contracts";
 import { describe, expect, it } from "vitest";
-import { IndeRun, IndeRunException } from "../../index.js";
+import { IndeRun, IndeRunException, prepare } from "../../index.js";
 import { ProviderRegistry, type HostServices, type ProviderAdapter } from "../../provider.js";
 import {
   DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID,
@@ -117,8 +117,46 @@ describe("SystemModelWebProvider descriptor", () => {
       },
       cancel: "soft",
       tasks: ["text_to_text"],
+      taskCapabilities: [
+        {
+          kind: "text_to_text",
+          inputs: ["text"],
+          interaction: { run: true, stream: false },
+          cancel: "soft",
+          outputs: [{ delivery: "inline" }]
+        }
+      ],
       privacy: { dataLeavesDevice: false }
     });
+  });
+
+  it("reports a downloadable model as not yet, and downloads it when allowed", async () => {
+    let kind: "downloadable" | "available" = "downloadable";
+    const runtime = {
+      ...createFixtureSystemModelRuntime(),
+      availability: async () => ({ kind, reason: "the model is downloadable" }),
+      prepare: async (onProgress: (fraction: number) => void) => {
+        onProgress(0.5);
+        kind = "available";
+      }
+    };
+    const provider = new SystemModelWebProvider({ runtime });
+    const registry = new ProviderRegistry();
+    registry.register(provider);
+    const inderun = new IndeRun(registry, createHost());
+
+    await expect(provider.capabilities()).resolves.toMatchObject({
+      available: false,
+      taskCapabilities: [{ readiness: "not_prepared" }]
+    });
+    const progress: unknown[] = [];
+    const { items } = await (
+      await prepare(inderun, { allowDownload: true, onProgress: (step) => progress.push(step) })
+    ).result;
+
+    expect(items).toMatchObject([{ status: "prepared" }]);
+    expect(progress).toMatchObject([{ fractionCompleted: 0.5 }]);
+    await expect(provider.capabilities()).resolves.toMatchObject({ available: true });
   });
 
   it("supports an explicit provider id override", () => {
@@ -345,5 +383,30 @@ describe("SystemModelWebProvider error mapping", () => {
     )) as IndeRunException;
 
     expect(["AuthError", "RateLimited", "Offline"]).not.toContain(error.errorClass);
+  });
+});
+
+describe("SystemModelWebProvider runtime descriptors", () => {
+  it("builds the fixture runtime from a JSON descriptor", async () => {
+    const options = JSON.parse(
+      JSON.stringify({ runtime: { kind: "fixture" } })
+    ) as SystemModelProviderOptions;
+
+    const result = await runWithProviders(createRequest(), new SystemModelWebProvider(options));
+
+    expect(result.output).toEqual({ type: "text", text: "[fixture:system-model] Say hello." });
+  });
+
+  it("treats a null runtime like an absent one", () => {
+    const options = JSON.parse(JSON.stringify({ runtime: null })) as SystemModelProviderOptions;
+
+    expect(() => new SystemModelWebProvider(options)).not.toThrow();
+  });
+
+  it("rejects an unknown runtime kind at construction", () => {
+    const build = () => new SystemModelWebProvider({ runtime: { kind: "fixtures" } as never });
+
+    expect(build).toThrow(TypeError);
+    expect(build).toThrow(/fixtures/);
   });
 });

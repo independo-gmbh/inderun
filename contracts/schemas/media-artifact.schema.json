@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.inderun.dev/1.0/media-artifact.schema.json",
+  "title": "MediaArtifact",
+  "description": "A reference to retrievable media a run produced (ADR 017). It carries no bytes and no location: an engine-owned artifact is read through the engine by id, and an application-owned one was written to an application destination. Media-neutral: audio, images and video share this shape and differ only in mediaType.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["id", "mediaType", "owner", "lifetime"],
+  "properties": {
+    "id": {
+      "description": "Opaque, engine-issued identifier. Never a path, URL or provider identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "mediaType": {
+      "description": "IANA media type of the bytes, e.g. 'audio/wav'. Encoding parameters ride on the media type (e.g. 'audio/L16;rate=22050').",
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "title": "ArtifactOwner",
+      "description": "'engine': the engine holds the bytes and the application reads them by id until it disposes the artifact. 'application': the bytes were written to the application destination named by destinationRef and the engine holds nothing.",
+      "enum": ["engine", "application"]
+    },
+    "lifetime": {
+      "title": "ArtifactLifetime",
+      "description": "How long the engine keeps the bytes. 'until_disposed': until the application disposes the artifact or the process ends; the artifact outlives the run that produced it.",
+      "enum": ["until_disposed"]
+    },
+    "byteLength": {
+      "description": "Size of the media in bytes. Always set for an artifact the engine materialized.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "durationMs": {
+      "description": "Duration of time-based media in milliseconds, where the producer knows it.",
+      "type": "number",
+      "minimum": 0
+    },
+    "destinationRef": {
+      "description": "The request's delivery.destinationRef the bytes were written to. Set exactly when owner is 'application'.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

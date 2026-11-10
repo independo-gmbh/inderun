@@ -250,7 +250,9 @@ public enum DefaultHostServices {
         clock: ClockService = SystemClockService(),
         httpClient: HttpClientService = URLSessionHttpClientService(),
         streamingHttpClient: HttpStreamingClientService = URLSessionStreamingHttpClientService(),
-        telemetry: TelemetryService? = nil
+        telemetry: TelemetryService? = nil,
+        artifactDestinations: ArtifactDestinationService? = nil,
+        audioOutput: AudioOutputService? = DefaultHostServices.defaultAudioOutput()
     ) -> HostServices {
         HostServices(
             connectivity: connectivity,
@@ -259,7 +261,19 @@ public enum DefaultHostServices {
             clock: clock,
             httpClient: httpClient,
             streamingHttpClient: streamingHttpClient,
-            telemetry: telemetry
+            telemetry: telemetry,
+            artifactDestinations: artifactDestinations,
+            audioOutput: audioOutput
         )
+    }
+
+    /// `AVAudioEngineAudioOutputService` where AVFoundation is available; none otherwise.
+    @usableFromInline
+    static func defaultAudioOutput() -> AudioOutputService? {
+        #if canImport(AVFoundation)
+        return AVAudioEngineAudioOutputService()
+        #else
+        return nil
+        #endif
     }
 }

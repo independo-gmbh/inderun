@@ -1,0 +1,65 @@
+---
+/**
+ * Title, description, canonical, Open Graph and Twitter tags for the hand-built pages (landing,
+ * imprint, privacy). Docs pages get the same set from Starlight plus src/routeData.ts.
+ *
+ * The share image is a 1200x630 JPEG at an absolute URL, because link unfurlers refuse SVG and
+ * cannot resolve a relative path. The canonical is absolute on the production domain and has no
+ * trailing slash (the root is `https://inderun.dev/`), so a preview build still points at
+ * production while being noindex.
+ */
+import { SITE } from "../../../docs-architecture.mjs";
+import { absoluteUrl } from "../../seo";
+import { isPreview } from "../../site";
+import { THEME_COLORS } from "../../theme-color.mjs";
+
+interface Props {
+  title: string;
+  /** At most 155 characters. */
+  description: string;
+  imageAlt?: string;
+  /** Draft pages stay out of search indexes even in production. */
+  noindex?: boolean;
+}
+
+const {
+  title,
+  description,
+  imageAlt = "IndeRun logo. On-device AI for the devices your users actually have. On-device when available, cloud only when you allow it. Runs on Apple Foundation Models, Gemini Nano, Chrome built-in AI and ONNX Runtime.",
+  noindex = false
+} = Astro.props;
+
+const path = Astro.url.pathname.replace(/\/$/, "") || "/";
+const canonical = absoluteUrl(path);
+const image = `${SITE}/og/default.jpg`;
+const robots = isPreview
+  ? "noindex, nofollow"
+  : noindex
+    ? "noindex"
+    : "max-image-preview:large";
+---
+
+<title>{title}</title>
+<meta name="description" content={description} />
+<meta name="robots" content={robots} />
+<link rel="canonical" href={canonical} />
+<meta name="theme-color" content={THEME_COLORS.light} media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content={THEME_COLORS.dark} media="(prefers-color-scheme: dark)" />
+
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={canonical} />
+<meta property="og:site_name" content="IndeRun" />
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="en" />
+<meta property="og:image" content={image} />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content={imageAlt} />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={image} />
+<meta name="twitter:image:alt" content={imageAlt} />

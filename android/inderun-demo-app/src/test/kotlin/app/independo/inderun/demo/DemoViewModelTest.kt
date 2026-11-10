@@ -1,17 +1,32 @@
 package app.independo.inderun.demo
 
+import app.independo.inderun.contracts.ArtifactReadRequest
+import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
 import app.independo.inderun.contracts.PayloadTelemetry
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
+import app.independo.inderun.contracts.ProviderDescriptor
+import app.independo.inderun.contracts.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.ProviderSupports
+import app.independo.inderun.contracts.ProviderTransport
+import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
-import app.independo.inderun.core.ProviderCapabilitySnapshot
-import app.independo.inderun.core.ProviderDescriptor
-import app.independo.inderun.core.ProviderDynamicCapabilities
+import app.independo.inderun.contracts.TaskRequest
+import app.independo.inderun.contracts.TaskResult
+import app.independo.inderun.core.ArtifactChunk
 import app.independo.inderun.core.StreamRun
+import app.independo.inderun.sdk.SpeakOptions
+import app.independo.inderun.sdk.SpeechPlayback
+import app.independo.inderun.sdk.SpeechVoiceInfo
+import app.independo.inderun.sdk.generated.IndeRunApi
+import app.independo.inderun.sdk.speak
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flow
@@ -53,6 +68,22 @@ class DemoViewModelTest {
         val capabilitiesState = state.capabilitiesState
         assertTrue(capabilitiesState is CapabilitiesState.Ready)
         assertEquals(1, (capabilitiesState as CapabilitiesState.Ready).badges.size)
+    }
+
+    @Test
+    fun voicesLab_isOffByDefaultAndTheChoiceIsPersisted() = runTest {
+        val store = FakeSettingsStore()
+        val viewModel = DemoViewModel(store, FakeRuntime(), FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.voicesLabEnabled)
+        assertFalse(store.load().voicesLabEnabled)
+
+        viewModel.updateVoicesLabEnabled(true)
+
+        assertTrue(viewModel.uiState.value.voicesLabEnabled)
+        assertTrue(store.load().voicesLabEnabled)
+        val reloaded = DemoViewModel(store, FakeRuntime(), FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        assertTrue(reloaded.uiState.value.voicesLabEnabled)
     }
 
     @Test
@@ -133,9 +164,9 @@ class DemoViewModelTest {
         providerId = providerId,
         descriptor = ProviderDescriptor(
             id = providerId,
-            type = ProviderDescriptor.ProviderType.local,
-            transport = ProviderDescriptor.TransportType.system_service,
-            supports = ProviderDescriptor.SupportsCapabilities(
+            type = ProviderType.Local,
+            transport = ProviderTransport.SystemService,
+            supports = ProviderSupports(
                 run = true,
                 streaming = false,
                 realtime = false,
@@ -144,7 +175,7 @@ class DemoViewModelTest {
                 structuredOutput = false,
                 multimodal = false,
             ),
-            cancel = ProviderDescriptor.CancelSemantics.none,
+            cancel = CancelSemantics.None,
             tasks = listOf("text_to_text"),
         ),
         capabilities = ProviderDynamicCapabilities(available = available),
@@ -260,6 +291,75 @@ class DemoViewModelTest {
         assertEquals("one", state.stream?.text)
     }
 
+    @Test
+    fun stopIsOfferedOnlyWhileAPlaybackHandleExists() = runTest {
+        val routed = CompletableDeferred<Unit>()
+        val playing = CompletableDeferred<Unit>()
+        var cancelReason: String? = null
+        val runtime = FakeRuntime(
+            speakStart = { scope ->
+                routed.await()
+                FakeSpeechApi(
+                    onCancel = { reason ->
+                        cancelReason = reason
+                        playing.complete(Unit)
+                    },
+                    playing = playing,
+                ).speak(SpeakOptions("Hallo", locale = "de-DE"), scope)
+            },
+        )
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+
+        viewModel.updateSpeechText("Hallo")
+        viewModel.speak()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isSpeaking)
+        assertFalse(viewModel.uiState.value.canStopSpeaking)
+
+        routed.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.canStopSpeaking)
+
+        viewModel.stopSpeaking()
+        advanceUntilIdle()
+        assertEquals("stopped from the demo app", cancelReason)
+        assertFalse(viewModel.uiState.value.isSpeaking)
+        assertFalse(viewModel.uiState.value.canStopSpeaking)
+    }
+
+    /** An engine whose one playback holds until cancelled, then ends as a cancelled stream. */
+    private class FakeSpeechApi(
+        private val onCancel: (String?) -> Unit,
+        private val playing: CompletableDeferred<Unit>,
+    ) : IndeRunApi {
+        override suspend fun prepare(request: app.independo.inderun.contracts.PrepareRequest): app.independo.inderun.core.StreamRun = error("not scripted")
+
+        override suspend fun stream(request: TaskRequest): StreamRun = StreamRun(
+            handle = StreamRunHandle(
+                providerId = "android_system_speech",
+                runId = "run_speech",
+                schemaVersion = SchemaVersion.V1_0,
+                startedAt = 0.0,
+            ),
+            events = flow {
+                playing.await()
+                emit(cancelled(0, partialText = "", reason = "stopped from the demo app"))
+            },
+            onCancel = onCancel,
+        )
+
+        override suspend fun run(request: TaskRequest): TaskResult = error("not scripted")
+
+        override suspend fun checkCapabilities(): List<ProviderCapabilitySnapshot> = emptyList()
+
+        override suspend fun readArtifact(request: ArtifactReadRequest): ArtifactChunk = error("not scripted")
+
+        override suspend fun disposeArtifact(artifact: MediaArtifact) = error("not scripted")
+
+        override suspend fun close() = error("not scripted")
+    }
+
     private class FakeRuntime(
         private val snapshots: List<ProviderCapabilitySnapshot> = emptyList(),
         private val runOutcome: DemoExecutionOutcome = DemoExecutionOutcome.Success(
@@ -274,8 +374,17 @@ class DemoViewModelTest {
         ),
         private val routeDecision: RouteDecision? = null,
         private val streamStart: () -> DemoStreamStart = { DemoStreamStart.Started(streamRun(emptyList())) },
+        private val speakStart: suspend (CoroutineScope) -> SpeechPlayback = { error("not scripted") },
     ) : DemoRuntime {
         override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = snapshots
+
+        override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = emptyList()
+
+        override suspend fun prepareSpeech(request: app.independo.inderun.contracts.PrepareRequest, settings: DemoSettings, scope: CoroutineScope) = Unit
+
+        override suspend fun speak(options: SpeakOptions, settings: DemoSettings, scope: CoroutineScope): SpeechPlayback = speakStart(scope)
+
+        override suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String = error("not scripted")
 
         override suspend fun run(
             prompt: String,

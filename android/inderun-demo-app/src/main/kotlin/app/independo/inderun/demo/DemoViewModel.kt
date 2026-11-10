@@ -5,10 +5,19 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
+import app.independo.inderun.contracts.PrepareRequest
+import app.independo.inderun.contracts.PrepareVoice
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.StreamEvent
-import app.independo.inderun.core.ProviderCapabilitySnapshot
+import app.independo.inderun.contracts.TaskKind
+import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.StreamRun
 import app.independo.inderun.providers.onnx.AndroidOnnxRuntimeProvider
+import app.independo.inderun.providers.systemspeech.AndroidSystemSpeechProvider
+import app.independo.inderun.sdk.SpeakOptions
+import app.independo.inderun.sdk.SpeechExecutionOptions
+import app.independo.inderun.sdk.SpeechPlayback
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +30,7 @@ private val providerLabels: Map<String, String> = mapOf(
     "android_mlkit_genai" to "On-Device (ML Kit)",
     "openai_compatible_cloud" to "Cloud",
     AndroidOnnxRuntimeProvider.DEFAULT_ID to "ONNX Local",
+    AndroidSystemSpeechProvider.DEFAULT_ID to "System Speech",
 )
 
 internal class DemoViewModel(
@@ -36,6 +46,7 @@ internal class DemoViewModel(
                 cloudEndpointUrl = settings.endpointUrl,
                 cloudModel = settings.model,
                 onnxModelSelection = settings.onnxModelSelection,
+                voicesLabEnabled = settings.voicesLabEnabled,
             )
         },
     )
@@ -43,11 +54,17 @@ internal class DemoViewModel(
     val uiState: StateFlow<DemoUiState> = _uiState.asStateFlow()
 
     private var activeStream: StreamRun? = null
+    private var activePlayback: SpeechPlayback? = null
+
+    /** When Stop was tapped, so the outcome can show how long stopping took (#251). */
+    @Volatile
+    private var stopTappedAtNanos: Long? = null
 
     init {
         viewModelScope.launch(dispatcher) {
             ensureSelectedOnnxModelDownloaded()
             refreshCapabilities()
+            refreshSpeechVoices()
         }
     }
 
@@ -74,6 +91,15 @@ internal class DemoViewModel(
     fun updateCloudModel(model: String) {
         _uiState.update { state ->
             val updatedState = state.copy(cloudModel = model, result = null, error = null, stream = null)
+            settingsStore.save(updatedState.toSettings())
+            updatedState
+        }
+    }
+
+    /** The Voices lab is opt-in (#260): the screen section, catalog read and providers exist only while this is on. */
+    fun updateVoicesLabEnabled(enabled: Boolean) {
+        _uiState.update { state ->
+            val updatedState = state.copy(voicesLabEnabled = enabled)
             settingsStore.save(updatedState.toSettings())
             updatedState
         }
@@ -178,6 +204,134 @@ internal class DemoViewModel(
      * run in all three cases, including `cancelled`, which is a normal outcome rather
      * than an error.
      */
+    fun updateSpeechText(text: String) {
+        _uiState.update { it.copy(speechText = text, speechOutcome = null) }
+    }
+
+    fun updateSpeechLocale(locale: String) {
+        _uiState.update { it.copy(speechLocale = locale, speechVoiceId = null, speechOutcome = null) }
+        refreshSpeechVoices()
+    }
+
+    fun updateSpeechVoice(id: String?) {
+        _uiState.update { it.copy(speechVoiceId = id, speechOutcome = null) }
+        prepareSelectedVoice()
+    }
+
+    /**
+     * Picking a voice is the user's decision, so it may start the engine's download of that voice.
+     * Optional: without it, the voice stays unavailable until the engine has it.
+     */
+    private fun prepareSelectedVoice() {
+        val state = _uiState.value
+        val voice = state.selectedSpeechVoice ?: return
+        viewModelScope.launch(dispatcher) {
+            val request = PrepareRequest(
+                allowDownload = true,
+                locale = state.speechLocale,
+                tasks = listOf(TaskKind.TEXT_TO_SPEECH.rawValue),
+                voice = PrepareVoice(gender = voice.gender, id = voice.id, providerId = voice.providerId),
+            )
+            try {
+                runtime.prepareSpeech(request, state.toSettings(), viewModelScope)
+            } catch (_: IndeRunException) {
+                // Only a head start: the speak call reports what is wrong.
+            }
+            refreshSpeechVoices()
+        }
+    }
+
+    /** Lists every voice of the selected locale. A selection that is gone falls back to routing. */
+    private fun refreshSpeechVoices() {
+        val state = _uiState.value
+        viewModelScope.launch(dispatcher) {
+            val voices = runtime.listVoices(state.speechLocale, state.toSettings())
+            _uiState.update { current ->
+                current.copy(
+                    speechVoices = voices,
+                    speechVoiceId = current.speechVoiceId?.takeIf { id -> voices.any { it.id == id } },
+                )
+            }
+        }
+    }
+
+    /**
+     * Speaks through the primary API: routing, cancellation and provenance are the engine's, and
+     * this app never touches `TextToSpeech`.
+     */
+    fun speak() {
+        val state = _uiState.value
+        if (state.isSpeaking || state.speechText.isBlank()) {
+            return
+        }
+        _uiState.update { it.copy(isSpeaking = true, speechOutcome = null) }
+        stopTappedAtNanos = null
+        viewModelScope.launch(dispatcher) {
+            val outcome = try {
+                val options = SpeakOptions(
+                    state.speechText,
+                    locale = state.speechLocale,
+                    voice = state.selectedSpeechVoice?.asSpeechVoice(),
+                    execution = SpeechExecutionOptions(privacy = Privacy.LocalRequired),
+                )
+                val playback = runtime.speak(options, state.toSettings(), viewModelScope)
+                activePlayback = playback
+                _uiState.update { it.copy(canStopSpeaking = true) }
+                val ending = playback.result.await()
+                val provenance = ending.provenance
+                // Measurements for docs/verification/system-speech.md: the engine's first word,
+                // and from the Stop tap to the run's ending.
+                val timings = listOfNotNull(
+                    ending.timing?.firstAudioMs?.let { "first word ${it.toInt()} ms" },
+                    stopTappedAtNanos?.let { "stopped in ${(System.nanoTime() - it) / 1_000_000} ms" },
+                )
+                (
+                    listOf(
+                        "${ending.finishReason?.rawValue}",
+                        ending.speech?.locale ?: state.speechLocale,
+                        ending.speech?.voice?.name ?: "unknown voice",
+                        "${provenance?.providerId}",
+                        "${provenance?.locality?.rawValue}",
+                    ) + timings
+                    ).joinToString(" · ")
+            } catch (error: IndeRunException) {
+                "failed: ${error.errorClass.rawValue}: ${error.message}"
+            }
+            activePlayback = null
+            _uiState.update { it.copy(isSpeaking = false, canStopSpeaking = false, speechOutcome = outcome) }
+        }
+    }
+
+    /** Synthesizes silently, reads the audio back and releases it. */
+    fun synthesizeSpeech() {
+        val state = _uiState.value
+        if (state.isSpeaking || state.speechText.isBlank()) {
+            return
+        }
+        _uiState.update { it.copy(isSpeaking = true, speechOutcome = null) }
+        viewModelScope.launch(dispatcher) {
+            val outcome = try {
+                val options = SpeakOptions(
+                    state.speechText,
+                    locale = state.speechLocale,
+                    voice = state.selectedSpeechVoice?.asSpeechVoice(),
+                    // The same posture as speak: a retrievable artifact must not leave the device either.
+                    execution = SpeechExecutionOptions(privacy = Privacy.LocalRequired),
+                )
+                runtime.synthesizeSpeech(options, state.toSettings())
+            } catch (error: IndeRunException) {
+                "failed: ${error.errorClass.rawValue}: ${error.message}"
+            }
+            _uiState.update { it.copy(isSpeaking = false, speechOutcome = outcome) }
+        }
+    }
+
+    /** Stops the audio. Idempotent; the run ends as cancelled, not as an error. */
+    fun stopSpeaking() {
+        if (stopTappedAtNanos == null) stopTappedAtNanos = System.nanoTime()
+        activePlayback?.cancel("stopped from the demo app")
+    }
+
     fun streamPrompt() {
         val state = _uiState.value
         if (!state.canStream || state.isStreaming) {

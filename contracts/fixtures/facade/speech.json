@@ -1,0 +1,180 @@
+{
+  "$comment": "Cross-SDK vectors for the primary speech API's translation onto the canonical TaskRequest (ADR 018, docs/architecture/api-layering.md). `call` names the entry point: `speak` always compiles to playback delivery, `generateSpeech` to artifact delivery. Options use the Web SDK's option names. Every SDK runs every case through its own translation and fails on any difference, so the three facades cannot drift apart silently.",
+  "cases": [
+    {
+      "id": "speak_minimal",
+      "description": "Text and locale are all speak needs; nothing else is set.",
+      "call": "speak",
+      "options": { "text": "Der Bus kommt.", "locale": "de-AT" },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": { "text": "Der Bus kommt.", "locale": "de-AT" },
+        "delivery": { "mode": "playback" }
+      }
+    },
+    {
+      "id": "speak_auto_profile_omitted",
+      "description": "The built-in auto profile is the default, so it never reaches the request.",
+      "call": "speak",
+      "options": { "text": "Hallo", "locale": "de-DE", "model": "auto" },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": { "text": "Hallo", "locale": "de-DE" },
+        "delivery": { "mode": "playback" }
+      }
+    },
+    {
+      "id": "speak_exact_locale_required_voice",
+      "description": "An exact locale and a required voice are hard requirements and pass through.",
+      "call": "speak",
+      "options": {
+        "text": "Servus",
+        "locale": "de-AT",
+        "localeMatch": "exact",
+        "voice": { "gender": "female", "requirement": "required" }
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Servus",
+          "locale": "de-AT",
+          "localeMatch": "exact",
+          "voice": { "gender": "female", "requirement": "required" }
+        },
+        "delivery": { "mode": "playback" }
+      }
+    },
+    {
+      "id": "speak_preferred_voice",
+      "description": "A preferred voice is a preference; the requirement level stays as given.",
+      "call": "speak",
+      "options": { "text": "Hello", "locale": "en-GB", "voice": { "gender": "male" } },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": { "text": "Hello", "locale": "en-GB", "voice": { "gender": "male" } },
+        "delivery": { "mode": "playback" }
+      }
+    },
+    {
+      "id": "speak_catalog_voice",
+      "description": "A catalog entry selects one voice, with its traits as the fallback. Catalog fields a request has no use for stay out of it.",
+      "call": "speak",
+      "options": {
+        "text": "Hallo",
+        "locale": "de-DE",
+        "voice": {
+          "providerId": "apple_system_speech",
+          "id": "com.apple.voice.compact.de-DE.Anna",
+          "name": "Anna",
+          "locale": "de-DE",
+          "gender": "female"
+        }
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Hallo",
+          "locale": "de-DE",
+          "voice": {
+            "providerId": "apple_system_speech",
+            "id": "com.apple.voice.compact.de-DE.Anna",
+            "gender": "female"
+          }
+        },
+        "delivery": { "mode": "playback" }
+      }
+    },
+    {
+      "id": "speak_required_catalog_voice",
+      "description": "A required voice id needs no trait, and refuses to fall back.",
+      "call": "speak",
+      "options": {
+        "text": "Hallo",
+        "locale": "de-DE",
+        "voice": {
+          "providerId": "apple_system_speech",
+          "id": "com.apple.voice.compact.de-DE.Anna",
+          "requirement": "required"
+        }
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Hallo",
+          "locale": "de-DE",
+          "voice": {
+            "providerId": "apple_system_speech",
+            "id": "com.apple.voice.compact.de-DE.Anna",
+            "requirement": "required"
+          }
+        },
+        "delivery": { "mode": "playback" }
+      }
+    },
+    {
+      "id": "speak_local_required_with_profile",
+      "description": "Execution policy and the model profile use the same fields as text.",
+      "call": "speak",
+      "options": {
+        "text": "Der Bus kommt.",
+        "locale": "de-AT",
+        "model": "speech",
+        "execution": { "privacy": "local_required", "timeoutMs": 2000, "optimizeFor": "latency" },
+        "requestId": "req_speech_1"
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": { "text": "Der Bus kommt.", "locale": "de-AT" },
+        "delivery": { "mode": "playback" },
+        "modelProfile": "speech",
+        "constraints": { "privacy": "local_required", "timeoutMs": 2000 },
+        "preferences": { "optimizeFor": "latency" },
+        "requestId": "req_speech_1"
+      }
+    },
+    {
+      "id": "generate_minimal",
+      "description": "generateSpeech asks for an artifact and lets the provider choose the format.",
+      "call": "generateSpeech",
+      "options": { "text": "Hallo", "locale": "de-DE" },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": { "text": "Hallo", "locale": "de-DE" },
+        "delivery": { "mode": "artifact" }
+      }
+    },
+    {
+      "id": "generate_media_types_and_destination",
+      "description": "Media types and the opaque destination belong to the delivery.",
+      "call": "generateSpeech",
+      "options": {
+        "text": "Hello",
+        "locale": "en-US",
+        "mediaTypes": ["audio/wav"],
+        "destinationRef": "dest_1",
+        "authContextRef": "slot_1",
+        "execution": { "cloud": "forbidden" }
+      },
+      "expected": {
+        "schemaVersion": "1.0",
+        "task": { "kind": "text_to_speech" },
+        "speech": { "text": "Hello", "locale": "en-US" },
+        "delivery": {
+          "mode": "artifact",
+          "mediaTypes": ["audio/wav"],
+          "destinationRef": "dest_1"
+        },
+        "constraints": { "cloud": "forbidden" },
+        "authContextRef": "slot_1"
+      }
+    }
+  ]
+}

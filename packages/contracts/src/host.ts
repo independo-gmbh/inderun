@@ -1,4 +1,9 @@
-import type { HttpRequest, HttpResponse, TelemetryEvent } from "./generated/index.js";
+import type {
+  HttpRequest,
+  HttpResponse,
+  MediaArtifact,
+  TelemetryEvent
+} from "./generated/index.js";
 
 /**
  * Service to inspect and monitor network connectivity status.
@@ -169,6 +174,90 @@ export interface TelemetryService {
 }
 
 /**
+ * Resolves the opaque `delivery.destinationRef` of an artifact request to a place the
+ * application chose -- a file it will hand to a player, a cache it manages -- and writes the
+ * finished artifact there (ADR 017). A request names a reference, never a path, so a request
+ * that came from a webview cannot address arbitrary storage.
+ */
+export interface ArtifactDestinationService {
+  /**
+   * Whether `destinationRef` names a destination this host can write the requested media to.
+   * Called before routing; `false` refuses the request.
+   */
+  accepts(destinationRef: string, mediaTypes: readonly string[] | undefined): Promise<boolean>;
+  /**
+   * Writes the finished artifact's bytes to the destination. A failure fails the run: it is
+   * committed by then, so it never falls back.
+   */
+  write(destinationRef: string, artifact: MediaArtifact, bytes: Uint8Array): Promise<void>;
+}
+
+/**
+ * The PCM format of one audio output session. Every host accepts mono signed 16-bit
+ * little-endian samples at 8000 to 48000 Hz inclusive; a service may refuse further rates
+ * with the same `audio_format_unsupported` code (`CapabilityMismatch`).
+ */
+export interface AudioOutputFormat {
+  /** Samples per second, 8000 to 48000 inclusive. */
+  sampleRate: number;
+  /** Always mono. */
+  channels: 1;
+  /** Always signed 16-bit little-endian PCM. */
+  encoding: "pcm_s16le";
+}
+
+/**
+ * One playback session. Sessions of one service are independent: stopping one does not
+ * disturb another.
+ *
+ * The normal path is `write()` for each chunk, then `drain()`, then `stop()`; a provider's
+ * cancel path is `stop()`.
+ *
+ * A session ends once: by `stop()`, or by the system taking the output away (an
+ * interruption, the output stopping), which ends it with `Unavailable` and `details.code`
+ * `audio_output_interrupted`.
+ */
+export interface AudioOutputSession {
+  /**
+   * Hands samples to the host. Resolves once the host has buffered them, so a caller that
+   * awaits each write is paced by the output (backpressure). The first write is the first
+   * possible audible effect. After `stop()`, returns at once without effect; after the
+   * system ended the session, throws its error.
+   */
+  write(samples: Int16Array): Promise<void>;
+  /**
+   * Resolves when everything written has played. After `stop()`, returns at once without
+   * effect; after the system ended the session, throws its error.
+   */
+  drain(): Promise<void>;
+  /**
+   * Ends the session now: discards buffered audio and releases the output. Idempotent, and
+   * nothing renders after it.
+   */
+  stop(): void;
+  /**
+   * Milliseconds from the start of `open()` (the instant it was called, before the output is built
+   * or started) to the first frame the host observed leaving the output; `undefined` until then.
+   * A provider reports `firstAudioMs` = (instant before `open()` was called − `receivedAt`) +
+   * `session.firstAudioMs()`, so a slow open is counted once.
+   */
+  firstAudioMs(): number | undefined;
+}
+
+/**
+ * Plays PCM for providers that synthesize audio themselves.
+ */
+export interface AudioOutputService {
+  /**
+   * Opens a playback session. Makes no sound, and validates the format: one outside the
+   * rule on {@link AudioOutputFormat} throws `CapabilityMismatch` with
+   * `details.code` `audio_format_unsupported`. An aborted `signal` rejects the open with an `AbortError`, as
+   * a cancelled `fetch` does.
+   */
+  open(format: AudioOutputFormat, signal?: AbortSignalLike): Promise<AudioOutputSession>;
+}
+
+/**
  * Registry of platform-specific host services utilized by the Engine Core.
  * Evaluates execution capabilities and manages OS-level boundaries.
  */
@@ -202,4 +291,14 @@ export interface HostServices {
    * Telemetry service to monitor execution steps, latency, and success rates.
    */
   telemetry?: TelemetryService;
+  /**
+   * Application destinations for artifact requests that carry `delivery.destinationRef`.
+   * Absent means the host has none, and such a request is refused before routing.
+   */
+  artifactDestinations?: ArtifactDestinationService;
+  /**
+   * PCM playback for providers that synthesize audio themselves. Absent on hosts that
+   * cannot play audio; such a provider refuses before commit.
+   */
+  audioOutput?: AudioOutputService;
 }

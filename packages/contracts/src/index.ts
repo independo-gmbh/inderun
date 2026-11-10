@@ -12,21 +12,28 @@
  * themselves or the runtime validators.
  */
 
-/** The generated request/response, streaming, routing, and telemetry models. */
+/** The generated request/response, streaming, routing, provider-capability, and telemetry models. */
 export type * from "./generated/index.js";
 
 /** The JSON Schemas those models were generated from, for runtime use. */
 export {
+  artifactReadRequestSchema,
+  prepareRequestSchema,
   executionProvenanceSchema,
   httpRequestSchema,
   httpResponseSchema,
   inderunErrorSchema,
+  mediaArtifactSchema,
   modelPackageSchema,
+  providerCapabilitySnapshotSchema,
+  providerDescriptorSchema,
+  providerDynamicCapabilitiesSchema,
   routePlanSchema,
   routePlannerInputSchema,
   streamEventSchema,
   streamRunSchema,
   streamTerminalOutcomeSchema,
+  taskOutputSchema,
   taskRequestSchema,
   taskResultSchema,
   telemetryEventSchema
@@ -37,16 +44,23 @@ export {
  * boolean type guard.
  */
 export {
+  getArtifactReadRequestValidationIssues,
+  getPrepareRequestValidationIssues,
   getExecutionProvenanceValidationIssues,
   getHttpRequestValidationIssues,
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
+  getMediaArtifactValidationIssues,
   getModelPackageValidationIssues,
+  getProviderCapabilitySnapshotValidationIssues,
+  getProviderDescriptorValidationIssues,
+  getProviderDynamicCapabilitiesValidationIssues,
   getRoutePlanValidationIssues,
   getRoutePlannerInputValidationIssues,
   getStreamEventValidationIssues,
   getStreamRunHandleValidationIssues,
   getStreamTerminalOutcomeValidationIssues,
+  getTaskOutputValidationIssues,
   getTaskRequestValidationIssues,
   getTaskResultValidationIssues,
   getTelemetryEventValidationIssues,
@@ -54,15 +68,22 @@ export {
   validateHttpRequest,
   validateHttpResponse,
   validateIndeRunError,
+  validateMediaArtifact,
   validateModelPackage,
+  validateProviderCapabilitySnapshot,
+  validateProviderDescriptor,
+  validateProviderDynamicCapabilities,
   validateRoutePlan,
   validateRoutePlannerInput,
   validateStreamEvent,
   validateStreamRunHandle,
   validateStreamTerminalOutcome,
+  validateTaskOutput,
   validateTaskRequest,
   validateTaskResult,
   validateTelemetryEvent,
+  validateArtifactReadRequest,
+  validatePrepareRequest,
   type ValidationIssue
 } from "./validators.js";
 /**
@@ -70,14 +91,24 @@ export {
  * and the routing input/output shapes under the names the engines use.
  */
 export type {
+  CancelSemantics,
   FinishReason,
   IndeRunErrorClass,
+  ArtifactTaskOutput,
   ModelPackageFormat,
   ModelSourceType,
+  PlaybackTaskOutput,
+  PlaybackTiming,
+  ProviderReadiness,
+  ProviderTransport,
+  ProviderType,
   SchemaVersion,
   SharedRoutePlan,
   SharedRoutePlannerInput,
+  SpeechTaskRequest,
   TaskKind,
+  TextTaskOutput,
+  TextTaskRequest,
   RoutingConstraints,
   RoutingPreferences
 } from "./types.js";
@@ -89,6 +120,10 @@ export type {
  */
 export type {
   AbortSignalLike,
+  ArtifactDestinationService,
+  AudioOutputFormat,
+  AudioOutputService,
+  AudioOutputSession,
   ConnectivityService,
   ThermalState,
   DeviceConstraintsService,

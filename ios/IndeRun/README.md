@@ -1,3 +1,20 @@
+<p align="center">
+  <a href="https://inderun.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://inderun.dev/brand/inderun-logo-dark.svg">
+      <img alt="IndeRun" src="https://inderun.dev/brand/inderun-logo-light.svg" width="360">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/independo-gmbh/inderun/releases"><img alt="Swift Package Manager" src="https://img.shields.io/github/v/release/independo-gmbh/inderun?logo=swift&label=SwiftPM"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg?branch=dev"></a>
+  <img alt="Platforms: iOS 16+, macOS 14+" src="https://img.shields.io/badge/platforms-iOS%2016%2B%20%7C%20macOS%2014%2B-lightgrey">
+  <a href="https://github.com/independo-gmbh/inderun/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://inderun.dev/docs"><img alt="Docs: inderun.dev" src="https://img.shields.io/badge/docs-inderun.dev-A0B3FF"></a>
+</p>
+
 # IndeRun iOS SDK
 
 Swift implementation of IndeRun for iOS and macOS.
@@ -7,10 +24,14 @@ The package is split into public API, core engine, contracts, and provider targe
 - `IndeRunContracts` - generated schema-backed models
 - `IndeRunCore` - host services, router, registry, and error mapping
 - `IndeRunSwift` - public SDK entrypoint
-- `IndeRunAppleProviders` - Apple Foundation Models provider
+- `IndeRunAppleProviders` - Apple Foundation Models and Apple system speech providers
 - `IndeRunOpenAIProviders` - OpenAI-compatible cloud provider
 - `IndeRunOnnxProviders` - ONNX Runtime provider family member for developer-supplied/custom
   local models (see `docs/architecture/onnx-runtime-provider-family.md`)
+- `IndeRunNeuralSpeech` - neural speech provider for developer-supplied text-to-speech model
+  packages, played through the host's `audioOutput` or returned as `audio/wav`
+- `IndeRunCoreAIProviders` - neural speech runtime for `coreai` model packages through Apple Core
+  AI (iOS 27 / macOS 27); builds to a stub on an SDK without Core AI
 
 Requires iOS 16+ / macOS 14+ (raised from iOS 15 / macOS 12 by `IndeRunOnnxProviders`'s
 dependencies: the official ONNX Runtime SPM bindings and `swift-transformers`).
@@ -26,8 +47,31 @@ place.
 Products are a separate question from imports. The `IndeRun` product contains the engine and the
 contract types, and no providers — unlike the Android SDK, where `IndeRun.initialize()` registers
 the on-device provider for you, the Swift initializer takes a registry you built. Add
-`IndeRunAppleProviders`, `IndeRunOpenAIProviders` or `IndeRunOnnxProviders` for the providers you
-intend to register; the usage example below needs the first two.
+`IndeRunAppleProviders`, `IndeRunOpenAIProviders`, `IndeRunOnnxProviders` or `IndeRunNeuralSpeech`
+(with `IndeRunCoreAIProviders` for its Core AI runtime) for the providers you intend to register; the
+usage example below needs the first two.
+
+## Install and requirements
+
+Install via Swift Package Manager (consumed by URL and git tag). The line below pins the tested set:
+
+<!-- version:swiftpm-install -->
+```swift
+.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0-rc.17")
+```
+<!-- /version -->
+
+```swift
+// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders,
+//           IndeRunOpenAIProviders, IndeRunOnnxProviders, IndeRunNeuralSpeech,
+//           IndeRunCoreAIProviders
+```
+
+- SDK: iOS 16+ / macOS 14+, Swift 5.9+.
+- On-device provider (Apple Foundation Models): an Apple Intelligence-capable device running a FoundationModels-supported
+  OS (iOS 26+ / macOS 26+). Availability is checked at runtime. If a cloud target is registered and the request allows
+  it, the cloud provider can serve the request when the on-device model is unavailable; with `privacy: .localRequired`
+  the request is refused instead. **No special Info.plist entitlement is required** for on-device execution.
 
 ## Usage
 
@@ -66,6 +110,34 @@ let ending = try await stream.result()
 `TaskRequest` (`TextGenerationOptions.taskRequest()`) and calls `run(request:)` or `stream(request:)`,
 which remain public as the advanced API.
 
+### Speech
+
+```swift
+let voices = await inderun.listVoices(locale: "de-AT")
+
+// Speech is opt-in: try registry.register(AppleSystemSpeechProvider())
+let playback = try await inderun.speak(SpeakOptions(
+    "Der Bus kommt.",
+    locale: "de-AT",
+    voice: voices.first?.asSpeechVoice()
+))
+// playback.cancel() stops the audio; result() then returns with .cancelled.
+let ending = try await playback.result()
+```
+
+`try await inderun.prepare()` is optional and makes the first call fast; see ADR 019. A provider's download starts only
+under `registry.register(provider, options: ProviderRegistrationOptions(autoDownload: true))` or
+`PrepareRequest(allowDownload: true)`.
+
+`speak` compiles to `stream(request:)` with playback delivery. `generateSpeech` compiles to
+`run(request:)` with artifact delivery and returns an `artifact` to read with `readArtifact` and
+release with `disposeArtifact`; routing refuses it on a provider that can only play. See
+[ADR 018](../../docs/architecture/decisions/018-speech-application-api.md).
+
+`AppleSystemSpeechProvider` plays through the application's audio session and never configures it.
+Under the default category the Silent switch mutes speech while the run still completes normally.
+An application that must be heard sets a category such as `.playback` before calling `speak`.
+
 ### Custom local ONNX models
 
 ```swift
@@ -86,8 +158,92 @@ try registry.register(OnnxRuntimeAppleProvider(options: OnnxProviderOptions(mode
 Defaults to `SystemOnnxGenAiRuntime` (official ONNX Runtime SPM bindings + `swift-transformers`
 tokenization, greedy decoding, no KV-cache reuse). Pass `runtime:` in `OnnxProviderOptions` to
 supply a different `OnnxGenAiRuntime` implementation, or `createFixtureOnnxRuntime()` for demos
-and tests. See `docs/architecture/onnx-runtime-provider-family.md#apple-implementation` for the
+and tests. A provider that built the default runtime owns it: keep the provider and call
+`await provider.close()` once no engine routes to it, to release the loaded model (`IndeRun.close()`
+does not close providers you registered). A runtime you passed in is yours to close. See `docs/architecture/onnx-runtime-provider-family.md#apple-implementation` for the
 model IO contract, source-type support, and error mapping.
+
+### Neural speech
+
+```swift
+import IndeRunNeuralSpeech
+
+// A package with tasks: ["text_to_speech"] and a `speech` block (pipeline, graphs, voices).
+let speechPackage = try JSONDecoder().decode(ModelPackage.self, from: packageJSON)
+try registry.register(NeuralSpeechProvider(options: NeuralSpeechProviderOptions(
+    modelPackage: speechPackage,
+    runtime: myRuntime // any NeuralSpeechRuntime; FixtureNeuralSpeechRuntime() for demos and tests
+)))
+let playback = try await inderun.speak(SpeakOptions("Der Bus kommt.", locale: "de-AT"))
+```
+
+`NeuralSpeechProvider` runs a developer-supplied speech model package (its `speech` block names
+the pipeline, graphs and voices) through a `NeuralSpeechRuntime` you pass in, so `runtime` is
+required. Its id is `local.onnx.speech.apple:<modelPackage.id>`, so one provider per
+model registers without clashes. `speak` plays through the host's `audioOutput`
+(`DefaultHostServices.make()` provides one; a host without it refuses before any sound with
+`audio_output_unavailable`, so the run can fall back), one utterance at a time per provider;
+`generateSpeech` returns an `audio/wav` artifact of at most 16 MiB and needs no audio output.
+`prepare()` loads the model ahead of the first call.
+
+`OnnxNeuralSpeechRuntime()` (in `IndeRunOnnxProviders`, which re-exports `IndeRunNeuralSpeech`) runs
+`pipeline: "articulino"` packages through ONNX Runtime on the CPU execution provider. The package
+sits in one directory, as `tools/neural-speech/README.md` writes it:
+
+```
+model-package.json        # the ModelPackage; speech.graphs, speech.voices, integrity.checksums
+config.json
+text.onnx  dit_step.onnx  decoder.onnx
+voices/<id>.safetensors
+```
+
+The directory comes from the package `source`: `filesystem` (`ref` is the path), `bundled` (relative
+to the app bundle's resources) or `app_managed` (relative to Application Support); other source
+types are refused with the reason in `availability`. Declared checksums are verified at `prepare()`.
+The runtime has no German frontend for digits yet: write numbers as words until it lands.
+
+#### Core AI
+
+```swift
+import IndeRunCoreAIProviders
+
+let coreAISpeech = makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions(
+    modelPackage: coreAIPackage // format: "coreai", speech.pipeline: "articulino"
+))
+try registry.register(coreAISpeech)
+// Later, once no engine routes to it any more:
+await coreAISpeech.close()
+```
+
+`makeCoreAINeuralSpeechProvider` (in `IndeRunCoreAIProviders`, which re-exports
+`IndeRunNeuralSpeech`) registers a `NeuralSpeechProvider` over a `CoreAINeuralSpeechRuntime`, with the
+id `local.coreai.speech.apple:<modelPackage.id>`. It runs `format: "coreai"`, `pipeline: "articulino"`
+packages laid out like the ONNX ones, with one Core AI asset holding the three graphs in place of
+the `.onnx` files, as `tools/neural-speech/prepare_coreai_package.py` writes it:
+
+```
+model-package.json        # the ModelPackage; format: "coreai"
+config.json
+articulino.aimodel        # --asset under its own name, a file or a directory
+voices/<id>.safetensors
+```
+
+A `speech.graphs` value names the `.aimodel` file and, after a `#`, the inference function in it:
+`articulino.aimodel#text`, `articulino.aimodel#dit_step`, `articulino.aimodel#decoder`. Without a `#`
+the function is named after the role. The asset must be specialized for the device before it runs,
+which took about 1.2 s on a Mac and, with load and warm-up, about 9 s for the first `prepare` on an iPhone 15, and a consented `prepare` specializes it: until then the provider reports
+`readiness: not_prepared`, and IndeRun prepares it only under `autoDownload` or
+`PrepareRequest(allowDownload: true)`. Core AI needs iOS 27 / macOS 27; below that,
+or on an SDK without it, the provider reports `available: false` with the reason, so routing falls
+back. `prepare` also runs each function once at the smallest shapes, so loading happens there; the first sentence
+after it can still be slower than later ones (2,045 ms against 603 ms to first audio on the iPhone 15). The export
+fixes the input shapes: a text longer than 257 tokens, more than 1,024 frames or a voice whose prompt length is not
+125 is refused with a `capability` error before Core AI runs, and a package with such a voice is unavailable. As with the ONNX runtime, write numbers as words.
+
+The factory builds the runtime, so the provider owns it. Keep the provider and call `await provider.close()` once no
+engine routes to it any more: that releases the loaded models. `IndeRun.close()` does not close providers you
+registered. A `NeuralSpeechProvider(options:)` you built around your own runtime leaves that runtime open on
+`close()`, so you close the runtime yourself.
 
 ## Streaming
 
@@ -108,12 +264,45 @@ Mode 1, and a stream request that can only be served over HTTP is refused at rou
 `streaming_unavailable` reason. The Apple provider does not go through that path — it streams
 from the system model with no host HTTP capability involved, and it emits `content_snapshot`
 rather than `content_delta`.
+`DefaultHostServices.make()` also provides an `AVAudioEngine` `audioOutput` for providers that
+synthesize PCM themselves; it leaves the `AVAudioSession` category to the app. The SDK sets no
+category, so under the default category playback is muted by the silent switch: an app that must
+be heard sets `.playback` itself, as the demo does.
 
 The OpenAI adapter speaks the OpenAI **Responses** API, not chat completions: a custom endpoint
 must accept `"stream": true` and emit `text/event-stream` with the Responses event types.
 
 Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
 SDK and documented once, in [Streaming (Mode 2)](../../docs/streaming.md).
+
+## Media artifacts
+
+A run with `artifact` delivery returns a `MediaArtifact` reference; read the bytes with
+`readArtifact(request:)` and release them with `disposeArtifact(artifact:)`
+([ADR 017](../../docs/architecture/decisions/017-media-artifacts.md)):
+
+```swift
+let result = try await indeRun.run(request: request)
+guard let artifact = result.output.artifact else { return }
+var audio = Data()
+var offset = 0
+while true {
+    let chunk = try await indeRun.readArtifact(
+        request: ArtifactReadRequest(artifactId: artifact.id, maxBytes: nil, offset: offset)
+    )
+    audio.append(chunk.bytes)
+    offset += chunk.bytes.count
+    if chunk.done { break }
+}
+await indeRun.disposeArtifact(artifact: artifact)
+```
+
+`AppleSystemSpeechProvider` produces such an artifact with real speech: it renders text with
+`AVSpeechSynthesizer.write(_:toBufferCallback:)` and hands it over as `audio/wav` — a canonical
+44-byte RIFF/WAVE header followed by mono, 16-bit signed little-endian PCM at the sample rate of the
+synthesizer's first buffer (float buffers are clamped and scaled). The artifact reports `byteLength`
+and `durationMs` (samples ÷ sample rate). `AppleSystemSpeechArtifactTests` reads one back; it skips
+when the host has no English voice or the synthesizer delivers no audio within 10 seconds.
 
 ## Credentials
 
@@ -154,7 +343,9 @@ pnpm build:route-core-apple
 
 That needs `rustup` (which installs the pinned toolchain from `rust-toolchain.toml` on demand,
 along with the five Apple targets) and the Xcode command line tools. Commit the regenerated
-`InderunRouteCoreFFI.provenance.json` alongside the framework.
+`InderunRouteCoreFFI.provenance.json` alongside the framework. The same command also builds
+`InderunSpeechTextFFI.xcframework` (the German and English speech text normalizer, linked only by
+`IndeRunNeuralSpeech`); commit its manifest too.
 
 Because the framework is an executable in git, CI does not take it on trust:
 

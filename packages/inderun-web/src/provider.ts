@@ -15,6 +15,10 @@
  */
 export {
   type AbortSignalLike,
+  type ArtifactDestinationService,
+  type AudioOutputFormat,
+  type AudioOutputService,
+  type AudioOutputSession,
   type ConnectivityService,
   type DeviceConstraintsService,
   type SecureStorageService,
@@ -41,6 +45,13 @@ export {
   type CreateBrowserHostServicesOptions,
   type FetchHttpClientOptions
 } from "./core/browser-host.js";
+export {
+  createWebAudioOutputService,
+  type CreateWebAudioOutputServiceOptions,
+  type WebAudioBufferLike,
+  type WebAudioContextLike,
+  type WebAudioSourceLike
+} from "./core/browser-audio-output.js";
 
 /**
  * The provider contract. Implement `ProviderAdapter` for a Mode 1 backend and add
@@ -48,18 +59,23 @@ export {
  * router plans against.
  */
 export {
+  type ArtifactSink,
+  type ArtifactSpec,
+  type ArtifactWriter,
   type ProviderDescriptor,
   type ProviderDynamicCapabilities,
   type ProviderCapabilitySnapshot,
   type RunContext,
   type ProviderAdapter,
+  type PreparableProviderAdapter,
+  type ProviderPrepareContext,
   type ProviderStreamContext,
   type ProviderStreamEvent,
   type StreamRun
 } from "./core/provider.js";
 
 /** Holds the provider adapters a given engine instance can route to. */
-export { ProviderRegistry } from "./core/registry.js";
+export { ProviderRegistry, type ProviderRegistrationOptions } from "./core/registry.js";
 
 /**
  * Constructors for the normalized error taxonomy. A provider maps every failure

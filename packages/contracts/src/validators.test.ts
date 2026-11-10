@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,8 +8,11 @@ import {
   getHttpResponseValidationIssues,
   getIndeRunErrorValidationIssues,
   getModelPackageValidationIssues,
+  getProviderCapabilitySnapshotValidationIssues,
   getStreamEventValidationIssues,
   getStreamRunHandleValidationIssues,
+  getStreamTerminalOutcomeValidationIssues,
+  getTaskOutputValidationIssues,
   getTaskRequestValidationIssues,
   getTelemetryEventValidationIssues,
   validateExecutionProvenance,
@@ -15,6 +20,9 @@ import {
   validateHttpResponse,
   validateIndeRunError,
   validateModelPackage,
+  validateProviderCapabilitySnapshot,
+  validateProviderDescriptor,
+  validateProviderDynamicCapabilities,
   validateStreamEvent,
   validateStreamRunHandle,
   validateStreamTerminalOutcome,
@@ -129,6 +137,142 @@ describe("TaskRequest validation", () => {
   });
 });
 
+describe("TaskRequest per-task requirements (ADR 016)", () => {
+  const speech = {
+    schemaVersion: "1.0",
+    task: { kind: "text_to_speech" },
+    speech: { text: "Hallo", locale: "de-AT" },
+    delivery: { mode: "playback" }
+  };
+
+  it("accepts a text_to_speech request with speech and delivery", () => {
+    expect(getTaskRequestValidationIssues(speech)).toEqual([]);
+  });
+
+  it("requires speech and delivery for text_to_speech", () => {
+    const issues = getTaskRequestValidationIssues({
+      schemaVersion: "1.0",
+      task: { kind: "text_to_speech" }
+    });
+    expect(issues.filter((issue) => issue.keyword === "required").map((i) => i.message)).toEqual(
+      expect.arrayContaining([
+        "must have required property 'speech'",
+        "must have required property 'delivery'"
+      ])
+    );
+  });
+
+  it.each([
+    ["prompt", { prompt: "Hello" }],
+    ["messages", { messages: [{ role: "user", content: "Hello" }] }],
+    ["generation", { generation: { temperature: 0.2 } }]
+  ])("forbids %s on a text_to_speech request", (_name, extra) => {
+    expect(validateTaskRequest({ ...speech, ...extra })).toBe(false);
+  });
+
+  it.each([
+    ["speech", { speech: { text: "Hallo", locale: "de-AT" } }],
+    ["delivery", { delivery: { mode: "playback" } }]
+  ])("forbids %s on a text_to_text request", (_name, extra) => {
+    expect(
+      validateTaskRequest({
+        schemaVersion: "1.0",
+        task: { kind: "text_to_text" },
+        prompt: "Hello",
+        ...extra
+      })
+    ).toBe(false);
+  });
+
+  it("rejects inline delivery for text_to_speech", () => {
+    expect(validateTaskRequest({ ...speech, delivery: { mode: "inline" } })).toBe(false);
+  });
+
+  it("accepts mediaTypes only with artifact delivery", () => {
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "artifact", mediaTypes: ["audio/wav"] } })
+    ).toBe(true);
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "playback", mediaTypes: ["audio/wav"] } })
+    ).toBe(false);
+  });
+
+  it("accepts a destinationRef only with artifact delivery", () => {
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "artifact", destinationRef: "dest_1" } })
+    ).toBe(true);
+    expect(
+      validateTaskRequest({ ...speech, delivery: { mode: "playback", destinationRef: "dest_1" } })
+    ).toBe(false);
+  });
+
+  it("requires a trait on a required voice but not on a preferred one", () => {
+    const withVoice = (voice: object) => ({ ...speech, speech: { ...speech.speech, voice } });
+    expect(validateTaskRequest(withVoice({ requirement: "required" }))).toBe(false);
+    expect(validateTaskRequest(withVoice({ requirement: "required", gender: "female" }))).toBe(
+      true
+    );
+    expect(validateTaskRequest(withVoice({ requirement: "preferred" }))).toBe(true);
+  });
+
+  it("accepts a voice id only together with the provider it belongs to", () => {
+    const withVoice = (voice: object) => ({ ...speech, speech: { ...speech.speech, voice } });
+    const handle = { id: "anna", providerId: "apple_system_speech" };
+    expect(validateTaskRequest(withVoice(handle))).toBe(true);
+    expect(validateTaskRequest(withVoice({ ...handle, requirement: "required" }))).toBe(true);
+    expect(validateTaskRequest(withVoice({ id: "anna" }))).toBe(false);
+  });
+
+  it("rejects an unknown task kind at /task/kind", () => {
+    const issues = getTaskRequestValidationIssues({
+      schemaVersion: "1.0",
+      task: { kind: "text_to_video" },
+      prompt: "A cat"
+    });
+    expect(issues.map((issue) => issue.path)).toContain("/task/kind");
+  });
+});
+
+describe("TaskOutput validation", () => {
+  it.each([
+    ["text", { type: "text" }],
+    ["playback", { type: "playback" }],
+    ["artifact", { type: "artifact" }]
+  ])("requires the %s payload for its type", (_name, output) => {
+    expect(getTaskOutputValidationIssues(output).map((issue) => issue.keyword)).toContain(
+      "required"
+    );
+  });
+
+  it("accepts a playback output with the speech actually used", () => {
+    expect(
+      getTaskOutputValidationIssues({
+        type: "playback",
+        playback: { timing: { durationMs: 1200 } },
+        speech: { locale: "de-DE", voice: { gender: "female" } }
+      })
+    ).toEqual([]);
+  });
+
+  it("accepts playback timing", () => {
+    expect(
+      getTaskOutputValidationIssues({
+        type: "playback",
+        playback: { timing: { durationMs: 2140, firstAudioMs: 240, firstChunkMs: 180 } }
+      })
+    ).toEqual([]);
+  });
+
+  it("rejects a negative first-audio timing", () => {
+    expect(
+      getTaskOutputValidationIssues({
+        type: "playback",
+        playback: { timing: { firstAudioMs: -1 } }
+      }).map((issue) => issue.path)
+    ).toContain("/playback/timing/firstAudioMs");
+  });
+});
+
 describe("TaskResult validation", () => {
   it("accepts a text result with required telemetry", () => {
     expect(
@@ -213,6 +357,95 @@ describe("ModelPackage validation", () => {
       getModelPackageValidationIssues({
         format: "onnx"
       }).some((issue) => issue.path === "/" && issue.keyword === "required")
+    ).toBe(true);
+  });
+
+  const articulino = {
+    id: "articulino-de-en",
+    version: "1.0.0",
+    variant: "onnx-int8",
+    format: "onnx",
+    tasks: ["text_to_speech"],
+    runtime: { platforms: ["apple", "android", "web"], minOsVersion: "16.0" },
+    files: { required: ["text_encoder.onnx", "acoustic.onnx", "codec.onnx"] },
+    license: {
+      spdx: "Apache-2.0",
+      url: "https://huggingface.co/eigenhand/Articulino-DE-EN-Realtime-Stream-TTS"
+    },
+    source: { sourceType: "app_managed", ref: "models/articulino" },
+    speech: {
+      pipeline: "articulino",
+      sampleRate: 24000,
+      channels: 1,
+      graphs: { text_encoder: "text_encoder.onnx", acoustic: "acoustic.onnx", codec: "codec.onnx" },
+      frontend: { kind: "grapheme" },
+      voices: [
+        {
+          id: "sample",
+          name: "Sample",
+          locales: ["de-DE", "en-US"],
+          gender: "male",
+          file: "voices/sample.bin",
+          license: { spdx: "Apache-2.0" }
+        }
+      ]
+    }
+  };
+
+  it("accepts a Core AI package", () => {
+    expect(validateModelPackage({ id: "articulino-de-en", format: "coreai" })).toBe(true);
+  });
+
+  it("accepts a speech model package", () => {
+    expect(validateModelPackage(articulino)).toBe(true);
+  });
+
+  it("rejects a text_to_speech package without speech", () => {
+    const issues = getModelPackageValidationIssues({
+      id: "x",
+      format: "onnx",
+      tasks: ["text_to_speech"]
+    });
+    expect(issues.some((issue) => issue.path === "/" && issue.keyword === "required")).toBe(true);
+  });
+
+  it("rejects a speech voice without locales", () => {
+    const { speech, ...rest } = articulino;
+    const issues = getModelPackageValidationIssues({
+      ...rest,
+      speech: { ...speech, voices: [{ id: "v", name: "V", locales: [], file: "v.bin" }] }
+    });
+    expect(issues.some((issue) => issue.path === "/speech/voices/0/locales")).toBe(true);
+  });
+
+  it("rejects an underscore locale tag in a speech voice", () => {
+    const { speech, ...rest } = articulino;
+    const issues = getModelPackageValidationIssues({
+      ...rest,
+      speech: { ...speech, voices: [{ id: "v", name: "V", locales: ["en_US"], file: "v.bin" }] }
+    });
+    expect(issues.some((issue) => issue.path === "/speech/voices/0/locales/0")).toBe(true);
+  });
+
+  it("accepts a speech voice without a file", () => {
+    const { speech, ...rest } = articulino;
+    expect(
+      validateModelPackage({
+        ...rest,
+        speech: { ...speech, voices: [{ id: "v", name: "V", locales: ["en-US"] }] }
+      })
+    ).toBe(true);
+  });
+
+  it("rejects duplicate speech voice ids", () => {
+    const { speech, ...rest } = articulino;
+    const voice = speech.voices[0];
+    const issues = getModelPackageValidationIssues({
+      ...rest,
+      speech: { ...speech, voices: [voice, voice] }
+    });
+    expect(
+      issues.some((issue) => issue.path === "/speech/voices" && issue.keyword === "uniqueVoiceIds")
     ).toBe(true);
   });
 
@@ -552,7 +785,7 @@ describe("StreamTerminalOutcome validation", () => {
     ).toBe(true);
   });
 
-  it("rejects a completed outcome missing finalText", () => {
+  it("rejects a completed outcome missing both finalText and output", () => {
     expect(
       validateStreamTerminalOutcome({
         schemaVersion: "1.0",
@@ -573,14 +806,82 @@ describe("StreamTerminalOutcome validation", () => {
     ).toBe(false);
   });
 
-  it("rejects a cancelled outcome missing the required partialText field", () => {
+  it("accepts a cancelled outcome carrying neither partialText nor output", () => {
+    // An artifact run cancelled before handoff produced nothing to report.
     expect(
       validateStreamTerminalOutcome({
         schemaVersion: "1.0",
         runId: "run_123",
         outcome: "cancelled"
       })
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      "completed",
+      {
+        output: {
+          type: "artifact",
+          artifact: {
+            id: "art_1",
+            mediaType: "audio/wav",
+            owner: "engine",
+            lifetime: "until_disposed",
+            byteLength: 10
+          }
+        }
+      }
+    ],
+    ["cancelled", { output: { type: "playback", playback: { timing: { durationMs: 640 } } } }]
+  ])(
+    "accepts a %s outcome that carries a non-text output in both terminal copies",
+    (outcome, payload) => {
+      const terminal = { schemaVersion: "1.0", runId: "run_123", outcome, ...payload };
+      expect(getStreamTerminalOutcomeValidationIssues(terminal)).toEqual([]);
+      expect(
+        getStreamEventValidationIssues({
+          schemaVersion: "1.0",
+          runId: "run_123",
+          sequence: 3,
+          timestamp: 1,
+          type: "terminal",
+          payload: terminal
+        })
+      ).toEqual([]);
+    }
+  );
+
+  it("rejects a terminal output whose type lacks its payload in both copies", () => {
+    const terminal = {
+      schemaVersion: "1.0",
+      runId: "run_123",
+      outcome: "completed",
+      output: { type: "playback" }
+    };
+    expect(validateStreamTerminalOutcome(terminal)).toBe(false);
+    expect(
+      validateStreamEvent({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        sequence: 0,
+        timestamp: 1,
+        type: "terminal",
+        payload: terminal
+      })
     ).toBe(false);
+  });
+
+  it("accepts the partialText an error outcome carries after commit", () => {
+    expect(
+      validateStreamTerminalOutcome({
+        schemaVersion: "1.0",
+        runId: "run_123",
+        outcome: "error",
+        partialText: "Hel",
+        error: { schemaVersion: "1.0", errorClass: "Unavailable", message: "Provider failed" }
+      })
+    ).toBe(true);
   });
 
   it("rejects an unrecognized outcome value", () => {
@@ -726,5 +1027,47 @@ describe("ExecutionProvenance validation", () => {
       expect(validateStreamEvent(terminalEvent(valid!))).toBe(true);
       expect(validateStreamEvent(terminalEvent(broken!))).toBe(false);
     }
+  });
+});
+
+type SnapshotFixtures = {
+  valid: Array<{ id: string; snapshot: unknown }>;
+  invalid: Array<{ id: string; path: string; snapshot: unknown }>;
+};
+
+const snapshotFixtures = JSON.parse(
+  readFileSync(
+    new URL("../../../contracts/fixtures/provider/capability-snapshots.json", import.meta.url),
+    "utf8"
+  )
+) as SnapshotFixtures;
+
+describe("ProviderCapabilitySnapshot validation", () => {
+  for (const { id, snapshot } of snapshotFixtures.valid) {
+    it(`accepts ${id}`, () => {
+      expect(getProviderCapabilitySnapshotValidationIssues(snapshot)).toEqual([]);
+    });
+  }
+
+  for (const { id, path, snapshot } of snapshotFixtures.invalid) {
+    it(`rejects ${id} at ${path}`, () => {
+      expect(validateProviderCapabilitySnapshot(snapshot)).toBe(false);
+      expect(
+        getProviderCapabilitySnapshotValidationIssues(snapshot).map((issue) => issue.path)
+      ).toContain(path);
+    });
+  }
+
+  it("validates the descriptor and dynamic capabilities on their own", () => {
+    const [first] = snapshotFixtures.valid;
+    const { descriptor, capabilities } = first!.snapshot as {
+      descriptor: unknown;
+      capabilities: unknown;
+    };
+    expect(validateProviderDescriptor(descriptor)).toBe(true);
+    expect(validateProviderDynamicCapabilities(capabilities)).toBe(true);
+    expect(
+      validateProviderDynamicCapabilities({ available: true, cancellationAvailable: null })
+    ).toBe(false);
   });
 });

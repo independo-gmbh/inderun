@@ -18,8 +18,13 @@
       "minLength": 1
     },
     "format": {
-      "description": "Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI model package.",
-      "enum": ["onnx", "ort", "genai"]
+      "description": "Model packaging format the target runtime family must understand. 'onnx' is a plain ONNX graph, 'ort' is an ONNX Runtime optimized/mobile format, 'genai' is an ONNX Runtime GenAI model package, 'coreai' is an Apple Core AI .aimodel asset (iOS/macOS 27+).",
+      "enum": ["onnx", "ort", "genai", "coreai"]
+    },
+    "variant": {
+      "description": "Optional concrete artifact variant of this logical model (for example 'onnx-int8', 'coreai-fp16'). 'id' names the model, 'variant' the bytes.",
+      "type": "string",
+      "minLength": 1
     },
     "tasks": {
       "description": "IndeRun task kinds this model package can serve (for example 'text_to_text'). Used by dynamic capability checks and route matching.",
@@ -51,6 +56,11 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "minOsVersion": {
+          "description": "Minimum platform OS version the package needs, where known (for example '27.0' for a Core AI asset). Applies to every platform listed in `platforms`; split packages whose platforms need different OS floors.",
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -151,6 +161,140 @@
           "description": "Approximate peak memory required to run the model, where known.",
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "speech": {
+      "title": "SpeechModelPackage",
+      "description": "What a text_to_speech model package adds: the pipeline that turns text into PCM, the graphs it runs, its text frontend and the voices it offers. Required when 'tasks' contains 'text_to_speech'.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["pipeline", "sampleRate", "graphs", "voices"],
+      "properties": {
+        "pipeline": {
+          "description": "The text-to-PCM recipe the provider runs for this package: which graphs in which order, with which text frontend. A provider refuses a value it does not implement.",
+          "$comment": "Known values: 'articulino'. Possible later (#289): 'kokoro', 'piper', 'pocket_tts'. Open on purpose: a new model family must not force a schema and codegen change.",
+          "type": "string",
+          "minLength": 1
+        },
+        "sampleRate": {
+          "description": "Sample rate of the PCM the pipeline produces, in Hz.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "channels": {
+          "description": "Channels of the PCM the pipeline produces. Absent means 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "graphs": {
+          "description": "Role to file. Roles are defined by the pipeline (for example 'text', 'dit_step', 'decoder'). For a 'coreai' package a value is either the .aimodel file, whose inference function is then named after the role, or `<file>#<function>` when the function name differs.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "frontend": {
+          "title": "SpeechFrontend",
+          "description": "How text becomes model input. 'grapheme' pipelines read letters; 'phoneme' pipelines need a grapheme-to-phoneme step whose assets are listed here.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["kind"],
+          "properties": {
+            "kind": {
+              "title": "FrontendKind",
+              "enum": ["grapheme", "phoneme"]
+            },
+            "assets": {
+              "description": "Role to file for the frontend's own assets (tokenizer, lexicon, G2P graph).",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "license": {
+              "$ref": "#/$defs/assetLicense"
+            }
+          }
+        },
+        "voices": {
+          "description": "The voices this package offers, one entry per selectable voice. Each is listed through capabilities as a ProviderVoice.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "title": "SpeechModelVoice",
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "name", "locales"],
+            "properties": {
+              "id": {
+                "description": "Identifies the voice within the package and, through the provider, as speech.voice.id. Unique within the package.",
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "description": "Label for showing the voice to a person.",
+                "type": "string",
+                "minLength": 1
+              },
+              "locales": {
+                "description": "Hyphenated BCP 47 tags the voice speaks (for example 'de-DE', not 'de_DE'); the first is its primary locale.",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+                }
+              },
+              "gender": {
+                "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
+              },
+              "file": {
+                "description": "The voice asset (style vector or speaker embedding), relative to the package. Absent when the voice is built into the graphs and selected by the pipeline (for example a speaker index). No speaker encoder runs on the device.",
+                "type": "string",
+                "minLength": 1
+              },
+              "license": {
+                "$ref": "#/$defs/assetLicense"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "if": {
+    "required": ["tasks"],
+    "properties": {
+      "tasks": {
+        "type": "array",
+        "contains": { "const": "text_to_speech" }
+      }
+    }
+  },
+  "then": {
+    "required": ["speech"]
+  },
+  "$defs": {
+    "assetLicense": {
+      "title": "AssetLicense",
+      "description": "Licence of one asset inside a package (a voice, a frontend), where it differs from the package's own.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "spdx": {
+          "description": "SPDX license identifier where known.",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "description": "License or model card URL where available.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }

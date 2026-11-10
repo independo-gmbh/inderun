@@ -31,13 +31,32 @@ public struct OnnxProviderOptions: Sendable {
     }
 }
 
+/// Whether the model loaded, or why it did not.
+private final class OnnxLoadState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isLoaded = false
+    private var failureReason: String?
+
+    var loaded: Bool { lock.withLock { isLoaded } }
+    var failure: String? { lock.withLock { failureReason } }
+
+    func markLoaded() {
+        lock.withLock { isLoaded = true }
+    }
+
+    func fail(_ reason: String) {
+        lock.withLock { failureReason = reason }
+    }
+}
+
 /// Local provider adapter that executes Mode-1 text-to-text requests with a developer-supplied
 /// ONNX model on Apple platforms.
 ///
 /// The adapter owns the IndeRun-facing contract (descriptor, capability checks, error taxonomy)
 /// and delegates execution to an injectable `OnnxGenAiRuntime`. ONNX Runtime execution backends
 /// (CPU, CoreML, XNNPACK) stay behind that seam and are never public routing concepts.
-public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
+public final class OnnxRuntimeAppleProvider: PreparableProviderAdapter, Sendable {
+    private let loadState = OnnxLoadState()
     /// Default provider id of the Apple-platform member of the ONNX Runtime provider family.
     public static let defaultId = "local.onnx.genai.apple"
 
@@ -50,15 +69,38 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
     private let id: String
     private let modelPackage: ModelPackage
     private let runtime: any OnnxGenAiRuntime
+    /// Whether ``close()`` closes `runtime`: only for the default runtime this provider built.
+    private let ownsRuntime: Bool
     private let timeout: Duration?
 
     /// Creates an Apple ONNX Runtime provider.
-    /// - Parameter options: Model package plus optional id, runtime, and timeout overrides.
-    public init(options: OnnxProviderOptions) {
+    /// - Parameter options: Model package plus optional id, runtime, and timeout overrides. Without
+    ///   a `runtime` the provider builds a ``SystemOnnxGenAiRuntime`` and owns it.
+    public convenience init(options: OnnxProviderOptions) {
+        self.init(
+            options: options,
+            runtime: options.runtime ?? SystemOnnxGenAiRuntime(),
+            ownsRuntime: options.runtime == nil
+        )
+    }
+
+    /// The designated initializer: `runtime` replaces `options.runtime`, and `ownsRuntime` says
+    /// whether ``close()`` closes it.
+    init(options: OnnxProviderOptions, runtime: any OnnxGenAiRuntime, ownsRuntime: Bool) {
         self.id = options.id
         self.modelPackage = options.modelPackage
-        self.runtime = options.runtime ?? SystemOnnxGenAiRuntime()
+        self.runtime = runtime
+        self.ownsRuntime = ownsRuntime
         self.timeout = options.timeout
+    }
+
+    /// Releases the loaded model when this provider built its runtime (no `runtime` in the
+    /// options); a runtime the application supplied stays the application's to close. The engine
+    /// never calls this: the application registered the provider, so it closes it once no engine
+    /// routes to it. Idempotent; a run after close loads the model again. Mirrors
+    /// `OnnxRuntimeWebProvider.close()`.
+    public func close() async {
+        if ownsRuntime { await runtime.close() }
     }
 
     /// Returns static metadata used by the router for deterministic provider selection.
@@ -68,7 +110,7 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
             type: .local,
             model: modelPackage.id,
             transport: .inProcess,
-            supports: ProviderDescriptor.SupportsCapabilities(
+            supports: ProviderSupports(
                 run: true,
                 streaming: false,
                 realtime: false,
@@ -79,7 +121,18 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
             ),
             cancel: .soft,
             tasks: declaredTasks(modelPackage),
-            privacy: ProviderDescriptor.PrivacyDescriptor(dataLeavesDevice: false)
+            taskCapabilities: declaredTasks(modelPackage).contains(textToText)
+                ? [
+                    ProviderTaskCapability(
+                        kind: textToText,
+                        inputs: [.text],
+                        interaction: ProviderTaskInteraction(prepare: true, run: true, stream: false),
+                        cancel: .soft,
+                        outputs: [ProviderTaskOutput(delivery: .inline)]
+                    )
+                ]
+                : nil,
+            privacy: ProviderPrivacy(dataLeavesDevice: false)
         )
     }
 
@@ -122,8 +175,48 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
             )
         }
 
-        let availability = await runtime.prepare(modelPackage)
-        return ProviderDynamicCapabilities(available: availability.available, reason: availability.reason)
+        let availability = await runtime.availability(modelPackage)
+        guard availability.available else {
+            return ProviderDynamicCapabilities(available: false, reason: availability.reason)
+        }
+        if let failure = loadState.failure {
+            return ProviderDynamicCapabilities(available: false, reason: failure)
+        }
+        return ProviderDynamicCapabilities(
+            available: true,
+            taskCapabilities: loadState.loaded
+                ? nil
+                : [ProviderTaskAvailability(kind: textToText, readiness: .cold)]
+        )
+    }
+
+    /// Loads the model ahead of the first run. Nothing here downloads: files are host-managed.
+    public func prepare(context: ProviderPrepareContext) -> AsyncThrowingStream<PreparationProgress, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await ensureLoaded(runId: context.runId)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Loads the model once. A failed load is remembered, so routing stops choosing this provider
+    /// instead of every call retrying a load that failed. It refuses before any output, so the run
+    /// can still fall back.
+    private func ensureLoaded(runId: String) async throws {
+        guard !loadState.loaded else { return }
+        let result = await runtime.prepare(modelPackage)
+        guard result.available else {
+            let reason = result.reason ?? "The model failed to load."
+            loadState.fail(reason)
+            throw createCapabilityMismatch(message: reason, runId: runId, providerId: id)
+        }
+        loadState.markLoaded()
     }
 
     /// Executes a normalized text-to-text task on the developer-supplied local ONNX model.
@@ -141,6 +234,8 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
                 providerId: id
             )
         }
+
+        try await ensureLoaded(runId: context.runId)
 
         let messages = createMessages(from: request)
         guard !messages.isEmpty else {
@@ -178,7 +273,7 @@ public final class OnnxRuntimeAppleProvider: ProviderAdapter, Sendable {
 
         return TaskResult(
             runId: context.runId,
-            output: Output(text: output.text),
+            output: TaskOutput(text: output.text),
             finishReason: output.finishReason ?? .stop,
             usage: output.usage,
             telemetry: TelemetryInfo(providerUsed: id, totalMs: 0)

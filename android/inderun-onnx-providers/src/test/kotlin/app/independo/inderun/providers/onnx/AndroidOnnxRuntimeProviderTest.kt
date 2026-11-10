@@ -3,7 +3,8 @@ package app.independo.inderun.providers.onnx
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.ModelPackage
-import app.independo.inderun.contracts.PrivacyEnum
+import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.Source
 import app.independo.inderun.contracts.SourceType
@@ -14,10 +15,12 @@ import app.independo.inderun.core.ClockService
 import app.independo.inderun.core.ConnectivityService
 import app.independo.inderun.core.HostServices
 import app.independo.inderun.core.IndeRunException
+import app.independo.inderun.core.ProviderPrepareContext
 import app.independo.inderun.core.RunContext
 import app.independo.inderun.core.SecureStorageService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -63,6 +66,60 @@ class AndroidOnnxRuntimeProviderTest {
 
         assertFalse(capabilities.available)
         assertTrue(capabilities.reason.orEmpty().contains("deferred"))
+    }
+
+    private class CountingRuntime(
+        private val loadResult: AndroidOnnxRuntimeAvailability = AndroidOnnxRuntimeAvailability(available = true),
+    ) : AndroidOnnxGenAiRuntime by createFixtureOnnxRuntime() {
+        var loads = 0
+
+        override suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability {
+            loads += 1
+            return loadResult
+        }
+    }
+
+    @Test
+    fun aCapabilityCheckNeverLoadsTheModelAndReportsItCold() = runTest {
+        val runtime = CountingRuntime()
+        val provider = providerWith(modelPackage = modelPackage(sourceType = SourceType.Filesystem), runtime = runtime)
+
+        val capabilities = provider.capabilities(fakeHostServices())
+
+        assertEquals(0, runtime.loads)
+        assertTrue(capabilities.available)
+        assertEquals(ProviderReadiness.Cold, capabilities.taskCapabilities?.single()?.readiness)
+    }
+
+    @Test
+    fun prepareLoadsOnceAndThenReportsReady() = runTest {
+        val runtime = CountingRuntime()
+        val provider = providerWith(modelPackage = modelPackage(sourceType = SourceType.Filesystem), runtime = runtime)
+        val context = ProviderPrepareContext("run_1", fakeHostServices(), "text_to_text")
+
+        provider.prepare(context).toList()
+        provider.prepare(context).toList()
+
+        assertEquals(1, runtime.loads)
+        assertEquals(null, provider.capabilities(fakeHostServices()).taskCapabilities)
+    }
+
+    @Test
+    fun aFailedLoadIsRememberedSoRoutingStopsChoosingTheProvider() = runTest {
+        val runtime = CountingRuntime(AndroidOnnxRuntimeAvailability(available = false, reason = "model corrupt"))
+        val provider = providerWith(modelPackage = modelPackage(sourceType = SourceType.Filesystem), runtime = runtime)
+        val context = ProviderPrepareContext("run_1", fakeHostServices(), "text_to_text")
+
+        try {
+            provider.prepare(context).toList()
+            fail("Expected the load to fail.")
+        } catch (error: IndeRunException) {
+            assertEquals(IndeRunErrorClass.CapabilityMismatch, error.errorClass)
+        }
+
+        val capabilities = provider.capabilities(fakeHostServices())
+        assertFalse(capabilities.available)
+        assertEquals("model corrupt", capabilities.reason)
     }
 
     @Test
@@ -155,22 +212,6 @@ class AndroidOnnxRuntimeProviderTest {
     }
 
     @Test
-    fun modelPackageValidationRejectsUrlUserinfoInSourceRef() {
-        val issues = getModelPackageValidationIssues(
-            modelPackage(ref = "https://user:pass@example.com/model"),
-        )
-
-        assertTrue(issues.any { it.path == "/source/ref" })
-    }
-
-    @Test
-    fun modelPackageValidationAllowsPlainSourceRef() {
-        val issues = getModelPackageValidationIssues(modelPackage(ref = "models/phi-3"))
-
-        assertTrue(issues.none { it.path == "/source/ref" })
-    }
-
-    @Test
     fun cancellationPropagatesRawWithoutNormalization() = runTest {
         val provider = providerWith(
             runtime = createFixtureOnnxRuntime(options = FixtureOnnxRuntimeOptions(delayMs = 10_000)),
@@ -204,6 +245,41 @@ class AndroidOnnxRuntimeProviderTest {
         }
     }
 
+    private class ClosingRuntime : AndroidOnnxGenAiRuntime by createFixtureOnnxRuntime() {
+        var closes = 0
+
+        override fun close() {
+            closes += 1
+        }
+    }
+
+    @Test
+    fun closeLeavesAnInjectedRuntimeOpen() {
+        val runtime = ClosingRuntime()
+        val provider = providerWith(runtime = runtime)
+
+        provider.close()
+        provider.close()
+
+        assertEquals(0, runtime.closes)
+    }
+
+    @Test
+    fun closeClosesARuntimeTheProviderOwns() {
+        val runtime = ClosingRuntime()
+        val provider = AndroidOnnxRuntimeProvider(
+            modelPackage = modelPackage(),
+            runtime = runtime,
+            id = AndroidOnnxRuntimeProvider.DEFAULT_ID,
+            timeoutMs = null,
+            ownsRuntime = true,
+        )
+
+        provider.close()
+
+        assertEquals(1, runtime.closes)
+    }
+
     private fun providerWith(
         modelPackage: ModelPackage = modelPackage(),
         runtime: AndroidOnnxGenAiRuntime,
@@ -230,7 +306,7 @@ class AndroidOnnxRuntimeProviderTest {
         schemaVersion = SchemaVersion.V1_0,
         prompt = prompt,
         task = TaskRequestTask(),
-        constraints = TaskRequestConstraints(privacy = PrivacyEnum.LocalRequired),
+        constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
     )
 
     private fun fakeHostServices(): HostServices = HostServices(

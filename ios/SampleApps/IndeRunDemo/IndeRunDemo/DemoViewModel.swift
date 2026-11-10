@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import Foundation
 import SwiftUI
@@ -89,10 +90,23 @@ final class DemoViewModel: ObservableObject {
         let metadata: AttemptMetadata?
     }
 
+    /// One entry of the speech language picker. `id` is the BCP 47 tag sent to `speak`.
+    struct SpeechLocaleOption: Identifiable {
+        let id: String
+        let name: String
+    }
+
+    enum SpeechLocalesState {
+        case loading
+        case ready([SpeechLocaleOption])
+        case failed
+    }
+
     private enum DefaultsKey {
         static let endpointURL = "inderun.demo.cloudEndpointURL"
         static let model = "inderun.demo.cloudModel"
         static let onnxModelSelection = "inderun.demo.onnxModelSelection"
+        static let voicesLabEnabled = "inderun.demo.voicesLabEnabled"
     }
 
     private static let providerLabels: [String: String] = [
@@ -122,6 +136,11 @@ final class DemoViewModel: ObservableObject {
             Task { await ensureSelectedOnnxModelDownloaded() }
         }
     }
+    /// The opt-in Voices lab (#260). Off by default: while off, the tab is hidden and nothing is
+    /// read, registered or downloaded.
+    @Published var voicesLabEnabled: Bool {
+        didSet { userDefaults.set(voicesLabEnabled, forKey: DefaultsKey.voicesLabEnabled) }
+    }
     @Published private(set) var onnxDownloadState: DemoOnnxDownloadState = .idle
     @Published private(set) var capabilitiesState: CapabilitiesState = .loading
     @Published private(set) var result: ResultState?
@@ -133,14 +152,45 @@ final class DemoViewModel: ObservableObject {
     /// Human-readable terminal outcome of the last stream, or nil before one ran.
     @Published private(set) var streamOutcome: String?
     @Published private(set) var isStreaming = false
+    @Published var speechText = "Der Bus kommt in fünf Minuten."
+    /// The selected BCP 47 tag. Nil until `refreshSpeechLocales` has found one, and whenever the
+    /// device has none.
+    @Published var speechLocale: String? {
+        didSet { speechVoiceId = nil }
+    }
+    /// The selected voice of `speechLocale`. Nil lets routing choose.
+    @Published var speechVoiceId: String?
+    @Published private var speechVoices: [SpeechVoiceInfo] = []
+    @Published private(set) var speechLocalesState: SpeechLocalesState = .loading
+    @Published private(set) var isSpeaking = false
+    @Published private(set) var speechOutcome: String?
 
     private let hostServices: HostServices
     private let userDefaults: UserDefaults
     private let telemetryService = DemoTelemetryService()
     private let onDeviceProvider = AppleFoundationModelsProvider()
+    private let speechProvider = AppleSystemSpeechProvider()
     /// Held only so `cancelStream` can reach the run's cancel hook; the stream is
     /// consumed by `streamPrompt`, which clears this when it terminates.
     private var streamRun: StreamRun?
+    /// Held only so `stopSpeaking` can reach the handle `speak` is waiting on.
+    /// Set once routing has produced a handle: until then there is nothing Stop could reach.
+    @Published private var playback: SpeechPlayback?
+    /// When Stop was tapped, so the outcome can show how long stopping took (#251).
+    private var stopTappedAt: Date?
+    var canStopSpeaking: Bool { playback != nil }
+    var canSpeak: Bool { !isSpeaking && !speechText.isEmpty && speechLocale != nil }
+
+    /// Every voice of the selected locale. Names repeat, so a repeated one gets a number.
+    var speechVoiceOptions: [SpeechVoiceOption] {
+        var seen: [String: Int] = [:]
+        return speechVoices.filter { $0.locale == speechLocale }.compactMap { voice in
+            guard let id = voice.id else { return nil }
+            let name = voice.name ?? id
+            seen[name, default: 0] += 1
+            return SpeechVoiceOption(id: id, label: seen[name] == 1 ? name : "\(name) \(seen[name] ?? 1)")
+        }
+    }
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -151,6 +201,7 @@ final class DemoViewModel: ObservableObject {
         // Defaults to a real downloadable model (not the fixture) so the demo generates actual
         // text on first launch with no manual setup, mirroring the web demo's default experience.
         self.onnxModelSelection = persistedSelection ?? .distilgpt2Quantized
+        self.voicesLabEnabled = userDefaults.bool(forKey: DefaultsKey.voicesLabEnabled)
         self.hostServices = DefaultHostServices.make()
     }
 
@@ -258,7 +309,7 @@ final class DemoViewModel: ObservableObject {
             let taskResult = try await inderun.run(request: request)
 
             result = ResultState(
-                outputText: taskResult.output.text,
+                outputText: taskResult.output.text ?? "",
                 metadata: AttemptMetadata(
                     runId: taskResult.runId,
                     providerUsed: taskResult.telemetry.providerUsed,
@@ -333,6 +384,134 @@ final class DemoViewModel: ObservableObject {
     /// guarantees exactly one terminal outcome regardless of when it lands.
     func cancelStream() {
         streamRun?.cancel(reason: "cancelled from the demo app")
+    }
+
+    /// Speaks through the primary API: routing, cancellation and provenance are the engine's, and
+    /// this app never touches `AVSpeechSynthesizer`.
+    func speak() async {
+        guard let selectedLocale = speechLocale else { return }
+        isSpeaking = true
+        speechOutcome = nil
+        stopTappedAt = nil
+        defer {
+            isSpeaking = false
+            playback = nil
+        }
+        do {
+            // The default session follows the Silent switch, which would mute a spoken answer.
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+            let handle = try await makeIndeRun().speak(SpeakOptions(
+                speechText,
+                locale: selectedLocale,
+                voice: speechVoices.first { $0.id == speechVoiceId }?.asSpeechVoice(),
+                execution: SpeechExecutionOptions(privacy: .localRequired)
+            ))
+            playback = handle
+            let ending = try await handle.result()
+            let locale = ending.speech?.locale ?? selectedLocale
+            let target = ending.provenance?.providerId ?? "unknown"
+            let locality = ending.provenance?.locality.rawValue ?? "unknown"
+            let voice = ending.speech?.voice?.name ?? "unknown voice"
+            // Measurements for docs/verification/system-speech.md: the platform's first word, and
+            // from the Stop tap to the run's ending.
+            let timings = [
+                ending.timing?.firstAudioMs.map { "first word \(Int($0)) ms" },
+                stopTappedAt.map { "stopped in \(Int(Date().timeIntervalSince($0) * 1000)) ms" },
+            ].compactMap { $0 }
+            speechOutcome = (["\(ending.finishReason?.rawValue ?? "unknown")", locale, voice, target, locality] + timings)
+                .joined(separator: " · ")
+        } catch {
+            speechOutcome = "failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Renders the text silently through `generateSpeech`, reads the WAV back and releases it:
+    /// the retrievable-audio path, on the same routing and privacy as `speak`.
+    func synthesizeSpeech() async {
+        guard let selectedLocale = speechLocale else { return }
+        isSpeaking = true
+        speechOutcome = nil
+        defer { isSpeaking = false }
+        do {
+            let inderun = try makeIndeRun()
+            let started = Date()
+            let speech = try await inderun.generateSpeech(GenerateSpeechOptions(SpeakOptions(
+                speechText,
+                locale: selectedLocale,
+                voice: speechVoices.first { $0.id == speechVoiceId }?.asSpeechVoice(),
+                execution: SpeechExecutionOptions(privacy: .localRequired)
+            )))
+            let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
+            let first = try await inderun.readArtifact(
+                request: ArtifactReadRequest(artifactId: speech.artifact.id, maxBytes: 4, offset: 0)
+            )
+            await inderun.disposeArtifact(artifact: speech.artifact)
+            let header = String(decoding: first.bytes, as: UTF8.self)
+            let duration = speech.artifact.durationMs.map { "\(Int($0)) ms audio" } ?? "unknown duration"
+            speechOutcome = [
+                speech.artifact.mediaType, header, "\(first.totalBytes) bytes", duration,
+                "rendered in \(elapsedMs) ms", speech.provenance?.locality.rawValue ?? "unknown",
+            ].joined(separator: " · ")
+        } catch {
+            speechOutcome = "failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Fills the language and voice pickers from `listVoices()`: one language entry per locale,
+    /// with its voices in the second picker. Keeps a selection while it is still listed. Stays quietly on the
+    /// current list during a refresh, so returning to the screen does not flash a loading state.
+    func refreshSpeechLocales() async {
+        do {
+            let voices = try await makeIndeRun().listVoices()
+            // The screen went away mid-check and reloads when it is back: a list read while
+            // cancelled says nothing reliable about the device, so it must not replace this one.
+            guard !Task.isCancelled else { return }
+
+            let options = Set(voices.map(\.locale))
+                .map { SpeechLocaleOption(id: $0, name: Locale.current.localizedString(forIdentifier: $0) ?? $0) }
+                .sorted(using: [KeyPathComparator(\.name, comparator: .localizedStandard), KeyPathComparator(\.id)])
+            if !options.contains(where: { $0.id == speechLocale }) {
+                speechLocale = Self.defaultSpeechLocale(among: options)
+            }
+            speechVoices = voices
+            if !voices.contains(where: { $0.id == speechVoiceId }) { speechVoiceId = nil }
+            speechLocalesState = .ready(options)
+            await prepareSpeech()
+        } catch {
+            speechLocale = nil
+            speechLocalesState = .failed
+        }
+    }
+
+    /// Warms the selected voice, so the first tap on Speak starts sooner. Optional: without it,
+    /// speech still works and the first utterance takes the time to load the voice.
+    func prepareSpeech() async {
+        guard let speechLocale else { return }
+        let selected = speechVoices.first { $0.id == speechVoiceId }
+        let voice = selected.map { PrepareVoice(gender: $0.gender, id: $0.id, providerId: $0.providerId) }
+        do {
+            let request = PrepareRequest(tasks: ["text_to_speech"], locale: speechLocale, voice: voice)
+            _ = try await makeIndeRun().prepare(request).result()
+        } catch {
+            // Only a head start: speaking still works.
+        }
+    }
+
+    /// The device's own locale if listed, otherwise one with the same language, otherwise the first.
+    ///
+    /// Reads `preferredLanguages`, not `Locale.current`: this app ships English only, so
+    /// `Locale.current` reports a German iPhone in Austria as `en_AT`.
+    private static func defaultSpeechLocale(among options: [SpeechLocaleOption]) -> String? {
+        let device = Locale.Language(identifier: Locale.preferredLanguages.first ?? Locale.current.identifier)
+        let exact = options.first { Locale.Language(identifier: $0.id).isEquivalent(to: device) }
+        let sameLanguage = options.first { Locale.Language(identifier: $0.id).languageCode == device.languageCode }
+        return (exact ?? sameLanguage ?? options.first)?.id
+    }
+
+    /// Stops the audio. Idempotent; the run ends as cancelled, not as an error.
+    func stopSpeaking() {
+        if stopTappedAt == nil { stopTappedAt = Date() }
+        playback?.cancel(reason: "stopped from the demo app")
     }
 
     /// Maps the single terminal `StreamEvent` onto the same result/error panels the
@@ -435,6 +614,7 @@ final class DemoViewModel: ObservableObject {
     private func makeIndeRun() throws -> IndeRun {
         let registry = ProviderRegistry()
         try registry.register(onDeviceProvider)
+        try registry.register(speechProvider)
         try registry.register(makeOnnxProvider())
         try registry.register(makeCloudProvider())
         return IndeRun(registry: registry, hostServices: hostServices, telemetryService: telemetryService)
@@ -457,7 +637,9 @@ final class DemoViewModel: ObservableObject {
                 limits: nil,
                 runtime: nil,
                 source: Source(ref: directory.path, sourceType: .filesystem),
+                speech: nil,
                 tasks: ["text_to_text"],
+                variant: nil,
                 version: nil
             )
             // No runtime override: defaults to SystemOnnxGenAiRuntime(), real ONNX Runtime inference.
@@ -476,7 +658,9 @@ final class DemoViewModel: ObservableObject {
             limits: nil,
             runtime: nil,
             source: Source(ref: nil, sourceType: .programmatic),
+            speech: nil,
             tasks: ["text_to_text"],
+            variant: nil,
             version: nil
         )
         return OnnxRuntimeAppleProvider(
@@ -497,6 +681,11 @@ final class DemoViewModel: ObservableObject {
             )
         )
     }
+}
+
+struct SpeechVoiceOption: Identifiable, Equatable {
+    let id: String
+    let label: String
 }
 
 /// Captures the last `route_decided` telemetry event so the UI can show a routing

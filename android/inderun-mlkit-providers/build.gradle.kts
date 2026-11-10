@@ -5,7 +5,9 @@ plugins {
 
 android {
     namespace = "app.independo.inderun.providers.mlkit"
-    compileSdk = 37
+    // The consumer compileSdk floor, kept below the newest SDK on purpose; see the root build.gradle.kts.
+    //noinspection GradleDependency
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 26
@@ -30,7 +32,7 @@ dependencies {
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     // ML Kit is deliberately kept off this module's public API, so it stays here.
-    implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta5")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
