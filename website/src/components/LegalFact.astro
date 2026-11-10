@@ -1,0 +1,16 @@
+---
+/**
+ * One row of a legal fact list (`<dl>` on the imprint): a muted term beside its value, stacked on
+ * narrow screens. Put each line of a multi-line value in its own <p>.
+ */
+interface Props {
+  term: string;
+}
+
+const { term } = Astro.props;
+---
+
+<div class="grid gap-x-8 gap-y-1 border-b border-rule py-4 sm:grid-cols-[13rem_minmax(0,1fr)]">
+  <dt class="pt-0.75 text-ink-muted">{term}</dt>
+  <dd class="[&_p+p]:mt-1"><slot /></dd>
+</div>

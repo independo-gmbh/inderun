@@ -1,0 +1,180 @@
+name: Website
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+    paths:
+      - "website/**"
+      - "docs/**"
+      - "README.md"
+      - "packages/*/README.md"
+      - "ios/IndeRun/README.md"
+      - "android/inderun-kotlin/README.md"
+      - "contracts/**"
+      - "packages/inderun-web/src/index.ts"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/website.yml"
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - "website/**"
+      - "docs/**"
+      - "README.md"
+      - "packages/*/README.md"
+      - "ios/IndeRun/README.md"
+      - "android/inderun-kotlin/README.md"
+      - "contracts/**"
+      - "packages/inderun-web/src/index.ts"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/website.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  website:
+    name: Website
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm 11.9.0
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # The site installs the published npm packages, so it needs neither the Rust/WASM
+      # toolchain nor the other workspace packages. The workspace root brings ESLint and
+      # Prettier, because javascript.yml does not run for website-only changes.
+      - name: Install website dependencies
+        run: pnpm install --frozen-lockfile --filter . --filter @independo/website...
+
+      - name: Lint the site
+        run: pnpm exec eslint website
+
+      - name: Check the site's formatting
+        run: pnpm exec prettier --check "website/**/*.{ts,mjs,js}"
+
+      - name: Type-check the site (astro check)
+        run: pnpm --filter @independo/website check
+
+      - name: Check snippet and version markers
+        run: pnpm --filter @independo/website check:markers
+
+      - name: Type-check the snippets against the pinned packages
+        run: pnpm --filter @independo/website check:snippets
+
+      - name: Check the API reference snapshot
+        run: pnpm --filter @independo/website check:api
+
+      # Warnings are allowed: in prerelease mode the plugin may pin an older core.
+      - name: Check version consistency
+        run: pnpm --filter @independo/website check:versions
+
+      - name: Build the site (links and anchors are validated)
+        run: pnpm --filter @independo/website build
+
+      - name: Check the documentation architecture
+        run: pnpm --filter @independo/website check:docs -- --require-build
+
+      - name: Verify the SEO output
+        run: pnpm --filter @independo/website verify:seo
+
+      - name: Keep the production build for deployment
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: website-production
+          path: website/dist
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Build the preview site
+        run: pnpm --filter @independo/website build:preview
+
+      - name: Verify the preview SEO output
+        working-directory: website
+        run: node scripts/verify-seo-output.mjs --preview
+
+      - name: Keep the preview build for deployment
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: website-preview
+          path: website/dist-preview
+          retention-days: 3
+          if-no-files-found: error
+
+  # Deploys the checked builds to Firebase Hosting (project inderun-landingpage). The live branch
+  # (LIVE below) deploys the production build to inderun.dev; a push to the other long-lived
+  # branch updates a preview channel named after it; a pull request from this repository gets its
+  # own preview channel, linked in a PR comment. Preview channels serve the noindex preview build.
+  # Until v0.5.0 is released the live branch is dev, so the site goes live before the first stable
+  # release; switch LIVE to refs/heads/main in the release change (docs/ci.md, ADR 024). Pull requests from forks and from Dependabot have no access to
+  # the deploy secret and are skipped, as is every run while the secret is not configured.
+  deploy:
+    name: Deploy to Firebase Hosting
+    needs: website
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_INDERUN_LANDINGPAGE }}
+      LIVE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+
+    steps:
+      - name: Report a missing deploy secret
+        if: env.FIREBASE_SERVICE_ACCOUNT == ''
+        run: >-
+          echo "::notice::FIREBASE_SERVICE_ACCOUNT_INDERUN_LANDINGPAGE is not set; skipping the
+          deploy. See docs/ci.md."
+
+      - name: Check out repository
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.LIVE == 'true' && 'website-production' || 'website-preview' }}
+          path: website/dist
+
+      - name: Deploy
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a # v0.11.0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ env.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: inderun-landingpage
+          entryPoint: website
+          # Empty for pull requests: the action names the channel after the PR.
+          channelId: ${{ env.LIVE == 'true' && 'live' || github.event_name == 'push' && github.ref_name || '' }}
+          expires: ${{ github.event_name == 'push' && '30d' || '7d' }}
+          firebaseToolsVersion: 15.34.1

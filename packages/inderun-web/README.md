@@ -1,10 +1,24 @@
+<p align="center">
+  <a href="https://inderun.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://inderun.dev/brand/inderun-logo-dark.svg">
+      <img alt="IndeRun" src="https://inderun.dev/brand/inderun-logo-light.svg" width="360">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@independo/inderun-web"><img alt="npm: @independo/inderun-web" src="https://img.shields.io/npm/v/@independo/inderun-web?logo=npm"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml"><img alt="JavaScript" src="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/independo-gmbh/inderun/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://inderun.dev/docs"><img alt="Docs: inderun.dev" src="https://img.shields.io/badge/docs-inderun.dev-A0B3FF"></a>
+</p>
+
 # @independo/inderun-web
 
-[![npm](https://img.shields.io/npm/v/@independo/inderun-web?logo=npm)](https://www.npmjs.com/package/@independo/inderun-web)
-
-> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — on-device AI with automatic
-> cloud fallback, for cross-platform apps. New here? Start with the
-> [IndeRun README](https://github.com/independo-gmbh/inderun#readme).
+> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — on-device AI for the devices
+> your users actually have. A cloud route is used only if you configure one and the request permits it.
+> New here? Start with the [documentation](https://inderun.dev/docs).
 
 TypeScript/Web SDK for IndeRun.
 
@@ -24,6 +38,31 @@ The router, the route planner bindings and the Event Gate are engine internals a
 See the [migration guide](https://github.com/independo-gmbh/inderun/blob/main/docs/migration.md).
 
 ## Basic Usage
+
+On-device only, in a browser with a managed model (desktop Chrome with the Prompt API). Where there is none, the
+call is refused before anything executes:
+
+<!-- snippet:web-local-only -->
+```ts
+import { createIndeRunWeb, generateText } from "@independo/inderun-web";
+
+// Registers the browser-managed model (Chrome's Prompt API). In a browser
+// without it there is no eligible local provider, so the call is refused.
+const inderun = createIndeRunWeb({ systemModel: {} });
+
+const { text, provenance } = await generateText(inderun, {
+  prompt: "Rewrite in plain language: Your appointment has been rescheduled.",
+  execution: { privacy: "local_required" }
+});
+
+console.log(text, provenance?.providerId);
+```
+<!-- /snippet -->
+
+### Optional cloud route
+
+Register an OpenAI-compatible endpoint (through a same-origin proxy that holds the key) and a request can use it when
+its privacy constraint permits:
 
 ```ts
 import { createIndeRunWeb, generateText, streamText } from "@independo/inderun-web";
@@ -50,7 +89,7 @@ const { finishReason } = await stream.result;
 [model profile](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/api-layering.md#model-profiles),
 default `"auto"`), the usual sampling options, and an `execution` policy that reuses the canonical
 constraint values. Each call compiles to one `TaskRequest` — `toTaskRequest(options)` shows which —
-and runs through the engine below, so errors, fallback, and cancellation match the advanced API.
+and runs through the engine below, so errors, routing, and cancellation match the advanced API.
 
 ## Speech
 
@@ -81,6 +120,30 @@ the browser offers no standard way to retrieve the audio, so `generateSpeech` ne
 the device, and provenance reports locality `unknown`. Chrome also needs a user gesture before it will
 speak, so call `speak` from a click handler. Details are in the
 [system speech family doc](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/system-speech-provider-family.md).
+
+## Model profiles
+
+Models are bound where providers are configured, not at call sites. Every provider instance is a _target_ bound to one
+model — `createIndeRunWeb({ openAI: { models: ["gpt-5.2", "gpt-5-mini"] } })` registers the targets
+`openai:gpt-5.2` and `openai:gpt-5-mini` — and a _model profile_ names an ordered set of targets:
+
+```ts
+const inderun = createIndeRunWeb({
+  openAI: { models: ["gpt-5.2", "gpt-5-mini"], endpointUrl: "/api/inderun/openai-responses", auth: "none" },
+  systemModel: {},
+  modelProfiles: {
+    fast: ["local.system-model.web", "openai:gpt-5-mini"],
+    smart: ["openai:gpt-5.2"]
+  }
+});
+
+await inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt, modelProfile: "smart" });
+```
+
+A request that names no profile routes within the built-in `auto` profile: every registered target. A named profile is
+an allow-list — targets outside it are rejected with `not_in_model_profile` — and its order ranks targets _within_ a
+placement tier, so `local_required` and `local_preferred` keep their meaning. An unknown profile name fails validation.
+See [API layering](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/api-layering.md#model-profiles).
 
 ## Advanced: the task API
 
@@ -113,7 +176,7 @@ than failing later.
 `createBrowserHostServices` also provides a Web Audio `audioOutput` for providers that synthesize PCM themselves;
 browsers need a user gesture before the first `open()`, and a page that has none gets `audio_not_allowed`.
 
-Event types, ordering, the terminal guarantees, cancellation, and fallback are identical on every
+Event types, ordering, the terminal guarantees, and cancellation are identical on every
 SDK and documented once, in
 [Streaming (Mode 2)](https://github.com/independo-gmbh/inderun/blob/main/docs/streaming.md).
 

@@ -1,0 +1,16 @@
+{
+  "$comment": "Type-checks every published code example against the exact packages pinned in ../versions.json. Files marked TODO(verify) are excluded by scripts/check-snippets.mjs.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force"
+  },
+  "include": ["*.ts"]
+}

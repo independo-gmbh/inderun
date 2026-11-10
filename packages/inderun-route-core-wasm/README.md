@@ -1,10 +1,25 @@
+<p align="center">
+  <a href="https://inderun.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://inderun.dev/brand/inderun-logo-dark.svg">
+      <img alt="IndeRun" src="https://inderun.dev/brand/inderun-logo-light.svg" width="360">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@independo/inderun-route-core-wasm"><img alt="npm: @independo/inderun-route-core-wasm" src="https://img.shields.io/npm/v/@independo/inderun-route-core-wasm?logo=npm"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml"><img alt="JavaScript" src="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml"><img alt="Rust" src="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/independo-gmbh/inderun/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://inderun.dev/docs"><img alt="Docs: inderun.dev" src="https://img.shields.io/badge/docs-inderun.dev-A0B3FF"></a>
+</p>
+
 # @independo/inderun-route-core-wasm
 
-[![npm](https://img.shields.io/npm/v/@independo/inderun-route-core-wasm?logo=npm)](https://www.npmjs.com/package/@independo/inderun-route-core-wasm)
-
-> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — on-device AI with automatic
-> cloud fallback, for cross-platform apps. New here? Start with the
-> [IndeRun README](https://github.com/independo-gmbh/inderun#readme).
+> Part of **[IndeRun](https://github.com/independo-gmbh/inderun)** — runs AI on the device when a model
+> is available, and in the cloud only when the app configures a cloud target and the request allows it.
+> New here? Start with the [documentation](https://inderun.dev/docs).
 
 WebAssembly wrapper around the shared Rust route-planning core.
 

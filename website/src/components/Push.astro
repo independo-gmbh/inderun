@@ -1,0 +1,41 @@
+---
+/**
+ * Push button as a link: the square control of the route-setting panel (DESIGN.md, Push buttons).
+ * Shared by the landing header and the docs header (components/starlight/SocialIcons.astro), so
+ * "Get started" is the same object everywhere. The colours are theme tokens: on paper the primary
+ * is black with a lilac lamp and lights up lilac on hover; on black it is the lit lamp (black text
+ * on lilac, 10.4:1) and turns paper on hover.
+ */
+import type { HTMLAttributes } from "astro/types";
+
+interface Props extends HTMLAttributes<"a"> {
+  href: string;
+  variant?: "primary" | "secondary";
+  /** `default` 2.875rem, `small` 2.5rem, `compact` 2.25rem (the docs header row). */
+  size?: "default" | "small" | "compact";
+}
+
+const { variant = "primary", size = "default", class: className, ...rest } = Astro.props;
+
+const sizes = {
+  default: "min-h-11.5 px-4.5 py-2.75 text-base",
+  small: "min-h-10 px-3.5 py-2 text-small",
+  compact: "min-h-9 px-3.5 py-1.5 text-small whitespace-nowrap"
+};
+
+const variants = {
+  primary:
+    "border-push bg-push text-push-ink shadow-push before:size-2.5 before:flex-none before:rounded-[1px] before:bg-push-mark hover:border-ink hover:bg-push-hover hover:text-black hover:before:bg-black",
+  secondary: "border-ink bg-transparent text-ink hover:bg-ink hover:text-ground"
+};
+---
+
+<a
+  class:list={[
+    "inline-flex cursor-pointer items-center gap-2.5 rounded-plate border-[1.5px] leading-[1.2] font-semibold tracking-[-0.005em] no-underline transition-[background-color,color,border-color,translate] duration-160 ease-out-expo active:translate-y-px",
+    sizes[size],
+    variants[variant],
+    className
+  ]}
+  {...rest}><slot /></a
+>

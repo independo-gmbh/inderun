@@ -34,7 +34,9 @@ jobs:
         with:
           filters: |
             android:
-              - 'android/**'
+              # Markdown never reaches a build or a test (the consumer smoke targets
+              # copy the README quick start into code), so README edits skip this job.
+              - 'android/**/!(*.md)'
               # The Kotlin SDK has no fallback route planner, so anything that can
               # change the compiled route core changes Android behaviour: the
               # crate, the workspace manifest, the lockfile, the toolchain pin,

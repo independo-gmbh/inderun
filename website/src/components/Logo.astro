@@ -1,0 +1,33 @@
+---
+/**
+ * The IndeRun logo, inlined so it follows the theme. Source: the IndeRun logo package
+ * (Independo Marketing/Branding, 2026-11-10), `inderun-logo-lilac.svg` and
+ * `inderun-logo-by-independo-lilac.svg`. The copies in src/assets/brand differ from the package
+ * in three ways only:
+ *
+ * - The INDE letters (and "by Independo.") are `currentColor`, so the logo is black on the paper
+ *   ground and off-white on black, which are the package's lilac and dark variants.
+ * - The RUN block keeps its fixed lilac and black: it never changes with the theme.
+ * - The viewBox is cropped to the mark. The package's clear space (the width of the I on every
+ *   side) is left to the layout around it, so the mark lines up with the page gutter.
+ *
+ * Minimum widths from the package: 120px for the logo, 160px for the endorsed logo.
+ */
+import logo from "../assets/brand/inderun-logo.svg?raw";
+import endorsedLogo from "../assets/brand/inderun-logo-by-independo.svg?raw";
+
+interface Props {
+  /** The endorsed version with "by Independo." under the wordmark. */
+  endorsed?: boolean;
+  class?: string;
+}
+
+const { endorsed = false, class: className } = Astro.props;
+const label = endorsed ? "IndeRun by Independo" : "IndeRun";
+const svg = (endorsed ? endorsedLogo : logo).replace(
+  "<svg ",
+  `<svg role="img" aria-label="${label}" class="block h-auto w-full" `
+);
+---
+
+<span class:list={["inline-block shrink-0 text-ink", className]} set:html={svg} />

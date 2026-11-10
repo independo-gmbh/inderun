@@ -1,0 +1,164 @@
+---
+/**
+ * The hero illustration: one `run()` call reaching the devices people actually use, drawn as a
+ * route-setting panel. One entry track, four lanes, each ending in a lamp tablet that names the
+ * outcome in words. The first glance carries only engine, device and outcome; the rule switch and
+ * the link to the routing page are the next layer down.
+ *
+ * Interaction: the rule switch is a native radio group. `local_required` (default) ends the last
+ * lane in a stop and a "Refused" tablet; `local_preferred` swaps in a dashed line to "Your cloud".
+ * The swap is CSS (`:has()`), so it needs no JavaScript; without `:has()` the default rule shows.
+ *
+ * Semantics follow docs/concepts/routing-and-privacy.md: `local_required` never reaches a cloud
+ * provider, and the cloud lane exists only when the app registered a cloud target and the request
+ * permits it. Engine names match the providers the SDKs register (Apple Foundation Models, ML Kit
+ * GenAI / Gemini Nano, Chrome's Prompt API); no device result is claimed.
+ */
+import type { SimpleIcon } from "simple-icons";
+import { siApple, siGooglechrome, siGooglegemini } from "simple-icons";
+import { ArrowRight, Ban, Cloud, Smartphone } from "@lucide/astro";
+import BrandMark from "./BrandMark.astro";
+import { LINKS } from "../../site";
+
+interface Lane {
+  mark: SimpleIcon;
+  engine: string;
+  devices: string;
+}
+
+const lanes: Lane[] = [
+  { mark: siApple, engine: "Apple Foundation Models", devices: "Apple Intelligence devices" },
+  { mark: siGooglegemini, engine: "Gemini Nano", devices: "Android, via ML Kit GenAI" },
+  { mark: siGooglechrome, engine: "Chrome built-in AI", devices: "Web, opt-in (systemModel)" }
+];
+
+/* Shared pieces, so every lane is drawn the same way. */
+const lane = [
+  "relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 py-2 pl-7 @md:grid-cols-[auto_minmax(0,12.5rem)_minmax(0.75rem,1fr)_auto] @md:gap-x-3 @md:pl-8",
+  // trunk segment through this lane; the last lane stops at its junction
+  "after:absolute after:top-0 after:left-2.5 after:h-full after:w-[3px] after:bg-engrave last:after:h-1/2",
+  // junction from the trunk into the lane
+  "before:absolute before:top-1/2 before:left-2.5 before:h-[3px] before:w-4.5 before:-translate-y-1/2 before:bg-engrave @md:before:w-5.5"
+];
+const key =
+  "grid size-8 shrink-0 place-items-center rounded-key border border-panel-edge bg-panel-raised @md:size-9";
+const track = "hidden h-[3px] bg-engrave @md:block";
+const tablet =
+  "flex min-h-9 items-center gap-1.5 rounded-plate whitespace-nowrap border border-plate-edge bg-panel-raised px-2 @md:gap-2 @md:px-2.5 py-1.5 text-plate leading-tight caps @md:w-32";
+const lamp = "size-3 shrink-0 rounded-full bg-lamp outline-1 outline-offset-1 outline-plate-edge";
+---
+
+<section
+  aria-labelledby="panel-title"
+  class="@container relative flex flex-col rounded-panel bg-panel p-4 text-engrave shadow-set-in panel-seams @md:p-6"
+>
+  <form class="group/panel flex flex-1 flex-col">
+    <div
+      class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-panel-rule pb-4"
+    >
+      <h2 id="panel-title" class="text-xl leading-tight font-bold tracking-tight @md:text-2xl">
+        One call. Every device.
+      </h2>
+
+      <fieldset class="flex items-center gap-2">
+        <legend class="sr-only">Privacy rule for the request</legend>
+        <span class="text-plate text-engrave-muted caps" aria-hidden="true">Rule</span>
+        <span class="flex rounded-plate border border-panel-edge p-0.5">
+          {
+            [
+              { id: "rule-required", value: "local_required", checked: true },
+              { id: "rule-preferred", value: "local_preferred", checked: false }
+            ].map((rule) => (
+              <label
+                class="relative cursor-pointer rounded-key px-2.5 py-1.5 font-mono text-xs text-engrave-muted transition-colors duration-200 ease-out-expo hover:text-engrave has-checked:bg-lamp has-checked:text-black has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus-panel"
+              >
+                <input
+                  class="absolute inset-0 size-full cursor-pointer opacity-0"
+                  type="radio"
+                  name="rule"
+                  id={rule.id}
+                  value={rule.value}
+                  checked={rule.checked}
+                />
+                {rule.value}
+              </label>
+            ))
+          }
+        </span>
+      </fieldset>
+    </div>
+
+    <p
+      class="mt-5 inline-flex self-start rounded-plate border border-plate-edge bg-panel-raised px-2.5 py-1.5 font-mono text-meta text-engrave"
+    >
+      <span>ai.run(<span class="text-lamp">task</span>)</span>
+    </p>
+
+    <ul class="flex flex-1 flex-col justify-center" role="list">
+      {
+        lanes.map((entry) => (
+          <li class:list={lane}>
+            <span class={key}>
+              <BrandMark icon={entry.mark} class="size-4 @md:size-[1.125rem]" />
+            </span>
+            <span class="min-w-0">
+              <span class="block text-sm leading-snug font-semibold">{entry.engine}</span>
+              <span class="block text-meta leading-snug text-engrave-muted">
+                {entry.devices}
+              </span>
+            </span>
+            <span class={track} aria-hidden="true" />
+            <span class={tablet}>
+              <span class={lamp} aria-hidden="true" />
+              On device
+            </span>
+          </li>
+        ))
+      }
+
+      <li class:list={lane}>
+        <span class={key}>
+          <Smartphone class="size-4 @md:size-[1.125rem]" stroke-width={1.75} aria-hidden="true" />
+        </span>
+        <span class="min-w-0">
+          <span class="block text-sm leading-snug font-semibold">No local model</span>
+          <span class="block text-meta leading-snug text-engrave-muted">
+            Older devices
+          </span>
+        </span>
+        <span
+          class:list={[
+            track,
+            "relative mr-3 after:absolute after:top-1/2 after:-right-3 after:h-5 after:w-[3px] after:-translate-y-1/2 after:bg-engrave",
+            "group-has-[#rule-preferred:checked]/panel:mr-0 group-has-[#rule-preferred:checked]/panel:bg-transparent group-has-[#rule-preferred:checked]/panel:after:hidden",
+            "group-has-[#rule-preferred:checked]/panel:bg-[repeating-linear-gradient(90deg,var(--color-engrave)_0_0.5rem,transparent_0.5rem_0.875rem)]"
+          ]}
+          aria-hidden="true"></span>
+        <span class:list={[tablet, "group-has-[#rule-preferred:checked]/panel:hidden"]}>
+          <Ban class="size-3.5 shrink-0" stroke-width={2} aria-hidden="true" />
+          Refused
+        </span>
+        <span class:list={[tablet, "hidden group-has-[#rule-preferred:checked]/panel:flex"]}>
+          <Cloud class="size-3.5 shrink-0" stroke-width={2} aria-hidden="true" />
+          Your cloud
+        </span>
+      </li>
+    </ul>
+
+    <div
+      class="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-panel-rule pt-4 text-sm"
+    >
+      <p class="text-engrave-muted">
+        <span class="group-has-[#rule-preferred:checked]/panel:hidden">Refused before anything runs. Nothing is sent.</span>
+        <span class="hidden group-has-[#rule-preferred:checked]/panel:inline">Cloud only if your app configured one.</span>
+      </p>
+      <a
+        class="inline-flex items-center gap-1.5 font-semibold text-engrave underline decoration-lamp underline-offset-4 hover:decoration-engrave focus-visible:outline-focus-panel"
+        href={LINKS.routing}
+      >
+        When on-device AI is unavailable
+        <ArrowRight class="size-4" stroke-width={1.75} aria-hidden="true" />
+      </a>
+    </div>
+  </form>
+</section>

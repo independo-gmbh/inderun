@@ -1,0 +1,33 @@
+---
+/**
+ * A text link with a trailing arrow. The link stays inline so it wraps like text, and the last word
+ * and the arrow are kept together, so the arrow never ends up alone on a line.
+ */
+import { ArrowRight } from "@lucide/astro";
+
+interface Props {
+  href: string;
+  text: string;
+  class?: string;
+}
+
+const { href, text, class: className } = Astro.props;
+const split = text.lastIndexOf(" ");
+const head = split === -1 ? "" : text.slice(0, split + 1);
+const last = split === -1 ? text : text.slice(split + 1);
+---
+
+<a
+  class:list={[
+    "group font-semibold text-ink underline decoration-1 underline-offset-4 hover:decoration-2",
+    className
+  ]}
+  href={href}
+  >{head}<span class="whitespace-nowrap"
+    >{last}<ArrowRight
+      class="ml-1.5 inline-block size-4 align-[-0.125em] transition-transform duration-200 ease-out-expo group-hover:translate-x-1"
+      stroke-width={1.75}
+      aria-hidden="true"
+    /></span
+  ></a
+>

@@ -31,7 +31,11 @@ const plugins = [
         { type: "improvement", scope: "*", release: "patch" },
         { type: "perf", scope: "*", release: "patch" },
         { type: "feat", release: "minor" },
-        { type: "fix", release: "patch" }
+        { type: "fix", release: "patch" },
+        // The inderun.dev site (website/) is not part of the SDK, so its commits release nothing.
+        // Keep this rule last: the analyzer applies matching rules in order, and `release: false`
+        // only overrides the `chore` patch above when it comes after it.
+        { scope: "website", release: false }
       ],
       parserOpts: {
         noteKeywords: ["BREAKING CHANGE", "BREAKING CHANGES"]

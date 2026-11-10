@@ -1,0 +1,13 @@
+---
+/**
+ * Docs footer: Starlight's own edit link and pagination, then the same attribution as the landing
+ * footer (src/components/Attribution.astro). The attribution is kept out of the search index.
+ */
+import Default from "@astrojs/starlight/components/Footer.astro";
+import Attribution from "../Attribution.astro";
+---
+
+<Default />
+<div class="mt-12 border-t-[1.5px] border-rule-strong pt-8 pb-6 print:hidden">
+  <Attribution />
+</div>

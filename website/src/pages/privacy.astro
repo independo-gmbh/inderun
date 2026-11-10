@@ -1,0 +1,187 @@
+---
+/**
+ * Privacy notice, published after legal review (2026-11-10). The analytics section describes what
+ * src/components/Consent.astro actually does; change both together, and update the date at the
+ * end. Never state here that the site collects no data: hosting logs process IP addresses.
+ *
+ * Structure and wording follow Independo's own privacy policy
+ * (https://www.independo.app/en/legal/privacy-policy), narrowed to what inderun.dev does.
+ */
+import Legal from "../layouts/Legal.astro";
+import { LINKS } from "../site";
+import { PRIVACY } from "../seo";
+
+const code =
+  "rounded-plate bg-ground-sunk px-[0.32em] py-[0.08em] font-mono text-[0.875em] inset-ring inset-ring-plate-rule";
+const list = "mt-3 list-disc space-y-2 pl-5 marker:text-ink-muted";
+const settings =
+  "min-h-10 cursor-pointer rounded-plate border-[1.5px] border-ink bg-transparent px-3.5 py-2 font-semibold text-ink transition-colors duration-160 ease-out-expo hover:bg-ink hover:text-ground [&[hidden]]:hidden";
+const independoPrivacy = "https://www.independo.app/en/legal/privacy-policy";
+---
+
+<Legal title={PRIVACY.title} description={PRIVACY.description} heading="Privacy notice">
+
+  <p class="mt-6">
+    This notice explains which personal data Independo GmbH processes when you visit inderun.dev,
+    the website and documentation of the open-source IndeRun SDK, and why. It covers this website
+    only; how the SDK itself handles data in the apps that use it is described at the end. For
+    everything else Independo does, such as its own products, the
+    <a href={independoPrivacy}>Independo privacy policy</a> applies.
+  </p>
+
+  <h2>Controller</h2>
+  <p>
+    Independo GmbH, Lacknergasse 110/7, 1180 Vienna, Austria.
+    Email: <a href="mailto:hello@independo.app">hello@independo.app</a>. Further details are in
+    the <a href={LINKS.imprint}>imprint</a>.
+  </p>
+
+  <h2>Hosting and server logs</h2>
+  <p>
+    inderun.dev is served by Firebase Hosting, a Google service, through Google's worldwide
+    content delivery network. To deliver a page, Google necessarily processes your IP address and
+    the request itself: the time, the requested address, the referring page, and the browser and
+    operating system your browser reports. Google processes these data on our behalf to deliver
+    the website and to keep the service secure and available.
+  </p>
+  <p>
+    We do not export these request logs into our own Google project, and we do not combine them
+    with other data. The site has no user accounts, forms or comments.
+  </p>
+  <ul class={list}>
+    <li>
+      Legal basis: our legitimate interest in delivering the website securely and reliably
+      (Art. 6(1)(f) GDPR).
+    </li>
+    <li>
+      Processor terms: Google processes the data under the Google Cloud Data Processing Addendum,
+      which we have accepted for this project (Art. 28 GDPR).
+    </li>
+    <li>
+      Transfers: because pages are delivered from Google's worldwide network, the data may be
+      processed outside the European Economic Area, including in the United States. Google LLC is
+      certified under the EU-US Data Privacy Framework, and Google's data processing terms include
+      the European Commission's standard contractual clauses (Art. 45 and 46 GDPR).
+    </li>
+    <li>
+      Retention: we have no access to these request logs and do not keep copies. Google keeps them
+      only as long as it needs them to operate and secure the service.
+    </li>
+  </ul>
+
+  <h2>Analytics (Google Analytics 4)</h2>
+  <p>
+    This site uses Google Analytics 4 (property <code class={code}>G-MZ8Y963XQZ</code>) to count
+    which pages are read and how visitors arrive, so we can see what developers need. It works in
+    two levels, and the consent banner decides which one applies.
+  </p>
+  <ul class={list}>
+    <li>
+      Without your consent (before you choose, and after you decline): Google Analytics sets no
+      cookies and sends no identifier that recognises you. Each page view sends a cookieless
+      signal: the page address, the referring page, browser and device type, the time, and your
+      consent choice. Your IP address reaches Google with the request; Google Analytics 4 uses it
+      for an approximate location and does not store it.
+    </li>
+    <li>
+      With your consent: the same data, plus the cookies <code class={code}>_ga</code> and
+      <code class={code}>_ga_MZ8Y963XQZ</code>, which hold a pseudonymous identifier to
+      distinguish visitors and count returning visits.
+    </li>
+    <li>
+      In both cases advertising storage, ad personalisation and Google signals are switched off.
+      We do not send Google names, email addresses or anything you type.
+    </li>
+    <li>
+      Provider: Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Ireland, as our
+      processor under the Google Ads Data Processing Terms, which we have accepted.
+    </li>
+    <li>
+      Transfers: Google may also process the data in the United States. This rests on the
+      European Commission's standard contractual clauses and on Google LLC's certification under
+      the EU-US Data Privacy Framework. Despite these safeguards, access by US authorities cannot
+      be ruled out entirely.
+    </li>
+    <li>
+      Cookies with your consent rest on that consent (Art. 6(1)(a) GDPR and § 165(3) TKG 2021).
+      You can withdraw it at any time, with effect for the future, with “Cookie settings” in the
+      footer or with the button below; withdrawing deletes the cookies.
+    </li>
+    <li>
+      The cookieless signals without consent rest on our legitimate interest in knowing which
+      pages developers read, so we can improve the documentation (Art. 6(1)(f) GDPR). They carry
+      no cookie and no identifier, so we cannot tell visitors apart or link a signal to you. You
+      can object at any time (Art. 21 GDPR). Because we cannot recognise you, the objection has to
+      come from your browser: if it sends the Global Privacy Control signal, this site does not
+      load Google Analytics at all unless you accept cookies. Google's
+      <a href="https://tools.google.com/dlpage/gaoptout">Analytics opt-out browser add-on</a> and
+      your browser's tracking protection also block the signals.
+    </li>
+    <li>
+      Retention: the Google Analytics cookies expire after two years at the latest. In the
+      property, event-level data is deleted after 2 months, and data tied to the cookie identifier
+      after 14 months without a new visit. Reports are built from aggregated data.
+    </li>
+  </ul>
+  <p>
+    <button class={settings} type="button" data-consent-open hidden>Change cookie settings</button>
+  </p>
+
+  <h2>Stored in your browser</h2>
+  <p>
+    Two entries in your browser's local storage keep choices you make on this site; they are
+    never sent anywhere: <code class={code}>inderun-consent</code> holds your analytics choice and
+    its date (asked again after 12 months), and <code class={code}>starlight-theme</code> holds the
+    colour theme you picked. Both are strictly necessary for what you asked for, so they need no
+    consent (§ 165(3) TKG 2021). You can delete them at any time in your browser's settings.
+  </p>
+
+  <h2>When you contact us</h2>
+  <p>
+    If you email us, we process your message and your contact details to answer you. This is
+    handled like any other request to Independo, as described under “Requests, contacts, and
+    customer relationships” in the <a href={independoPrivacy}>Independo privacy policy</a>,
+    including the providers involved and how long we keep the data.
+  </p>
+
+  <h2>Links to other services</h2>
+  <p>
+    Links to other websites, such as GitHub, npm, Independo and netidee, open services run by
+    other operators, and their own privacy notices apply there. Questions, issues and
+    contributions to IndeRun are handled on GitHub, under GitHub's terms and privacy statement.
+  </p>
+
+  <h2>Your rights</h2>
+  <p>Under the GDPR you have the right to:</p>
+  <ul class={list}>
+    <li>access the personal data we hold about you (Art. 15),</li>
+    <li>have inaccurate data corrected (Art. 16),</li>
+    <li>have data deleted (Art. 17) or its processing restricted (Art. 18),</li>
+    <li>data portability (Art. 20),</li>
+    <li>
+      object at any time, on grounds relating to your particular situation, to processing based
+      on our legitimate interest (Art. 21),
+    </li>
+    <li>withdraw a consent at any time, with effect for the future (Art. 7(3)).</li>
+  </ul>
+  <p>
+    An email to <a href="mailto:hello@independo.app">hello@independo.app</a> is enough. You can
+    also lodge a complaint with a supervisory authority: in Austria the Datenschutzbehörde,
+    Barichgasse 40–42, 1030 Vienna, <a href="mailto:dsb@dsb.gv.at">dsb@dsb.gv.at</a>, or the
+    authority where you live or work.
+  </p>
+
+  <h2>The IndeRun SDK</h2>
+  <p>
+    This section is about the SDK, not about this website. IndeRun itself does not send usage
+    analytics to Independo. App-configured remote AI providers have their own data handling;
+<code class={code}>local_required</code> blocks routing to providers that would send task data out of
+    the device. The SDK has no telemetry instrumentation for marketing metrics.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    We update this notice when the website or the law changes.
+  </p>
+  <p>Last updated: 10 November 2026.</p>
+</Legal>

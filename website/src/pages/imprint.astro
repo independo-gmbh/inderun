@@ -1,0 +1,70 @@
+---
+/**
+ * Austrian operator identification (ECG § 5, MedienG § 25) for inderun.dev. Self-contained: the
+ * official Independo imprint is linked for reference only. Facts from the website brief §6,
+ * cross-checked there against the Independo imprint (June 2026); the legal owner reviews the
+ * final publication.
+ */
+import Legal from "../layouts/Legal.astro";
+import LegalFact from "../components/LegalFact.astro";
+import { LINKS } from "../site";
+import { IMPRINT } from "../seo";
+---
+
+<Legal
+  title={IMPRINT.title}
+  description={IMPRINT.description}
+  heading="Imprint"
+  intro="Information about the operator of inderun.dev, the website of the IndeRun open-source SDK."
+>
+  <dl class="mt-9 border-t-[1.5px] border-rule-strong">
+    <LegalFact term="Service provider and media owner">
+      <p>Independo GmbH (limited liability company)</p>
+      <p>Business activity: software development</p>
+    </LegalFact>
+    <LegalFact term="Registered seat">
+      Lacknergasse 110/7, 1180 Vienna, Austria
+    </LegalFact>
+    <LegalFact term="Additional business location">
+      Taubstummengasse 11, 1040 Vienna, Austria
+    </LegalFact>
+    <LegalFact term="Company registration">
+      <p>FN 610408 i</p>
+      <p>Commercial Register Court: Handelsgericht Wien</p>
+    </LegalFact>
+    <LegalFact term="VAT ID">
+      ATU79787606
+    </LegalFact>
+    <LegalFact term="Managing directors">
+      <p>Julia Kruselburger, M.A. BSc.</p>
+      <p>Dipl.-Ing. Konstantin Strümpf</p>
+    </LegalFact>
+    <LegalFact term="Contact">
+      <p><a href="mailto:hello@independo.app">hello@independo.app</a></p>
+      <p><a href={LINKS.independoContact}>Independo contact page</a></p>
+    </LegalFact>
+    <LegalFact term="Trade authority">
+      Magistratisches Bezirksamt für den 18. Bezirk, Stadt Wien
+    </LegalFact>
+    <LegalFact term="Chamber">
+      Wirtschaftskammer Österreich / Wien, relevant professional group for business
+      consulting, accounting and information technology
+    </LegalFact>
+    <LegalFact term="Applicable law">
+      Gewerbeordnung 1994, available in the Austrian legal information system
+      (<a href="https://www.ris.bka.gv.at/">RIS</a>)
+    </LegalFact>
+    <LegalFact term="Disclosure">
+      <p>Publisher: Independo GmbH</p>
+      <p>
+        Editorial purpose: documentation and publication of its open-source AI execution SDK
+        and funded R&amp;D results.
+      </p>
+    </LegalFact>
+  </dl>
+
+  <p class="mt-8 text-ink-muted">
+    This imprint is complete on its own. For reference, see the
+    <a href={LINKS.independoImprint}>current official Independo imprint</a>.
+  </p>
+</Legal>

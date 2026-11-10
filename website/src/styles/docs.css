@@ -1,0 +1,375 @@
+/*
+ * Stylesheet entry for the Starlight docs (Starlight `customCss`), Read mode: comprehension and
+ * wayfinding first. The light theme is the paper of the landing page, the dark theme its black
+ * ground. Setup from https://starlight.astro.build/guides/css-and-tailwind/#tailwind-css; the
+ * colours come from the switching `--ir-*` tokens in theme.css, so each Starlight variable is
+ * mapped once and follows the theme on its own.
+ *
+ * Lilac rule (theme.css): lilac is a background or a lamp with black text on it, or a line on
+ * black. It is never text on the paper.
+ */
+@layer base, starlight, theme, components, utilities;
+
+@import "@astrojs/starlight-tailwind";
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "./theme.css";
+
+/*
+ * Theme mapping. The compatibility layer sets the --sl-* colours in the utilities layer from the
+ * gray and accent scales; the variables below are the ones whose scale step does not give the
+ * IndeRun value. `:root[data-theme]` matches the specificity of the compatibility layer's light
+ * block, so this later block wins in both themes.
+ */
+@layer utilities {
+  :root,
+  :root[data-theme] {
+    --sl-line-height: 1.7;
+    --sl-text-body: 1.0625rem;
+    --sl-text-h1: 2.125rem;
+    --sl-text-h2: 1.625rem;
+    --sl-text-h3: 1.25rem;
+    --sl-text-h4: 1.0625rem;
+    --sl-text-h5: 1rem;
+    --sl-menu-button-size: 2.5rem;
+
+    --sl-color-white: var(--ir-ink); /* headings, 19.4:1 */
+    --sl-color-gray-2: var(--ir-ink-body); /* body copy */
+    --sl-color-gray-3: var(--ir-ink-muted); /* meta text */
+    --sl-color-gray-4: var(--ir-ink-faint); /* faintest text */
+    --sl-color-gray-5: var(--ir-rule);
+    --sl-color-gray-6: var(--ir-ground-sunk);
+    --sl-color-gray-7: var(--ir-ground-sunk);
+    --sl-color-black: var(--ir-ground);
+    --sl-color-accent: var(--ir-push);
+    --sl-color-accent-high: var(--ir-ink);
+    --sl-color-text: var(--ir-ink-body);
+    --sl-color-text-accent: var(--ir-ink);
+    --sl-color-text-invert: var(--ir-ground);
+    --sl-color-bg: var(--ir-ground);
+    --sl-color-bg-nav: var(--ir-ground);
+    --sl-color-bg-sidebar: var(--ir-ground);
+    --sl-color-bg-inline-code: var(--ir-ground-sunk);
+    --sl-color-bg-accent: var(--ir-push); /* behind --ir-push-ink only */
+    --sl-color-hairline-light: var(--ir-rule);
+    --sl-color-hairline: var(--ir-rule);
+    --sl-color-hairline-shade: var(--ir-rule);
+
+    /* The code plate (astro.config.mjs expressiveCode): the black panel in both themes. */
+    --ir-code-plate: var(--ir-panel);
+    --ir-code-plate-edge: var(--ir-plate-rule);
+    --ir-code-plate-shadow: none;
+  }
+
+  :root[data-theme="light"] {
+    --ir-code-plate-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.1), 0 1px 3px rgb(0 0 0 / 0.14),
+      0 16px 32px -24px rgb(0 0 0 / 0.42);
+  }
+
+  ::backdrop {
+    --sl-color-backdrop-overlay: rgb(0 0 0 / 0.72);
+  }
+
+  [data-theme="light"] ::backdrop {
+    --sl-color-backdrop-overlay: rgb(36 33 30 / 0.55);
+  }
+
+  @media (min-width: 50em) {
+    :root,
+    :root[data-theme] {
+      --sl-text-h1: 2.75rem;
+      --sl-text-h2: 1.875rem;
+      --sl-text-h3: 1.375rem;
+      --sl-text-h4: 1.125rem;
+    }
+  }
+}
+
+/*
+ * Starlight internals and rendered Markdown, which utility classes cannot reach. Starlight's own
+ * styles sit in the lower `starlight` layer, so these rules win without raising specificity.
+ */
+@layer components {
+  body {
+    @apply font-sans text-(length:--sl-text-body);
+    text-rendering: optimizeLegibility;
+    caret-color: var(--color-ink);
+    scrollbar-color: var(--color-ink-faint) var(--color-ground);
+  }
+
+  ::selection {
+    @apply bg-lamp text-black;
+  }
+
+  :focus-visible {
+    @apply outline-3 outline-offset-2 outline-focus;
+  }
+
+  /* Inside the code plate the ring is lamp light, whatever the page theme. */
+  .expressive-code :focus-visible {
+    @apply outline-focus-panel;
+  }
+
+  /* The skip link is a push button, as on the landing page. */
+  .sl-skip-link:focus {
+    @apply rounded-plate bg-black font-semibold text-paper outline-3 outline-offset-2 outline-lamp;
+  }
+
+  /* Header: the search field is a square plate with a 3:1 edge. */
+  site-search button[data-open-modal] {
+    @apply rounded-plate border-edge hover:border-ink;
+  }
+
+  site-search button > kbd {
+    @apply rounded-key text-ink-muted;
+  }
+
+  /* The mobile menu button is a square push button, not a floating disc. */
+  .sl-menu-button {
+    @apply rounded-plate border-[1.5px] border-ink bg-ground text-ink shadow-none;
+  }
+
+  .sl-menu-button:has(~ :popover-open) {
+    @apply bg-ink text-ground;
+  }
+
+  /* The mobile menu footer: the Get started button, GitHub and the theme picker on one line. */
+  .mobile-preferences {
+    @apply items-center;
+  }
+
+  /* Sidebar */
+  .sidebar-content .top-level a {
+    @apply rounded-plate underline-offset-[0.22em] hover:underline;
+  }
+
+  /* The current page is the lit route: black text on a lilac lamp, 10.4:1 in both themes. */
+  .sidebar-content .top-level a[aria-current="page"] {
+    @apply bg-lamp font-semibold text-black no-underline;
+  }
+
+  /* Top-level group headings are engraved plates, as on the panel. */
+  .sidebar-content .top-level > li > details > summary {
+    @apply py-1.5;
+  }
+
+  .sidebar-content .top-level > li > details > summary .large {
+    @apply inline-block rounded-plate border border-plate-rule bg-ground-sunk px-2 py-1.25 caps text-xs text-ink;
+  }
+
+  /* Nested groups (the generated API reference) stay sentence case and step down in size. */
+  .sidebar-content .top-level ul .large {
+    @apply text-(length:--sl-text-sm) font-semibold;
+  }
+
+  .sidebar-content .top-level > li + li {
+    @apply mt-3.5;
+  }
+
+  .sidebar-content .top-level > li > details > ul {
+    @apply mt-1.5;
+  }
+
+  /*
+   * External links: Lucide's arrow-up-right after the label (stroke 1.75, as everywhere on the
+   * site) and "(external)" for screen readers, both generated because the sidebar entries are
+   * plain config labels.
+   */
+  .sidebar-content a.sl-external {
+    @apply relative;
+  }
+
+  .sidebar-content a.sl-external > span:first-child::after {
+    @apply ms-[0.4em] inline-block size-[0.875em] bg-current align-[-0.1em];
+    content: "";
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 7h10v10'/%3E%3Cpath d='M7 17 17 7'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+
+  .sidebar-content a.sl-external::after {
+    @apply sr-only;
+    content: " (external)";
+  }
+
+  /* Table of contents: the current heading carries a lamp. */
+  :is(starlight-toc, mobile-starlight-toc) a {
+    @apply underline-offset-[0.22em];
+  }
+
+  mobile-starlight-toc .toggle {
+    @apply rounded-plate;
+  }
+
+  starlight-toc a:hover {
+    @apply text-ink underline;
+  }
+
+  starlight-toc a[aria-current="true"] {
+    @apply relative font-semibold text-ink;
+  }
+
+  starlight-toc a[aria-current="true"]::before {
+    @apply absolute top-2.75 -left-1.75 size-1.75 rounded-[1px] bg-lamp ring-1 ring-ink;
+    content: "";
+  }
+
+  /* Page title and content */
+  h1#_top {
+    @apply font-heavy leading-[1.05] tracking-[-0.035em] text-balance;
+  }
+
+  .sl-markdown-content :is(h2, h3, h4, h5, h6):not(:where(.not-content *)) {
+    @apply font-bold tracking-[-0.02em] text-balance;
+  }
+
+  .sl-markdown-content h2:not(:where(.not-content *)) {
+    @apply tracking-[-0.03em];
+  }
+
+  .sl-markdown-content :not(h1, h2, h3, h4, h5, h6) + h2:not(:where(.not-content *)) {
+    @apply mt-[2.25em];
+  }
+
+  /* Prose holds a reading measure; code and tables keep the full column. */
+  .sl-markdown-content :is(p, ul, ol, dl, blockquote):not(:where(.not-content *)) {
+    @apply max-w-152;
+  }
+
+  .sl-markdown-content :is(p, li):not(:where(.not-content *)) {
+    @apply text-pretty;
+  }
+
+  .sl-markdown-content a:not(:where(.not-content *)) {
+    @apply text-ink underline decoration-link-line decoration-1 underline-offset-[0.22em] hover:decoration-2;
+  }
+
+  .sl-markdown-content strong:not(:where(.not-content *)) {
+    @apply font-strong text-ink;
+  }
+
+  /* Inline code: a sunk plate, never a colour. */
+  .sl-markdown-content code:not(:where(.not-content *)) {
+    @apply my-0 rounded-plate bg-ground-sunk px-[0.32em] py-[0.08em] text-[0.875em] text-ink inset-ring inset-ring-plate-rule;
+  }
+
+  .sl-markdown-content :is(h1, h2, h3, h4, h5, h6) code:not(:where(.not-content *)) {
+    @apply text-[0.85em];
+  }
+
+  .sl-markdown-content pre code:not(:where(.not-content *)) {
+    @apply inset-ring-0;
+  }
+
+  .sl-markdown-content blockquote:not(:where(.not-content *)) {
+    @apply border-s border-rule-strong text-ink-body;
+  }
+
+  /* Tables: engraved caps heads over a strong rule, as on the landing page. */
+  .sl-markdown-content table:not(:where(.not-content *)) {
+    @apply text-small/[1.55] tabular-nums;
+  }
+
+  .sl-markdown-content th:not(:where(.not-content *)) {
+    @apply border-b-[1.5px] border-rule-strong pt-0 pb-2.5 caps align-bottom text-xs text-ink-muted;
+  }
+
+  .sl-markdown-content th code:not(:where(.not-content *)) {
+    @apply tracking-normal normal-case;
+  }
+
+  .sl-markdown-content :is(th, td):not(:where(.not-content *)) {
+    @apply min-w-26;
+  }
+
+  /* Long identifiers may break anywhere in a cell, so no column is crushed to a sliver. */
+  .sl-markdown-content td code:not(:where(.not-content *)) {
+    @apply wrap-anywhere;
+  }
+
+  .sl-markdown-content td:not(:where(.not-content *)) {
+    @apply border-b-rule py-3 align-top;
+  }
+
+  /*
+   * Asides: a plate with an engraved caps label and a lamp, not a coloured stripe. The kind is in
+   * the label text and in the aside's accessible name, so nothing depends on colour.
+   *   note, tip: a sunk plate with a lilac lamp.
+   *   caution:   a strong outline with an ink lamp.
+   *   danger:    a strong outline under an inverted label strip.
+   */
+  .starlight-aside {
+    --sl-color-asides-text-accent: var(--color-ink);
+    --sl-color-asides-border: var(--color-plate-rule);
+    --ir-aside-lamp: var(--color-lamp);
+    --ir-aside-lamp-edge: var(--color-ink);
+    @apply rounded-plate border border-plate-rule bg-ground-sunk px-4.5 pt-3.5 pb-4 text-ink-body;
+  }
+
+  .starlight-aside:is(.starlight-aside--caution, .starlight-aside--danger) {
+    --ir-aside-lamp: var(--color-ink);
+    @apply border-[1.5px] border-rule-strong bg-ground;
+  }
+
+  .starlight-aside__icon {
+    @apply hidden;
+  }
+
+  .sl-markdown-content .starlight-aside__title {
+    @apply caps max-w-none gap-2.5 text-xs text-ink;
+    @apply font-strong;
+  }
+
+  .starlight-aside__title::before {
+    @apply size-2 flex-none rounded-[1px] bg-(--ir-aside-lamp) ring-1 ring-(--ir-aside-lamp-edge);
+    content: "";
+  }
+
+  .starlight-aside--danger .starlight-aside__title {
+    --ir-aside-lamp: var(--color-push-mark);
+    --ir-aside-lamp-edge: transparent;
+    @apply -mx-4.5 -mt-3.5 bg-ink px-4.5 py-2 text-ground;
+  }
+
+  .starlight-aside__title + .starlight-aside__content {
+    @apply mt-2.5;
+  }
+
+  .starlight-aside--danger .starlight-aside__title + .starlight-aside__content {
+    @apply mt-3.5;
+  }
+
+  .sl-markdown-content .starlight-aside code:not(:where(.not-content *)) {
+    @apply bg-ground;
+  }
+
+  .sl-markdown-content
+    .starlight-aside:is(.starlight-aside--caution, .starlight-aside--danger)
+    code:not(:where(.not-content *)) {
+    @apply bg-ground-sunk;
+  }
+
+  /* Footer: the edit link, and previous/next as square push plates, not floating cards. */
+  .sl-container footer .meta a {
+    @apply text-ink-muted underline-offset-[0.22em] hover:text-ink hover:underline;
+  }
+
+  .pagination-links a {
+    @apply rounded-plate border-[1.5px] border-rule-strong text-ink-muted shadow-none transition-colors duration-160 ease-out-expo hover:bg-ground-sunk;
+  }
+
+  .pagination-links .link-title {
+    @apply text-(length:--sl-text-xl) font-strong tracking-[-0.015em];
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

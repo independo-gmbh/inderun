@@ -1,13 +1,13 @@
 {
   "name": "@independo/inderun-web",
   "version": "0.4.0",
-  "description": "On-device AI with automatic cloud fallback for web apps. Runs ONNX Runtime or the Chrome Prompt API in the browser and falls back to an OpenAI-compatible endpoint, with streaming and cancellation behind one API.",
+  "description": "On-device AI for the devices your users actually have. One API for web apps that keeps requests on the device when it can and uses a cloud only if you allow it.",
   "license": "MIT",
   "author": {
     "name": "Independo GmbH",
     "url": "https://www.independo.app"
   },
-  "homepage": "https://github.com/independo-gmbh/inderun#readme",
+  "homepage": "https://inderun.dev/docs",
   "bugs": "https://github.com/independo-gmbh/inderun/issues",
   "repository": {
     "type": "git",
@@ -27,8 +27,7 @@
     "on-device",
     "on-device-ai",
     "local-llm",
-    "offline",
-    "cloud-fallback",
+    "local-first",
     "streaming",
     "onnx",
     "onnxruntime",

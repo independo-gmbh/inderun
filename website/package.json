@@ -1,0 +1,55 @@
+{
+  "name": "@independo/website",
+  "private": true,
+  "version": "0.0.0",
+  "description": "inderun.dev: landing page and Starlight documentation built from the repository's docs/ folder.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "build:preview": "SITE_ENV=preview astro build --outDir dist-preview",
+    "preview": "astro preview",
+    "check": "astro check",
+    "sync:markers": "node scripts/sync-markers.mjs --write",
+    "check:markers": "node scripts/sync-markers.mjs --check",
+    "check:snippets": "node scripts/check-snippets.mjs",
+    "check:snippets:release": "node scripts/check-snippets.mjs --release",
+    "check:versions": "node scripts/check-versions.mjs",
+    "update:api": "node scripts/api-snapshot.mjs --write",
+    "check:api": "node scripts/api-snapshot.mjs --check",
+    "check:docs": "node scripts/check-docs-architecture.mjs",
+    "verify:seo": "node scripts/verify-seo-output.mjs",
+    "render:og": "node scripts/render-og-image.mjs"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "7.3.6",
+    "@astrojs/sitemap": "3.7.4",
+    "@astrojs/starlight": "0.42.10",
+    "@astrojs/starlight-tailwind": "5.0.0",
+    "@lucide/astro": "1.70.0",
+    "@tailwindcss/vite": "4.3.5",
+    "astro": "7.4.7",
+    "hast-util-from-html": "2.1.0",
+    "hast-util-select": "6.0.4",
+    "hast-util-to-string": "3.0.1",
+    "simple-icons": "16.37.0",
+    "starlight-links-validator": "0.27.0",
+    "starlight-typedoc": "0.23.2",
+    "tailwindcss": "4.3.5",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.14.1",
+    "unist-util-visit": "5.2.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "@capacitor/core": "8.6.0",
+    "@independo/capacitor-inderun": "1.2.0",
+    "@independo/inderun-contracts": "0.5.0-rc.17",
+    "@independo/inderun-web": "0.5.0-rc.17",
+    "playwright": "1.64.1",
+    "typescript": "6.0.3"
+  }
+}

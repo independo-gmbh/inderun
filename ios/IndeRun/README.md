@@ -1,3 +1,20 @@
+<p align="center">
+  <a href="https://inderun.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://inderun.dev/brand/inderun-logo-dark.svg">
+      <img alt="IndeRun" src="https://inderun.dev/brand/inderun-logo-light.svg" width="360">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/independo-gmbh/inderun/releases"><img alt="Swift Package Manager" src="https://img.shields.io/github/v/release/independo-gmbh/inderun?logo=swift&label=SwiftPM"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg?branch=dev"></a>
+  <img alt="Platforms: iOS 16+, macOS 14+" src="https://img.shields.io/badge/platforms-iOS%2016%2B%20%7C%20macOS%2014%2B-lightgrey">
+  <a href="https://github.com/independo-gmbh/inderun/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://inderun.dev/docs"><img alt="Docs: inderun.dev" src="https://img.shields.io/badge/docs-inderun.dev-A0B3FF"></a>
+</p>
+
 # IndeRun iOS SDK
 
 Swift implementation of IndeRun for iOS and macOS.
@@ -31,7 +48,30 @@ Products are a separate question from imports. The `IndeRun` product contains th
 contract types, and no providers — unlike the Android SDK, where `IndeRun.initialize()` registers
 the on-device provider for you, the Swift initializer takes a registry you built. Add
 `IndeRunAppleProviders`, `IndeRunOpenAIProviders`, `IndeRunOnnxProviders` or `IndeRunNeuralSpeech`
-for the providers you intend to register; the usage example below needs the first two.
+(with `IndeRunCoreAIProviders` for its Core AI runtime) for the providers you intend to register; the
+usage example below needs the first two.
+
+## Install and requirements
+
+Install via Swift Package Manager (consumed by URL and git tag). The line below pins the tested set:
+
+<!-- version:swiftpm-install -->
+```swift
+.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0-rc.17")
+```
+<!-- /version -->
+
+```swift
+// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders,
+//           IndeRunOpenAIProviders, IndeRunOnnxProviders, IndeRunNeuralSpeech,
+//           IndeRunCoreAIProviders
+```
+
+- SDK: iOS 16+ / macOS 14+, Swift 5.9+.
+- On-device provider (Apple Foundation Models): an Apple Intelligence-capable device running a FoundationModels-supported
+  OS (iOS 26+ / macOS 26+). Availability is checked at runtime. If a cloud target is registered and the request allows
+  it, the cloud provider can serve the request when the on-device model is unavailable; with `privacy: .localRequired`
+  the request is refused instead. **No special Info.plist entitlement is required** for on-device execution.
 
 ## Usage
 

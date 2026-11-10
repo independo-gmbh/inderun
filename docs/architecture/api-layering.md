@@ -31,7 +31,7 @@ IndeRun exposes three public layers and keeps one internal layer.
 
 The primary layer is a translation layer, not an engine. Every primary call compiles to exactly one canonical
 `TaskRequest` and calls `run()` or `stream()` on the `IndeRunApi` surface. Routing, fallback, cancellation, credential
-resolution, telemetry, and error normalization happen once, in the engine, for both layers. A call through the
+resolution, telemetry (a local hook; nothing is sent to Independo), and error normalization happen once, in the engine, for both layers. A call through the
 facade and the equivalent direct call produce the same canonical outcome.
 
 Because the facade is written against the generated `IndeRunApi` interface rather than the concrete engine class,

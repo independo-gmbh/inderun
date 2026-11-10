@@ -1,0 +1,62 @@
+---
+/**
+ * Trademark and licence notices. Logos of third-party platforms and runtimes (monochrome marks
+ * from Simple Icons) appear on this site only to identify what IndeRun works with; this page
+ * carries their owners' trademark notices and the licences of the icons and the font. Keep it to
+ * plain facts: no claim beyond attribution.
+ */
+import Legal from "../layouts/Legal.astro";
+import { LINKS } from "../site";
+import { NOTICES } from "../seo";
+
+const list = "mt-3 list-disc space-y-2 ps-5 marker:text-ink-faint";
+---
+
+<Legal
+  title={NOTICES.title}
+  description={NOTICES.description}
+  heading="Trademarks and licences"
+  intro="Notices for the third-party logos on inderun.dev, and the licences of the icons, the font and IndeRun itself."
+>
+  <h2>Third-party logos and trademarks</h2>
+  <p>
+    Logos of third-party platforms and runtimes appear on this site only to identify what IndeRun
+    works with. Their use does not imply endorsement by, sponsorship by or affiliation with their
+    owners. IndeRun is not affiliated with Apple, Google or the ONNX project.
+  </p>
+  <ul class={list}>
+    <li>
+      Apple, the Apple logo, Apple Intelligence, iPhone and Swift are trademarks of Apple Inc.,
+      registered in the U.S. and other countries and regions.
+    </li>
+    <li>Android, Google Chrome, Gemini, Gemini Nano and ML Kit are trademarks of Google LLC.</li>
+    <li>
+      The Android robot is reproduced or modified from work created and shared by Google and used
+      according to terms described in the
+      <a href="https://creativecommons.org/licenses/by/3.0/">Creative Commons 3.0 Attribution License</a>.
+    </li>
+    <li>ONNX is a trademark of LF Projects, LLC.</li>
+    <li>GitHub and the Invertocat logo are trademarks of GitHub, Inc.</li>
+    <li>
+      netidee is a funding programme of the Internet Privatstiftung Austria (IPA); its logo is
+      shown to credit the funding.
+    </li>
+    <li>All other product names, logos and brands are property of their respective owners.</li>
+  </ul>
+
+  <h2>Licences</h2>
+  <ul class={list}>
+    <li>
+      Brand icons: <a href="https://simpleicons.org">Simple Icons</a> 16.37.0, released under
+      <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a>
+      (<a href="https://github.com/simple-icons/simple-icons">source</a>).
+    </li>
+    <li>
+      Interface icons: <a href="https://lucide.dev">Lucide</a>, released under the ISC licence.
+    </li>
+    <li>Font: Inter by Rasmus Andersson, released under the SIL Open Font License 1.1.</li>
+    <li>
+      IndeRun itself is open source under the <a href={LINKS.license}>MIT licence</a>.
+    </li>
+  </ul>
+</Legal>

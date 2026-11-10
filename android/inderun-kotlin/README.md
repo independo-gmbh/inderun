@@ -1,8 +1,48 @@
+<p align="center">
+  <a href="https://inderun.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://inderun.dev/brand/inderun-logo-dark.svg">
+      <img alt="IndeRun" src="https://inderun.dev/brand/inderun-logo-light.svg" width="360">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://central.sonatype.com/artifact/app.independo.inderun/inderun-kotlin"><img alt="Maven Central: app.independo.inderun:inderun-kotlin" src="https://img.shields.io/maven-metadata/v?metadataUrl=https%3A%2F%2Frepo1.maven.org%2Fmaven2%2Fapp%2Findependo%2Finderun%2Finderun-kotlin%2Fmaven-metadata.xml&filter=%21*-*&logo=apachemaven&label=Maven%20Central"></a>
+  <a href="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml"><img alt="Android" src="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg?branch=dev"></a>
+  <img alt="Android 8.0 (API 26)+" src="https://img.shields.io/badge/Android-API%2026%2B-lightgrey?logo=android">
+  <a href="https://github.com/independo-gmbh/inderun/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://inderun.dev/docs"><img alt="Docs: inderun.dev" src="https://img.shields.io/badge/docs-inderun.dev-A0B3FF"></a>
+</p>
+
 # IndeRun Kotlin SDK
 
 Public entrypoint for the IndeRun Android SDK.
 
 The SDK can route Mode 1 `run()` and Mode 2 `stream()` requests through on-device providers — `AndroidMlKitGenAiProvider` streams from Gemini Nano — or through `OpenAIProvider` from `inderun-openai-providers`.
+
+## Install and requirements
+
+Install via Gradle (Maven Central). The line below pins the tested set:
+
+<!-- version:gradle-install -->
+```kotlin
+implementation("app.independo.inderun:inderun-kotlin:0.5.0-rc.17")
+```
+<!-- /version -->
+
+- SDK: Android 8.0+ (minSdk 26), JDK 17.
+- On-device provider (ML Kit GenAI): a device with on-device generative-AI support (AICore / Gemini Nano).
+  Availability (available / downloadable / unavailable) is checked at runtime. If a cloud target is registered and the
+  request allows it, the cloud provider can serve the request when the on-device model is unavailable; with
+  `Privacy.LocalRequired` the request is refused instead.
+- `INTERNET` permission in your `AndroidManifest.xml`, needed if you register a cloud provider (the OpenAI-compatible
+  provider). `ACCESS_NETWORK_STATE`, used for the connectivity check, is declared by the library and merged into your
+  manifest:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+```
 
 ## Usage
 

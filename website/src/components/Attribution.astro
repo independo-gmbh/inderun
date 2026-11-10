@@ -1,0 +1,124 @@
+---
+/**
+ * The IndeRun attribution and footer links: Independo, netidee, the legal pages, the "No SDK
+ * usage telemetry" line and the Independo GmbH copyright. One copy, rendered by the landing footer
+ * (src/layouts/Site.astro) and by the docs footer (src/components/starlight/Footer.astro), so the two
+ * can never disagree. The colours are theme tokens, so it follows the light and dark theme on both.
+ *
+ * The links are grouped (Docs, Source, About, Legal), each group a labelled list under a small caps
+ * heading, so the footer reads as a map of the site rather than one long list. The layout follows
+ * the footer's own width (a container query), not the viewport: two by two in the docs column and
+ * on phones, four in a row from 52rem, and beside the attribution only from 78rem, where each of
+ * the four columns still fits its longest link on one line. When the build has a privacy notice,
+ * the Legal group also carries it and a "Cookie settings" button that reopens the consent banner. The docs load no Tailwind preflight,
+ * so margins and list styles are reset here explicitly.
+ */
+import { LINKS } from "../site";
+import Logo from "./Logo.astro";
+
+const inline =
+  "text-inherit underline decoration-link-line decoration-1 underline-offset-[0.22em] hover:decoration-2";
+const link = `${inline} inline-block py-1.5 font-link`;
+/** The consent script (src/components/Consent.astro) unhides it; without JavaScript it stays hidden. */
+const settingsButton =
+  "m-0 cursor-pointer appearance-none border-0 bg-transparent px-0 text-left [font-family:inherit] [font-size:inherit] [line-height:inherit] [&[hidden]]:hidden";
+
+/** Copyright runs from IndeRun's first year to the year of the build. */
+const FIRST_YEAR = 2025;
+const buildYear = new Date().getFullYear();
+const years = buildYear > FIRST_YEAR ? `${FIRST_YEAR}–${buildYear}` : `${FIRST_YEAR}`;
+
+interface FooterLink {
+  /** A link, or no href for the "Cookie settings" button that reopens the consent banner. */
+  href?: string;
+  text: string;
+}
+
+const groups: { id: string; title: string; links: FooterLink[] }[] = [
+  {
+    id: "footer-docs",
+    title: "Docs",
+    links: [
+      { href: LINKS.docs, text: "Documentation" },
+      { href: LINKS.quickstart, text: "Quickstart" },
+      { href: LINKS.compatibility, text: "Device requirements" }
+    ]
+  },
+  {
+    id: "footer-source",
+    title: "Source",
+    links: [
+      { href: LINKS.repository, text: "IndeRun on GitHub" },
+      { href: LINKS.capacitorRepository, text: "Plugin on GitHub" },
+      { href: LINKS.npmCapacitor, text: "Plugin on npm" }
+    ]
+  },
+  {
+    id: "footer-about",
+    title: "About",
+    links: [
+      { href: LINKS.independo, text: "Independo" },
+      { href: LINKS.independoOpenSource, text: "Independo Open Source" },
+      { href: LINKS.netidee, text: "netidee project" }
+    ]
+  },
+  {
+    id: "footer-legal",
+    title: "Legal",
+    links: [
+      { href: LINKS.imprint, text: "Imprint" },
+      { href: LINKS.notices, text: "Trademarks and licences" },
+      { href: LINKS.privacy, text: "Privacy notice" },
+      { text: "Cookie settings" }
+    ]
+  }
+];
+---
+
+<div class="@container leading-relaxed text-ink" data-pagefind-ignore>
+  <div class="grid grid-cols-1 gap-x-12 gap-y-8 @[78rem]:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
+    <div class="max-w-136 text-small text-ink-muted">
+      <a class="mb-4 inline-block no-underline" href={LINKS.home}>
+        <Logo endorsed class="w-40" /><span class="sr-only"> home</span>
+      </a>
+      <p class="m-0 text-pretty">
+        IndeRun — open-source AI execution for cross-platform apps. Built and maintained by
+        <a class={inline} href={LINKS.independoOpenSource}>Independo GmbH</a>, supported by
+        <a class={inline} href={LINKS.netidee}>netidee</a>.
+      </p>
+      <p class="mt-2 mb-0 text-pretty">MIT-licensed SDK · No SDK usage telemetry.</p>
+    </div>
+    <nav
+      aria-label="Footer"
+      class="grid grid-cols-1 content-start gap-x-6 gap-y-6 @[20rem]:grid-cols-2 @[52rem]:grid-cols-[repeat(3,minmax(0,1fr))_auto]"
+    >
+      {
+        groups.map((group) => (
+          <div>
+            <h2 id={group.id} class="m-0 mb-1.5 text-xs leading-normal font-semibold text-ink-muted caps">
+              {group.title}
+            </h2>
+            <ul class="m-0 list-none p-0" aria-labelledby={group.id}>
+              {group.links.map((item) => (
+                <li>
+                  {item.href ? (
+                    <a class={link} href={item.href}>
+                      {item.text}
+                    </a>
+                  ) : (
+                    <button class={`${link} ${settingsButton}`} type="button" data-consent-open hidden>
+                      {item.text}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </nav>
+  </div>
+  <p class="mt-10 mb-0 border-t border-rule pt-5 text-xs text-ink-muted">
+    © {years} Independo GmbH
+  </p>
+</div>

@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "website"
 overrides:
   # GHSA-xcpc-8h2w-3j85: adm-zip <0.6.0 allows a crafted ZIP to trigger a 4GB
   # allocation. Pulled in transitively via onnxruntime-node.
@@ -43,3 +44,6 @@ minimumReleaseAgeExclude:
   - js-yaml@4.3.1
   - moment@2.31.0
   - braces@3.0.4
+  # First-party packages: the website pins the IndeRun release published the same day
+  # (website/versions.json), so the age gate would block every launch-day build.
+  - "@independo/*"

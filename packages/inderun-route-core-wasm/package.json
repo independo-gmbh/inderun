@@ -25,8 +25,7 @@
     "routing",
     "wasm",
     "route-planning",
-    "on-device-ai",
-    "cloud-fallback"
+    "on-device-ai"
   ],
   "engines": {
     "node": ">=24"
