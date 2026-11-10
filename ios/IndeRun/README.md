@@ -158,7 +158,9 @@ try registry.register(OnnxRuntimeAppleProvider(options: OnnxProviderOptions(mode
 Defaults to `SystemOnnxGenAiRuntime` (official ONNX Runtime SPM bindings + `swift-transformers`
 tokenization, greedy decoding, no KV-cache reuse). Pass `runtime:` in `OnnxProviderOptions` to
 supply a different `OnnxGenAiRuntime` implementation, or `createFixtureOnnxRuntime()` for demos
-and tests. See `docs/architecture/onnx-runtime-provider-family.md#apple-implementation` for the
+and tests. A provider that built the default runtime owns it: keep the provider and call
+`await provider.close()` once no engine routes to it, to release the loaded model (`IndeRun.close()`
+does not close providers you registered). A runtime you passed in is yours to close. See `docs/architecture/onnx-runtime-provider-family.md#apple-implementation` for the
 model IO contract, source-type support, and error mapping.
 
 ### Neural speech

@@ -83,6 +83,8 @@ enum SharedOnnxEnvironment {
 /// so repeated `prepare`/`generate` calls do not reload the model and tokenizer every time.
 actor LoadedSessionBox {
     private var cached: (key: String, loaded: LoadedSession)?
+    /// Bumped by `clear()`, so a load that was suspended across it does not cache its session.
+    private var epoch = 0
 
     func loaded(for modelPackage: ModelPackage) async throws -> LoadedSession {
         let key = Self.cacheKey(for: modelPackage)
@@ -90,9 +92,16 @@ actor LoadedSessionBox {
             return cached.loaded
         }
 
+        let startEpoch = epoch
         let loaded = try await Self.load(modelPackage)
-        cached = (key, loaded)
+        if epoch == startEpoch { cached = (key, loaded) }
         return loaded
+    }
+
+    /// Drops the cached session. Callers holding it keep it until they return; ARC frees it then.
+    func clear() {
+        epoch += 1
+        cached = nil
     }
 
     /// Cache key covering everything that identifies *which bytes* this session was built from --

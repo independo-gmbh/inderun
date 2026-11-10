@@ -259,7 +259,9 @@ Ships as its own SwiftPM library product, `IndeRunOnnxProviders`
 SPM bindings + `swift-transformers` tokenizer), a `createFixtureOnnxRuntime(options:)` test/demo
 seam, and support for an application-supplied implementation. Model sources: `bundled`,
 `programmatic`, `app_managed`, `filesystem` (see
-[Model Source Support Matrix](#model-source-support-matrix)).
+[Model Source Support Matrix](#model-source-support-matrix)). Without a `runtime` in the options the provider builds
+the default runtime and owns it: its `close()` releases the loaded session; an injected runtime is left to the
+application.
 
 Landing this member raised the whole SDK's minimum platforms to **iOS 16 / macOS 14** — a
 package-wide, breaking bump for every IndeRun Apple consumer, not only ONNX users — because its
@@ -283,7 +285,9 @@ Provider id: `local.onnx.genai.android`. Runtime seam: `AndroidOnnxGenAiRuntime`
 Java bindings + a Hugging Face tokenizer via `ai.djl`), a `createFixtureOnnxRuntime(options)`
 test/demo seam, and support for an application-supplied implementation. Model sources: `bundled`,
 `programmatic`, `app_managed`, `filesystem` (see
-[Model Source Support Matrix](#model-source-support-matrix)).
+[Model Source Support Matrix](#model-source-support-matrix)). The `Context` constructor builds the default runtime and
+the provider owns it: `close()` (the provider is `AutoCloseable`) releases the ORT session and tokenizer, whose native
+memory the garbage collector does not free; a runtime passed in is left to the application.
 
 Implementation detail (decode-strategy auto-detection, execution-provider fallback and the
 KV-cache/NNAPI incompatibility, buffer reuse, sampling, the Android-specific

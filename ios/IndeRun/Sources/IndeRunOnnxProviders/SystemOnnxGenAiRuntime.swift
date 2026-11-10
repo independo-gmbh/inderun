@@ -49,6 +49,13 @@ public final class SystemOnnxGenAiRuntime: OnnxGenAiRuntime {
         }
     }
 
+    /// Drops the cached ORT session and tokenizer. A generation in flight keeps its own reference and
+    /// finishes; the session is freed when that reference goes. Idempotent; a later `prepare` or
+    /// `generate` loads the model again.
+    public func close() async {
+        await session.clear()
+    }
+
     public func generate(_ input: OnnxGenerationInput) async throws -> OnnxGenerationOutput {
         let loaded = try await session.loaded(for: input.modelPackage)
         let tokenIds = encodeInput(input.messages, tokenizer: loaded.tokenizer)

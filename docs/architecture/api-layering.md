@@ -121,7 +121,9 @@ several engines.
 - **Mode 1 runs are awaited, not cancelled.** Mode 1 has no cancel path, so close waits for a running
   `run()` to settle; provider timeouts keep that wait finite.
 - **Provider `close()`** exists where a provider can build a resource itself: the Web `NeuralSpeechWebProvider` and
-  `OnnxRuntimeWebProvider`, and Swift's `NeuralSpeechProvider` returned by `makeCoreAINeuralSpeechProvider`. It closes
+  `OnnxRuntimeWebProvider`, Swift's `NeuralSpeechProvider` returned by `makeCoreAINeuralSpeechProvider`, and the ONNX
+  text providers built with their default runtime (Swift `OnnxRuntimeAppleProvider` without a `runtime`, Kotlin
+  `AndroidOnnxRuntimeProvider(context, …)`). It closes
   only that built runtime and leaves an injected one to its creator. The application registered the provider, so
   the application calls it once no engine routes to the provider any more. `createIndeRunWeb` is the exception: it
   built its providers, so its engine closes them.

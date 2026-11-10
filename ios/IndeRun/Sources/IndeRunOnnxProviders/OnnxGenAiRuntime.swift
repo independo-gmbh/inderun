@@ -113,4 +113,13 @@ public protocol OnnxGenAiRuntime: Sendable {
 
     /// Runs one Mode-1 generation.
     func generate(_ input: OnnxGenerationInput) async throws -> OnnxGenerationOutput
+
+    /// Releases what the runtime loaded (model sessions, tokenizer). Repeating it must be harmless;
+    /// a later `prepare` or `generate` may load the model again. The provider calls it only for a
+    /// runtime it created itself, never for one the application supplied. The default does nothing.
+    func close() async
+}
+
+extension OnnxGenAiRuntime {
+    public func close() async {}
 }

@@ -49,6 +49,12 @@ while something is not ready reports `not_ready`. ML Kit, Chrome and Foundation 
 The ONNX runtime seams split in two: a custom `OnnxGenAiRuntime`, `AndroidOnnxGenAiRuntime` or `OnnxTextGenerationRuntime`
 adds a cheap `availability`, and `prepare` now loads the model. A corrupt model is found at load, not at routing.
 
+The ONNX text providers gain `close()` on Swift and Kotlin, as on the Web: a provider built with the default runtime
+(Swift `OnnxRuntimeAppleProvider` without a `runtime`, Kotlin `AndroidOnnxRuntimeProvider(context, …)`) releases the
+loaded model; an injected runtime is left open. The runtime seams gain an optional `close()` (a Swift protocol-extension
+default; on Kotlin `AndroidOnnxGenAiRuntime` is now `AutoCloseable` with a default no-op), so a custom runtime compiles
+unchanged.
+
 ### Provider capability types are generated contracts
 
 `ProviderDescriptor`, `ProviderDynamicCapabilities` and `ProviderCapabilitySnapshot` are now generated from

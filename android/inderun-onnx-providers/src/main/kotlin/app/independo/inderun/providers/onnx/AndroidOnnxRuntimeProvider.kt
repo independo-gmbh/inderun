@@ -65,20 +65,33 @@ val supportedAndroidOnnxModelSourceTypes: List<SourceType> = listOf(
  * The adapter owns the IndeRun-facing contract (descriptor, capability checks, error taxonomy) and
  * delegates execution to an injectable [AndroidOnnxGenAiRuntime]. ONNX Runtime execution backends
  * (CPU, NNAPI, XNNPACK) stay behind that seam and are never public routing concepts.
+ *
+ * Ownership: the [Context] constructor builds the default runtime, so this provider owns it and
+ * [close] releases the loaded model. A runtime passed in stays the application's to close.
  */
-class AndroidOnnxRuntimeProvider(
+class AndroidOnnxRuntimeProvider internal constructor(
     private val modelPackage: ModelPackage,
     private val runtime: AndroidOnnxGenAiRuntime,
-    private val id: String = DEFAULT_ID,
-    private val timeoutMs: Long? = null,
-) : PreparableProviderAdapter {
+    private val id: String,
+    private val timeoutMs: Long?,
+    private val ownsRuntime: Boolean,
+) : PreparableProviderAdapter,
+    AutoCloseable {
     @Volatile
     private var loaded = false
 
     @Volatile
     private var loadFailure: String? = null
 
-    /** Convenience constructor wiring the default ORT-Mobile-backed runtime. */
+    /** A provider over [runtime], which stays the caller's: [close] leaves it open. */
+    constructor(
+        modelPackage: ModelPackage,
+        runtime: AndroidOnnxGenAiRuntime,
+        id: String = DEFAULT_ID,
+        timeoutMs: Long? = null,
+    ) : this(modelPackage, runtime, id, timeoutMs, ownsRuntime = false)
+
+    /** Convenience constructor wiring the default ORT-Mobile-backed runtime, which this provider owns. */
     constructor(
         context: Context,
         modelPackage: ModelPackage,
@@ -89,7 +102,18 @@ class AndroidOnnxRuntimeProvider(
         runtime = SystemAndroidOnnxGenAiRuntime(context),
         id = id,
         timeoutMs = timeoutMs,
+        ownsRuntime = true,
     )
+
+    /**
+     * Releases the loaded model when this provider built its runtime (the [Context] constructor); a
+     * runtime the application passed in stays the application's to close. The engine never calls
+     * this: the application registered the provider, so it closes it once no engine routes to it.
+     * Idempotent. A run after close loads the model again. Mirrors `OnnxRuntimeWebProvider.close()`.
+     */
+    override fun close() {
+        if (ownsRuntime) runtime.close()
+    }
 
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = id,
