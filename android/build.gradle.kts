@@ -11,7 +11,7 @@ plugins {
     id("com.android.application") version "9.5.1" apply false
     id("com.android.library") version "9.5.1" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
-    id("com.diffplug.spotless") version "8.10.4" apply false
+    id("com.diffplug.spotless") version "8.11.0" apply false
     id("com.vanniktech.maven.publish") version "0.37.0" apply false
 }
 
