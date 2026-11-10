@@ -228,6 +228,9 @@ Apple Core AI runtime and the readiness hint ([ADR 022](./architecture/decisions
   Web, `NeuralSpeechReadiness?` on Swift and Kotlin). A custom runtime that does not set it changes nothing.
   Kotlin's `NeuralSpeechAvailability` is a data class whose constructor, `copy` and `componentN` gained the parameter:
   source compiles unchanged, but a runtime compiled against an earlier release must be recompiled.
+- **Swift: `NeuralSpeechProvider.close()`.** A provider made by `makeCoreAINeuralSpeechProvider` owns the Core AI
+  runtime the factory built, and `close()` releases it. A provider built with `NeuralSpeechProvider(options:)` leaves the
+  runtime it was given open, so code that already closes its own runtime changes nothing.
 - **Swift: `ModelPackageDirectory` is a new public type in `IndeRunCore`.** It resolves a package directory and verifies
   its checksums; the ONNX runtimes now call it instead of their own copy, with unchanged behaviour.
 

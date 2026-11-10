@@ -326,6 +326,21 @@ final class CoreAINeuralSpeechRuntimeTests: XCTestCase {
         }
     }
 
+    func testTheFactoryProviderOwnsItsRuntimeAndCloseReleasesIt() async throws {
+        let package = try makePackage(directory: try makeDirectory())
+        let provider = makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions(modelPackage: package))
+
+        // Terminal and idempotent: the second close returns at once and changes nothing.
+        await provider.close()
+        await provider.close()
+
+        // The closed runtime reports `runtime closed` before any Core AI check, on every OS.
+        let capabilities = await provider.capabilities(host: host)
+        XCTAssertFalse(capabilities.available)
+        XCTAssertEqual(capabilities.reason, "runtime closed")
+        XCTAssertNil(capabilities.taskCapabilities?.first?.readiness)
+    }
+
     // MARK: - Warm-up
 
     func testPrepareWarmsUpEachFunctionOnce() async throws {

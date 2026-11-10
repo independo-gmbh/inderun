@@ -205,9 +205,12 @@ The runtime has no German frontend for digits yet: write numbers as words until 
 ```swift
 import IndeRunCoreAIProviders
 
-try registry.register(makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions(
+let coreAISpeech = makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions(
     modelPackage: coreAIPackage // format: "coreai", speech.pipeline: "articulino"
-)))
+))
+try registry.register(coreAISpeech)
+// Later, once no engine routes to it any more:
+await coreAISpeech.close()
 ```
 
 `makeCoreAINeuralSpeechProvider` (in `IndeRunCoreAIProviders`, which re-exports
@@ -234,6 +237,11 @@ back. `prepare` also runs each function once at the smallest shapes, so loading 
 after it can still be slower than later ones (2,045 ms against 603 ms to first audio on the iPhone 15). The export
 fixes the input shapes: a text longer than 257 tokens, more than 1,024 frames or a voice whose prompt length is not
 125 is refused with a `capability` error before Core AI runs, and a package with such a voice is unavailable. As with the ONNX runtime, write numbers as words.
+
+The factory builds the runtime, so the provider owns it. Keep the provider and call `await provider.close()` once no
+engine routes to it any more: that releases the loaded models. `IndeRun.close()` does not close providers you
+registered. A `NeuralSpeechProvider(options:)` you built around your own runtime leaves that runtime open on
+`close()`, so you close the runtime yourself.
 
 ## Streaming
 

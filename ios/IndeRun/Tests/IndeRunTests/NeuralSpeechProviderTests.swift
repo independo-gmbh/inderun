@@ -632,6 +632,39 @@ final class NeuralSpeechProviderTests: XCTestCase {
         XCTAssertEqual(audio.sessions.first?.stopped, true)
     }
 
+    // MARK: - Provider close (ownership)
+
+    func testProviderCloseLeavesAnInjectedRuntimeOpen() async throws {
+        let runtime = FixtureNeuralSpeechRuntime()
+        let provider = makeProvider(runtime: runtime)
+
+        await provider.close()
+        await provider.close()
+
+        // Whoever constructed the runtime closes it: the application's runtime still serves.
+        let availability = await runtime.availability(package)
+        XCTAssertEqual(availability, NeuralSpeechAvailability(available: true))
+        let capabilities = await provider.capabilities(host: host)
+        XCTAssertTrue(capabilities.available, capabilities.reason ?? "")
+    }
+
+    func testProviderCloseClosesARuntimeItOwnsAndIsIdempotent() async throws {
+        let runtime = FixtureNeuralSpeechRuntime()
+        let provider = NeuralSpeechProvider(
+            options: NeuralSpeechProviderOptions(modelPackage: package, runtime: runtime),
+            ownsRuntime: true
+        )
+
+        await provider.close()
+        await provider.close()
+
+        let availability = await runtime.availability(package)
+        XCTAssertEqual(availability, NeuralSpeechAvailability(available: false, reason: "runtime closed"))
+        let capabilities = await provider.capabilities(host: host)
+        XCTAssertFalse(capabilities.available)
+        XCTAssertEqual(capabilities.reason, "runtime closed")
+    }
+
     func testClosedFixtureRuntimeIsUnavailableAndSynthesisFailsWithTheCode() async throws {
         let runtime = FixtureNeuralSpeechRuntime()
         await runtime.close()
