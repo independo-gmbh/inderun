@@ -13,6 +13,8 @@ import app.independo.inderun.providers.neuralspeech.SpeechTensorData
 import app.independo.inderun.providers.neuralspeech.checkPackageFileName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
@@ -50,7 +52,10 @@ class OnnxSpeechGraphExecutor(private val directory: File, threads: Int? = null)
         val loaded = LinkedHashMap<String, LoadedSpeechGraph>()
         try {
             for ((role, file) in graphs.toSortedMap()) {
-                loaded[role] = withContext(OnnxExecutionDispatcher.dispatcher) { createGraph(role, file) }
+                // NonCancellable: a cancelled `withContext` would drop the session it just created
+                // before `loaded` holds it, so the catch below could not close it.
+                loaded[role] = withContext(NonCancellable + OnnxExecutionDispatcher.dispatcher) { createGraph(role, file) }
+                currentCoroutineContext().ensureActive()
             }
         } catch (error: Throwable) {
             loaded.values.forEach { it.close() }

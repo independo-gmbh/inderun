@@ -1,10 +1,15 @@
 package app.independo.inderun.providers.onnx
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
 
 /**
  * The cache behind [LoadedSessionBox]: what it drops is released once, and only after the callers
@@ -117,5 +122,39 @@ class LeasedCacheTest {
         assertEquals("A1", user.await())
         assertEquals(listOf("A1"), loads.released)
         assertEquals("A2", cache.use("a", { loads.load("A2") }) { it })
+    }
+
+    @Test
+    fun aCallerCancelledDuringALoadDoesNotLeakTheLoadedValue() = runTest {
+        val loads = Loads()
+        val cache = loads.cache()
+        val started = CompletableDeferred<Unit>()
+        val gate = CountDownLatch(1)
+
+        // Blocking work on another thread, as an ORT session load is: it runs to the end even after
+        // its caller is cancelled.
+        val user = async {
+            cache.use("a", {
+                withContext(Dispatchers.IO) {
+                    started.complete(Unit)
+                    gate.await()
+                    loads.load("A1")
+                }
+            }) { it }
+        }
+        started.await()
+        user.cancel()
+        gate.countDown()
+        try {
+            user.await()
+            fail("Expected the cancelled caller to see its cancellation.")
+        } catch (_: CancellationException) {
+        }
+
+        // The loaded value is the cache's, not lost: a later use reuses it and close releases it.
+        assertEquals("A1", cache.use("a", { loads.load("A2") }) { it })
+        assertEquals(1, loads.count)
+        cache.close()
+        assertEquals(listOf("A1"), loads.released)
     }
 }

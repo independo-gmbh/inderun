@@ -8,6 +8,10 @@ import android.content.Context
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.SourceType
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -108,10 +112,18 @@ internal class LeasedCache<T>(private val onRelease: (T) -> Unit) {
             epoch
         }
 
-        val lease = Lease(load(), onRelease)
+        // NonCancellable: a load is blocking native work that runs to the end anyway, and a cancelled
+        // `withContext` would drop its result before any lease owns it, leaking the session.
+        val lease = Lease(withContext(NonCancellable) { load() }, onRelease)
         lease.acquire()
         synchronized(lock) {
             if (epoch == startEpoch) cached = key to lease else lease.retire()
+        }
+        // The caller was cancelled during the load: the cache keeps (or the retired lease releases)
+        // the value, and the caller sees its cancellation.
+        if (!currentCoroutineContext().isActive) {
+            lease.release()
+            currentCoroutineContext().ensureActive()
         }
         lease
     }
