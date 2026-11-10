@@ -10,10 +10,10 @@ Each section below names the failure as you see it, then the fix. For why a mode
 
 ## Capacitor build failures
 
-Your app needs settings that a freshly generated Capacitor app does not set. The plugin README lists them in [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md#host-project-requirements) (pinned to v1.2.0).
+Your app needs settings that a freshly generated Capacitor app does not set. The plugin README lists them in [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0-dev.1/README.md#host-project-requirements) (pinned to v1.3.0-dev.1).
 
 <!-- version:capacitor-version -->
-Version: `@independo/capacitor-inderun` **1.2.0**, which includes IndeRun 0.4.0. The examples on this page are type-checked against it (2026-11-10).
+Version: `@independo/capacitor-inderun` **1.3.0-dev.1**, which includes IndeRun 0.5.0. The examples on this page are type-checked against it (2026-11-11).
 <!-- /version -->
 
 ### Android: compile against version 37
@@ -70,7 +70,7 @@ A refusal means no provider ran. It is the intended result of your rule on this 
 
 ## Refused, execution error or bridge fault
 
-The plugin's README names three failure surfaces for a streaming run in its [Error Handling](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md#error-handling) section (v1.2.0):
+The plugin's README names three failure surfaces for a streaming run in its [Error Handling](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0-dev.1/README.md#error-handling) section (v1.3.0-dev.1):
 
 | Surface | When | How it reaches you |
 | --- | --- | --- |

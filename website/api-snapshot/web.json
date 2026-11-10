@@ -1,6 +1,6 @@
 {
   "package": "@independo/inderun-web",
-  "version": "0.5.0-rc.17",
+  "version": "0.5.0",
   "exports": [
     "class IndeRun",
     "class IndeRunException",

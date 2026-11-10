@@ -37,4 +37,4 @@ This is a map of relationships, not a timeline. Solid arrows mean "exposes, conn
 - [Providers and support matrix](../architecture/providers.md).
 - [API layering](../architecture/api-layering.md).
 - [Router source](../../packages/inderun-web/src/core/router.ts) (TypeScript).
-- [Capacitor plugin README](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md) (pinned to v1.2.0).
+- [Capacitor plugin README](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0-dev.1/README.md) (pinned to v1.3.0-dev.1).

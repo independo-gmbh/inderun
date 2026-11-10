@@ -32,7 +32,8 @@ export const LINKS = {
   repository: REPOSITORY,
   /** The MIT licence, pinned to the core release tag like the docs sidebar's "License (MIT)". */
   license: pinnedRepoUrl("LICENSE", { tag: versions.core.tag }),
-  capacitorRepository: plugin.repository,
+  /** The plugin's README at the pinned tag: local-first quick start, speech and host requirements. */
+  capacitorReadme: `${plugin.repository}/blob/${plugin.tag}/README.md`,
   npmCapacitor: `https://www.npmjs.com/package/${plugin.package}`,
   independo: "https://www.independo.app/",
   independoOpenSource: "https://www.independo.app/open-source",

@@ -9,10 +9,10 @@ sidebar:
 The TypeScript reference is generated from the published type declarations (`.d.ts`) of the pinned package versions, so it describes what you install.
 
 <!-- version:tested-set -->
-Tested set: IndeRun **0.5.0-rc.17** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.2.0**, which wraps IndeRun 0.4.0. Examples type-checked against these on 2026-11-10.
+Tested set: IndeRun **0.5.0** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.3.0-dev.1**, which wraps IndeRun 0.5.0. Examples type-checked against these on 2026-11-11.
 <!-- /version -->
 
-- [Capacitor plugin reference](/docs/api/typescript/capacitor): `@independo/capacitor-inderun`, the package most apps start with. Its source of truth is [`src/definitions.ts`](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/src/definitions.ts) at v1.2.0.
+- [Capacitor plugin reference](/docs/api/typescript/capacitor): `@independo/capacitor-inderun`, the package most apps start with. Its source of truth is [`src/definitions.ts`](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0-dev.1/src/definitions.ts) at v1.3.0-dev.1
 - [Web SDK reference](/docs/api/typescript/web): `@independo/inderun-web`.
 
 ## Start here (Capacitor)

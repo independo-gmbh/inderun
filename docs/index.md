@@ -20,7 +20,7 @@ IndeRun doesn't send usage data to Independo. The `telemetry` you'll see in the 
 
 ## Where to go next
 
-- [Local-only starter app](getting-started/example.md): build a credential-free one-screen app that checks the device and refuses cleanly.
+- [Local-first starter app](getting-started/example.md): start from the plugin's credential-free starter that checks the device, refuses cleanly and speaks.
 - [When on-device AI is unavailable](concepts/routing-and-privacy.md): `local_required`, `local_preferred` and opt-in cloud routes.
 - [How IndeRun is structured](concepts/architecture.md): platform SDKs, engine and router, host services, provider adapters.
 - [Troubleshooting builds and models](guides/troubleshooting.md): build failures and the difference between an unavailable model and a refused route.

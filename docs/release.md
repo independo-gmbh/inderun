@@ -142,7 +142,7 @@ pins one core version on all three of its platforms. Versions as published on np
 
 | Core (npm, SwiftPM tag, Maven) | `@independo/capacitor-inderun` | Speech through the bridge |
 | --- | --- | --- |
-| 0.5.x (`0.5.0-rc.N` on the `dev` dist-tag until stable) | **Pending** (#250) | Pending (#250) |
+| 0.5.x (0.5.0 is stable) | 1.3.x | Yes: `speak()`, `generateSpeech()` and `listVoices()` |
 | 0.4.0 | 1.2.x | No: 0.4 has no speech API |
 | 0.3.3 | 1.1.x | No |
 | 0.2.x | 1.0.x | No |
@@ -160,15 +160,15 @@ Release notes name what a platform does not support. For 0.5:
 
 | Capability | Web | iOS / macOS | Android | Capacitor |
 | --- | --- | --- | --- | --- |
-| `generateText()` / `streamText()` | Yes | Yes | Yes | Yes (core 0.4 API) |
-| `speak()` (playback, `cancel()`) | Yes, `web_system_speech` | Yes, `apple_system_speech` | Yes, `android_system_speech` | Pending (#250) |
-| `generateSpeech()` (retrievable `audio/wav`) | **No**: playback only | Yes | Yes | Pending (#250) |
-| `listVoices()` / `prepare()` | Yes | Yes | Yes | Pending (#250) |
-| `local_required` speech | **Refused**: no evidence speech stays on device | Yes | Yes, voices without the network flag | Pending (#250) |
-| `timing.firstAudioMs` | Where the browser sends word boundaries | Yes | Where the engine sends word ranges | Pending (#250) |
+| `generateText()` / `streamText()` | Yes | Yes | Yes | Yes |
+| `speak()` (playback, `cancel()`) | Yes, `web_system_speech` | Yes, `apple_system_speech` | Yes, `android_system_speech` | Yes, as the platform below it |
+| `generateSpeech()` (retrievable `audio/wav`) | **No**: playback only | Yes | Yes | Yes on iOS and Android (`audio/wav`); **refused** in the browser |
+| `listVoices()` / `prepare()` | Yes | Yes | Yes | Yes |
+| `local_required` speech | **Refused**: no evidence speech stays on device | Yes | Yes, voices without the network flag | As each platform below it: refused in the browser, honoured on iOS and Android |
+| `timing.firstAudioMs` | Where the browser sends word boundaries | Yes | Where the engine sends word ranges | As the platform below it |
 
 What has actually been run on which device is in [verification/system-speech.md](./verification/system-speech.md); a
-release note claims only what is recorded there.
+release note claims only what is recorded there. The Capacitor column rests on the plugin's published API and a simulator, emulator and headless-browser smoke run; physical-device records for the bridge are still owed.
 
 ## Release smoke check
 
@@ -182,7 +182,9 @@ the speech quick start from the [README](../README.md#speaking-text) on each pla
 3. **Maven Central:** in a new Android app, add `app.independo.inderun:inderun-kotlin:<version>` and
    `inderun-system-speech-providers:<version>`, register `AndroidSystemSpeechProvider(context)`, and run the same two
    calls on an emulator.
-4. **Capacitor:** once #250 has shipped a bridge on this core, run its consumer smoke tests on all three platforms.
+4. **Capacitor:** install the published bridge into the plugin's example app, or the
+   [local-first starter](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0-dev.1/examples/local-first-starter),
+   and run `speak()` with `cancel()` and `generateSpeech()` on an iOS simulator, an Android emulator and a browser.
 
 Record each result, with the version, in [verification/system-speech.md](./verification/system-speech.md).
 

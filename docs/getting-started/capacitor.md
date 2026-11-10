@@ -11,7 +11,7 @@ sidebar:
 A Capacitor app that runs one text task on the device's own model, or shows why it can't. No API keys, no server.
 
 <!-- version:capacitor-version -->
-Version: `@independo/capacitor-inderun` **1.2.0**, which includes IndeRun 0.4.0. The examples on this page are type-checked against it (2026-11-10).
+Version: `@independo/capacitor-inderun` **1.3.0-dev.1**, which includes IndeRun 0.5.0. The examples on this page are type-checked against it (2026-11-11).
 <!-- /version -->
 
 ## Before you start
@@ -25,7 +25,7 @@ Version: `@independo/capacitor-inderun` **1.2.0**, which includes IndeRun 0.4.0.
 
 <!-- version:capacitor-install -->
 ```sh
-npm install @independo/capacitor-inderun@1.2.0 @capacitor/core@8
+npm install @independo/capacitor-inderun@1.3.0-dev.1 @capacitor/core@8
 ```
 <!-- /version -->
 
@@ -43,7 +43,7 @@ With pnpm, use `pnpm add` with the same two packages. Don't sync yet: set the iO
 | Android Gradle plugin | `9.1.0` or newer (Gradle 9.x) | _requires Android Gradle plugin 9.1.0 or higher_ |
 | `org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10` on the app's `buildscript` classpath | n/a | _Module was compiled with an incompatible version of Kotlin … metadata is 2.4.0, expected version is 2.2.0_ |
 
-The plugin README has the full list, including `minSdkVersion` 26 and the `buildscript` snippet for the Kotlin plugin: [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md#host-project-requirements) (pinned to v1.2.0). Failures are also listed in [Troubleshooting](../guides/troubleshooting.md).
+The plugin README has the full list, including `minSdkVersion` 26 and the `buildscript` snippet for the Kotlin plugin: [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0-dev.1/README.md#host-project-requirements) (pinned to v1.3.0-dev.1). Failures are also listed in [Troubleshooting](../guides/troubleshooting.md).
 
 Then sync the native projects:
 
@@ -152,6 +152,6 @@ A refusal is correct behaviour, not a setup error: the device cannot run the tas
 
 ## Next
 
-- Build the [local-only starter app](example.md) and run it on a device.
+- Run the [local-first starter app](example.md) on a device.
 - Allow a cloud route that you configure yourself: [When on-device AI is unavailable](../concepts/routing-and-privacy.md).
 - Build or model problems: [Troubleshooting](../guides/troubleshooting.md).

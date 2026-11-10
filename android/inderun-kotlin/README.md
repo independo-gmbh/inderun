@@ -27,7 +27,7 @@ Install via Gradle (Maven Central). The line below pins the tested set:
 
 <!-- version:gradle-install -->
 ```kotlin
-implementation("app.independo.inderun:inderun-kotlin:0.5.0-rc.17")
+implementation("app.independo.inderun:inderun-kotlin:0.5.0")
 ```
 <!-- /version -->
 
