@@ -79,8 +79,8 @@ export async function initSpeechText(moduleOrPath?: unknown): Promise<void> {
 
 /**
  * Rewrites speech text into its spoken form for `locale`: numbers, dates, times, abbreviations
- * and the like written out in words. Only German (`de`, `de-DE`, `de-AT`, ...) is rewritten; any
- * other locale returns the text unchanged. Never fails on input. Initializes the speech text
+ * and the like written out in words. Only German (`de`, `de-DE`, `de-AT`, ...) and English (`en`,
+ * `en-US`, `en-GB`, ...) are rewritten; any other locale returns the text unchanged. Never fails on input. Initializes the speech text
  * module on first use; `planRouteJson` never loads it.
  *
  * @throws If the generated bindings are missing or predate this export — build them with

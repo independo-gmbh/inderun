@@ -1,0 +1,17 @@
+{
+  "_note": "English abbreviations written out before synthesis. Matching is case-sensitive, with no letter directly before or after. Longer keys are tried first. Only etc. keeps its period when it ends the sentence (english/abbreviations.rs); every other entry always loses it. Original work for IndeRun, not ported.",
+  "abbreviations": {
+    "approx.": "approximately",
+    "Dr.": "Doctor",
+    "e.g.": "for example",
+    "etc.": "et cetera",
+    "i.e.": "that is",
+    "Jr.": "Junior",
+    "Mr.": "Mister",
+    "Mrs.": "Missus",
+    "Ms.": "Miz",
+    "Prof.": "Professor",
+    "Sr.": "Senior",
+    "vs.": "versus"
+  }
+}

@@ -28,7 +28,7 @@ it("a failing speech text module surfaces as an unavailable runtime error", asyn
   );
 });
 
-it("text that is not German never reaches the speech text module", async () => {
+it("unsupported locales never reach the speech text module", async () => {
   const runtime = createArticulinoRuntime({
     executor: { load: () => Promise.resolve(), run: () => Promise.reject(new Error("unused")) },
     files: { read: () => Promise.reject(new Error("unused")) }
@@ -38,7 +38,24 @@ it("text that is not German never reaches the speech text module", async () => {
     speech: { pipeline: "articulino", frontend: { kind: "grapheme" } }
   } as ModelPackage;
 
-  for (const locale of ["en-US", "fr", "", "deu"]) {
+  for (const locale of ["fr", "", "deu", "eng"]) {
     expect(await runtime.normalizeText?.(pkg, "Hello\u0000World", locale)).toBe("Hello\u0000World");
+  }
+});
+
+it("English text reaches the speech text normalizer", async () => {
+  const runtime = createArticulinoRuntime({
+    executor: { load: () => Promise.resolve(), run: () => Promise.reject(new Error("unused")) },
+    files: { read: () => Promise.reject(new Error("unused")) }
+  });
+  const pkg = {
+    id: "p",
+    speech: { pipeline: "articulino", frontend: { kind: "grapheme" } }
+  } as ModelPackage;
+
+  for (const locale of ["en", "en-US", "en-GB", "EN_us"]) {
+    const error = await runtime.normalizeText?.(pkg, "at 3 pm", locale).catch((e: unknown) => e);
+    expect(error, locale).toBeInstanceOf(NeuralSpeechRuntimeError);
+    expect((error as Error).message).toBe("speech text frontend unavailable: module missing");
   }
 });

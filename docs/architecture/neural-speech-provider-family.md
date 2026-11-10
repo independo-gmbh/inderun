@@ -20,7 +20,7 @@ is in [ADR 018](./decisions/018-speech-application-api.md). Playback semantics f
 What ships now is the provider on all three SDKs, the runtime seam it delegates to, a deterministic fixture runtime, the
 text frontend and the WAV encoder, and a first real runtime: an ONNX Runtime `SpeechGraphExecutor` (CPU execution
 provider only) composed with the Articulino pipeline, on every SDK (#260 PR 4a), and the Apple Core AI runtime
-(`IndeRunCoreAIProviders`, iOS/macOS 27, [ADR 022](./decisions/022-core-ai-runtime.md)). The German text frontend
+(`IndeRunCoreAIProviders`, iOS/macOS 27, [ADR 022](./decisions/022-core-ai-runtime.md)). The German and English text frontend
 (numbers, dates, abbreviations; [ADR 023](./decisions/023-german-text-frontend.md)) ships with it. `runtime` stays a
 required option, not a defaulted one: the app composes the runtime it wants and passes it in, and the fixture runtime
 still serves demos and tests.
@@ -43,22 +43,22 @@ registered provider on every request.
 
 ## Options
 
-| Option         | Meaning                                                                                                                                      |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | Replaces the composed id.                                                                                                                    |
-| `modelPackage` | The package. Its `speech` block names the pipeline, graphs, sample rate and voices.                                                          |
-| `runtime`      | Required. Executes the package.                                                                                                              |
+| Option         | Meaning                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Replaces the composed id.                                                                                                                   |
+| `modelPackage` | The package. Its `speech` block names the pipeline, graphs, sample rate and voices.                                                         |
+| `runtime`      | Required. Executes the package: a runtime, or on the Web a `NeuralSpeechRuntimeDescriptor`.                                                 |
 | `timeoutMs`    | Bounds the synthesis until the run commits. A request's `constraints.timeoutMs` wins; zero or less is unbounded. Swift spells it `timeout`. |
 
 `makeCoreAINeuralSpeechProvider` takes `CoreAINeuralSpeechProviderOptions` (`id`, `modelPackage`, `timeout`) plus
 `CoreAINeuralSpeechRuntimeOptions`:
 
-| Runtime option      | Meaning                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `noise`             | The noise source of the pipeline; absent uses the pipeline's default.            |
-| `speed`             | Speech speed factor, default 1.0.                                                |
-| `pauseMs`           | Silence after each sentence, default 150.                                        |
-| `deviceMemoryBytes` | Overrides the device memory that `limits.memBytes` is checked against (tests).   |
+| Runtime option      | Meaning                                                                        |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `noise`             | The noise source of the pipeline; absent uses the pipeline's default.          |
+| `speed`             | Speech speed factor, default 1.0.                                              |
+| `pauseMs`           | Silence after each sentence, default 150.                                      |
+| `deviceMemoryBytes` | Overrides the device memory that `limits.memBytes` is checked against (tests). |
 
 The budget means what `constraints.timeoutMs` means in the request schema: the time until the run commits, not the
 duration of the audio it plays. It counts from the start of synthesis; the turn wait and the model load do not count.
@@ -77,6 +77,13 @@ An optional fourth member, `normalizeText(package, text, locale)`, rewrites the 
 (identity by default; it may be asynchronous on the Web).
 A chunk is mono 16-bit PCM with its `sampleRate` and an `isLast` flag set on the final chunk of a sentence. The chunk's
 rate must equal the package's `speech.sampleRate`; IndeRun never resamples, and a chunk with another rate is `Internal`.
+
+**Selecting a runtime from configuration (Web).** `runtime` also takes a `NeuralSpeechRuntimeDescriptor`, a
+JSON-serializable object with a `kind`, for configuration that cannot carry a function. `fixture` needs no extra
+dependency; `onnx` needs the optional peer `onnxruntime-web` and reads the package files through
+`createUrlPackageFiles(source.ref)`, so it serves `bundled` and `app_managed` packages only (an OPFS-installed
+package still needs the function form). A runtime built from a descriptor is closed with the provider, and
+`createIndeRunWeb` closes it with the engine; an injected one is not.
 
 The provider consumes (copies or hands to the host) a chunk's samples before the yield returns, so a runtime may reuse
 its buffer afterwards.
@@ -107,11 +114,11 @@ over HTTP; Swift and Kotlin read the package directory. An app may inject its ow
 `NeuralSpeechRuntime`, so the app passes a single value as the provider's `runtime`. No ONNX Runtime type appears in a
 public API.
 
-| Platform | Composition                                                                                                                                    |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Platform | Composition                                                                                                                                                                             |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Web      | `createOnnxNeuralSpeechRuntime()`. `onnxruntime-web` is an optional peer dependency, reached structurally; files come from `createUrlPackageFiles` or an injected `SpeechPackageFiles`. |
-| Apple    | `OnnxNeuralSpeechRuntime()` in `IndeRunOnnxProviders`, which re-exports `IndeRunNeuralSpeech`.                                                  |
-| Android  | `OnnxNeuralSpeechRuntime(context)` in `inderun-onnx-providers`, which depends on `inderun-neural-speech` with `api`.                            |
+| Apple    | `OnnxNeuralSpeechRuntime()` in `IndeRunOnnxProviders`, which re-exports `IndeRunNeuralSpeech`.                                                                                          |
+| Android  | `OnnxNeuralSpeechRuntime(context)` in `inderun-onnx-providers`, which depends on `inderun-neural-speech` with `api`.                                                                    |
 
 The executor runs CPU only, with one session per graph; Swift and Kotlin create and run the sessions on the existing ORT
 execution queue or dispatcher, the Web on onnxruntime-web's wasm backend. One pipeline runtime and its sessions are
@@ -196,20 +203,20 @@ On a real host `firstAudioMs` is not smaller than `firstChunkMs`. The fixture au
 cannot observe that ordering, so the conformance catalog does not pin it. On the Web, `firstAudioMs` carries the caveat
 in ADR 021 about what the browser lets the output observe.
 
-Measured timings, percentiles per scenario on the Mac and in the browser, next to the operating system's voice, are in
-[the neural speech verification record](../verification/neural-speech.md).
+Measured timings, percentiles per scenario on the Mac, in the browser, on an iPhone 15 and on a Pixel 9 Pro, next to the
+operating system's voice, are in [the neural speech verification record](../verification/neural-speech.md).
 
 ## Error codes
 
-| Code                       | Where it comes from                                                        |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `audio_output_unavailable` | The host has no `audioOutput`; playback is refused before commit.          |
-| `voice_not_available`      | The bound voice is not in the package; refused before commit.              |
-| `artifact_too_large`       | The WAV would pass 16 MiB; thrown before the artifact commits.             |
-| `audio_format_unsupported` | `audioOutput.open()` cannot take the package's sample rate; propagated.    |
+| Code                       | Where it comes from                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `audio_output_unavailable` | The host has no `audioOutput`; playback is refused before commit.                                                       |
+| `voice_not_available`      | The bound voice is not in the package; refused before commit.                                                           |
+| `artifact_too_large`       | The WAV would pass 16 MiB; thrown before the artifact commits.                                                          |
+| `audio_format_unsupported` | `audioOutput.open()` cannot take the package's sample rate; propagated.                                                 |
 | `audio_not_allowed`        | The platform refuses audio until the app is allowed to play (a browser needs a user gesture); propagated from `open()`. |
-| `audio_output_failed`      | The host output failed to start or render; propagated.                     |
-| `audio_output_interrupted` | The output was interrupted after commit; thrown, not retried.              |
+| `audio_output_failed`      | The host output failed to start or render; propagated.                                                                  |
+| `audio_output_interrupted` | The output was interrupted after commit; thrown, not retried.                                                           |
 
 A runtime's error kinds map to `CapabilityMismatch`, `Unavailable`, `Timeout` and `Internal`. The gesture requirement on the Web comes
 from the audio output, not from this family.
@@ -219,9 +226,10 @@ from the audio output, not from this family.
 Text is split into sentences, each of which is one `synthesize` call, so the first sentence plays while later ones are
 still synthesizing. The rule is the same on every SDK and pinned by a shared fixture: split at newlines and after a run
 of `.`, `!`, `?` or `…` that is followed by whitespace or the end of the text. "Whitespace" is exactly the ECMAScript
-`\s` set on every SDK, not the platform's own notion. German text is normalized before the split (numbers, dates,
+`\s` set on every SDK, not the platform's own notion. German and English text is normalized before the split (numbers, dates,
 abbreviations and units are written out, so the period of `z. B.` no longer ends a sentence); see [ADR
-023](./decisions/023-german-text-frontend.md). The runtime's `normalizeText` does it, and other locales pass unchanged.
+023](./decisions/023-german-text-frontend.md). The runtime's `normalizeText` does it, and other locales pass unchanged. The English rules are pinned by
+[`english-frontend.json`](../../contracts/fixtures/speech/english-frontend.json).
 
 `GraphemeTokenizer` lowercases a sentence in NFC form, maps each code point through the package vocabulary and drops code
 points the vocabulary lacks.
@@ -253,8 +261,8 @@ by [`articulino-pipeline.json`](../../contracts/fixtures/speech/articulino-pipel
 
 Limitations of this pipeline today:
 
-- German text is normalized ([ADR 023](./decisions/023-german-text-frontend.md)); English has no frontend upstream
-  either, so digits in other locales reach the model unspelled. Markup, URLs and phone numbers are not handled.
+- German and English text is normalized ([ADR 023](./decisions/023-german-text-frontend.md)); digits in other
+  locales reach the model unspelled. Markup, URLs and phone numbers are not handled.
 - Latency is sentence-level: the first audio is available only after a whole sentence is synthesized.
 - Outlier retry and rate equalisation beyond the bundle's `letter_rate` are not implemented.
 - The cache key (`id@version`) ignores `source.ref`.
@@ -342,19 +350,19 @@ unused `speech.graphs` entries. The code is in
 ## Spike and device findings
 
 All runs use the int8 package (`text` 26 MB, `dit_step` 28 MB, `decoder` 33 MB), one voice, the sentence "Ich habe
-Hunger." (1.79 s of audio), the CPU execution provider and a model prepared before timing. "x realtime" is audio seconds
+Hunger." (1.79 s of audio; the Pixel row uses a 2.35 s German sentence from the benchmark corpus), the CPU execution provider and a model prepared before timing. "x realtime" is audio seconds
 over wall seconds. The desktop, emulator and simulator rows say the graphs load and run everywhere; only the device
 rows say a phone is fast enough.
 
-| Platform and runtime                                   | Load and run          | Wall time for 1.79 s            | Realtime factor |
-| ------------------------------------------------------ | --------------------- | ------------------------------- | --------------- |
-| Python reference, onnxruntime 1.31.1, Apple silicon, 4 threads | all graphs        | 58-111 ms (first of three sentences)   | 28-46x over three sentences |
-| Web, onnxruntime-web 1.31.1 (wasm), Node 26            | all graphs            | 179 ms                          | about 10x       |
-| Apple, onnxruntime-swift-package-manager 1.24.2, macOS 27.2, debug build | all graphs | 74 ms (provider end to end, `firstChunkMs`) | about 24x |
-| Android, onnxruntime-android 1.31.0, arm64-v8a emulator, API 34 | all graphs  | 187-209 ms                      | about 9x        |
-| iOS simulator, iPhone 17 Pro, iOS 26.2, arm64, onnxruntime-swift-package-manager 1.24.2 | all graphs | 95 ms | about 19x |
-| iPhone 15 (A16), iOS 27.2, onnxruntime-swift-package-manager 1.24.2, demo app Release build | all graphs | 61-79 ms (warm, cold) | about 23-29x; 26-33x over six DE/EN sentences of 1.5-4.4 s |
-| Midrange Android                                       | pending (owner)       | pending (owner)                 | pending (owner) |
+| Platform and runtime                                                                        | Load and run | Wall time (sentence as noted)                 | Realtime factor                                            |
+| ------------------------------------------------------------------------------------------- | ------------ | --------------------------------------------- | ---------------------------------------------------------- |
+| Python reference, onnxruntime 1.31.1, Apple silicon, 4 threads                              | all graphs   | 58-111 ms (first of three sentences)          | 28-46x over three sentences                                |
+| Web, onnxruntime-web 1.31.1 (wasm), Node 26                                                 | all graphs   | 179 ms                                        | about 10x                                                  |
+| Apple, onnxruntime-swift-package-manager 1.24.2, macOS 27.2, debug build                    | all graphs   | 74 ms (provider end to end, `firstChunkMs`)   | about 24x                                                  |
+| Android, onnxruntime-android 1.31.0, arm64-v8a emulator, API 34                             | all graphs   | 187-209 ms                                    | about 9x                                                   |
+| iOS simulator, iPhone 17 Pro, iOS 26.2, arm64, onnxruntime-swift-package-manager 1.24.2     | all graphs   | 95 ms                                         | about 19x                                                  |
+| iPhone 15 (A16), iOS 27.2, onnxruntime-swift-package-manager 1.24.2, demo app Release build | all graphs   | 61-79 ms (warm, cold)                         | about 23-29x; 26-33x over six DE/EN sentences of 1.5-4.4 s |
+| Pixel 9 Pro (Tensor G4), Android 17, API 37, instrumented test                              | all graphs   | 887 ms render, warm, a 2.35 s German sentence | about 2.7-3.4x warm (RTF 0.298-0.377, long and short text) |
 
 - In the reference, `dit_step` dominates (35-64 ms for four steps), then `decoder` (21-38 ms) and `text` (3-9 ms).
 - No ORT operator error occurred on any platform. The fp32 set was run on the desktop only, not on the SDKs.
@@ -365,6 +373,10 @@ rows say a phone is fast enough.
   peak process footprint 233 MB. The pipeline returns one chunk per sentence, so time to first audio equals wall time.
   A later run in the report format (2026-11-09, `first_call_after_prepare` and `render_speed` only) is in
   [the verification record](../verification/neural-speech.md#iphone-15-iphone154-ios-2720).
+- Pixel 9 Pro (Tensor G4, Android 17, API 37), 2026-11-10, in the report format: warm RTF about 0.3 against about 0.03 on the
+  iPhone 15, German and English; no cause was investigated. The English utterances were timed before English text
+  normalization. The tables are in
+  [the verification record](../verification/neural-speech.md#pixel-9-pro-tensor-g4-android-17-api-37).
 - Device runs are opt-in and not part of CI: with a phone at hand,
   [`ios_device_bench.sh`](../../tools/neural-speech/README.md#time-a-package-on-an-iphone) builds the demo app with a
   temporary benchmark hook, runs it on the phone and reverts the hook. Run it when a model, a runtime or the pipeline

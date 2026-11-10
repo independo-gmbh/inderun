@@ -1,5 +1,18 @@
 import type { ModelPackage, TaskRequest } from "@independo/inderun-contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const transformersCloses = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./transformers-runtime.js", () => ({
+  createTransformersJsRuntime: () => ({
+    availability: async () => ({ available: true }),
+    prepare: async () => ({ available: true }),
+    generate: async () => ({ text: "transformers" }),
+    close: async () => {
+      transformersCloses.count += 1;
+    }
+  })
+}));
+
 import { IndeRun, IndeRunException, prepare } from "../../index.js";
 import { ProviderRegistry, type HostServices, type ProviderAdapter } from "../../provider.js";
 import {
@@ -513,5 +526,53 @@ describe("OnnxRuntimeWebProvider loading", () => {
     const result = await engine(broken, healthy).run(createRequest());
 
     expect(result.telemetry?.providerUsed).toBe("healthy");
+  });
+});
+
+describe("OnnxRuntimeWebProvider runtime descriptors", () => {
+  it("builds the fixture runtime from a JSON descriptor", async () => {
+    const options = JSON.parse(
+      JSON.stringify({ modelPackage: MODEL_PACKAGE, runtime: { kind: "fixture" } })
+    ) as OnnxProviderOptions;
+
+    const result = await runWithProviders(createRequest(), new OnnxRuntimeWebProvider(options));
+
+    expect(result.output).toEqual({ type: "text", text: "[fixture:phi-3-mini-web] Say hello." });
+  });
+
+  it("treats a null runtime like an absent one", () => {
+    const options = JSON.parse(
+      JSON.stringify({ modelPackage: MODEL_PACKAGE, runtime: null })
+    ) as OnnxProviderOptions;
+
+    expect(() => new OnnxRuntimeWebProvider(options)).not.toThrow();
+  });
+
+  it("rejects an unknown runtime kind at construction", () => {
+    const build = () =>
+      new OnnxRuntimeWebProvider({
+        modelPackage: MODEL_PACKAGE,
+        runtime: { kind: "fixtures" } as never
+      });
+
+    expect(build).toThrow(TypeError);
+    expect(build).toThrow(/fixtures/);
+  });
+
+  it("closes a descriptor-built runtime and never an injected one", async () => {
+    const before = transformersCloses.count;
+    await new OnnxRuntimeWebProvider({
+      modelPackage: MODEL_PACKAGE,
+      runtime: { kind: "transformers_js" }
+    }).close();
+    expect(transformersCloses.count).toBe(before + 1);
+
+    const injected = createFixtureOnnxRuntime();
+    const close = vi.fn(async () => undefined);
+    await new OnnxRuntimeWebProvider({
+      modelPackage: MODEL_PACKAGE,
+      runtime: { ...injected, close }
+    }).close();
+    expect(close).not.toHaveBeenCalled();
   });
 });

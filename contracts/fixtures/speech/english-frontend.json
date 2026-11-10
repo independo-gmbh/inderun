@@ -1,0 +1,227 @@
+{
+  "$comment": "English speech text frontend. Written from the rules in the v0.5.0 readiness plan, not ported. Run by the route core's Rust tests and by each SDK through its binding.",
+  "cases": [
+    {
+      "id": "corpus_short",
+      "locale": "en-US",
+      "input": "Your appointment is at 3 pm.",
+      "expected": "Your appointment is at three pee em."
+    },
+    {
+      "id": "corpus_numerals",
+      "locale": "en-US",
+      "input": "It costs $12.50 and takes 3 to 4 hours. The meeting is on December 24, 2026, at 9:15 a.m. in room 101.",
+      "expected": "It costs twelve dollars and fifty cents and takes three to four hours. The meeting is on December twenty-fourth, twenty twenty-six, at nine fifteen ay em in room one hundred one."
+    },
+    {
+      "id": "corpus_dates",
+      "locale": "en-US",
+      "input": "The conference starts on March 4th and ends on March 6th at 5:30 pm.",
+      "expected": "The conference starts on March fourth and ends on March sixth at five thirty pee em."
+    },
+    {
+      "id": "corpus_money",
+      "locale": "en-US",
+      "input": "The total comes to $48.75, including a $5 delivery fee and 8 % tax.",
+      "expected": "The total comes to forty-eight dollars and seventy-five cents, including a five dollars delivery fee and eight percent tax."
+    },
+    {
+      "id": "corpus_units",
+      "locale": "en-US",
+      "input": "The trail is 12 km long, and the pack weighs 8 kg with 2 l of water.",
+      "expected": "The trail is twelve kilometers long, and the pack weighs eight kilograms with two liters of water."
+    },
+    {
+      "id": "corpus_abbreviations",
+      "locale": "en-US",
+      "input": "Please bring a pen, a notebook, etc., and arrive approx. ten minutes early, e.g. by 9 am.",
+      "expected": "Please bring a pen, a notebook, et cetera, and arrive approximately ten minutes early, for example by nine ay em."
+    },
+    {
+      "id": "time_spellings",
+      "locale": "en-US",
+      "input": "Come at 3pm, 3 PM or 3 p.m. Thanks, see you at 3 P.M.",
+      "expected": "Come at three pee em, three pee em or three pee em. Thanks, see you at three pee em."
+    },
+    {
+      "id": "clock",
+      "locale": "en-US",
+      "input": "9:05, 9:00 am, 12:30 and 14:45",
+      "expected": "nine oh five, nine ay em, twelve thirty and fourteen forty-five"
+    },
+    {
+      "id": "cardinals",
+      "locale": "en-US",
+      "input": "0, 7, 13, 21, 100, 101, 999, 1000, 1001 and 12345",
+      "expected": "zero, seven, thirteen, twenty-one, one hundred, one hundred one, nine hundred ninety-nine, one thousand, one thousand one and twelve thousand three hundred forty-five"
+    },
+    {
+      "id": "thousands",
+      "locale": "en-US",
+      "input": "1,250 people and 3,000,000 stars",
+      "expected": "one thousand two hundred fifty people and three million stars"
+    },
+    {
+      "id": "decimals",
+      "locale": "en-US",
+      "input": "Pi is 3.14 and the rate is 0.5.",
+      "expected": "Pi is three point one four and the rate is zero point five."
+    },
+    {
+      "id": "ordinals",
+      "locale": "en-US",
+      "input": "1st, 2nd, 3rd, 11th, 21st and 102nd",
+      "expected": "first, second, third, eleventh, twenty-first and one hundred second"
+    },
+    {
+      "id": "ranges",
+      "locale": "en-US",
+      "input": "3-4 days, pages 10–12",
+      "expected": "three to four days, pages ten to twelve"
+    },
+    {
+      "id": "negative",
+      "locale": "en-US",
+      "input": "It is -5 degrees.",
+      "expected": "It is minus five degrees."
+    },
+    {
+      "id": "percent",
+      "locale": "en-US",
+      "input": "8% and 12.5 %",
+      "expected": "eight percent and twelve point five percent"
+    },
+    {
+      "id": "currencies",
+      "locale": "en-US",
+      "input": "€20, £3.99, $1, $0.50 and $1.01",
+      "expected": "twenty euros, three pounds and ninety-nine pence, one dollar, fifty cents and one dollar and one cent"
+    },
+    {
+      "id": "years_after_dates",
+      "locale": "en-US",
+      "input": "On July 4, 1999, January 1, 2000, May 3, 2005 and June 1, 1905.",
+      "expected": "On July fourth, nineteen ninety-nine, January first, two thousand, May third, two thousand five and June first, nineteen oh five."
+    },
+    {
+      "id": "four_digits_elsewhere",
+      "locale": "en-US",
+      "input": "There were 2026 people.",
+      "expected": "There were two thousand twenty-six people."
+    },
+    {
+      "id": "digit_runs",
+      "locale": "en-US",
+      "input": "Call 0123 or 1234567890123.",
+      "expected": "Call zero one two three or one two three four five six seven eight nine zero one two three."
+    },
+    {
+      "id": "number_signs",
+      "locale": "en-US",
+      "input": "#5 & No. 7",
+      "expected": "number five and number seven"
+    },
+    {
+      "id": "titles",
+      "locale": "en-US",
+      "input": "Dr. Smith met Mr. Jones vs. Mrs. Lee, i.e. friends.",
+      "expected": "Doctor Smith met Mister Jones versus Missus Lee, that is friends."
+    },
+    {
+      "id": "abbreviation_ends_sentence",
+      "locale": "en-US",
+      "input": "Bring snacks etc. Then go.",
+      "expected": "Bring snacks et cetera. Then go."
+    },
+    {
+      "id": "units_singular_compound",
+      "locale": "en-US",
+      "input": "1 km, 1 kg, 5 km/h and 20 °C",
+      "expected": "one kilometer, one kilogram, five kilometers per hour and twenty degrees Celsius"
+    },
+    {
+      "id": "glued",
+      "locale": "en-US",
+      "input": "Gate B12",
+      "expected": "Gate B twelve"
+    },
+    {
+      "id": "en_gb_shares_output",
+      "locale": "en-GB",
+      "input": "Your appointment is at 3 pm.",
+      "expected": "Your appointment is at three pee em."
+    },
+    {
+      "id": "bare_language",
+      "locale": "en",
+      "input": "Room 7",
+      "expected": "Room seven"
+    },
+    {
+      "id": "lines_preserved",
+      "locale": "EN_us",
+      "input": "Line 1\nLine 2",
+      "expected": "Line one\nLine two"
+    },
+    {
+      "id": "no_digits_unchanged",
+      "locale": "en-US",
+      "input": "After the Frühstück we took the S-Bahn downtown.",
+      "expected": "After the Frühstück we took the S-Bahn downtown."
+    },
+    {
+      "id": "money_scale_words",
+      "locale": "en-US",
+      "input": "$2.5 billion, $5 million and €3 thousand",
+      "expected": "two point five billion dollars, five million dollars and three thousand euros"
+    },
+    {
+      "id": "money_abbreviated_scale",
+      "locale": "en-GB",
+      "input": "£5m, $10m, $3bn and $5k",
+      "expected": "five million pounds, ten million dollars, three billion dollars and five thousand dollars"
+    },
+    {
+      "id": "trailing_euro",
+      "locale": "en-US",
+      "input": "It costs 20 € or 5€.",
+      "expected": "It costs twenty euros or five euros."
+    },
+    {
+      "id": "fractions",
+      "locale": "en-US",
+      "input": "1/2, 1/3, 2/3, 1/4, 3/4 and 5/8",
+      "expected": "one half, one third, two thirds, one quarter, three quarters and five over eight"
+    },
+    {
+      "id": "slashes",
+      "locale": "en-US",
+      "input": "Open 24/7, and/or by appointment.",
+      "expected": "Open twenty-four seven, and or by appointment."
+    },
+    {
+      "id": "leftover_symbols",
+      "locale": "en-US",
+      "input": "Use #hashtags & tags.",
+      "expected": "Use hashtags and tags."
+    },
+    {
+      "id": "decades",
+      "locale": "en-US",
+      "input": "the 1990s, the 2020s and the '80s",
+      "expected": "the nineteen nineties, the twenty twenties and the eighties"
+    },
+    {
+      "id": "long_runs_in_money",
+      "locale": "en-US",
+      "input": "$0123 and $1234567890123",
+      "expected": "zero one two three dollars and one two three four five six seven eight nine zero one two three dollars"
+    },
+    {
+      "id": "sentence_initial_abbreviation",
+      "locale": "en-US",
+      "input": "E.g. bring water.",
+      "expected": "For example bring water."
+    }
+  ]
+}

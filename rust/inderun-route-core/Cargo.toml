@@ -29,7 +29,7 @@ default = ["speech-text"]
 # missed in the direction that matters.
 jni-bindings = ["dep:jni"]
 
-# The German speech text frontend (`normalize_speech_text`) and the regex engine it needs. On by
+# The German and English speech text frontend (`normalize_speech_text`) and the regex engine it needs. On by
 # default; the Web build turns it off for the planner module, so apps that only route do not
 # download the regex tables, and builds it again on its own for the speech module.
 speech-text = ["dep:fancy-regex"]

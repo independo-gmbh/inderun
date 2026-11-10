@@ -10,3 +10,5 @@ Ported or copied from that project:
 The rules and tables arrive with the modules that use them. The German number
 words in number_words.rs are written from scratch to follow the convention the
 upstream model was trained with.
+
+The English frontend (english/, data/en/) is original work, not ported.

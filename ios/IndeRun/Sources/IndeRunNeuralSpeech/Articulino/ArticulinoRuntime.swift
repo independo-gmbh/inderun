@@ -55,18 +55,20 @@ public final class ArticulinoRuntime: NeuralSpeechRuntime {
     private static let maxTensorElements = Int(Int32.max)
 
     /// The pre-split hook of every composed runtime that runs this pipeline: a grapheme frontend reads
-    /// letters, so numbers, dates and abbreviations go through the shared core first; any other
-    /// frontend gets the text unchanged.
+    /// letters, so numbers, dates and abbreviations go through the shared core first, in German and
+    /// English; any other frontend or locale gets the text unchanged.
     public static func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String {
-        guard modelPackage.speech?.frontend?.kind == .grapheme, isGerman(locale) else { return text }
+        guard modelPackage.speech?.frontend?.kind == .grapheme, hasSpeechTextFrontend(locale) else { return text }
         return SharedCoreSpeechText.normalize(text, locale: locale)
     }
 
-    /// True when the language subtag of `locale` is `de` (case-insensitive, `-` or `_` separated), the
-    /// core's own rule; other text never crosses the C string boundary, which cannot carry a NUL.
-    private static func isGerman(_ locale: String) -> Bool {
-        locale.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "-" || $0 == "_" })
-            .first?.lowercased() == "de"
+    /// True when the language subtag of `locale` is `de` or `en` (case-insensitive, `-` or `_`
+    /// separated), the core's own rule; other text never crosses the C string boundary, which cannot
+    /// carry a NUL.
+    private static func hasSpeechTextFrontend(_ locale: String) -> Bool {
+        let language = locale.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "-" || $0 == "_" })
+            .first?.lowercased()
+        return language == "de" || language == "en"
     }
 
     public func normalizeText(_ modelPackage: ModelPackage, text: String, locale: String) -> String {

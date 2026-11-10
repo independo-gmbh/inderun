@@ -17,23 +17,29 @@ Every run uses the shared corpus in
 [`contracts/fixtures/speech/utterance-corpus.json`](../../contracts/fixtures/speech/utterance-corpus.json) and the same
 scenarios as the system speech benchmark ([Running the scenarios on another provider](./system-speech.md#running-the-scenarios-on-another-provider)),
 plus the corpus's `extendedUtterances` (ids prefixed `ext_`: numbers, dates, money, units, abbreviations, long text and
-mixed content), which only the `render_speed` scenario reads. Each run writes one report in the
+mixed content), which only the `render_speed` scenario reads. The Mac, Chrome and Core AI `en-US` numbers (2026-11-09) were recorded before English normalization, like the Pixel English rows, so their digits were not spoken. Each run writes one report in the
 `inderun-speech-benchmark/1` format
 ([schema](../../contracts/fixtures/speech/speech-benchmark-report.schema.json)) under
 [`docs/verification/reports/`](./reports/). The reports hold the raw samples and the percentiles; the tables below copy
 `p50` and `p95` from them and nothing else.
 
-- **Reports.** Six exist: `sdk_tests-apple_system_speech-Mac14-6-2026-11-09.json` (the OS voice on the Mac),
+- **Reports.** Eight exist: `sdk_tests-apple_system_speech-Mac14-6-2026-11-09.json` (the OS voice on the Mac),
   `sdk_tests-articulino_onnx-int8-Mac14-6-2026-11-09.json` (Articulino on the Mac) and
   `web_voices_lab-articulino-de-en-int8-Chrome-macOS-2026-11-09.json` (Articulino in the web demo) and
   `ios_device_bench-articulino_onnx-int8-iPhone15-4-2026-11-09.json` (Articulino on an iPhone 15), plus the two Core AI
   reports described under [Core AI](#core-ai-apple-fp32): `sdk_tests-articulino_coreai-Mac14-6-2026-11-09.json` and
-  `ios_device_bench-articulino_coreai-iPhone15-4-2026-11-09.json`.
+  `ios_device_bench-articulino_coreai-iPhone15-4-2026-11-09.json`. The two Pixel 9 Pro reports are
+  `sdk_tests-android_system_speech-Google-Pixel-9-Pro-2026-11-10.json` and
+  `sdk_tests-articulino_onnx-int8-Google-Pixel-9-Pro-2026-11-10.json`.
 - **Mac.** `swift test` on a Mac14,6 (macOS 27.2.0), the `sdk_tests` harness, SDK build `dev+a8ee554`.
   The OS voice and Articulino ran the same scenarios as two separate runs a few minutes apart, one report each.
 - **Web.** The Voices lab "Run corpus" button of the web demo (dev server), in Chrome on the same Mac, SDK `0.4.0+dev`, the
   "Automatic" voice (the report has no `voiceId`), with a fresh engine for each scenario. Browsers expose no process memory, so the web report has no
   `peakRssDeltaBytes`.
+- **Android.** `SpeechBenchmarkTest` (`connectedAndroidTest`) on a Pixel 9 Pro (Tensor G4, Android 17, API 37), the
+  `sdk_tests` harness, SDK build `dev+475015f`, all seven scenarios and the extended corpus. The OS voice and Articulino
+  ran as two reports from one run. The English utterances were timed before the English text normalization landed on
+  this branch.
 - **iPhone.** `tools/neural-speech/ios_device_bench.sh` on an iPhone 15 (iPhone15,4, iOS 27.2.0), the
   `ios_device_bench` harness, SDK build `dev+e0a5f0b`, German (`de-DE`) only, three rounds. The harness runs two of the
   seven scenarios, `first_call_after_prepare` and `render_speed`; the other five are listed in the report's `skipped`
@@ -76,15 +82,15 @@ not pay again.
 
 Family by locale by platform by device. **Real** means the cell is covered by a report in this document.
 
-| Family                           | Locale           | Mac14,6 (macOS 27.2)        | Chrome on the same Mac      | iPhone 15 (iPhone15,4)                                                | Android                      | Core AI (fp32)                                            |
-| -------------------------------- | ---------------- | --------------------------- | --------------------------- | --------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------- |
-| Articulino ONNX int8             | `de-DE`          | Real                        | Real                        | Real (2 of 7 scenarios; the others are not run by the device harness) | pending (no device attached) | Real (Mac, iPhone 15; see [Core AI](#core-ai-apple-fp32)) |
-| Articulino ONNX int8             | `en-US`          | Real                        | Real                        | not run (device harness is `de-DE` only)                              | pending (no device attached) | Real (Mac only)                                           |
-| Articulino ONNX int8             | `de-AT`          | Real (extended corpus only) | Real (extended corpus only) | not run (device harness is `de-DE` only)                              | pending (no device attached) | Real (Mac, extended corpus only)                          |
-| OS voice (`apple_system_speech`) | `de-DE`, `en-US` | Real                        | not run                     | not run                                                               | pending (no device attached) | n/a                                                       |
-| Kokoro                           | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289)                                           |
-| Piper                            | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289)                                           |
-| Pocket TTS                       | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)              | deferred (#289)                                           |
+| Family                                                    | Locale           | Mac14,6 (macOS 27.2)        | Chrome on the same Mac      | iPhone 15 (iPhone15,4)                                                | Android                                     | Core AI (fp32)                                            |
+| --------------------------------------------------------- | ---------------- | --------------------------- | --------------------------- | --------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------- |
+| Articulino ONNX int8                                      | `de-DE`          | Real                        | Real                        | Real (2 of 7 scenarios; the others are not run by the device harness) | Real (Pixel 9 Pro)                          | Real (Mac, iPhone 15; see [Core AI](#core-ai-apple-fp32)) |
+| Articulino ONNX int8                                      | `en-US`          | Real                        | Real                        | not run (device harness is `de-DE` only)                              | Real (Pixel 9 Pro)                          | Real (Mac only)                                           |
+| Articulino ONNX int8                                      | `de-AT`          | Real (extended corpus only) | Real (extended corpus only) | not run (device harness is `de-DE` only)                              | Real (Pixel 9 Pro)                          | Real (Mac, extended corpus only)                          |
+| OS voice (`apple_system_speech`, `android_system_speech`) | `de-DE`, `en-US` | Real                        | not run                     | not run                                                               | Real (Pixel 9 Pro, `android_system_speech`) | n/a                                                       |
+| Kokoro                                                    | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)                             | deferred (#289)                                           |
+| Piper                                                     | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)                             | deferred (#289)                                           |
+| Pocket TTS                                                | deferred (#289)  | deferred (#289)             | deferred (#289)             | deferred (#289)                                                       | deferred (#289)                             | deferred (#289)                                           |
 
 The Core AI column is the Articulino fp32 asset run through Core AI on the Mac and the iPhone 15 listed in the same row;
 it has no Chrome or Android cell because Core AI exists only on iOS and macOS. The OS voice's own pending list is in [system-speech.md](./system-speech.md). The iPhone 15 report comes from the
@@ -275,6 +281,120 @@ in one session and are not a thermal or battery study.
 | `render_speed` / cold | `de_de_long`  | 36,000 / 36,000 | 991 / 991     | 0.028 / 0.028 | 1.4 / 1.4            | 1   |
 | `render_speed` / warm | `de_de_long`  | 36,000 / 36,000 | 1,023 / 1,040 | 0.028 / 0.029 | 0.0 / 21.4           | 3   |
 
+## Pixel 9 Pro (Tensor G4, Android 17, API 37)
+
+Reports: `sdk_tests-android_system_speech-Google-Pixel-9-Pro-2026-11-10.json` and
+`sdk_tests-articulino_onnx-int8-Google-Pixel-9-Pro-2026-11-10.json`, both SDK build `dev+475015f`, from the
+`SpeechBenchmarkTest` instrumented test. All seven scenarios ran, plus the extended corpus for Articulino (int8, ONNX
+Runtime CPU provider, `articulino-de-en-int8`); nothing is skipped. The OS voice is the Android system TTS engine
+(`android_system_speech`), so the neural numbers can be read against it, as in the Mac tables. The numbers are one
+phone in one session and are not a thermal or battery study. The reports record the device as `Google Pixel 9 Pro` and
+the OS as `Android 17`; the chip and API level are from the run notes, not the reports.
+
+**The English utterances in these two reports were rendered before the English text normalization landed on this
+branch, so their numbers do not include spoken numerals, dates or units.** Read every `en_us` and `ext_en_us` row as a
+timing of the text without normalization; the German rows are not affected.
+
+**Finding.** Warm Articulino render speed on this phone is an RTF of about 0.3 (0.298 / 0.302 for `de_de_long`, 0.377 /
+0.387 for `de_de_short`), against about 0.03 on the iPhone 15 (0.028 to 0.030) and 0.038 to 0.043 on the Mac. No cause
+was investigated, so this record does not name one.
+
+### Playback
+
+| Scenario / step                               | Utterance     | OS voice first audio (ms) | Articulino first chunk (ms) | Articulino first audio (ms) | OS voice wall (ms) | Articulino wall (ms) | n (OS / Art.) |
+| --------------------------------------------- | ------------- | ------------------------- | --------------------------- | --------------------------- | ------------------ | -------------------- | ------------- |
+| `first_call_cold` / first in process          | `de_de_short` | 736 / 736                 | 2,321 / 2,321               | 2,463 / 2,463               | 3,460 / 3,460      | 4,843 / 4,843        | 1 / 1         |
+| `first_call_cold` / new instance              | `de_de_short` | 293 / 382                 | 2,108 / 2,329               | 2,206 / 2,436               | 3,070 / 3,208      | 4,580 / 4,811        | 2 / 2         |
+| `first_call_after_prepare` / first in process | `de_de_short` | 273 / 273                 | 751 / 751                   | 836 / 836                   | 2,905 / 2,905      | 3,198 / 3,198        | 1 / 1         |
+| `first_call_after_prepare` / new instance     | `de_de_short` | 282 / 304                 | 952 / 1,006                 | 1,059 / 1,098               | 2,852 / 2,922      | 3,429 / 3,476        | 2 / 2         |
+| `repeat_same_voice` / call 1                  | `de_de_short` | 301 / 301                 | 1,944 / 1,944               | 2,041 / 2,041               | 3,078 / 3,078      | 4,415 / 4,415        | 1 / 1         |
+| `repeat_same_voice` / call 2                  | `de_de_short` | 291 / 291                 | 856 / 856                   | 953 / 953                   | 2,911 / 2,911      | 3,315 / 3,315        | 1 / 1         |
+| `repeat_same_voice` / call 3                  | `de_de_short` | 256 / 256                 | 852 / 852                   | 942 / 942                   | 2,883 / 2,883      | 3,317 / 3,317        | 1 / 1         |
+| `repeat_same_voice` / call 4                  | `de_de_short` | 295 / 295                 | 861 / 861                   | 939 / 939                   | 2,926 / 2,926      | 3,321 / 3,321        | 1 / 1         |
+| `repeat_same_voice` / call 5                  | `de_de_short` | 329 / 329                 | 911 / 911                   | 1,014 / 1,014               | 2,953 / 2,953      | 3,394 / 3,394        | 1 / 1         |
+| `switch_language` / call 1 (en-US)            | `en_us_short` | 670 / 670                 | 2,088 / 2,088               | 2,184 / 2,184               | 3,077 / 3,077      | 5,562 / 5,562        | 1 / 1         |
+| `switch_language` / call 2 (de-DE)            | `de_de_short` | 308 / 308                 | 905 / 905                   | 989 / 989                   | 3,079 / 3,079      | 3,394 / 3,394        | 1 / 1         |
+| `switch_language` / call 3 (en-US)            | `en_us_short` | 294 / 294                 | 1,144 / 1,144               | 1,253 / 1,253               | 2,570 / 2,570      | 4,611 / 4,611        | 1 / 1         |
+| `speak_after_stop` / warm-up                  | `en_us_short` | 264 / 264                 | 2,047 / 2,047               | 2,133 / 2,133               | 2,625 / 2,625      | 5,513 / 5,513        | 1 / 1         |
+| `speak_after_stop` / next after stop          | `en_us_short` | 292 / 380                 | 1,097 / 1,146               | 1,180 / 1,233               | 2,567 / 2,635      | 4,550 / 4,612        | 3 / 3         |
+| `text_length` / warm-up                       | `de_de_short` | 358 / 358                 | 1,991 / 1,991               | 2,069 / 2,069               | 3,095 / 3,095      | 4,461 / 4,461        | 1 / 1         |
+| `text_length` / short                         | `de_de_short` | 294 / 294                 | 913 / 913                   | 1,006 / 1,006               | 2,960 / 2,960      | 3,378 / 3,378        | 1 / 1         |
+| `text_length` / long                          | `de_de_long`  | 574 / 574                 | 1,019 / 1,019               | 1,104 / 1,104               | 38,600 / 38,600    | 46,586 / 46,586      | 1 / 1         |
+
+### Prepare and stop
+
+| Scenario / step                                        | Utterance     | Metric          | OS voice (ms) | Articulino (ms) | n (OS / Art.) |
+| ------------------------------------------------------ | ------------- | --------------- | ------------- | --------------- | ------------- |
+| `first_call_after_prepare` / prepare, first in process | `de_de_short` | `prepareMs`     | 203 / 203     | 1,034 / 1,034   | 1 / 1         |
+| `first_call_after_prepare` / prepare, new instance     | `de_de_short` | `prepareMs`     | 212 / 240     | 1,063 / 1,079   | 2 / 2         |
+| `speak_after_stop` / stop                              | `en_us_long`  | `stopLatencyMs` | 27.5 / 33.3   | 19.0 / 31.0     | 3 / 3         |
+
+### Peak memory growth
+
+| Scenario / step                                        | Utterance     | OS voice (MB) | Articulino (MB) |
+| ------------------------------------------------------ | ------------- | ------------- | --------------- |
+| `first_call_cold` / first in process                   | `de_de_short` | 33.2 / 33.2   | 200.6 / 200.6   |
+| `first_call_cold` / new instance                       | `de_de_short` | 14.1 / 30.5   | 7.3 / 50.0      |
+| `first_call_after_prepare` / prepare, first in process | `de_de_short` | 8.2 / 8.2     | 16.6 / 16.6     |
+| `first_call_after_prepare` / first in process          | `de_de_short` | 22.1 / 22.1   | 23.8 / 23.8     |
+| `first_call_after_prepare` / prepare, new instance     | `de_de_short` | 8.3 / 8.7     | 4.6 / 16.1      |
+| `first_call_after_prepare` / new instance              | `de_de_short` | 21.7 / 22.2   | 32.4 / 33.8     |
+| `repeat_same_voice` / call 1                           | `de_de_short` | 30.2 / 30.2   | 49.5 / 49.5     |
+| `repeat_same_voice` / call 2                           | `de_de_short` | 21.7 / 21.7   | 19.5 / 19.5     |
+| `repeat_same_voice` / call 3                           | `de_de_short` | 22.5 / 22.5   | 18.8 / 18.8     |
+| `repeat_same_voice` / call 4                           | `de_de_short` | 22.1 / 22.1   | 18.6 / 18.6     |
+| `repeat_same_voice` / call 5                           | `de_de_short` | 22.0 / 22.0   | 18.7 / 18.7     |
+| `switch_language` / call 1 (en-US)                     | `en_us_short` | 30.6 / 30.6   | 52.8 / 52.8     |
+| `switch_language` / call 2 (de-DE)                     | `de_de_short` | 30.2 / 30.2   | 18.5 / 18.5     |
+| `switch_language` / call 3 (en-US)                     | `en_us_short` | 20.0 / 20.0   | 29.2 / 29.2     |
+| `speak_after_stop` / warm-up                           | `en_us_short` | 30.9 / 30.9   | 42.4 / 42.4     |
+| `speak_after_stop` / next after stop                   | `en_us_short` | 21.4 / 21.9   | 20.7 / 28.3     |
+| `text_length` / warm-up                                | `de_de_short` | 30.8 / 30.8   | 35.4 / 35.4     |
+| `text_length` / short                                  | `de_de_short` | 21.9 / 21.9   | 21.2 / 21.2     |
+| `text_length` / long                                   | `de_de_long`  | 23.3 / 23.3   | 11.7 / 11.7     |
+| `render_speed` / cold                                  | `de_de_short` | 29.3 / 29.3   | 32.3 / 32.3     |
+| `render_speed` / warm                                  | `de_de_short` | 20.1 / 20.1   | 16.9 / 18.8     |
+| `render_speed` / cold                                  | `de_de_long`  | 28.1 / 28.1   | 82.1 / 82.1     |
+| `render_speed` / warm                                  | `de_de_long`  | 27.7 / 28.0   | 67.7 / 132.8    |
+
+### Render speed
+
+| Scenario / step       | Utterance     | OS audio (ms)   | OS render (ms) | OS RTF        | Art. audio (ms) | Art. render (ms) | Art. RTF      | n (OS / Art.) |
+| --------------------- | ------------- | --------------- | -------------- | ------------- | --------------- | ---------------- | ------------- | ------------- |
+| `render_speed` / cold | `de_de_short` | 2,405 / 2,405   | 399 / 399      | 0.166 / 0.166 | 2,350 / 2,350   | 1,851 / 1,851    | 0.788 / 0.788 | 1 / 1         |
+| `render_speed` / warm | `de_de_short` | 2,405 / 2,405   | 269 / 271      | 0.112 / 0.113 | 2,350 / 2,350   | 887 / 909        | 0.377 / 0.387 | 3 / 3         |
+| `render_speed` / cold | `de_de_long`  | 37,822 / 37,822 | 1,429 / 1,429  | 0.038 / 0.038 | 35,960 / 35,960 | 10,730 / 10,730  | 0.298 / 0.298 | 1 / 1         |
+| `render_speed` / warm | `de_de_long`  | 37,822 / 37,822 | 1,412 / 1,464  | 0.037 / 0.039 | 35,960 / 35,960 | 10,719 / 10,850  | 0.298 / 0.302 | 3 / 3         |
+
+### Extended corpus, Articulino
+
+Each row is one sample (`p50` = `p95`). The English rows predate the English normalization (see above).
+
+| Utterance                    | Audio (ms)      | Render (ms)     | RTF           | Peak RSS growth (MB) | n   |
+| ---------------------------- | --------------- | --------------- | ------------- | -------------------- | --- |
+| `ext_de_de_numbers_cardinal` | 6,950 / 6,950   | 1,989 / 1,989   | 0.286 / 0.286 | 25.2 / 25.2          | 1   |
+| `ext_de_de_numbers_decimal`  | 8,670 / 8,670   | 2,432 / 2,432   | 0.281 / 0.281 | 28.8 / 28.8          | 1   |
+| `ext_de_at_numbers_house`    | 5,830 / 5,830   | 1,648 / 1,648   | 0.283 / 0.283 | 22.6 / 22.6          | 1   |
+| `ext_de_de_dates_range`      | 8,790 / 8,790   | 2,128 / 2,128   | 0.242 / 0.242 | 27.5 / 27.5          | 1   |
+| `ext_de_at_dates_jaenner`    | 8,630 / 8,630   | 2,171 / 2,171   | 0.252 / 0.252 | 0.2 / 0.2            | 1   |
+| `ext_en_us_dates`            | 4,710 / 4,710   | 1,489 / 1,489   | 0.316 / 0.316 | 20.8 / 20.8          | 1   |
+| `ext_de_de_money_total`      | 12,950 / 12,950 | 3,221 / 3,221   | 0.249 / 0.249 | 38.4 / 38.4          | 1   |
+| `ext_de_at_money_small`      | 7,350 / 7,350   | 2,007 / 2,007   | 0.273 / 0.273 | 24.9 / 24.9          | 1   |
+| `ext_en_us_money`            | 4,430 / 4,430   | 1,390 / 1,390   | 0.314 / 0.314 | 20.1 / 20.1          | 1   |
+| `ext_de_de_units_speed`      | 8,430 / 8,430   | 2,242 / 2,242   | 0.266 / 0.266 | 27.0 / 27.0          | 1   |
+| `ext_de_de_units_kitchen`    | 7,550 / 7,550   | 2,040 / 2,040   | 0.270 / 0.270 | 25.5 / 25.5          | 1   |
+| `ext_en_us_units`            | 4,870 / 4,870   | 1,472 / 1,472   | 0.302 / 0.302 | 12.2 / 12.2          | 1   |
+| `ext_de_de_abbr_titles`      | 7,470 / 7,470   | 1,985 / 1,985   | 0.266 / 0.266 | 25.0 / 25.0          | 1   |
+| `ext_de_at_abbr_address`     | 8,820 / 8,820   | 2,647 / 2,647   | 0.300 / 0.300 | 39.9 / 39.9          | 1   |
+| `ext_en_us_abbr`             | 8,890 / 8,890   | 2,902 / 2,902   | 0.326 / 0.326 | 53.7 / 53.7          | 1   |
+| `ext_de_de_long_morning`     | 41,100 / 41,100 | 11,385 / 11,385 | 0.277 / 0.277 | 20.7 / 20.7          | 1   |
+| `ext_de_at_long_travel`      | 35,710 / 35,710 | 9,649 / 9,649   | 0.270 / 0.270 | 20.1 / 20.1          | 1   |
+| `ext_en_us_long_garden`      | 37,390 / 37,390 | 9,927 / 9,927   | 0.266 / 0.266 | 33.8 / 33.8          | 1   |
+| `ext_de_de_mixed_product`    | 7,390 / 7,390   | 2,094 / 2,094   | 0.283 / 0.283 | 24.9 / 24.9          | 1   |
+| `ext_de_de_mixed_meeting`    | 5,710 / 5,710   | 1,491 / 1,491   | 0.261 / 0.261 | 8.8 / 8.8            | 1   |
+| `ext_de_at_mixed_music`      | 5,750 / 5,750   | 1,588 / 1,588   | 0.276 / 0.276 | 22.6 / 22.6          | 1   |
+| `ext_en_us_mixed`            | 6,670 / 6,670   | 1,730 / 1,730   | 0.259 / 0.259 | 24.1 / 24.1          | 1   |
+
 ## Core AI (Apple, fp32)
 
 Articulino through the Apple Core AI runtime ([ADR 022](../architecture/decisions/022-core-ai-runtime.md)), the fp32
@@ -418,12 +538,24 @@ SpeechBenchmarkTests`. Without `MODEL_DIR` only the OS voice runs. `INDERUN_SPEE
   from `prepare_coreai_package.py` around the `neural-speech-assets-2` files.
 - **Core AI on the iPhone.** The same `ios_device_bench.sh` command with a Core AI package; the hook builds the Core AI
   provider for a `format: "coreai"` package (see `tools/neural-speech/README.md`).
-- **Android.** `cd android && ./gradlew :inderun-kotlin:connectedAndroidTest
--Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true` plus, as needed,
+- **Android.**
+
+  ```bash
+  cd android && ./gradlew :inderun-kotlin:connectedAndroidTest \
+    -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
+    -Pandroid.testInstrumentationRunnerArguments.class=app.independo.inderun.sdk.SpeechBenchmarkTest \
+    -Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true
+  ```
+
+  Add, as needed,
   `-Pandroid.testInstrumentationRunnerArguments.speechBenchmarkModelDir=<package dir on the device>`,
   `...speechBenchmarkModelId=articulino-de-en-int8`, `...speechBenchmarkOut=<name>` and `...speechBenchmarkSdkVersion`.
-  The reports land in `<name>` under the app's external files directory; the log prints each absolute path
-  (`INDERUN-BENCH-OUT`, `INDERUN-BENCH-REPORT`). Fetch them with `adb pull` before the test app is uninstalled.
+  Push the package first with `adb push <package dir> /data/local/tmp/articulino`. The reports land in `<name>` under
+  the app's external files directory; the log prints each absolute path (`INDERUN-BENCH-OUT`, `INDERUN-BENCH-REPORT`).
+  A plain `connectedAndroidTest` uninstalls the test app when it ends, and the reports go with it, so pass
+  `leaveApksInstalledAfterRun=true` and fetch them afterwards with
+  `adb pull /storage/emulated/0/Android/data/app.independo.inderun.sdk.test/files/<name> <local dir>`.
+
 - **iPhone.** `tools/neural-speech/ios_device_bench.sh --device <udid|name> --package <package dir> --model-id
 articulino-de-en-int8` (see `tools/neural-speech/README.md`). It runs two of the seven scenarios.
 - **Browser.** In the Voices lab (`VITE_INDERUN_VOICES_LAB=1`), download the model, choose the voice ("Automatic"
@@ -434,7 +566,7 @@ articulino-de-en-int8` (see `tools/neural-speech/README.md`). It runs two of the
 ## Pending
 
 - **iPhone 15 (iPhone15,4):** the other five scenarios (`first_call_cold`, `repeat_same_voice`, `switch_language`, `speak_after_stop`, `text_length`), the OS voice and `en-US` are not run by the device harness.
-- **Android:** pending, no device attached.
+- **Android (Pixel 9 Pro):** cancelling a download and rotating during a download not checked (owner, 2026-11-10). The English utterances were timed before English normalization, so `en-US` is not a spoken-numerals measurement.
 - **OS voice in the browser:** not run.
 - **Core AI:** cold specialization time on the Mac (its cache was warm). No demo links a Core AI runtime path, so the Voices lab shows the catalog entry as unavailable in all three demos.
 - **Kokoro, Piper, Pocket TTS:** deferred (#289).

@@ -1,0 +1,32 @@
+{
+  "_note": "English units, written out only directly after a number (\"12 km\", \"5kg\"): the singular after 1, the plural otherwise. A compound with / (km/h) is the numerator, 'per', and the singular of the denominator. 'in' (inches) is left out on purpose: it is also a word ('3 in a row'). Original work for IndeRun, not ported.",
+  "units": {
+    "%": ["percent", "percent"],
+    "°": ["degree", "degrees"],
+    "°C": ["degree Celsius", "degrees Celsius"],
+    "°F": ["degree Fahrenheit", "degrees Fahrenheit"],
+    "cm": ["centimeter", "centimeters"],
+    "ft": ["foot", "feet"],
+    "g": ["gram", "grams"],
+    "GB": ["gigabyte", "gigabytes"],
+    "h": ["hour", "hours"],
+    "kB": ["kilobyte", "kilobytes"],
+    "kg": ["kilogram", "kilograms"],
+    "km": ["kilometer", "kilometers"],
+    "kW": ["kilowatt", "kilowatts"],
+    "kWh": ["kilowatt hour", "kilowatt hours"],
+    "l": ["liter", "liters"],
+    "lb": ["pound", "pounds"],
+    "lbs": ["pound", "pounds"],
+    "m": ["meter", "meters"],
+    "MB": ["megabyte", "megabytes"],
+    "mg": ["milligram", "milligrams"],
+    "mi": ["mile", "miles"],
+    "min": ["minute", "minutes"],
+    "ml": ["milliliter", "milliliters"],
+    "mm": ["millimeter", "millimeters"],
+    "mph": ["mile per hour", "miles per hour"],
+    "oz": ["ounce", "ounces"],
+    "TB": ["terabyte", "terabytes"]
+  }
+}

@@ -2,6 +2,25 @@ import type { ModelPackage } from "@independo/inderun-contracts";
 import { describe, expect, it, vi } from "vitest";
 
 const onnxRuntimeCloses = vi.hoisted(() => ({ count: 0 }));
+const neuralFixtureCloses = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./providers/neural-speech/fixture-runtime.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./providers/neural-speech/fixture-runtime.js")>();
+  return {
+    ...original,
+    createFixtureNeuralSpeechRuntime: (
+      ...args: Parameters<typeof original.createFixtureNeuralSpeechRuntime>
+    ) => {
+      const runtime = original.createFixtureNeuralSpeechRuntime(...args);
+      const close = runtime.close!.bind(runtime);
+      runtime.close = async () => {
+        neuralFixtureCloses.count += 1;
+        await close();
+      };
+      return runtime;
+    }
+  };
+});
 vi.mock("./providers/onnx/transformers-runtime.js", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("./providers/onnx/transformers-runtime.js")>();
@@ -18,7 +37,8 @@ vi.mock("./providers/onnx/transformers-runtime.js", async (importOriginal) => {
   };
 });
 
-import { createIndeRunWeb } from "./index.js";
+import { createIndeRunWeb, generateText, speak } from "./index.js";
+import { createFixtureAudioOutput } from "./test/audio-output-fixture.js";
 import { createFixtureNeuralSpeechRuntime } from "./neural-speech.js";
 
 function speechPackage(id: string): ModelPackage {
@@ -83,5 +103,33 @@ describe("createIndeRunWeb", () => {
     await engine.close();
 
     expect(await runtime.availability({} as never)).toEqual({ available: true });
+  });
+
+  it("routes offline from JSON-only configuration", async () => {
+    const audio = createFixtureAudioOutput();
+    const modelPackage: ModelPackage = {
+      id: "m",
+      format: "onnx",
+      tasks: ["text_to_text"],
+      source: { sourceType: "registry", ref: "x" }
+    };
+    const options = JSON.parse(
+      JSON.stringify({
+        onnx: { modelPackage, runtime: { kind: "fixture" } },
+        neuralSpeech: [{ modelPackage: speechPackage("tts-json"), runtime: { kind: "fixture" } }]
+      })
+    ) as Parameters<typeof createIndeRunWeb>[0];
+    const before = neuralFixtureCloses.count;
+    const engine = createIndeRunWeb({ ...options, hostServices: { audioOutput: audio.service } });
+
+    const text = await generateText(engine, { prompt: "hi", privacy: "local_required" });
+    expect(text.text).toBe("[fixture:m] hi");
+
+    const playback = await speak(engine, { text: "Hallo Welt.", locale: "de-DE" });
+    expect((await playback.result).finishReason).not.toBe("cancelled");
+    expect(audio.sessions[0]?.writtenFrames).toBeGreaterThan(0);
+
+    await engine.close();
+    expect(neuralFixtureCloses.count).toBe(before + 1);
   });
 });

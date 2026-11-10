@@ -34,4 +34,4 @@ assert.equal(
   await normalizeSpeechText("Am 3. Mai, z. B. um 14:30 Uhr.", "de-DE"),
   "Am dritten Mai, zum Beispiel um vierzehn Uhr dreißig."
 );
-assert.equal(await normalizeSpeechText("It is 3 o'clock.", "en-US"), "It is 3 o'clock.");
+assert.equal(await normalizeSpeechText("Il est 3 heures.", "fr"), "Il est 3 heures.");

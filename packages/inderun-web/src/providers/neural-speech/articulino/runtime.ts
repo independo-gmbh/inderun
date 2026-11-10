@@ -417,7 +417,7 @@ export function createArticulinoRuntime(options: ArticulinoRuntimeOptions): Neur
     prepare,
     synthesize,
     async normalizeText(pkg, text, locale) {
-      if (pkg.speech?.frontend?.kind !== "grapheme" || !isGerman(locale)) return text;
+      if (pkg.speech?.frontend?.kind !== "grapheme" || !hasSpeechTextFrontend(locale)) return text;
       try {
         return await normalizeSpeechText(text, locale);
       } catch (error) {
@@ -433,7 +433,8 @@ export function createArticulinoRuntime(options: ArticulinoRuntimeOptions): Neur
   };
 }
 
-/** True when the language subtag of `locale` is `de` (case-insensitive, `-` or `_` separated). */
-function isGerman(locale: string): boolean {
-  return (locale.split(/[-_]/)[0] ?? "").toLowerCase() === "de";
+/** True when the language subtag of `locale` is `de` or `en` (case-insensitive, `-` or `_` separated). */
+function hasSpeechTextFrontend(locale: string): boolean {
+  const language = (locale.split(/[-_]/)[0] ?? "").toLowerCase();
+  return language === "de" || language === "en";
 }

@@ -28,11 +28,11 @@ The contract types this SDK's own signatures take and return — `TaskRequest`, 
 
 ## Entry points
 
-| Import | For | Contains |
-| --- | --- | --- |
-| `@independo/inderun-web` | Applications | `generateText` / `streamText`, `speak` / `generateSpeech` / `listVoices`, `createIndeRunWeb`, the advanced task API (`IndeRun`, `run()` / `stream()` / `checkCapabilities()`), model profiles, contract types, `IndeRunException`, telemetry |
-| `@independo/inderun-web/provider` | Provider authors and host integrators | `ProviderAdapter` and the descriptor/capability types, `ProviderRegistry`, `HostServices` and the browser host services, the `create*` error constructors |
-| `@independo/inderun-web/openai`, `/onnx`, `/system-model`, `/system-speech`, `/neural-speech` | Registering a provider by hand | One provider adapter each |
+| Import                                                                                        | For                                   | Contains                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@independo/inderun-web`                                                                      | Applications                          | `generateText` / `streamText`, `speak` / `generateSpeech` / `listVoices`, `createIndeRunWeb`, the advanced task API (`IndeRun`, `run()` / `stream()` / `checkCapabilities()`), model profiles, contract types, `IndeRunException`, telemetry |
+| `@independo/inderun-web/provider`                                                             | Provider authors and host integrators | `ProviderAdapter` and the descriptor/capability types, `ProviderRegistry`, `HostServices` and the browser host services, the `create*` error constructors                                                                                    |
+| `@independo/inderun-web/openai`, `/onnx`, `/system-model`, `/system-speech`, `/neural-speech` | Registering a provider by hand        | One provider adapter each                                                                                                                                                                                                                    |
 
 The router, the route planner bindings and the Event Gate are engine internals and are not exported. Moving from 0.3?
 See the [migration guide](https://github.com/independo-gmbh/inderun/blob/main/docs/migration.md).
@@ -80,7 +80,10 @@ const { text, provenance } = await generateText(inderun, {
   execution: { privacy: "local_preferred" }
 });
 
-const stream = await streamText(inderun, { system: "Use plain language.", prompt: "Explain routing." });
+const stream = await streamText(inderun, {
+  system: "Use plain language.",
+  prompt: "Explain routing."
+});
 for await (const delta of stream.textStream) process.stdout.write(delta);
 const { finishReason } = await stream.result;
 ```
@@ -99,7 +102,11 @@ import { createIndeRunWeb, listVoices, speak } from "@independo/inderun-web";
 const inderun = createIndeRunWeb({ systemSpeech: {} });
 const voices = await listVoices(inderun, { locale: "de-AT" });
 
-const playback = await speak(inderun, { text: "Der Bus kommt.", locale: "de-AT", voice: voices[0] });
+const playback = await speak(inderun, {
+  text: "Der Bus kommt.",
+  locale: "de-AT",
+  voice: voices[0]
+});
 stopButton.onclick = () => playback.cancel();
 const { finishReason, provenance } = await playback.result; // "cancelled" after cancel()
 ```
@@ -212,7 +219,13 @@ import { OpenAIResponsesProvider } from "@independo/inderun-web/openai";
 import { ProviderRegistry, createBrowserHostServices } from "@independo/inderun-web/provider";
 
 const registry = new ProviderRegistry();
-registry.register(new OpenAIResponsesProvider({ model: "gpt-5.2", endpointUrl: "/api/inderun/openai-responses", auth: "none" }));
+registry.register(
+  new OpenAIResponsesProvider({
+    model: "gpt-5.2",
+    endpointUrl: "/api/inderun/openai-responses",
+    auth: "none"
+  })
+);
 const inderun = new IndeRun(registry, createBrowserHostServices());
 ```
 
@@ -250,6 +263,13 @@ carry credentials — use `authContextRef` and secure storage instead.
 
 Options: `id` (defaults to `local.onnx.genai.web`), `modelPackage` (required), `runtime`, and
 `timeoutMs` (a request's `constraints.timeoutMs` wins).
+
+**Selecting a runtime from configuration.** `runtime` also takes a JSON-serializable descriptor, for
+configuration that cannot carry a function (a bridge marshals `configure(options)` as JSON). The
+provider builds the runtime and closes it with itself. `{ kind: "transformers_js" }` (optionally
+with `device`, `dtype`, `localModelPath`, `pipelineOptions`) needs the optional peer
+`@huggingface/transformers`; `{ kind: "fixture" }` needs no extra dependency. An unknown `kind`
+throws a `TypeError` at construction. Passing a runtime object keeps working and stays yours to close.
 
 The default runtime loads **quantized** weights (`q4f16` on WebGPU, `q4` otherwise). Transformers.js
 would otherwise pick `fp32`, which makes ONNX Runtime fail session creation with an allocation error
@@ -290,23 +310,23 @@ cross-origin isolation (`Cross-Origin-Opener-Policy: same-origin`,
 
 ### Supported model sources
 
-| `source.sourceType` | Web         |
-| ------------------- | ----------- |
-| `registry`          | Supported (hub model id in `source.ref`) |
-| `bundled`           | Supported (assets served by your app) |
-| `app_managed`       | Supported (assets served by your app) |
-| `programmatic`      | Supported (requires `createGenerator`) |
-| `remote`            | Deferred — download yourself, then declare the files |
+| `source.sourceType` | Web                                                      |
+| ------------------- | -------------------------------------------------------- |
+| `registry`          | Supported (hub model id in `source.ref`)                 |
+| `bundled`           | Supported (assets served by your app)                    |
+| `app_managed`       | Supported (assets served by your app)                    |
+| `programmatic`      | Supported (requires `createGenerator`)                   |
+| `remote`            | Deferred — download yourself, then declare the files     |
 | `filesystem`        | Unsupported — browsers cannot read arbitrary local paths |
 
 ### Errors
 
-| Condition                                                   | `errorClass`         |
-| ----------------------------------------------------------- | -------------------- |
+| Condition                                                     | `errorClass`         |
+| ------------------------------------------------------------- | -------------------- |
 | Capability gate fails pre-attempt, model missing/incompatible | `CapabilityMismatch` |
-| Runtime initialization failure, resource exhaustion          | `Unavailable`        |
-| Generation exceeded its timeout budget                       | `Timeout`            |
-| Malformed/empty model output, unexpected runtime failure     | `Internal`           |
+| Runtime initialization failure, resource exhaustion           | `Unavailable`        |
+| Generation exceeded its timeout budget                        | `Timeout`            |
+| Malformed/empty model output, unexpected runtime failure      | `Internal`           |
 
 A purely local runtime never produces `AuthError`, `RateLimited`, or `Offline`.
 
@@ -356,6 +376,10 @@ const inderun = createIndeRunWeb({
 Options: `id` (defaults to `local.system-model.web`), `runtime` (defaults to
 `createChromePromptApiRuntime()`), and `timeoutMs` (a request's `constraints.timeoutMs` wins).
 
+**Selecting a runtime from configuration.** `runtime` also takes a JSON-serializable descriptor:
+`{ kind: "chrome_prompt_api" }` (optionally with `generation`) or `{ kind: "fixture" }`. Neither
+needs an extra dependency. An unknown `kind` throws a `TypeError` at construction.
+
 ### Browser support
 
 Desktop Chrome 138+ only (Windows 10/11, macOS 13+, Linux, ChromeOS), and requires roughly 22 GB
@@ -368,12 +392,12 @@ itself unavailable (`api_missing`) rather than throwing.
 ### Errors
 
 | Condition                                                   | `errorClass`         |
-| ------------------------------------------------------------- | --------------------- |
-| Capability gate fails pre-attempt (any non-available state)   | `CapabilityMismatch`  |
-| Hardware/browser-feature failure surfaced during generation   | `CapabilityMismatch`  |
-| Storage/network constraints, transient failure                | `Unavailable`         |
-| Generation aborted or exceeded its timeout budget              | `Timeout`             |
-| Malformed/empty model output, unexpected runtime failure       | `Internal`            |
+| ----------------------------------------------------------- | -------------------- |
+| Capability gate fails pre-attempt (any non-available state) | `CapabilityMismatch` |
+| Hardware/browser-feature failure surfaced during generation | `CapabilityMismatch` |
+| Storage/network constraints, transient failure              | `Unavailable`        |
+| Generation aborted or exceeded its timeout budget           | `Timeout`            |
+| Malformed/empty model output, unexpected runtime failure    | `Internal`           |
 
 A purely local runtime never produces `AuthError`, `RateLimited`, or `Offline`. See
 [`docs/architecture/web-system-model-provider-family.md`](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/web-system-model-provider-family.md)
@@ -422,7 +446,10 @@ const inderun = createIndeRunWeb({
 ```
 
 The provider id is `local.onnx.speech.web:<modelPackage.id>` unless you pass `id`, so register one
-entry per model. `runtime` is required: the provider does no inference itself. For a real model use
+entry per model. `runtime` is required: the provider does no inference itself. It is either a runtime
+object or a JSON-serializable descriptor (see
+[Selecting a runtime from configuration](#selecting-a-runtime-from-configuration-neural-speech)).
+For a real model use
 the ONNX Runtime runtime, which picks the pipeline from `modelPackage.speech.pipeline` (`articulino`
 today) and runs its graphs on the `onnxruntime-web` wasm backend:
 
@@ -454,6 +481,15 @@ sound, as in Chrome; artifact delivery does not. Artifacts are capped at 16 MiB.
 sentence splitter and the WAV encoder are exported from `@independo/inderun-web/neural-speech`. See
 [the family doc](https://github.com/independo-gmbh/inderun/blob/main/docs/architecture/neural-speech-provider-family.md)
 in the monorepo.
+
+### Selecting a runtime from configuration (neural speech)
+
+For configuration that cannot carry a function, `runtime` takes a descriptor and the provider builds
+the runtime, closing it with itself (an injected runtime stays yours to close). `{ kind: "fixture" }`
+needs no extra dependency. `{ kind: "onnx" }` (optionally with `threads`, `speed`, `pauseMs`) needs
+the optional peer `onnxruntime-web`, and reads package files from `modelPackage.source.ref`, so it
+serves `bundled` and `app_managed` packages only; an OPFS-installed package still needs the function
+form with `files`. An unknown `kind` throws a `TypeError` at construction.
 
 ## Commands
 

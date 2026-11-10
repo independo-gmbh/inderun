@@ -2,10 +2,10 @@
   "$comment": "Scenario catalog for the German speech text frontend (ADR 023, PR 4b). Expectations were written from reading upstream Articulino frontend/german.py (Apache-2.0), not from running it. Run by the route core's Rust tests and by each SDK through its binding.",
   "cases": [
     {
-      "id": "english_passes_through",
-      "locale": "en-US",
-      "input": "Call me at 3.",
-      "expected": "Call me at 3."
+      "id": "other_language_passes_through",
+      "locale": "fr",
+      "input": "Rendez-vous à 3 h.",
+      "expected": "Rendez-vous à 3 h."
     },
     {
       "id": "empty_text",
@@ -348,6 +348,36 @@
       "locale": "de-DE",
       "input": "12,00 €.",
       "expected": "zwölf Euro."
+    },
+    {
+      "id": "money_dot_decimal",
+      "locale": "de-DE",
+      "input": "Der Eintritt kostet 3.00 €.",
+      "expected": "Der Eintritt kostet drei Euro."
+    },
+    {
+      "id": "money_dot_decimal_cents",
+      "locale": "de-DE",
+      "input": "Das kostet 12.50 Euro.",
+      "expected": "Das kostet zwölf Euro fünfzig."
+    },
+    {
+      "id": "money_dash",
+      "locale": "de-DE",
+      "input": "Der Eintritt kostet 3,- € oder 2,– €.",
+      "expected": "Der Eintritt kostet drei Euro oder zwei Euro."
+    },
+    {
+      "id": "money_cents_only",
+      "locale": "de-DE",
+      "input": "Das kostet 0,99 € oder 0,01 €.",
+      "expected": "Das kostet neunundneunzig Cent oder ein Cent."
+    },
+    {
+      "id": "money_dot_thousands_unchanged",
+      "locale": "de-DE",
+      "input": "Das kostet 1.250 €.",
+      "expected": "Das kostet eintausendzweihundertfünfzig Euro."
     },
     {
       "id": "jaenner_date_rule_de_de",

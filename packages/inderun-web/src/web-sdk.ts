@@ -2,6 +2,7 @@ import {
   createBrowserHostServices,
   type CreateBrowserHostServicesOptions
 } from "./core/browser-host.js";
+import { isRuntimeDescriptor } from "./providers/runtime-descriptor.js";
 import { adoptOwnedResources, IndeRun } from "./core/engine.js";
 import type { ModelProfiles } from "./core/model-profiles.js";
 import { OnnxRuntimeWebProvider, type OnnxProviderOptions } from "./providers/onnx/provider.js";
@@ -116,7 +117,8 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
 
   const registry = new ProviderRegistry();
   // What the engine closes with itself: providers built here that hold something to release.
-  // Neural speech providers take an application-supplied runtime and are never listed.
+  // A neural speech provider is listed only when its runtime was built here from a descriptor; an
+  // application-supplied runtime stays the application's to close.
   const owned: { close(): Promise<void> }[] = [];
 
   if (options.openAI) {
@@ -145,7 +147,9 @@ export function createIndeRunWeb(options: CreateIndeRunWebOptions): IndeRun {
   }
 
   for (const neuralSpeech of options.neuralSpeech ?? []) {
-    registry.register(new NeuralSpeechWebProvider(neuralSpeech), neuralSpeech);
+    const neural = new NeuralSpeechWebProvider(neuralSpeech);
+    registry.register(neural, neuralSpeech);
+    if (isRuntimeDescriptor(neuralSpeech.runtime)) owned.push(neural);
   }
 
   const engine = new IndeRun(registry, createBrowserHostServices(options.hostServices), {

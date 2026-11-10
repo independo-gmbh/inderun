@@ -106,6 +106,12 @@ subprojects {
     // Maven Central publishing for the library modules that apply the plugin
     // (the demo app and Capacitor bridge do not). Coordinates share the repo-wide
     // version from gradle.properties (updated on release by scripts/set-version.mjs).
+    //
+    // Every published module builds with compileSdk 36, not the newest SDK: AGP writes a
+    // library's compileSdk into its AAR metadata as the compileSdk each consuming app must use,
+    // so this value is the consumer floor (Capacitor 8 apps default to 36), and compiling against
+    // 36 is what keeps API 37 types out of the published code. Raising it raises the floor for
+    // every app; see "Host requirements" in android/README.md and #214.
     plugins.withId("com.vanniktech.maven.publish") {
         configure<MavenPublishBaseExtension> {
             // Central requires a javadoc jar, but AGP 9.2's Dokka-backed javadoc is
