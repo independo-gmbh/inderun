@@ -36,6 +36,48 @@ pnpm verify:android-api-deps            # verify
 node scripts/verify-android-api-dependencies.mjs --update   # after an intentional change
 ```
 
+## Host requirements
+
+What the build of an app (or a library such as a Capacitor plugin) needs before it can depend on
+`app.independo.inderun:inderun-*`. Every row except JDK was measured against a Capacitor 8-shaped app (AGP 8.13.0,
+Gradle 8.14.3, compileSdk 36) and against AGP 9.1.0 with Gradle 9.3.1; the JDK row restates AGP's own requirement and
+was not measured:
+
+| Requirement | Value | Error you see without it |
+| --- | --- | --- |
+| compileSdk | 36 or higher | `Dependency 'app.independo.inderun:inderun-kotlin:<version>' requires libraries and applications that depend on it to compile against version 36 or later of the Android APIs.` |
+| minSdk | 26 or higher | `Manifest merger failed : uses-sdk:minSdkVersion 24 cannot be smaller than version 26 declared in library [app.independo.inderun:inderun-kotlin:<version>]` |
+| Android Gradle plugin | 8.13.0 or higher; IndeRun adds no floor of its own (older versions are not tested) | — |
+| Gradle | Whatever the app's AGP requires: 8.14.3 runs AGP 8.13.0, AGP 9.1.0 needs 9.3.1 | `Minimum supported Gradle version is 9.3.1. Current version is 8.14.3.` (AGP 9.1.0's check) |
+| Kotlin Gradle plugin | 2.3.0 or higher, on the **app's** buildscript classpath | `e: Incompatible classes were found in dependencies. Remove them from the classpath or use '-Xskip-metadata-version-check' to suppress errors`, then per artifact: `Module was compiled with an incompatible version of Kotlin. The binary version of its metadata is 2.4.0, expected version is 2.2.0.` |
+| JDK | 17 or higher to run the build (AGP's own requirement); the published bytecode targets Java 17 | — |
+
+The Kotlin requirement is the one a consumer cannot guess. The `inderun-*` artifacts, and ML Kit's
+`genai-common` that `inderun-kotlin` brings in, carry Kotlin 2.4 metadata, and a Kotlin compiler reads metadata at
+most one version newer than itself. AGP 9.1.0's built-in Kotlin compiles with 2.2, and so does KGP 2.2.x applied
+through `kotlin-android` on AGP 8. This repository builds with Kotlin 2.4, but that does not reach a consuming
+app, which resolves KGP from its own buildscript classpath. Put it there, in the app's top-level build file:
+
+```groovy
+buildscript {
+    dependencies {
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0")
+    }
+}
+```
+
+The same lines work in a Groovy `build.gradle` (Capacitor) and a `build.gradle.kts`. On AGP 8 it is the version
+of the `kotlin-android` plugin the app applies; on AGP 9 it raises the version that AGP's built-in Kotlin uses, with
+no further plugin to apply.
+
+The published modules build with compileSdk 36 so that this floor stays 36: AGP writes a library's compileSdk into
+its AAR metadata, and a dependency whose own AAR demands a newer compileSdk fails their build.
+
+Releases 0.2.2 to 0.4.0 and the 0.5.0 release candidates rc.1 to rc.17 also required compileSdk 37 and AGP 9.1.0 or
+higher. Their AARs declare `minCompileSdk=37`, and their `inderun-core` depends on `androidx.core:core-ktx` 1.19.x,
+whose `androidx.core:core` AAR declares `minCompileSdk=37` and `minAndroidGradlePluginVersion=9.1.0`
+([#214](https://github.com/independo-gmbh/inderun/issues/214)).
+
 ## Streaming
 
 `IndeRun.stream(request)` returns the run handle, its canonical `StreamEvent` flow, and a

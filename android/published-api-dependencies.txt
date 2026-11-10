@@ -17,7 +17,6 @@ inderun-core compile androidx.annotation:annotation
 inderun-core compile app.independo.inderun:inderun-contracts
 inderun-core compile org.jetbrains.kotlin:kotlin-stdlib
 inderun-core compile org.jetbrains.kotlinx:kotlinx-coroutines-core
-inderun-core runtime androidx.core:core-ktx
 inderun-kotlin compile app.independo.inderun:inderun-contracts
 inderun-kotlin compile app.independo.inderun:inderun-core
 inderun-kotlin compile org.jetbrains.kotlin:kotlin-stdlib

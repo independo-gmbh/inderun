@@ -150,6 +150,10 @@ pins one core version on all three of its platforms. Versions as published on np
 Minimum platform versions are in the [README](../README.md#minimum-system-requirements). Update this table whenever a
 bridge release moves its core pin.
 
+What an Android app's build needs to depend on the Maven artifacts (compileSdk, AGP, Gradle, Kotlin Gradle plugin) is
+in [Host requirements](../android/README.md#host-requirements); core 0.2.2 to 0.4.0 and 0.5.0-rc.1 to rc.17 also
+need compileSdk 37 and AGP 9.1.0 or higher.
+
 ## Per-platform capabilities for release notes
 
 Release notes name what a platform does not support. For 0.5:

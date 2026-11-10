@@ -234,10 +234,14 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   dropping the Kotlin `just-types` framework in v26), which is a real migration, not a
   CI fix — treat these as their own follow-up task rather than force-merging.
 - Android dependency majors (e.g. `androidx.core`) can raise the minimum `compileSdk`
-  they build against — bump `compileSdk` in the relevant `android/*/build.gradle.kts`
-  modules and, if Robolectric doesn't support the new API level yet, pin
-  `sdk=<supported-level>` in that module's `src/test/resources/robolectric.properties`
-  (this decouples the Robolectric test SDK from `compileSdk`).
+  they build against. In the published library modules that fails the build on purpose
+  (`check*AarMetadata`): they stay on `compileSdk 36`, which AGP writes into each AAR as the
+  `compileSdk` every consuming app must use (#214). Prefer keeping the dependency out; raising
+  `compileSdk` there raises the floor for every app and must update the
+  [host requirements](../android/README.md#host-requirements). The demo app may bump freely. If
+  Robolectric doesn't support a new API level yet, pin `sdk=<supported-level>` in that module's
+  `src/test/resources/robolectric.properties` (this decouples the Robolectric test SDK from
+  `compileSdk`).
 
 ## Public-API packaging checks
 

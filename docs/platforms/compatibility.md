@@ -36,6 +36,8 @@ Versions to install:
 
 Capacitor toolchain: Capacitor 8, Xcode 26, `compileSdk` 37, Android Gradle plugin 9.1+, Kotlin Gradle plugin 2.4.10, iOS deployment target 16.0. The exact settings and failure strings are in the [Capacitor quickstart](../getting-started/capacitor.md#install) and the plugin's [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md#host-project-requirements).
 
+Kotlin SDK host requirements (`compileSdk`, Android Gradle plugin, Gradle, Kotlin Gradle plugin, JDK), each with the build error it prevents and the releases it applies to: [Android host requirements](../../android/README.md#host-requirements).
+
 The OpenAI-compatible cloud provider is available on every platform, but it is a route you configure and allow; it is never used for `local_required` requests.
 
 Usage guides for each SDK: [Web](../../packages/inderun-web/README.md), [Swift](../../ios/IndeRun/README.md), [Kotlin](../../android/inderun-kotlin/README.md).
