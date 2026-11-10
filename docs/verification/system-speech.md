@@ -375,6 +375,39 @@ provider admission rule, in #260.
 
 ## Published release smoke check
 
-**Pending** for 0.5: install the published packages and run the steps in
-[release.md](../release.md#release-smoke-check), then record each platform here with its version.
+The steps in [release.md](../release.md#release-smoke-check) were run for 0.5.0-rc.21 (the core packages) and, for the
+Capacitor bridge, on a plugin branch built against 0.5.0. Both are below. No physical device was used and nobody
+listened. The physical-device launch records ([template](./website-launch-template.md)) are still owed, and so is a
+smoke run of the stable 0.5.0 packages and of the published Capacitor package.
+
+### Core packages, 0.5.0-rc.21
+
+Recorded 2026-11-10 as the release smoke check of 0.5.0-rc.21, installing the published packages (npm, SwiftPM `exact`, Maven Central) into fresh scratch apps and running the README quick start. Nobody listened: all three were headless or simulated.
+
+| Platform | Environment | Check | Result |
+| --- | --- | --- | --- |
+| Web (`@independo/inderun-web` 0.5.0-rc.21) | Playwright headless Chromium 158 on macOS, 180 voices listed | `speak()` from a click, `cancel()` after 1 s | Ended `cancelled`, `web_system_speech`, locality `unknown`, no error |
+| Apple (`IndeRun` 0.5.0-rc.21, SwiftPM `exact`) | iPhone 17 Simulator, iOS 26.4 | `speak()` | Finished `stop`, `apple_system_speech`, `on_device`, Samantha, first word 1,855 ms |
+| | | `generateSpeech()` | `audio/wav`, 95,132 bytes, 2,156 ms, RIFF/WAVE header read back; a read after `disposeArtifact` was refused |
+| Android (`inderun-kotlin` + `inderun-system-speech-providers` 0.5.0-rc.21, Maven Central) | `rk_api36` emulator (Android 16, Google TTS, no audio) | `speak()` | Finished `STOP`, `android_system_speech`, OnDevice, first word 135 ms |
+| | | `generateSpeech()` | `audio/wav`, 117,100 bytes, 2,439 ms, RIFF/WAVE header read back; a read after dispose was refused |
+
+The Android app needed Kotlin 2.4 on the consumer side, as `android/README.md` documents.
+
+### Capacitor bridge
+
+Recorded 2026-11-10 with the Capacitor bridge's consumer smoke app (`@independo/capacitor-inderun` 1.2.0, branch
+`feat/speech-api`, commit `7726bb9eff8200e84045c87fa6e92960c5096300`, pinned to inderun 0.5.0), a scratch copy of its
+`example-app` with a temporary autorun hook. This is a plugin branch commit, not the published prerelease package.
+Simulator, emulator and headless browser only; nobody listened to any output.
+
+| Platform | Environment | Result |
+| --- | --- | --- |
+| iOS | iPhone 18 Pro Simulator, iOS 27.0, Xcode 27.2 | Passed: capabilities, 68 voices (1 for `de`), speak and cancel at 300 ms (`cancelled`), speak to `stop`, `generateSpeech` WAV (84,586 B, 22,050 Hz, `artifact_not_found` after dispose), local text run answered by Apple Foundation Models, `close()` then `run()` fails `engine_closed` |
+| iOS | Same, neural Articulino (`articulino-de-en-int8`, 113 MB, `app_managed`) | Passed: download, `prepare()` completed (checksums verified), speak served by `local.onnx.speech.apple:articulino-de-en-int8` (`stop`, first audio 245 ms), WAV 24,000 Hz, reconfigure to system speech only still speaks |
+| Android | AVD `rk_api36` (Pixel 7 Pro profile), Android 16 / API 36, arm64 | Passed: capabilities (ML Kit GenAI unavailable, system speech available), 472 voices (189 need the network), speak and cancel, speak to `stop` (first audio 120 ms), `generateSpeech` WAV (119,398 B, 24,000 Hz, `artifact_not_found` after dispose), local text run refused `CapabilityMismatch` (no AICore), `close()` then `run()` fails `engine_closed` |
+| Android | Same, neural Articulino | Passed: download, `prepare()` completed, neural speak (`stop`, first audio 211 ms), WAV 24,000 Hz, reconfigure to system speech only still speaks |
+| Web | Playwright Chromium 156 (headless) on macOS | Capabilities, 180 voices, local text run refused (`CapabilityMismatch`), `generateSpeech` refused as expected, `close()` then `run()` fails `engine_closed`. Under `local_required` speak is refused (de-DE offered only through voices counted as off-device); with no privacy constraint and a simulated click, speak and cancel at 300 ms (`cancelled`) and speak to `stop` pass |
+
+Observation: `prepare()` delivered no `preparation_progress` events on either platform, only the terminal event.
 
