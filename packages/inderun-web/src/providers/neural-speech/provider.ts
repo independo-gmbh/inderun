@@ -29,6 +29,15 @@ import type {
 } from "../../core/provider.js";
 import { splitSentences } from "./frontend.js";
 import {
+  createFixtureNeuralSpeechRuntime,
+  type FixtureNeuralSpeechRuntimeOptions
+} from "./fixture-runtime.js";
+import {
+  createOnnxNeuralSpeechRuntime,
+  type OnnxNeuralSpeechRuntimeOptions
+} from "./onnx-runtime.js";
+import { assertKnownKind, isRuntimeDescriptor } from "../runtime-descriptor.js";
+import {
   NeuralSpeechRuntimeError,
   type NeuralSpeechAvailability,
   type NeuralSpeechRuntime,
@@ -63,20 +72,53 @@ const TASK = "text_to_speech";
 type SpeechModelPackage = NonNullable<ModelPackage["speech"]>;
 type PackageVoice = SpeechModelPackage["voices"][number];
 
+/**
+ * A JSON-serializable choice of runtime, for configuration that cannot carry a function. `onnx`
+ * builds the onnxruntime-web runtime and reads the package files through
+ * `createUrlPackageFiles(source.ref)`, so it serves `bundled` and `app_managed` packages only;
+ * an OPFS-installed package needs an injected runtime. `fixture` builds the deterministic fixture
+ * runtime.
+ */
+export type NeuralSpeechRuntimeDescriptor =
+  | ({ kind: "onnx" } & Pick<OnnxNeuralSpeechRuntimeOptions, "threads" | "speed" | "pauseMs">)
+  | ({ kind: "fixture" } & FixtureNeuralSpeechRuntimeOptions);
+
+const NEURAL_SPEECH_RUNTIME_KINDS = ["onnx", "fixture"] as const;
+
 /** Options for {@link NeuralSpeechWebProvider}. */
 export interface NeuralSpeechProviderOptions {
   /** Defaults to `<DEFAULT_NEURAL_SPEECH_WEB_PROVIDER_ID>:<modelPackage.id>`. */
   id?: string;
   /** The speech model package: its `speech` block names the pipeline, graphs and voices. */
   modelPackage: ModelPackage;
-  /** Executes the package. Required: no default runtime ships yet. */
-  runtime: NeuralSpeechRuntime;
+  /**
+   * Executes the package. Required, with no default: an implementation of the seam (for example
+   * from `createOnnxNeuralSpeechRuntime()`), or a {@link NeuralSpeechRuntimeDescriptor} the
+   * provider turns into one. A runtime built from a descriptor is closed with the provider; an
+   * injected one stays the application's to close.
+   */
+  runtime: NeuralSpeechRuntime | NeuralSpeechRuntimeDescriptor;
   /**
    * Bounds the synthesis until the run commits: the wait for the first chunk when playing, the
    * whole synthesis up to `finish()` when writing an artifact. A request's `constraints.timeoutMs`
    * wins; zero or less is unbounded.
    */
   timeoutMs?: number;
+}
+
+function buildNeuralSpeechRuntime(descriptor: { kind: string }): NeuralSpeechRuntime {
+  assertKnownKind("neuralSpeech.runtime", descriptor.kind, NEURAL_SPEECH_RUNTIME_KINDS);
+  const known = descriptor as NeuralSpeechRuntimeDescriptor;
+  switch (known.kind) {
+    case "onnx": {
+      const { kind: _kind, ...options } = known;
+      return createOnnxNeuralSpeechRuntime(options);
+    }
+    case "fixture": {
+      const { kind: _kind, ...options } = known;
+      return createFixtureNeuralSpeechRuntime(options);
+    }
+  }
 }
 
 /**
@@ -124,6 +166,7 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
   readonly id: string;
   private readonly modelPackage: ModelPackage;
   private readonly runtime: NeuralSpeechRuntime;
+  private readonly ownsRuntime: boolean;
   private readonly timeoutMs: number | undefined;
   private loaded = false;
   private loadFailure: string | undefined;
@@ -133,8 +176,22 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
   constructor(options: NeuralSpeechProviderOptions) {
     this.id = options.id ?? `${DEFAULT_NEURAL_SPEECH_WEB_PROVIDER_ID}:${options.modelPackage.id}`;
     this.modelPackage = options.modelPackage;
-    this.runtime = options.runtime;
+    if (options.runtime === null || options.runtime === undefined) {
+      throw new TypeError("neuralSpeech.runtime: a runtime or a runtime descriptor is required");
+    }
+    this.ownsRuntime = isRuntimeDescriptor(options.runtime);
+    this.runtime = isRuntimeDescriptor(options.runtime)
+      ? buildNeuralSpeechRuntime(options.runtime)
+      : options.runtime;
     this.timeoutMs = options.timeoutMs;
+  }
+
+  /**
+   * Closes the runtime only when this provider built it from a descriptor; a runtime the
+   * application supplied stays the application's to close.
+   */
+  async close(): Promise<void> {
+    if (this.ownsRuntime) await this.runtime.close?.();
   }
 
   describe(): ProviderDescriptor {

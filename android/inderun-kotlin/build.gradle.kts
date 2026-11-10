@@ -19,7 +19,9 @@ androidComponents {
 
 android {
     namespace = "app.independo.inderun.sdk"
-    compileSdk = 37
+    // The consumer compileSdk floor, kept below the newest SDK on purpose; see the root build.gradle.kts.
+    //noinspection GradleDependency
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 26

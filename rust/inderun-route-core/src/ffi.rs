@@ -195,8 +195,8 @@ pub fn plan_route_json(input_json: &str) -> Result<String, JsValue> {
     plan_route_json_string(input_json).map_err(JsValue::from)
 }
 
-/// Rewrites speech text into its spoken form for `locale` (German only; any other locale returns
-/// the text unchanged). Never fails.
+/// Rewrites speech text into its spoken form for `locale` (German and English; any other locale
+/// returns the text unchanged). Never fails.
 #[cfg(all(target_arch = "wasm32", feature = "speech-text"))]
 #[wasm_bindgen(js_name = normalize_speech_text)]
 pub fn normalize_speech_text_wasm(text: &str, locale: &str) -> String {

@@ -10,7 +10,7 @@ internal object SharedCoreSpeechText {
     private var nativeLoaded = false
 
     /**
-     * Normalizes [text] for [locale] (German only; any other locale comes back unchanged).
+     * Normalizes [text] for [locale] (German and English; any other locale comes back unchanged).
      *
      * @throws UnsatisfiedLinkError when the native library is not packaged or not on
      *   `java.library.path`.

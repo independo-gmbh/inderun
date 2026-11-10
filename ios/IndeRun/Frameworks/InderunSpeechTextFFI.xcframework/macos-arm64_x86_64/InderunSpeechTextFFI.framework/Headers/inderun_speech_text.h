@@ -24,8 +24,8 @@ extern "C" {
 #endif
 
 /*
- * Rewrites speech text into its spoken form for `locale` (German only; any other
- * locale returns the text unchanged). `text` is `text_len` bytes of UTF-8 and may
+ * Rewrites speech text into its spoken form for `locale` (German and English; any
+ * other locale returns the text unchanged). `text` is `text_len` bytes of UTF-8 and may
  * contain U+0000, which would end a C string early; `text` may be NULL when
  * `text_len` is 0. `locale` is a NUL-terminated UTF-8 string.
  *

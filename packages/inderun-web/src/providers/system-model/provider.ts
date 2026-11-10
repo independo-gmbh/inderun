@@ -8,9 +8,15 @@ import {
   type IndeRunException
 } from "../../core/errors.js";
 import type { HostServices } from "../../core/host.js";
-import { createChromePromptApiRuntime } from "./chrome-runtime.js";
+import {
+  createChromePromptApiRuntime,
+  type ChromePromptApiRuntimeOptions
+} from "./chrome-runtime.js";
+import { assertKnownKind, isRuntimeDescriptor } from "../runtime-descriptor.js";
 import {
   SystemModelRuntimeError,
+  createFixtureSystemModelRuntime,
+  type FixtureSystemModelRuntimeOptions,
   type SystemModelAvailability,
   type SystemModelPromptMessage,
   type SystemModelRuntime
@@ -30,6 +36,17 @@ export const DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID = "local.system-model.web";
 const TEXT_TO_TEXT = "text_to_text";
 
 /**
+ * A JSON-serializable choice of runtime, for configuration that cannot carry a function.
+ * `chrome_prompt_api` builds the Prompt API runtime; `fixture` builds the deterministic fixture
+ * runtime without `respond`.
+ */
+export type SystemModelRuntimeDescriptor =
+  | ({ kind: "chrome_prompt_api" } & ChromePromptApiRuntimeOptions)
+  | ({ kind: "fixture" } & Omit<FixtureSystemModelRuntimeOptions, "respond">);
+
+const SYSTEM_MODEL_RUNTIME_KINDS = ["chrome_prompt_api", "fixture"] as const;
+
+/**
  * Configuration for the Web system-model provider.
  */
 export interface SystemModelProviderOptions {
@@ -38,15 +55,34 @@ export interface SystemModelProviderOptions {
    */
   id?: string;
   /**
-   * Runtime implementation used to check availability and execute generation. Defaults to
-   * `createChromePromptApiRuntime()`; pass `createFixtureSystemModelRuntime()` from
-   * `system-model.js` for tests and offline demos.
+   * Runtime used to check availability and execute generation: an implementation of the seam, or
+   * a {@link SystemModelRuntimeDescriptor} the provider turns into one. Defaults to
+   * `createChromePromptApiRuntime()`; use `{ kind: "fixture" }` or
+   * `createFixtureSystemModelRuntime()` from `system-model.js` for tests and offline demos.
    */
-  runtime?: SystemModelRuntime;
+  runtime?: SystemModelRuntime | SystemModelRuntimeDescriptor;
   /**
    * Optional generation timeout in milliseconds. A request-level `constraints.timeoutMs` wins.
    */
   timeoutMs?: number;
+}
+
+function buildSystemModelRuntime(
+  given: SystemModelRuntime | SystemModelRuntimeDescriptor | undefined
+): SystemModelRuntime {
+  if (given === undefined || given === null) return createChromePromptApiRuntime();
+  if (!isRuntimeDescriptor(given)) return given;
+  assertKnownKind("systemModel.runtime", given.kind, SYSTEM_MODEL_RUNTIME_KINDS);
+  switch (given.kind) {
+    case "chrome_prompt_api": {
+      const { kind: _kind, ...options } = given;
+      return createChromePromptApiRuntime(options);
+    }
+    case "fixture": {
+      const { kind: _kind, ...options } = given;
+      return createFixtureSystemModelRuntime(options);
+    }
+  }
 }
 
 /**
@@ -68,7 +104,7 @@ export class SystemModelWebProvider implements PreparableProviderAdapter {
    */
   constructor(private readonly options: SystemModelProviderOptions = {}) {
     this.id = options.id ?? DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID;
-    this.runtime = options.runtime ?? createChromePromptApiRuntime();
+    this.runtime = buildSystemModelRuntime(options.runtime);
   }
 
   /**

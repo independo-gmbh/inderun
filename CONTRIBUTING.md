@@ -20,7 +20,7 @@ toolchain installed.
 | TypeScript packages | Node `24.x` (see `.nvmrc`), pnpm `11.9.0` (`corepack enable`)                   |
 | Rust core           | Rust stable via `rustup`                                                        |
 | Web route planner   | `wasm32-unknown-unknown` target and `wasm-bindgen-cli` (version-matched, below) |
-| Android library     | JDK 21, Android SDK with `compileSdk 37`, `ANDROID_HOME` exported               |
+| Android library     | JDK 21, Android SDK platforms 36 and 37 (demo app), `ANDROID_HOME` exported     |
 | Swift SDK           | Swift 5.9+ toolchain; SwiftLint for `pnpm format:swift` / lint                  |
 
 ### Rust and the WASM route planner

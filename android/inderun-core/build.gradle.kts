@@ -56,7 +56,9 @@ androidComponents {
 
 android {
     namespace = "app.independo.inderun.core"
-    compileSdk = 37
+    // The consumer compileSdk floor, kept below the newest SDK on purpose; see the root build.gradle.kts.
+    //noinspection GradleDependency
+    compileSdk = 36
 
     defaultConfig {
         // Kept in sync by hand with MIN_SDK in scripts/build-route-core-android.mjs,
@@ -85,12 +87,10 @@ dependencies {
     api(project(":inderun-contracts"))
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     // `HostServices.isOnline()` carries @RequiresPermission, so the annotation is part of
-    // the signature a consumer implements against. Declared explicitly rather than leaned
-    // on through core-ktx, which stays `implementation` -- only `SecureStorageService`
-    // uses it, and nothing from it reaches this module's API.
+    // the signature a consumer implements against.
     api("androidx.annotation:annotation:1.11.0")
-
-    implementation("androidx.core:core-ktx:1.19.1")
+    // No androidx.core: its 1.19 AARs demand compileSdk 37 and AGP 9.1 of every app that
+    // depends on them, and this module only used one KTX extension (#214).
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")

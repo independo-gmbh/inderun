@@ -13,10 +13,20 @@ fn german_locales() {
 }
 
 #[test]
+fn english_locales() {
+    for l in ["en", "en-GB", "EN_us"] {
+        assert!(is_english(l), "{l}");
+    }
+    for l in ["eng", "fr", ""] {
+        assert!(!is_english(l), "{l}");
+    }
+}
+
+#[test]
 fn lines_and_locales_pass_through() {
     assert_eq!(
-        normalize_speech_text("Call me at 3.", "en-US"),
-        "Call me at 3."
+        normalize_speech_text("Rendez-vous à 3 h.", "fr"),
+        "Rendez-vous à 3 h."
     );
     assert_eq!(normalize_speech_text("Ein\nZwei\n", "de-DE"), "Ein\nZwei\n");
     assert_eq!(normalize_speech_text("", "de-DE"), "");
@@ -35,31 +45,105 @@ struct Case {
     expected: String,
 }
 
+/// The language fixtures, each with its own id namespace.
+const FIXTURES: [(&str, &str); 2] = [
+    (
+        "german-frontend.json",
+        include_str!("../../../../contracts/fixtures/speech/german-frontend.json"),
+    ),
+    (
+        "english-frontend.json",
+        include_str!("../../../../contracts/fixtures/speech/english-frontend.json"),
+    ),
+];
+
 #[test]
 fn fixture_cases_match() {
-    let fixture: Fixture = serde_json::from_str(include_str!(
-        "../../../../contracts/fixtures/speech/german-frontend.json"
-    ))
-    .expect("german-frontend.json parses");
-    let mut ids = HashSet::new();
     let mut failures = Vec::new();
-    for case in &fixture.cases {
-        assert!(ids.insert(case.id.as_str()), "duplicate id {}", case.id);
-        let actual = normalize_speech_text(&case.input, &case.locale);
-        if actual != case.expected {
-            failures.push(format!(
-                "{} ({}): {:?}\n    expected {:?}\n    actual   {:?}",
-                case.id, case.locale, case.input, case.expected, actual
-            ));
+    let mut total = 0;
+    for (name, source) in FIXTURES {
+        let fixture: Fixture =
+            serde_json::from_str(source).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let mut ids = HashSet::new();
+        for case in &fixture.cases {
+            assert!(
+                ids.insert(case.id.as_str()),
+                "{name}: duplicate id {}",
+                case.id
+            );
+            let actual = normalize_speech_text(&case.input, &case.locale);
+            if actual != case.expected {
+                failures.push(format!(
+                    "{name} {} ({}): {:?}\n    expected {:?}\n    actual   {:?}",
+                    case.id, case.locale, case.input, case.expected, actual
+                ));
+            }
         }
+        total += fixture.cases.len();
     }
     assert!(
         failures.is_empty(),
         "{} of {} cases differ:\n{}",
         failures.len(),
-        fixture.cases.len(),
+        total,
         failures.join("\n")
     );
+}
+
+#[derive(Deserialize)]
+struct Corpus {
+    utterances: Vec<Utterance>,
+    #[serde(rename = "extendedUtterances")]
+    extended_utterances: Vec<Utterance>,
+}
+
+#[derive(Deserialize)]
+struct Utterance {
+    id: String,
+    locale: String,
+    text: String,
+}
+
+#[test]
+fn corpus_english_has_no_digits_or_symbols_left() {
+    let corpus: Corpus = serde_json::from_str(include_str!(
+        "../../../../contracts/fixtures/speech/utterance-corpus.json"
+    ))
+    .expect("utterance-corpus.json parses");
+    let mut checked = 0;
+    for utterance in corpus.utterances.iter().chain(&corpus.extended_utterances) {
+        if !utterance.locale.starts_with("en") {
+            continue;
+        }
+        let spoken = normalize_speech_text(&utterance.text, &utterance.locale);
+        assert!(
+            !has_digit_or_symbol(&spoken),
+            "{}: {spoken:?}",
+            utterance.id
+        );
+        checked += 1;
+    }
+    assert!(checked > 0, "the corpus has no English utterances");
+}
+
+/// What the English stages must never leave behind: the tokenizer drops these silently.
+fn has_digit_or_symbol(text: &str) -> bool {
+    text.chars()
+        .any(|c| c.is_ascii_digit() || "$€£%&#/°".contains(c))
+}
+
+#[test]
+fn english_fixture_expectations_have_no_digits_or_symbols() {
+    let fixture: Fixture =
+        serde_json::from_str(FIXTURES[1].1).expect("english-frontend.json parses");
+    for case in &fixture.cases {
+        assert!(
+            !has_digit_or_symbol(&case.expected),
+            "{}: {:?}",
+            case.id,
+            case.expected
+        );
+    }
 }
 
 #[test]
@@ -105,12 +189,12 @@ fn oversized_numbers_leave_the_line_unchanged() {
 
 /// Best of three runs after one warm-up, so a scheduler hiccup on a shared CI runner
 /// cannot inflate either side of the ratio.
-fn best_time(input: &str) -> std::time::Duration {
-    let _ = normalize_speech_text(input, "de-DE");
+fn best_time(input: &str, locale: &str) -> std::time::Duration {
+    let _ = normalize_speech_text(input, locale);
     (0..3)
         .map(|_| {
             let started = std::time::Instant::now();
-            let _ = normalize_speech_text(input, "de-DE");
+            let _ = normalize_speech_text(input, locale);
             started.elapsed()
         })
         .min()
@@ -121,8 +205,12 @@ fn best_time(input: &str) -> std::time::Duration {
 /// bound flakes with machine speed; a ratio only fails when the algorithm stops scaling
 /// (quadratic work would give about 4x). The 10 s ceiling is a backstop, not the check.
 fn assert_scales_linearly(name: &str, make: impl Fn(usize) -> String, n: usize) {
-    let t1 = best_time(&make(n));
-    let t2 = best_time(&make(2 * n));
+    assert_scales_linearly_in("de-DE", name, make, n);
+}
+
+fn assert_scales_linearly_in(locale: &str, name: &str, make: impl Fn(usize) -> String, n: usize) {
+    let t1 = best_time(&make(n), locale);
+    let t2 = best_time(&make(2 * n), locale);
     assert!(
         t2 < 3 * t1 && t2 < std::time::Duration::from_secs(10),
         "{name}: t(n={n}) = {t1:?}, t(2n) = {t2:?}"
@@ -203,5 +291,29 @@ fn long_benign_lines_are_still_normalized() {
             assert!(out.contains("fünf Minuten"), "{name}: {out}");
         }
         assert_scales_linearly(name, make, n);
+    }
+}
+
+#[test]
+fn long_english_lines_are_normalized_and_scale() {
+    type Make = fn(usize) -> String;
+    let cases: [(&str, Make, usize); 5] = [
+        ("ones", |n| "1 ".repeat(n), 1200),
+        ("money and units", |n| "$1.50 for 2 km, ".repeat(n), 300),
+        (
+            "dates and times",
+            |n| "May 3, 2005 at 9:15 a.m. ".repeat(n),
+            200,
+        ),
+        ("abbreviations", |n| "e.g. etc. Dr. & ".repeat(n), 500),
+        ("digits glued to letters", |n| "B12x".repeat(n), 1000),
+    ];
+    for (name, make, n) in cases {
+        let out = normalize_speech_text(&make(n), "en-US");
+        assert!(
+            !out.chars().any(|c| c.is_ascii_digit() || "$&".contains(c)),
+            "{name} stayed unnormalized"
+        );
+        assert_scales_linearly_in("en-US", name, make, n);
     }
 }

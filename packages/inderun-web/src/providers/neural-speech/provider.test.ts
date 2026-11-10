@@ -5,7 +5,26 @@ import type {
   TaskRequest
 } from "@independo/inderun-contracts";
 import { normalizeSpeechText } from "@independo/inderun-route-core-wasm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const fixtureCloses = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./fixture-runtime.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./fixture-runtime.js")>();
+  return {
+    ...original,
+    createFixtureNeuralSpeechRuntime: (
+      ...args: Parameters<typeof original.createFixtureNeuralSpeechRuntime>
+    ) => {
+      const runtime = original.createFixtureNeuralSpeechRuntime(...args);
+      const close = runtime.close!.bind(runtime);
+      runtime.close = async () => {
+        fixtureCloses.count += 1;
+        await close();
+      };
+      return runtime;
+    }
+  };
+});
 
 import { ArtifactStore, type ArtifactSink } from "../../core/artifacts.js";
 import { IndeRunException } from "../../core/errors.js";
@@ -832,5 +851,54 @@ describe("NeuralSpeechWebProvider runtime_closed", () => {
     expect(error.errorClass).toBe("Unavailable");
     expect(error.details).toMatchObject({ code: "runtime_closed" });
     expect(other.synthesized).toHaveLength(0);
+  });
+});
+
+describe("NeuralSpeechWebProvider runtime descriptors", () => {
+  it("builds the fixture runtime from a JSON descriptor", async () => {
+    const options = JSON.parse(
+      JSON.stringify({ modelPackage: PACKAGE, runtime: { kind: "fixture" } })
+    ) as NeuralSpeechProviderOptions;
+    const provider = new NeuralSpeechWebProvider(options);
+    const { context } = runContext(host);
+
+    const result = await provider.run(speechRequest({ delivery: { mode: "artifact" } }), context);
+
+    expect(result.output?.type).toBe("artifact");
+  });
+
+  it("rejects a null runtime at construction", () => {
+    const options = JSON.parse(
+      JSON.stringify({ modelPackage: PACKAGE, runtime: null })
+    ) as NeuralSpeechProviderOptions;
+    const build = () => new NeuralSpeechWebProvider(options);
+
+    expect(build).toThrow(TypeError);
+    expect(build).toThrow("neuralSpeech.runtime: a runtime or a runtime descriptor is required");
+  });
+
+  it("rejects an unknown runtime kind at construction", () => {
+    const build = () =>
+      new NeuralSpeechWebProvider({
+        modelPackage: PACKAGE,
+        runtime: { kind: "fixtures" } as never
+      });
+
+    expect(build).toThrow(TypeError);
+    expect(build).toThrow(/fixtures/);
+  });
+
+  it("closes a descriptor-built runtime and never an injected one", async () => {
+    const before = fixtureCloses.count;
+    await new NeuralSpeechWebProvider({
+      modelPackage: PACKAGE,
+      runtime: { kind: "fixture" }
+    }).close();
+    expect(fixtureCloses.count).toBe(before + 1);
+
+    const injected = createFixtureNeuralSpeechRuntime();
+    await new NeuralSpeechWebProvider({ modelPackage: PACKAGE, runtime: injected }).close();
+    expect(fixtureCloses.count).toBe(before + 1);
+    expect(await injected.availability(PACKAGE)).toEqual({ available: true });
   });
 });

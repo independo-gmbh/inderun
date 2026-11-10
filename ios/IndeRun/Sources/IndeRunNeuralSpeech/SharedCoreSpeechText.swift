@@ -2,8 +2,8 @@ import Foundation
 import InderunSpeechTextFFI
 
 /// The speech text normalizer of the shared Rust core (`rust/inderun-route-core`, feature
-/// `speech-text`), through its C interface: German numbers, dates, times, money, units and
-/// abbreviations become spoken words; any other locale comes back unchanged.
+/// `speech-text`), through its C interface: German and English numbers, dates, times, money, units
+/// and abbreviations become spoken words; any other locale comes back unchanged.
 ///
 /// Linked from its own XCFramework, separate from the route planner's, so an app that never uses
 /// neural speech does not carry the normalizer. The call cannot fail, and a missing symbol is a

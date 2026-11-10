@@ -10,7 +10,7 @@ truth for exact steps. This table describes only what each one covers.
 - `JavaScript` (`javascript.yml`): builds and tests the pnpm packages, regenerating the shared contract and Rust→WASM artifacts first.
 - `Website` (`website.yml`): builds the inderun.dev site (`website/`) and runs the documentation checks (astro check, snippet/version markers, snippet type-check, API snapshot, version consistency, `build` with link validation, `check:docs`, SEO output for the production and preview builds). It is path-filtered (site, `docs/`, READMEs, contracts, the Web SDK entry point). It also runs ESLint and Prettier over `website/`, which `javascript.yml` no longer covers. Its `deploy` job publishes the checked build to Firebase Hosting (project `inderun-landingpage`): a push to the live branch deploys the production build to inderun.dev, a push to the other long-lived branch updates a preview channel named after it, and a pull request from this repository gets a 7-day preview channel linked in a comment. The live branch is `dev` until v0.5.0 is released, so the site is public before the first stable release; the release change switches `LIVE` in the `deploy` job to `main`. Forks and Dependabot are skipped, and the job only reports a notice until the repository secret `FIREBASE_SERVICE_ACCOUNT_INDERUN_LANDINGPAGE` (a service-account JSON with the Firebase Hosting Admin role, as created by `firebase init hosting:github`) is set. `check:versions` queries the npm registry, so the job needs network access. Because of the path filter it cannot be a required check as written: a pull request that touches none of those paths never starts it, and a required check that never reports blocks the merge. See ADR 024.
 - `Rust` (`rust.yml`): builds and tests the `inderun_route_core` crate.
-- `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package.
+- `Swift` (`swift.yml`): builds and tests the iOS/SwiftPM package. The work runs as parallel macOS jobs: `Committed route core`, `Rebuilt route core`, `iOS simulator`, `Demo app`, `API check and SwiftLint`, and the advisory `Core AI build (advisory)`. A final job named `Swift`, the required check, fails if any of the five non-advisory jobs failed or was cancelled.
 - `Android` (`android.yml`): builds and tests the Gradle modules, including the route core's four Android ABIs. A second job, `Android emulator speech`, runs the real-speech corpus on an emulator; see "Real speech on an emulator" below.
 - The Capacitor bridge (`@independo/capacitor-inderun`) now lives in its own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun), which runs its own web/iOS/Android CI there.
 - `Release` (`release.yml`): on pushes to `main`/`dev`, runs `pnpm generate` first so the schema-derived Kotlin contract stays Spotless-formatted, then builds the workspace (incl. the Rust→WASM artifacts) and runs semantic-release to version, changelog, tag, and publish the npm packages. See `docs/release.md`.
@@ -85,7 +85,9 @@ Scanning above). Requiring them on `dev` would leave every dev-targeted PR stuck
 `JavaScript`, `Rust`, `Swift`, and `Android` each start with a cheap `changes` job
 (`dorny/paths-filter`) that gates the real job with `if:`. A PR that doesn't touch a
 given ecosystem still gets a `skipped` (not `pending`) conclusion for that check, so
-required-status-check evaluation always resolves — see path filters below.
+required-status-check evaluation always resolves — see path filters below. `swift.yml` is
+the exception in form only: its required `Swift` check is an aggregate job that always runs
+(`if: always()`) and passes when the path filter skipped every job.
 
 ## Path-based job gating
 
@@ -157,11 +159,17 @@ adb logcat -d -s IndeRunNeuralSpeech
 
 The log line carries the ABI, the audio length and the wall time.
 
+`connectedAndroidTest` uninstalls the test APK when it finishes, so anything the run wrote to the app's external files
+directory (the speech benchmark's JSON reports) is gone with it. To keep them, add
+`-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true` and fetch them afterwards with
+`adb pull /storage/emulated/0/Android/data/app.independo.inderun.sdk.test/files/<speechBenchmarkOut> <local dir>`; the
+commands are in [the verification record](./verification/neural-speech.md#reproduce).
+
 ## Core AI module
 
 `IndeRunCoreAIProviders` compiles to a stub on any Xcode whose SDK has no `CoreAI` framework (it first ships in the
-macOS 27 SDK), so the ordinary `swift test` pass and the simulator step never type-check the real path. The step
-`Build the Core AI module with the newest Xcode` in `swift.yml` selects the newest `/Applications/Xcode*.app` with a
+macOS 27 SDK), so the ordinary `swift test` jobs and the simulator job never type-check the real path. The step
+`Build the Core AI module with the newest Xcode`, in its own advisory job in `swift.yml`, selects the newest `/Applications/Xcode*.app` with a
 step-scoped `DEVELOPER_DIR` (not `xcode-select -s`, which would switch every later step) and runs
 `swift build --target IndeRunCoreAIProviders --scratch-path .build-coreai`, so the build does not share `.build` with
 the other toolchain. It then runs `swift build --target IndeRunTests` in the same scratch path, which also type-checks
@@ -234,10 +242,14 @@ individual, ungrouped PRs and are **not auto-mergeable** — they need manual tr
   dropping the Kotlin `just-types` framework in v26), which is a real migration, not a
   CI fix — treat these as their own follow-up task rather than force-merging.
 - Android dependency majors (e.g. `androidx.core`) can raise the minimum `compileSdk`
-  they build against — bump `compileSdk` in the relevant `android/*/build.gradle.kts`
-  modules and, if Robolectric doesn't support the new API level yet, pin
-  `sdk=<supported-level>` in that module's `src/test/resources/robolectric.properties`
-  (this decouples the Robolectric test SDK from `compileSdk`).
+  they build against. In the published library modules that fails the build on purpose
+  (`check*AarMetadata`): they stay on `compileSdk 36`, which AGP writes into each AAR as the
+  `compileSdk` every consuming app must use (#214). Prefer keeping the dependency out; raising
+  `compileSdk` there raises the floor for every app and must update the
+  [host requirements](../android/README.md#host-requirements). The demo app may bump freely. If
+  Robolectric doesn't support a new API level yet, pin `sdk=<supported-level>` in that module's
+  `src/test/resources/robolectric.properties` (this decouples the Robolectric test SDK from
+  `compileSdk`).
 
 ## Public-API packaging checks
 
@@ -393,15 +405,16 @@ error and then registers no tasks at all. Revisit when either tool supports AGP'
     `pnpm verify:route-core-apple` (`scripts/verify-route-core-apple.mjs`) recomputes all of it
     and additionally checks each slice with `lipo`/`otool`/`nm`/`plutil`: architectures, Mach-O
     platform, deployment target, each framework's exported FFI symbols (planner: `_inderun_plan_route_json`, `_inderun_free_string`; speech text: `_inderun_normalize_speech_text`, `_inderun_speech_text_free`, with the planner framework asserted _not_ to export the normalizer), the `@rpath` install name, and
-    that nothing beyond `libSystem` is linked. It runs in `swift.yml` **before** anything is
-    rebuilt, so the committed artifact is what is under test, and `release.yml` gates the
+    that nothing beyond `libSystem` is linked. It runs in the `Committed route core` job of `swift.yml`, which
+    rebuilds nothing, so the committed artifact is what is under test, and `release.yml` gates the
     release job on it — the tag is the Swift distribution channel, and nothing downstream
     re-checks it.
-  - `swift.yml` then rebuilds from source with `--force` and runs the Swift suite a second time
-    against the result, which is the behavioural half: the committed binary and a fresh build of
-    the reviewed source must both satisfy the same tests. `swift test` only exercises the macOS
-    slice, so the job also runs the suite on an iOS simulator and builds `ios/SampleApps/IndeRunDemo`
-    for a generic iOS device, which links and embeds the device slice.
+  - The `Rebuilt route core` job, in parallel, rebuilds from source with `--force` and runs the
+    Swift suite against the result, which is the behavioural half: the committed binary and a
+    fresh build of the reviewed source must both satisfy the same tests. `swift test` only
+    exercises the macOS slice, so the `iOS simulator` job runs the suite on an iOS simulator and
+    the `Demo app` job builds `ios/SampleApps/IndeRunDemo` for a generic iOS device, which links
+    and embeds the device slice. Both use the committed artifact, the one a consumer links.
     A following step runs the demo's app-hosted `IndeRunDemoTests` target (Voices lab catalog, downloader, transport and
     view model) with `xcodebuild test` on the first available iPhone simulator, with `CODE_SIGNING_ALLOWED=NO`. The device
     build stays separate because it is the only step that links the device slice. The Android demo's unit tests run under

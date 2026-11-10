@@ -231,6 +231,12 @@ IndeRun), a `createFixtureOnnxRuntime()` test/demo seam, and support for an appl
 implementation. Model sources: `registry`, `bundled`, `programmatic`, `app_managed` (see
 [Model Source Support Matrix](#model-source-support-matrix) for the full per-platform picture).
 
+**Selecting a runtime from configuration.** `runtime` also takes an `OnnxRuntimeDescriptor`, a
+JSON-serializable object with a `kind`, so configuration that cannot carry a function (a bridge
+marshals `configure(options)` as JSON) can still choose one. `transformers_js` needs the optional
+peer `@huggingface/transformers`; `fixture` needs no extra dependency. A runtime built from a
+descriptor is closed with the provider; an injected one is not.
+
 Implementation detail (runtime seam internals, quantization defaults, capability gate order, error
 mapping, browser/WASM constraints) lives in code comments in
 [`packages/inderun-web/src/providers/onnx/`](../../packages/inderun-web/src/providers/onnx/) and in

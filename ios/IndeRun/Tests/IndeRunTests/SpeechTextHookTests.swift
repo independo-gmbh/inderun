@@ -23,7 +23,7 @@ final class SpeechTextHookTests: XCTestCase {
 
     func testTheSharedBindingNormalizesGerman() {
         XCTAssertEqual(SharedCoreSpeechText.normalize(input, locale: "de-DE"), spoken)
-        XCTAssertEqual(SharedCoreSpeechText.normalize(input, locale: "en-US"), input)
+        XCTAssertEqual(SharedCoreSpeechText.normalize(input, locale: "fr"), input)
     }
 
     func testArticulinoNormalizesAGraphemeFrontend() throws {
@@ -46,9 +46,9 @@ final class SpeechTextHookTests: XCTestCase {
         XCTAssertEqual(runtime.normalizeText(try makePackage(pipeline: "other"), text: input, locale: "de-DE"), input)
     }
 
-    func testArticulinoReturnsTextThatIsNotGermanUnchangedEvenWithANulCharacter() throws {
+    func testArticulinoReturnsTextOfUnsupportedLocalesUnchangedEvenWithANulCharacter() throws {
         let text = "Hello\u{0000}World"
-        for locale in ["en-US", "fr", "", "deu"] {
+        for locale in ["fr", "", "deu", "eng"] {
             XCTAssertEqual(ArticulinoRuntime.normalizeText(try makePackage(), text: text, locale: locale), text, locale)
         }
     }
@@ -56,6 +56,15 @@ final class SpeechTextHookTests: XCTestCase {
     func testArticulinoMatchesTheGermanLanguageSubtagLikeTheCore() throws {
         for locale in ["de", "de-DE", "DE_at", "De-CH"] {
             XCTAssertEqual(ArticulinoRuntime.normalizeText(try makePackage(), text: input, locale: locale), spoken, locale)
+        }
+    }
+
+    func testEnglishTextReachesTheSpeechTextNormalizer() throws {
+        let text = "at 3 pm"
+        for locale in ["en", "en-US", "en-GB", "EN_us"] {
+            let spoken = ArticulinoRuntime.normalizeText(try makePackage(), text: text, locale: locale)
+            XCTAssertNotEqual(spoken, text, locale)
+            XCTAssertEqual(spoken, SharedCoreSpeechText.normalize(text, locale: locale), locale)
         }
     }
 }

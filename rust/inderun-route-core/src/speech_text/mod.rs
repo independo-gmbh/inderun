@@ -1,10 +1,13 @@
 //! Spoken-form normalization of text before speech synthesis.
 //!
-//! [`normalize_speech_text`] is the single entry point. It never fails: a
-//! non-German locale returns the input unchanged, and a stage that errors
-//! leaves its line unchanged (all-or-nothing per line). Lines are split on
-//! `\n` and normalized independently, so the line structure is preserved.
+//! [`normalize_speech_text`] is the single entry point. It never fails: the
+//! language subtag of the locale picks the German or the English stages, any
+//! other language returns the input unchanged, and a stage that errors leaves
+//! its line unchanged (all-or-nothing per line). Lines are split on `\n` and
+//! normalized independently, so the line structure is preserved.
 
+mod common;
+mod english;
 mod german;
 mod number_words;
 
@@ -26,7 +29,7 @@ impl From<fancy_regex::Error> for StageError {
 pub(crate) type Stage = fn(&str, &str) -> Result<String, StageError>;
 
 /// The German stages, applied in order to every line.
-const STAGES: &[Stage] = &[
+const GERMAN_STAGES: &[Stage] = &[
     units_stage,
     numbers_stage,
     abbreviations_stage,
@@ -51,7 +54,31 @@ fn spelling_stage(text: &str, _locale: &str) -> Result<String, StageError> {
 }
 
 fn tidy_stage(text: &str, _locale: &str) -> Result<String, StageError> {
-    german::letters::tidy(text)
+    common::tidy(text)
+}
+
+/// The English stages, applied in order to every line.
+const ENGLISH_STAGES: &[Stage] = &[
+    english_units_stage,
+    english_numbers_stage,
+    english_abbreviations_stage,
+    english_tidy_stage,
+];
+
+fn english_units_stage(text: &str, _locale: &str) -> Result<String, StageError> {
+    english::units::expand_units(text)
+}
+
+fn english_numbers_stage(text: &str, _locale: &str) -> Result<String, StageError> {
+    english::numbers::numbers(text)
+}
+
+fn english_abbreviations_stage(text: &str, _locale: &str) -> Result<String, StageError> {
+    english::abbreviations::expand_abbreviations(text)
+}
+
+fn english_tidy_stage(text: &str, _locale: &str) -> Result<String, StageError> {
+    english::tidy(text)
 }
 
 /// True when the language subtag of `locale` is `de` (case-insensitive,
@@ -63,9 +90,18 @@ pub(crate) fn is_german(locale: &str) -> bool {
         .is_some_and(|language| language.eq_ignore_ascii_case("de"))
 }
 
-fn normalize_line(line: &str, locale: &str) -> String {
+/// True when the language subtag of `locale` is `en` (case-insensitive,
+/// `-` or `_` separated): `en`, `en-GB`, `EN_us`.
+pub(crate) fn is_english(locale: &str) -> bool {
+    locale
+        .split(['-', '_'])
+        .next()
+        .is_some_and(|language| language.eq_ignore_ascii_case("en"))
+}
+
+fn normalize_line(line: &str, locale: &str, stages: &[Stage]) -> String {
     let mut current = line.to_string();
-    for stage in STAGES {
+    for stage in stages {
         match stage(&current, locale) {
             Ok(next) => current = next,
             Err(_) => return line.to_string(),
@@ -74,14 +110,19 @@ fn normalize_line(line: &str, locale: &str) -> String {
     current
 }
 
-/// Rewrite `text` into the form a German speech model expects (digits,
-/// abbreviations and units as words). Non-German locales are returned unchanged.
+/// Rewrite `text` into the form a German or English speech model expects
+/// (digits, abbreviations and units as words). Other locales are returned
+/// unchanged.
 pub fn normalize_speech_text(text: &str, locale: &str) -> String {
-    if !is_german(locale) {
+    let stages = if is_german(locale) {
+        GERMAN_STAGES
+    } else if is_english(locale) {
+        ENGLISH_STAGES
+    } else {
         return text.to_string();
-    }
+    };
     text.split('\n')
-        .map(|line| normalize_line(line, locale))
+        .map(|line| normalize_line(line, locale, stages))
         .collect::<Vec<_>>()
         .join("\n")
 }

@@ -2,8 +2,8 @@
 /* eslint-disable */
 
 /**
- * Rewrites speech text into its spoken form for `locale` (German only; any other locale returns
- * the text unchanged). Never fails.
+ * Rewrites speech text into its spoken form for `locale` (German and English; any other locale
+ * returns the text unchanged). Never fails.
  */
 export function normalize_speech_text(text: string, locale: string): string;
 

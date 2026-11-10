@@ -13,7 +13,8 @@ export {
   MAX_ARTIFACT_BYTES,
   NeuralSpeechWebProvider,
   SUPPORTED_WEB_NEURAL_SPEECH_MODEL_SOURCE_TYPES,
-  type NeuralSpeechProviderOptions
+  type NeuralSpeechProviderOptions,
+  type NeuralSpeechRuntimeDescriptor
 } from "./providers/neural-speech/provider.js";
 
 /**

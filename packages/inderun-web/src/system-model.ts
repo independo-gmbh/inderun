@@ -17,7 +17,8 @@
 export {
   DEFAULT_SYSTEM_MODEL_WEB_PROVIDER_ID,
   SystemModelWebProvider,
-  type SystemModelProviderOptions
+  type SystemModelProviderOptions,
+  type SystemModelRuntimeDescriptor
 } from "./providers/system-model/provider.js";
 
 /**

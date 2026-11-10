@@ -1,7 +1,6 @@
 package app.independo.inderun.core
 
 import android.content.Context
-import androidx.core.content.edit
 
 /**
  * Slot-based credential storage for values referenced through authContextRef.
@@ -18,15 +17,11 @@ class SecureStorageServiceImpl(context: Context) : SecureStorageService {
     override fun get(authContextRef: String): String? = preferences.getString(slotKey(authContextRef), null)
 
     override fun put(authContextRef: String, value: String) {
-        preferences.edit {
-            putString(slotKey(authContextRef), value)
-        }
+        preferences.edit().putString(slotKey(authContextRef), value).apply()
     }
 
     override fun remove(authContextRef: String) {
-        preferences.edit {
-            remove(slotKey(authContextRef))
-        }
+        preferences.edit().remove(slotKey(authContextRef)).apply()
     }
 
     private fun slotKey(authContextRef: String): String {

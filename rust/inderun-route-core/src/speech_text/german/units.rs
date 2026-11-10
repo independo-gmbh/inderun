@@ -8,8 +8,8 @@ use std::sync::LazyLock;
 use fancy_regex::{Captures, Regex};
 use serde::Deserialize;
 
-use super::{compile, group, number, replace_all};
 use crate::speech_text::StageError;
+use crate::speech_text::common::{compile, group, number, replace_all};
 use crate::speech_text::number_words::cardinal;
 
 /// One row of `units.json`: singular, plural, gender (`m`/`f`/`n`), and whether
