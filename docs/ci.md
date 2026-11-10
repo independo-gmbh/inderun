@@ -157,6 +157,12 @@ adb logcat -d -s IndeRunNeuralSpeech
 
 The log line carries the ABI, the audio length and the wall time.
 
+`connectedAndroidTest` uninstalls the test APK when it finishes, so anything the run wrote to the app's external files
+directory (the speech benchmark's JSON reports) is gone with it. To keep them, add
+`-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true` and fetch them afterwards with
+`adb pull /storage/emulated/0/Android/data/app.independo.inderun.sdk.test/files/<speechBenchmarkOut> <local dir>`; the
+commands are in [the verification record](./verification/neural-speech.md#reproduce).
+
 ## Core AI module
 
 `IndeRunCoreAIProviders` compiles to a stub on any Xcode whose SDK has no `CoreAI` framework (it first ships in the

@@ -45,6 +45,7 @@ fun loadModelPackage(directory: String): ModelPackage {
     return ModelPackage(
         id = json.getString("id"),
         version = json.optString("version").takeIf { it.isNotEmpty() },
+        variant = json.optString("variant").takeIf { it.isNotEmpty() },
         format = Format.Onnx,
         tasks = listOf("text_to_speech"),
         source = Source(sourceType = SourceType.Filesystem, ref = directory),

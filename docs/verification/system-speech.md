@@ -176,10 +176,39 @@ which the provider used to hide. Picking `de-de-x-nfh-local` ran `prepare` with 
 finished `stop` with that voice and `on_device`, and within 16 s the voice no longer read `not_prepared`. The emulator has
 no audio output, so this proves completion, not sound.
 
-**Pending, on a physical Android device, with a listener:**
+Recorded 2026-11-10 on a physical Pixel 9 Pro (Tensor G4, Android 17, API 37), `android_system_speech`, SDK build
+`dev+475015f`, from `SpeechBenchmarkTest`; the figures are the `p50` of
+`docs/verification/reports/sdk_tests-android_system_speech-Google-Pixel-9-Pro-2026-11-10.json` and read like the two
+tables above (the emulator keeps its own). The same instrumented suite ran on the phone with 10 tests passing and 1
+skipped, the skip being the opt-in benchmark. The full tables with `p95` are in
+[the neural speech record](./neural-speech.md#pixel-9-pro-tensor-g4-android-17-api-37). Nobody listened to these runs.
+
+| Scenario | Step | `firstAudioMs` median (n) | Other |
+| --- | --- | --- | --- |
+| `first_call_cold` | First in process | 736 (1) | |
+| | New instance | 293 (2) | |
+| `first_call_after_prepare` | `prepare()` | | 203 ms first in process, 212 after |
+| | Then the first utterance | 273 first in process, 282 after | |
+| `repeat_same_voice` | Call 1 | 301 (1) | |
+| | Calls 2 to 5 | 256 to 329 | |
+| `switch_language` | `en-US`, first | 670 | |
+| | Then `de-DE` | 308 | |
+| | Back to `en-US` | 294 | |
+| `speak_after_stop` | Stop | | `stopLatencyMs` 27.5 median, 33.3 p95 (3) |
+| | Next utterance | 292 (3) | |
+| `text_length` | Short, warm | 294 | |
+| | Long, warm | 574 | |
+| `render_speed` | Short, cold / warm | | 399 / 269 ms for 2,405 ms of audio; RTF 0.166 / 0.112 |
+| | Long, cold / warm | | 1,429 / 1,412 ms for 37,822 ms of audio; RTF 0.038 / 0.037 |
+
+On the phone the warm first-word latency (`firstAudioMs`) is 256 to 329 ms, where the emulator showed 25 to 45 ms, and
+the stop latency (`stopLatencyMs`) is about 28 ms, where the emulator showed about 8 ms. No cause was investigated.
+
+**Pending, on a physical Android device, with a listener** (only the benchmark above has run; step 0 is the
+instrumented-suite run, whose `IndeRunCorpus` traces were not recorded):
 
 0. Run `./gradlew :inderun-kotlin:connectedAndroidTest` with the phone connected, and record its traces like the
-   emulator table above.
+   emulator table above. The suite passed on the Pixel 9 Pro (above); the traces are not recorded.
 
 1. Install a German voice. Run `inderun-demo-app`; speak `de-AT` and `de-DE` and note which voice and region spoke.
 2. With a network-only voice as the only match, speak under the demo's `local_required` and confirm a refusal.
@@ -232,7 +261,10 @@ They are opt-in, because they play audio for minutes:
 - **Apple:** `INDERUN_SPEECH_BENCHMARK=1 swift test --filter SpeechBenchmarkTests`, or prefix
   `TEST_RUNNER_INDERUN_SPEECH_BENCHMARK=1` to `xcodebuild test` for a simulator or device.
 - **Android:** `./gradlew :inderun-kotlin:connectedAndroidTest
-  -Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true`, then `adb logcat -d -s IndeRunBenchmark:I`.
+  -Pandroid.testInstrumentationRunnerArguments.speechBenchmark=true`, then `adb logcat -d -s IndeRunBenchmark:I`. The same run writes the JSON reports to the test app's external files directory
+  (`speechBenchmarkOut`); `connectedAndroidTest` uninstalls the test app when it ends, so pass
+  `-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true` and fetch them with `adb pull`; see
+  [the neural speech record](./neural-speech.md#reproduce).
 
 Each sample is one `INDERUN-BENCH` line, and each step one `INDERUN-BENCH-SUMMARY` line with the median, maximum and
 count. Cold and warm calls are never pooled. `firstAudioMs` is the platform's first word callback (the numbers recorded
@@ -299,8 +331,8 @@ What these runs say:
   warm, because each render uses a new synthesizer that loads its voice again. Android's warm render of a short text
   takes 82 ms.
 
-**Pending:** the same runs on a physical iPhone and a physical Android phone, with several trials per step, and with a
-second voice per language.
+**Pending:** the same runs on a physical iPhone, and several trials per step and a second voice per language on both the
+emulator and the physical Android phone (one Pixel 9 Pro run, 2026-11-10, is recorded above).
 
 ### Running the scenarios on another provider
 

@@ -203,8 +203,8 @@ On a real host `firstAudioMs` is not smaller than `firstChunkMs`. The fixture au
 cannot observe that ordering, so the conformance catalog does not pin it. On the Web, `firstAudioMs` carries the caveat
 in ADR 021 about what the browser lets the output observe.
 
-Measured timings, percentiles per scenario on the Mac and in the browser, next to the operating system's voice, are in
-[the neural speech verification record](../verification/neural-speech.md).
+Measured timings, percentiles per scenario on the Mac, in the browser, on an iPhone 15 and on a Pixel 9 Pro, next to the
+operating system's voice, are in [the neural speech verification record](../verification/neural-speech.md).
 
 ## Error codes
 
@@ -350,19 +350,19 @@ unused `speech.graphs` entries. The code is in
 ## Spike and device findings
 
 All runs use the int8 package (`text` 26 MB, `dit_step` 28 MB, `decoder` 33 MB), one voice, the sentence "Ich habe
-Hunger." (1.79 s of audio), the CPU execution provider and a model prepared before timing. "x realtime" is audio seconds
+Hunger." (1.79 s of audio; the Pixel row uses a 2.35 s German sentence from the benchmark corpus), the CPU execution provider and a model prepared before timing. "x realtime" is audio seconds
 over wall seconds. The desktop, emulator and simulator rows say the graphs load and run everywhere; only the device
 rows say a phone is fast enough.
 
-| Platform and runtime                                                                        | Load and run    | Wall time for 1.79 s                        | Realtime factor                                            |
-| ------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------- | ---------------------------------------------------------- |
-| Python reference, onnxruntime 1.31.1, Apple silicon, 4 threads                              | all graphs      | 58-111 ms (first of three sentences)        | 28-46x over three sentences                                |
-| Web, onnxruntime-web 1.31.1 (wasm), Node 26                                                 | all graphs      | 179 ms                                      | about 10x                                                  |
-| Apple, onnxruntime-swift-package-manager 1.24.2, macOS 27.2, debug build                    | all graphs      | 74 ms (provider end to end, `firstChunkMs`) | about 24x                                                  |
-| Android, onnxruntime-android 1.31.0, arm64-v8a emulator, API 34                             | all graphs      | 187-209 ms                                  | about 9x                                                   |
-| iOS simulator, iPhone 17 Pro, iOS 26.2, arm64, onnxruntime-swift-package-manager 1.24.2     | all graphs      | 95 ms                                       | about 19x                                                  |
-| iPhone 15 (A16), iOS 27.2, onnxruntime-swift-package-manager 1.24.2, demo app Release build | all graphs      | 61-79 ms (warm, cold)                       | about 23-29x; 26-33x over six DE/EN sentences of 1.5-4.4 s |
-| Midrange Android                                                                            | pending (owner) | pending (owner)                             | pending (owner)                                            |
+| Platform and runtime                                                                        | Load and run | Wall time (sentence as noted)                 | Realtime factor                                            |
+| ------------------------------------------------------------------------------------------- | ------------ | --------------------------------------------- | ---------------------------------------------------------- |
+| Python reference, onnxruntime 1.31.1, Apple silicon, 4 threads                              | all graphs   | 58-111 ms (first of three sentences)          | 28-46x over three sentences                                |
+| Web, onnxruntime-web 1.31.1 (wasm), Node 26                                                 | all graphs   | 179 ms                                        | about 10x                                                  |
+| Apple, onnxruntime-swift-package-manager 1.24.2, macOS 27.2, debug build                    | all graphs   | 74 ms (provider end to end, `firstChunkMs`)   | about 24x                                                  |
+| Android, onnxruntime-android 1.31.0, arm64-v8a emulator, API 34                             | all graphs   | 187-209 ms                                    | about 9x                                                   |
+| iOS simulator, iPhone 17 Pro, iOS 26.2, arm64, onnxruntime-swift-package-manager 1.24.2     | all graphs   | 95 ms                                         | about 19x                                                  |
+| iPhone 15 (A16), iOS 27.2, onnxruntime-swift-package-manager 1.24.2, demo app Release build | all graphs   | 61-79 ms (warm, cold)                         | about 23-29x; 26-33x over six DE/EN sentences of 1.5-4.4 s |
+| Pixel 9 Pro (Tensor G4), Android 17, API 37, instrumented test                              | all graphs   | 887 ms render, warm, a 2.35 s German sentence | about 2.7-3.4x warm (RTF 0.298-0.377, long and short text) |
 
 - In the reference, `dit_step` dominates (35-64 ms for four steps), then `decoder` (21-38 ms) and `text` (3-9 ms).
 - No ORT operator error occurred on any platform. The fp32 set was run on the desktop only, not on the SDKs.
@@ -373,6 +373,10 @@ rows say a phone is fast enough.
   peak process footprint 233 MB. The pipeline returns one chunk per sentence, so time to first audio equals wall time.
   A later run in the report format (2026-11-09, `first_call_after_prepare` and `render_speed` only) is in
   [the verification record](../verification/neural-speech.md#iphone-15-iphone154-ios-2720).
+- Pixel 9 Pro (Tensor G4, Android 17, API 37), 2026-11-10, in the report format: warm RTF about 0.3 against about 0.03 on the
+  iPhone 15, German and English; no cause was investigated. The English utterances were timed before English text
+  normalization. The tables are in
+  [the verification record](../verification/neural-speech.md#pixel-9-pro-tensor-g4-android-17-api-37).
 - Device runs are opt-in and not part of CI: with a phone at hand,
   [`ios_device_bench.sh`](../../tools/neural-speech/README.md#time-a-package-on-an-iphone) builds the demo app with a
   temporary benchmark hook, runs it on the phone and reverts the hook. Run it when a model, a runtime or the pipeline
