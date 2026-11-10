@@ -65,9 +65,16 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       # The site installs the published npm packages, so it needs neither the Rust/WASM
-      # toolchain nor the other workspace packages.
+      # toolchain nor the other workspace packages. The workspace root brings ESLint and
+      # Prettier, because javascript.yml does not run for website-only changes.
       - name: Install website dependencies
-        run: pnpm install --frozen-lockfile --filter @independo/website...
+        run: pnpm install --frozen-lockfile --filter . --filter @independo/website...
+
+      - name: Lint the site
+        run: pnpm exec eslint website
+
+      - name: Check the site's formatting
+        run: pnpm exec prettier --check "website/**/*.{ts,mjs,js}"
 
       - name: Type-check the site (astro check)
         run: pnpm --filter @independo/website check

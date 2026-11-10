@@ -34,8 +34,10 @@ jobs:
         with:
           filters: |
             js:
-              - 'packages/**'
-              - 'contracts/**'
+              # Markdown is neither linted, formatted (format:check:js covers ts/mjs/js)
+              # nor built here; website.yml checks the READMEs' snippet blocks.
+              - 'packages/**/!(*.md)'
+              - 'contracts/**/!(*.md)'
               # The committed Kotlin and Swift data contracts: `pnpm verify:enum-wire-parity`
               # reads both, and it is the only check that sees a hand-edit of the Kotlin one
               # (the regenerate-and-diff step below excludes it).
@@ -53,9 +55,8 @@ jobs:
               - 'pnpm-workspace.yaml'
               - 'package.json'
               - '.github/workflows/javascript.yml'
-              # The site's scripts, snippets and config are covered by the root
-              # `pnpm lint` and `pnpm format:check:js`; website.yml does not run them.
-              - 'website/**'
+              # website/ is linted and format-checked by website.yml, so a site-only
+              # change does not build the WASM or run the SDK tests.
 
   javascript:
     name: JavaScript

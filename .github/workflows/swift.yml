@@ -34,7 +34,9 @@ jobs:
         with:
           filters: |
             swift:
-              - 'ios/**'
+              # Markdown never reaches a build or a test (the consumer smoke targets
+              # copy the README quick start into code), so README edits skip this job.
+              - 'ios/**/!(*.md)'
               - 'Package.swift'
               - 'Package.resolved'
               - 'rust/**'
