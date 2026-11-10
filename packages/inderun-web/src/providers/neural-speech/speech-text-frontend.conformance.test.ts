@@ -11,7 +11,7 @@ interface SpeechTextFrontendCase {
 
 // Each fixture with its case count, which guards against a fixture that silently lost cases.
 const FIXTURES: [name: string, expectedCaseCount: number][] = [
-  ["german-frontend.json", 83],
+  ["german-frontend.json", 88],
   ["english-frontend.json", 37]
 ];
 

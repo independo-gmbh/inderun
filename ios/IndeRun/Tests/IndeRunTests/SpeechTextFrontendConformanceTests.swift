@@ -21,7 +21,7 @@ final class SpeechTextFrontendConformanceTests: XCTestCase {
     /// Each fixture with its case count, which guards against a fixture that silently lost cases,
     /// or a runner that skipped them.
     private static let fixtures: [(name: String, expectedCaseCount: Int)] = [
-        ("german-frontend.json", 83),
+        ("german-frontend.json", 88),
         ("english-frontend.json", 37)
     ]
 

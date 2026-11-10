@@ -1,6 +1,7 @@
 # ADR 023 — German text frontend
 
 Update 2026-11-10: English normalization was added later; see the English fixture `contracts/fixtures/speech/english-frontend.json`.
+German money also accepts a decimal point, a dash (`3,- €`) and cents-only amounts; the German fixture now holds 88 cases.
 
 ## Status
 

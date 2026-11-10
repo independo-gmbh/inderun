@@ -33,7 +33,7 @@
     "rust/inderun-route-core/src/speech_text/german/abbreviations.rs": "9a4f8fddd63ecef9b400c4a60fbd7fb67cb3c5db0e029f20c14669ed282feff0",
     "rust/inderun-route-core/src/speech_text/german/letters.rs": "db605902a9de59cca522b6e78a629c3d54fa98a098442b67e5ea337ece99a5f0",
     "rust/inderun-route-core/src/speech_text/german/mod.rs": "27ec2be418430b9640de22c8ceb70a64d64b580582cdae2cf974405727d73909",
-    "rust/inderun-route-core/src/speech_text/german/numbers.rs": "5889f7b982f15f969694d7e65cd71ef405bfcadb9164cb3fc84cbdf518f180e9",
+    "rust/inderun-route-core/src/speech_text/german/numbers.rs": "707b85c8c4da7eaae1068011d6c2c7743a595862ba7122dcf429c863f3e5208e",
     "rust/inderun-route-core/src/speech_text/german/units.rs": "74424a0914da17c0b56976dab431f1df011810f4bdb09d21545993a6c2087e88",
     "rust/inderun-route-core/src/speech_text/mod.rs": "563fbba4cee1e5664a3a2458b1bf2722b13631e677aabd8773aa0137c8199e5c",
     "rust/inderun-route-core/src/speech_text/number_words.rs": "3e9d2b63d015cade1fe26baf8fea39bc36d129b935558e2421a20d46390e6d20",

@@ -30,7 +30,7 @@ class SpeechTextFrontendConformanceTest {
     @Test
     fun normalizesEveryCase() {
         // Each fixture with its case count, which guards against a fixture that lost cases.
-        for ((name, expectedCount) in listOf("german-frontend.json" to 83, "english-frontend.json" to 37)) {
+        for ((name, expectedCount) in listOf("german-frontend.json" to 88, "english-frontend.json" to 37)) {
             val cases = cases(name)
             assertEquals("$name case count", expectedCount, cases.length())
 

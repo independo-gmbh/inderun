@@ -82,8 +82,14 @@ static CLOCK: LazyLock<Regex> =
     LazyLock::new(|| compile(r"\b([01]?[0-9]|2[0-4]):([0-5][0-9])\b(?:\s*Uhr\b)?"));
 static RATIO: LazyLock<Regex> =
     LazyLock::new(|| compile(r"(?<![\w.,:])([0-9]+):([0-9]+)(?![0-9:])"));
-static MONEY: LazyLock<Regex> =
-    LazyLock::new(|| compile(r"\b([0-9]+),([0-9]{2})\s*(€|Euro|US-Dollar|Dollar|Pfund|Franken)\b"));
+/// `12,50 €`, `12.50 €` (a point and exactly two digits, before a currency only), `3,- €`:
+/// group 2 is the separator, group 3 the cents (none for the dash). It ends in `(?!\w)`, not
+/// `\b`, so a `€` the units stage left as it is (`3,- €`) still ends the match.
+static MONEY: LazyLock<Regex> = LazyLock::new(|| {
+    compile(r"\b([0-9]+)(?:([.,])([0-9]{2})|,[-–])\s*(€|Euro|US-Dollar|Dollar|Pfund|Franken)(?!\w)")
+});
+/// A point or comma right before the amount: `192.168.1.50 Euro` is no amount.
+static AFTER_SEPARATED_DIGITS: LazyLock<Regex> = LazyLock::new(|| compile(r"[0-9][.,]$"));
 static TIMES: LazyLock<Regex> = LazyLock::new(|| compile(r"(?<=[0-9])\s?[x×]\s?(?=[0-9])"));
 static FRACTION: LazyLock<Regex> =
     LazyLock::new(|| compile(r"(?<![\w.,/])([0-9]{1,2})/([0-9]{1,2})(?![\w/])"));
@@ -385,20 +391,38 @@ pub(in crate::speech_text) fn numbers(text: &str, locale: &str) -> Result<String
         Ok(format!("{} zu {}", group(c, 1), group(c, 2)))
     })?;
     let text = replace_all(&MONEY, &text, |c| {
+        let start = c.get(0).map_or(0, |m| m.start());
+        if group(c, 2) == "." && AFTER_SEPARATED_DIGITS.is_match(&text[..start])? {
+            return Ok(group(c, 0).to_string());
+        }
+        let currency = if group(c, 4) == "€" {
+            "Euro"
+        } else {
+            group(c, 4)
+        };
+        let cents = c.get(3).map(|m| m.as_str()).filter(|cents| *cents != "00");
+        // "0,99 €" -> "neunundneunzig Cent"; Pfund and Franken have other subunits and keep
+        // "null Pfund neunundneunzig".
+        if let Some(cents) = cents
+            && number(group(c, 1))? == 0
+            && matches!(currency, "Euro" | "Dollar" | "US-Dollar")
+        {
+            let cents = if number(cents)? == 1 {
+                "ein".to_string()
+            } else {
+                cardinal_of(cents)?
+            };
+            return Ok(format!("{cents} Cent"));
+        }
         let euros = if group(c, 1) == "1" {
             "ein".to_string()
         } else {
             cardinal_of(group(c, 1))?
         };
-        let currency = if group(c, 3) == "€" {
-            "Euro"
-        } else {
-            group(c, 3)
-        };
         let mut out = format!("{euros} {currency}");
-        if group(c, 2) != "00" {
+        if let Some(cents) = cents {
             out.push(' ');
-            out.push_str(&cardinal_of(group(c, 2))?);
+            out.push_str(&cardinal_of(cents)?);
         }
         Ok(out)
     })?;
