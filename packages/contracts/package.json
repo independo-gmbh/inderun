@@ -1,6 +1,6 @@
 {
   "name": "@independo/inderun-contracts",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Canonical contracts for IndeRun (on-device AI that uses a cloud only if you allow it): JSON Schemas, generated TypeScript types and validators for task, streaming, error and routing.",
   "license": "MIT",
   "author": {

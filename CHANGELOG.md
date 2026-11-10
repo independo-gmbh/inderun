@@ -1,3 +1,142 @@
+## [0.5.0](https://github.com/independo-gmbh/inderun/compare/v0.4.0...v0.5.0) (2026-11-10)
+
+### ⚠ BREAKING CHANGES
+
+* **speech:** IndeRunApi gains a required close() member on TypeScript,
+Swift and Kotlin, so custom IndeRunApi implementations must add it.
+NeuralSpeechRuntime gains close() (optional on Web, defaulted on Swift; the
+Kotlin interface now extends AutoCloseable with a default no-op).
+* **providers:** on Kotlin, getModelPackageValidationIssues and
+ModelPackageValidationIssue moved from app.independo.inderun.providers.onnx
+(inderun-onnx-providers) to app.independo.inderun.core (inderun-core);
+update the import. Swift keeps compiling: IndeRunOnnxProviders re-exports
+IndeRunCore, where the validator now lives.
+* **contracts:** PlaybackOutput's flat 'durationMs', 'firstAudioMs' and 'firstChunkMs'
+moved into 'timing' (PlaybackTiming), on the wire and on SpokenSpeech in all three
+SDKs; the Swift PlaybackOutput(durationMs:) and (durationMs:firstAudioMs:)
+compatibility initializers and with(durationMs:) are gone, PlaybackOutput.CodingKeys
+is 'timing' only. firstAudioMs now counts from the provider receiving the request, not
+from the handoff to the platform. The generated Swift memberwise initializers of
+ModelPackage, Runtime and ProviderVoice gained parameters; labelled compatibility
+initializers keep the previous signatures. Format gained 'coreai', so exhaustive
+switch/when statements need a case. The Kotlin ProviderVoice constructor gained
+'locales' before 'name' (named arguments are unaffected). TypeScript SpeechVoiceInfo
+gained a required 'kind'.
+* **speech:** The generated Swift PlaybackOutput.CodingKeys gains a
+firstAudioMs case, so a switch over it that lists every case must add one.
+PlaybackOutput(durationMs:) and with(durationMs:) keep compiling.
+* **sdk:** A custom ONNX runtime (OnnxGenAiRuntime,
+AndroidOnnxGenAiRuntime, OnnxTextGenerationRuntime) must add availability(),
+and prepare() now loads the model, so a corrupt model is found at load, not at
+routing. AppleFoundationModelsAvailability gains notReady. ML Kit, Chrome and
+Foundation Models descriptors now carry taskCapabilities.
+* **api:** IndeRunApi gains readArtifact and disposeArtifact, which every implementer (including the Capacitor bridge and test fakes) must add. RunContext and ProviderStreamContext gain an artifacts sink.
+* **engine:** RunContext and ProviderStreamContext gain commit(), and ProviderStreamEvent gains a result case that exhaustive Swift switch / Kotlin when statements must handle. The Swift/Kotlin terminal-outcome factories take an optional partialText and output. A cancelled stream outcome may now carry neither partialText nor output.
+* **contracts:** the generated Output/OutputType types are renamed TaskOutput/TaskOutputType (Swift Kind is TaskKind), TaskResult.output.text and the terminal finalText/partialText are optional in the generated types, and TaskKind/TaskOutputType gain cases that exhaustive switch/when statements must handle. Text JSON payloads are unchanged, and generateText/streamText still return a non-optional string.
+* **routing:** the route-plan and provenance reason codes gain
+input_not_supported, output_delivery_not_supported,
+output_format_not_supported, locale_not_supported and
+voice_not_available; an exhaustive Swift switch over the generated Code
+must handle them. A provider whose descriptor lists a task other than
+text_to_text without declaring taskCapabilities is now rejected for it
+with task_not_supported. The generated Swift memberwise initializers of
+ProviderDescriptor, ProviderDynamicCapabilities, RoutePlannerInputTask and
+Candidate gain parameters. Text requests reach the planner with inputs
+["text"]. The planner's JSON output omits absent optional fields
+instead of writing null. See docs/migration.md.
+* **contracts:** the provider capability types are generated contracts.
+Swift and Kotlin nested types move to top-level names:
+ProviderDescriptor.ProviderType -> ProviderType, TransportType ->
+ProviderTransport, StreamingStyle -> StreamingStyle, SupportsCapabilities
+-> ProviderSupports, CancelSemantics -> CancelSemantics, ResourceLimits ->
+ProviderLimits, PrivacyDescriptor -> ProviderPrivacy, and the request
+privacy enum PrivacyEnum -> Privacy. Kotlin enum entries are PascalCase
+with a rawValue (ProviderType.Local, CancelSemantics.None), ProviderLimits
+fields are Long?, and these types must be constructed with named
+arguments. Swift keeps the 0.4 initializer labels through convenience
+initializers. A route-planner input passed to planRouteJson must carry
+complete provider descriptors. See docs/migration.md.
+
+### Features 🚀
+
+* **api:** add the engine-owned artifact store with bounded reads and disposal ([3a64f29](https://github.com/independo-gmbh/inderun/commit/3a64f29959af4c6505e81997ba438bbef7a29174)), closes [#247](https://github.com/independo-gmbh/inderun/issues/247)
+* **contracts:** admit text-to-speech requests and non-text outputs in the 1.0 contracts ([b5e4bf2](https://github.com/independo-gmbh/inderun/commit/b5e4bf2f34171e4ade1792780d707eecbc9b4c83))
+* **contracts:** describe speech models, multilingual voices and playback timing ([#260](https://github.com/independo-gmbh/inderun/issues/260)) ([3dca2e0](https://github.com/independo-gmbh/inderun/commit/3dca2e07caf3e2effc88633b554d86d9f2d416b1))
+* **contracts:** generate the provider capability snapshot from a schema ([c83bd81](https://github.com/independo-gmbh/inderun/commit/c83bd8138010f87d9cfb3ba4cee6fdb7125962a8)), closes [#210](https://github.com/independo-gmbh/inderun/issues/210)
+* **core:** add the optional audio output host service ([#260](https://github.com/independo-gmbh/inderun/issues/260)) ([575836f](https://github.com/independo-gmbh/inderun/commit/575836f01e70ef96418a2a0b7afbb46d4cc98ec5))
+* **demo:** publish the reference speech experience and release checks ([7b5aa81](https://github.com/independo-gmbh/inderun/commit/7b5aa814335f770d6df68e6144cc6be63333125b)), closes [#250](https://github.com/independo-gmbh/inderun/issues/250) [#252](https://github.com/independo-gmbh/inderun/issues/252)
+* **demos:** add the opt-in Voices lab and the neural model catalog ([#260](https://github.com/independo-gmbh/inderun/issues/260)) ([b448f66](https://github.com/independo-gmbh/inderun/commit/b448f66110b00c3b5beffff443736c539c4dd936))
+* **engine:** commit non-text outputs explicitly and carry them in terminal outcomes ([f3d7216](https://github.com/independo-gmbh/inderun/commit/f3d7216558fed958b4e68953018833607c4092aa))
+* **engine:** write artifacts to app-provided destinations ([967e8fe](https://github.com/independo-gmbh/inderun/commit/967e8fe4120a56bf1ae82e5035e16ce6e4fb3346))
+* **providers:** add the Android system speech provider ([32e1930](https://github.com/independo-gmbh/inderun/commit/32e1930a9d9649a35769cce0f8b453fa859205e8)), closes [#248](https://github.com/independo-gmbh/inderun/issues/248)
+* **providers:** add the Apple Core AI neural speech runtime ([#260](https://github.com/independo-gmbh/inderun/issues/260)) ([b2e4edb](https://github.com/independo-gmbh/inderun/commit/b2e4edb95203c6e7e1d588586294b9fd77d1e8ec)), closes [#function](https://github.com/independo-gmbh/inderun/issues/function) [#if](https://github.com/independo-gmbh/inderun/issues/if)
+* **providers:** add the Apple system speech provider ([263fce4](https://github.com/independo-gmbh/inderun/commit/263fce4826b03e40caf2fefcd41a2d2d772a8c1b)), closes [#244](https://github.com/independo-gmbh/inderun/issues/244) [#247](https://github.com/independo-gmbh/inderun/issues/247)
+* **providers:** add the browser speechSynthesis provider ([292c7fd](https://github.com/independo-gmbh/inderun/commit/292c7fd3f88d4e5934c56b3a2329d96dc8ad53d2)), closes [#249](https://github.com/independo-gmbh/inderun/issues/249)
+* **providers:** add the neural speech provider family ([#260](https://github.com/independo-gmbh/inderun/issues/260)) ([2e8b208](https://github.com/independo-gmbh/inderun/commit/2e8b2082b1e7106ca0b4e1634786d2c51ae78ca6))
+* **providers:** normalize German text before neural speech ([#260](https://github.com/independo-gmbh/inderun/issues/260)) ([a43d049](https://github.com/independo-gmbh/inderun/commit/a43d049509557d70d63f3f26325538655707e1c2))
+* **providers:** run neural speech through ONNX Runtime with the Articulino pipeline ([#260](https://github.com/independo-gmbh/inderun/issues/260)) ([270fbf2](https://github.com/independo-gmbh/inderun/commit/270fbf2dda62afe02743101901099b4aa19aa5c7))
+* **routing:** match providers on per-task capabilities ([59c503d](https://github.com/independo-gmbh/inderun/commit/59c503d1a07c56ba9ab66aac2b5ccdb0d37af2d6)), closes [#243](https://github.com/independo-gmbh/inderun/issues/243)
+* **routing:** project speech requests onto the planner and re-check the bound voice before each attempt ([902ae8b](https://github.com/independo-gmbh/inderun/commit/902ae8b871772a6467dc40fb7f2aedd17d82be3e))
+* **sdk:** add speak, generateSpeech, listVoices and prepare ([65766e2](https://github.com/independo-gmbh/inderun/commit/65766e20cf7ccbe33e0c5bbad43e5ec9dd9d9e7b)), closes [#246](https://github.com/independo-gmbh/inderun/issues/246)
+* **speech-text:** normalize English text for speech ([6c27eac](https://github.com/independo-gmbh/inderun/commit/6c27eac55a3a0e6ac6e0551837cbb896532b9021))
+* **speech:** add neural speech benchmark reports and verification records ([#276](https://github.com/independo-gmbh/inderun/issues/276)) ([ec7fde4](https://github.com/independo-gmbh/inderun/commit/ec7fde401c2ba1d280438399b0248eb7d12126dd))
+* **speech:** bound audio output waits, add close(), deflake tests, ship WASM release builds ([#280](https://github.com/independo-gmbh/inderun/issues/280)) ([ba275b5](https://github.com/independo-gmbh/inderun/commit/ba275b59acf49867ddd8de943dd31508819bf9d6))
+* **speech:** normalize English text before neural synthesis ([17f9178](https://github.com/independo-gmbh/inderun/commit/17f9178651b708407e776b6f133c64417a5a111b))
+* **speech:** run the exported Articulino Core AI asset and record the conversion ([#279](https://github.com/independo-gmbh/inderun/issues/279)) ([ddf2671](https://github.com/independo-gmbh/inderun/commit/ddf2671759c1e9da2a0a2f612caf474c50c20891))
+* **speech:** validate real audio and report time to first word ([28c674b](https://github.com/independo-gmbh/inderun/commit/28c674be7077481f2c808815730d9114a8065d87)), closes [#251](https://github.com/independo-gmbh/inderun/issues/251)
+* **web:** select provider runtimes with JSON descriptors ([#213](https://github.com/independo-gmbh/inderun/issues/213)) ([62a7838](https://github.com/independo-gmbh/inderun/commit/62a78388841360ccc2631605d303c4aa6799afa2))
+
+### Bug Fixes 🛠️
+
+* **android:** declare ACCESS_NETWORK_STATE in the system speech providers manifest ([e3532df](https://github.com/independo-gmbh/inderun/commit/e3532df10fd995169c79b00e121088086c8b70c2))
+* **android:** drop core-ktx and document consumer host requirements ([#214](https://github.com/independo-gmbh/inderun/issues/214)) ([fcbac10](https://github.com/independo-gmbh/inderun/commit/fcbac10d7586c780c0e3df733f6568acc1d4db85))
+* **onnx:** keep a session loaded during cancellation from leaking on Kotlin ([ac12c31](https://github.com/independo-gmbh/inderun/commit/ac12c31023a8abf405720fe74c6e8a613d9daeee))
+* **onnx:** release the default text runtime with the provider's close() on Swift and Kotlin ([5a1614e](https://github.com/independo-gmbh/inderun/commit/5a1614ece7b661649c2c029b0e8ca98ce53396f4))
+* **speech-text:** read German money with a decimal point, a dash or cents only ([033c23b](https://github.com/independo-gmbh/inderun/commit/033c23bd3dee6fe040a05853a47b9d7b4ad1d158))
+* **speech:** let the Core AI factory's provider release the runtime it built ([ee73062](https://github.com/independo-gmbh/inderun/commit/ee73062ba8d574e5cc529670f7512b404018a8e0))
+* **web:** declare the package side-effect free so the facade bundles alone ([6eaa3c7](https://github.com/independo-gmbh/inderun/commit/6eaa3c7a622b517fc1f42171b5aa91b25c4089ec))
+* **web:** split neural speech sentences without a backtracking regex ([3c7e47c](https://github.com/independo-gmbh/inderun/commit/3c7e47c75573228a18a946890ec8aa910d4009b4)), closes [#12](https://github.com/independo-gmbh/inderun/issues/12)
+
+### Documentation 📚
+
+* **architecture:** record ADR 017 for media artifact transport and lifecycle ([3d63dd2](https://github.com/independo-gmbh/inderun/commit/3d63dd28e4d7a9041ffedcdfb9713529b69c2e9b))
+* **ci:** correct Dependabot Swift coverage note ([0063e7d](https://github.com/independo-gmbh/inderun/commit/0063e7d2a82db640e3b87c712c657de4b8fd74b6))
+* **contracts:** record ADR 016 for modality-extensible task contracts ([d07a90d](https://github.com/independo-gmbh/inderun/commit/d07a90d0a978706eaa94bb3db6ecb6f913215301)), closes [#245](https://github.com/independo-gmbh/inderun/issues/245) [#242](https://github.com/independo-gmbh/inderun/issues/242)
+* **plans:** add v0.5.0 readiness plan ([deb992a](https://github.com/independo-gmbh/inderun/commit/deb992acd7cced09e198cf2de1dd602b827bb353))
+* **speech:** record that Supertonic 3 is not integrated ([#277](https://github.com/independo-gmbh/inderun/issues/277)) ([0e1461e](https://github.com/independo-gmbh/inderun/commit/0e1461eb5f06b1ffee43f745bfff87c98ae86dfe)), closes [#289](https://github.com/independo-gmbh/inderun/issues/289)
+
+### Miscellaneous Chores 🛠️
+
+* credit the co-author of the M5 capability foundation ([6fda2c5](https://github.com/independo-gmbh/inderun/commit/6fda2c5967e9f04873d920ff50f395e4e9dfd5c4)), closes [#253](https://github.com/independo-gmbh/inderun/issues/253) [#242](https://github.com/independo-gmbh/inderun/issues/242) [#210](https://github.com/independo-gmbh/inderun/issues/210) [#243](https://github.com/independo-gmbh/inderun/issues/243)
+* **deps-dev:** bump happy-dom from 20.14.6 to 21.0.4 ([ae6dc30](https://github.com/independo-gmbh/inderun/commit/ae6dc303f63f179fdfd1c2bc815e631f7d92ee90))
+* **deps-dev:** bump the npm-routine group across 1 directory with 4 updates ([5df4336](https://github.com/independo-gmbh/inderun/commit/5df43362924d969e9e63214bd1e2085b2dfb160a))
+* **deps-dev:** bump vitest ([7efdfc4](https://github.com/independo-gmbh/inderun/commit/7efdfc4d7884b5dc8e10a6e089074e674dbcca55))
+* **deps:** bump com.diffplug.spotless ([0df5af6](https://github.com/independo-gmbh/inderun/commit/0df5af62168aad91c1befbc80ba04e576a1f832a))
+* **deps:** bump com.google.mlkit:genai-common in /android ([4aa35ed](https://github.com/independo-gmbh/inderun/commit/4aa35edbf8f299e4c59265d92f0c119f443cfc42))
+* **deps:** bump com.google.mlkit:genai-prompt in /android ([62e90f5](https://github.com/independo-gmbh/inderun/commit/62e90f50dc1fd81de884365828ebde4660599fe5))
+* **deps:** bump serde_json ([2a51883](https://github.com/independo-gmbh/inderun/commit/2a51883d5f7a431a8649459f7a0f6b73cbb422f2))
+* **deps:** bump the github-actions-routine group across 1 directory with 4 updates ([6a0ef6b](https://github.com/independo-gmbh/inderun/commit/6a0ef6b7f80eec30491ed44bf37ee8043c7ccfa6))
+* **deps:** bump the gradle-routine group across 1 directory with 4 updates ([7ba1270](https://github.com/independo-gmbh/inderun/commit/7ba12701aa7484a454395d9b709d6e5391bb99f1))
+* **deps:** bump the gradle-routine group in /android with 4 updates ([8b65952](https://github.com/independo-gmbh/inderun/commit/8b6595252da8760c906f659ff0733b0abcc8397a))
+* **deps:** bump the npm-routine group across 1 directory with 5 updates ([5618437](https://github.com/independo-gmbh/inderun/commit/5618437e43a2efd3eb51ac53975db68cd555bf68))
+* **deps:** bump wasm-bindgen ([8a2d0ba](https://github.com/independo-gmbh/inderun/commit/8a2d0bae0d9319c8a469ce4cf8261c52f172f6bb))
+* **deps:** patch vulnerable undici and fast-uri ([8bc8011](https://github.com/independo-gmbh/inderun/commit/8bc80110ac106d1c2e7d1ee78a06b4fe20f34296))
+* **deps:** rebuild the Apple route core for the dependency bump ([641459c](https://github.com/independo-gmbh/inderun/commit/641459cd29a913847ff07425b5dad4bd7449488d))
+* **deps:** update swift-transformers and swift-huggingface ([62cceab](https://github.com/independo-gmbh/inderun/commit/62cceab4a2fe4248cd59dad07ebc62bf2acea7b2)), closes [huggingface/swift-huggingface#62](https://github.com/huggingface/swift-huggingface/issues/62)
+* get dev ready for v0.5.0 ([#213](https://github.com/independo-gmbh/inderun/issues/213), [#214](https://github.com/independo-gmbh/inderun/issues/214), English speech text, [#276](https://github.com/independo-gmbh/inderun/issues/276)) ([#296](https://github.com/independo-gmbh/inderun/issues/296)) ([c093dbc](https://github.com/independo-gmbh/inderun/commit/c093dbc189839967c65ffeffa4aa9c969eea3a06))
+* **website:** decode entities once and strip tags fully in the docs checks ([5cc82ce](https://github.com/independo-gmbh/inderun/commit/5cc82ce37666f68b4d87238c2de2bb00b70ddc57))
+* **website:** launch inderun.dev with a single-source documentation architecture ([#292](https://github.com/independo-gmbh/inderun/issues/292)) ([b4fbc88](https://github.com/independo-gmbh/inderun/commit/b4fbc88ac054188592954bb7ae772920c3bac4ab))
+
+### Tests 🛠️
+
+* **android:** record Pixel 9 Pro speech benchmarks and fix the package loader's variant ([#276](https://github.com/independo-gmbh/inderun/issues/276)) ([e9e57ae](https://github.com/independo-gmbh/inderun/commit/e9e57aeea5bc76a147c81ba7def635ce0fbec050))
+* **web:** freeze the clock in the system speech engine test ([fa228d8](https://github.com/independo-gmbh/inderun/commit/fa228d825292a884a5d8ece368696e2fe82b35ba))
+
+### CI/CD 👷
+
+* filter SwiftPM dependency findings from CodeQL ([bd9a12b](https://github.com/independo-gmbh/inderun/commit/bd9a12b8cb9c3848ef80a9a71a4aa8638a3d0893))
+* **swift:** run the Swift checks as parallel jobs ([1f13b70](https://github.com/independo-gmbh/inderun/commit/1f13b703eb8ce69ae23285d04faa2a82e38e0d4c))
+
 ## [0.4.0](https://github.com/independo-gmbh/inderun/compare/v0.3.3...v0.4.0) (2026-10-21)
 
 ### ⚠ BREAKING CHANGES

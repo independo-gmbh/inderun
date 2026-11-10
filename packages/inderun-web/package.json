@@ -1,6 +1,6 @@
 {
   "name": "@independo/inderun-web",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "On-device AI for the devices your users actually have. One API for web apps that keeps requests on the device when it can and uses a cloud only if you allow it.",
   "license": "MIT",
   "author": {
