@@ -8,8 +8,8 @@ use std::sync::LazyLock;
 
 use fancy_regex::Regex;
 
-use super::{compile, group, number, replace_all, tail_chars};
 use crate::speech_text::StageError;
+use crate::speech_text::common::{compile, group, number, replace_all, tail_chars};
 use crate::speech_text::number_words::{cardinal, ordinal, year};
 
 /// Every German locale accepts `Jänner` where upstream accepts `Januar`.

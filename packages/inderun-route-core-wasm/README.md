@@ -30,14 +30,14 @@ The generated WASM and JS bindings are not checked in. Build them from the repos
 - `initSharedCore(moduleOrPath?)` loads the module; the other exports call it on first use.
 - `planRouteJson(inputJson)` plans a route (JSON in, JSON out).
 - `normalizeSpeechText(text, locale)` rewrites speech text into its spoken form (numbers, dates,
-  times, abbreviations in words). Only German locales are rewritten; any other locale returns the
-  text unchanged. The neural speech provider calls it before sentence splitting.
+  times, abbreviations in words). Only German and English locales are rewritten; any other locale
+  returns the text unchanged. The neural speech provider calls it before sentence splitting.
 - `initSpeechText(moduleOrPath?)` is `initSharedCore`'s counterpart for the speech text module.
 
 The package ships two WASM modules. `planRouteJson` uses the small planner module
 (`inderun_route_core_bg.wasm`); `normalizeSpeechText` uses a second one
 (`inderun_speech_text_bg.wasm`, several times larger because of its regex engine) that is fetched
-only on first use, so apps that never speak German text do not download it. A host that self-hosts
+only on first use, so apps that never normalize speech text do not download it. A host that self-hosts
 the assets (see below) must serve both.
 
 ## Generate

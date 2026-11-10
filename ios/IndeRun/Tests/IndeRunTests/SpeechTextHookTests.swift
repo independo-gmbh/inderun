@@ -23,7 +23,7 @@ final class SpeechTextHookTests: XCTestCase {
 
     func testTheSharedBindingNormalizesGerman() {
         XCTAssertEqual(SharedCoreSpeechText.normalize(input, locale: "de-DE"), spoken)
-        XCTAssertEqual(SharedCoreSpeechText.normalize(input, locale: "en-US"), input)
+        XCTAssertEqual(SharedCoreSpeechText.normalize(input, locale: "fr"), input)
     }
 
     func testArticulinoNormalizesAGraphemeFrontend() throws {

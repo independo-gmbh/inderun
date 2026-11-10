@@ -1,6 +1,5 @@
 //! `spell_out_letters`: upper-case abbreviations, single letters and
-//! vowel-less runs become German letter names (`PDF` -> `peh deh eff`), and
-//! `tidy`, the last cleanup of the whole chain.
+//! vowel-less runs become German letter names (`PDF` -> `peh deh eff`).
 //!
 //! The model reads letter by letter after lower-casing: "PDF" becomes the
 //! made-up word "pdf", "KI" becomes "key". Abbreviations spoken as a word
@@ -12,8 +11,8 @@ use std::sync::LazyLock;
 use fancy_regex::Regex;
 
 use super::abbreviations::acronym_word;
-use super::{compile, group, replace_all};
 use crate::speech_text::StageError;
+use crate::speech_text::common::{compile, group, replace_all};
 
 fn letter_name(letter: char) -> Option<&'static str> {
     Some(match letter {
@@ -195,17 +194,5 @@ pub(in crate::speech_text) fn spell_out_letters(text: &str) -> Result<String, St
         }
         let upper = letter.chars().next().and_then(upper_letter_name);
         Ok(upper.unwrap_or(letter).to_string())
-    })
-}
-
-static SPACE_RUN: LazyLock<Regex> = LazyLock::new(|| compile(r"[ \t]{2,}"));
-static SPACE_BEFORE_PUNCTUATION: LazyLock<Regex> = LazyLock::new(|| compile(r"[ \t]+([,.;:!?])"));
-
-/// The last cleanup: runs of blanks become one space, and there is no space
-/// before `, . ; : ! ?`.
-pub(in crate::speech_text) fn tidy(text: &str) -> Result<String, StageError> {
-    let collapsed = replace_all(&SPACE_RUN, text, |_| Ok(" ".to_string()))?;
-    replace_all(&SPACE_BEFORE_PUNCTUATION, &collapsed, |caps| {
-        Ok(group(caps, 1).to_string())
     })
 }

@@ -10,8 +10,8 @@ use fancy_regex::Regex;
 use serde::Deserialize;
 use serde::de::{MapAccess, Visitor};
 
-use super::{compile, group, replace_all};
 use crate::speech_text::StageError;
+use crate::speech_text::common::{compile, group, replace_all};
 
 /// A JSON object read as ordered pairs: rules of equal length keep the file's
 /// order, as they do in Python's insertion-ordered dict.
