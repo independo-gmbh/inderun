@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>IndeRun share card</title>
+<style>
+  @font-face { font-family: "Inter"; font-weight: 100 900; src: url("../src/assets/fonts/InterVariable.woff2") format("woff2"); }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; }
+  body { background: #faf5ef; font-family: "Inter", sans-serif; color: #000; position: relative; overflow: hidden; }
+  .panel { position: absolute; inset: 40px; background: #000; color: #faf5ef; border-radius: 6px; padding: 56px 64px; display: flex; flex-direction: column; justify-content: space-between; }
+  .mark { font-size: 108px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; }
+  .tag { margin-top: 22px; font-size: 34px; font-weight: 500; color: #bdb7af; line-height: 1.25; max-width: 900px; }
+  .routes { display: flex; gap: 20px; }
+  .route { flex: 1; background: #121212; border: 1px solid rgb(250 245 239 / 0.24); border-radius: 4px; padding: 20px 22px; display: flex; align-items: center; gap: 16px; font-size: 25px; font-weight: 600; line-height: 1.25; }
+  .lamp { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #a0b3ff; box-shadow: 0 0 0 5px rgb(160 179 255 / 0.2); }
+  .lamp.off { background: #2a2a2a; box-shadow: none; border: 2px solid #77736d; }
+  .foot { font-size: 22px; color: #8f8a83; display: flex; justify-content: space-between; margin-top: 18px; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div>
+      <div class="mark">IndeRun</div>
+      <div class="tag">One text task, three outcomes. On-device AI for Capacitor with explicit fallback.</div>
+    </div>
+    <div>
+      <div class="routes">
+        <div class="route"><span class="lamp"></span>Runs on device</div>
+        <div class="route"><span class="lamp off"></span>Refused, no cloud request</div>
+        <div class="route"><span class="lamp"></span>Cloud route you allowed</div>
+      </div>
+      <div class="foot"><span>inderun.dev</span><span>Open source, built by Independo</span></div>
+    </div>
+  </div>
+</body>
+</html>

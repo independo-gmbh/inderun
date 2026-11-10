@@ -1,0 +1,76 @@
+/*
+ * Stylesheet entry for the hand-built pages (landing, imprint, notices, privacy), loaded by
+ * src/layouts/Site.astro. Starlight pages load docs.css instead. Components style themselves with
+ * utility classes generated from the tokens in theme.css; this file only adds what utilities cannot
+ * reach.
+ */
+@import "tailwindcss";
+@import "./theme.css";
+
+/* Same attribute as Starlight, so a theme chosen on the landing page carries into the docs. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/*
+ * Small screens with JavaScript (the `js` class on <html>): the header links collapse into a
+ * disclosure sheet. Without JavaScript nothing matches and the links stay visible and wrap.
+ */
+@custom-variant js-menu {
+  @media (width < 40rem) {
+    &:where(.js *) {
+      @slot;
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scrollbar-color: var(--color-ink-faint) var(--color-ground);
+  }
+
+  body {
+    @apply bg-ground font-sans text-base/relaxed text-ink antialiased;
+    text-rendering: optimizeLegibility;
+    caret-color: var(--color-ink);
+  }
+
+  ::selection {
+    @apply bg-lamp text-black;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  a {
+    @apply underline decoration-link-line decoration-1 underline-offset-[0.22em] hover:decoration-2;
+  }
+
+  /* Inline code in running text; code blocks style themselves (components/landing/CodePlate.astro). */
+  :not(pre) > code {
+    @apply rounded-plate bg-ground-sunk px-[0.32em] py-[0.08em] font-mono text-[0.875em] text-ink;
+  }
+
+  :focus-visible {
+    @apply rounded-key outline-3 outline-offset-3 outline-focus;
+  }
+
+  /* The skip link moves focus here; the jump itself is the feedback. */
+  main:focus {
+    outline: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

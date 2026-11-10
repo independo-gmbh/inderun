@@ -53,6 +53,9 @@ jobs:
               - 'pnpm-workspace.yaml'
               - 'package.json'
               - '.github/workflows/javascript.yml'
+              # The site's scripts, snippets and config are covered by the root
+              # `pnpm lint` and `pnpm format:check:js`; website.yml does not run them.
+              - 'website/**'
 
   javascript:
     name: JavaScript

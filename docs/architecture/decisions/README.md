@@ -21,6 +21,7 @@ New ADRs continue the numbering here.
 | [021](./021-audio-output-host-service.md)          | Audio output host service              | Accepted |
 | [022](./022-core-ai-runtime.md)                    | Apple Core AI speech runtime           | Accepted |
 | [023](./023-german-text-frontend.md)               | German text frontend                   | Accepted |
+| [024](./024-documentation-architecture.md)         | Documentation architecture             | Accepted |
 
 ## Template
 

@@ -1,6 +1,9 @@
 # Technical Brief
 
-IndeRun is an MIT-licensed AI execution framework for applications that need one consistent API across local, edge, and cloud execution.
+IndeRun is an MIT-licensed AI execution framework: on-device AI for the devices your users actually have. It gives
+applications one consistent API that runs a task on the device when it can and on a cloud provider only when the
+application configures one and the request allows it. The contracts reserve an `edge` locality, but no edge provider
+ships today.
 
 It is intended for developers who want:
 

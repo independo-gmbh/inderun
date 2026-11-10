@@ -1,0 +1,115 @@
+---
+/**
+ * A code example set into the panel. Highlighted at build time by Astro's built-in Shiki `<Code>`
+ * with the `css-variables` theme, so token colours come from the `--ir-code-*` tokens in
+ * theme.css (lilac and off-white tints only) and the output is plain, selectable text. Lines
+ * containing `markLine` get a lamp in the gutter. The plate is black in both themes. A Copy
+ * button (shown only with JavaScript) copies the source, like Expressive Code's in the docs.
+ */
+import { Code } from "astro:components";
+import type { ComponentProps } from "astro/types";
+
+type ShikiTransformer = NonNullable<ComponentProps<typeof Code>["transformers"]>[number];
+
+interface Props {
+  code: string;
+  /** Engraved label above the code. */
+  label: string;
+  /** Accessible name for the scrollable code region. */
+  title: string;
+  /** Substring that marks a line as the rule this example is about. */
+  markLine?: string;
+}
+
+const { code, label, title, markLine } = Astro.props;
+const source = code.replace(/\n+$/, "");
+const lines = source.split("\n");
+
+const markRule: ShikiTransformer = {
+  name: "inderun:mark-rule",
+  line(node, line) {
+    if (markLine && lines[line - 1]?.includes(markLine)) this.addClassToHast(node, "is-rule");
+  }
+};
+
+/* Shiki's css-variables theme reads these. */
+const tokens = [
+  "[--astro-code-foreground:var(--ir-code-fg)]",
+  "[--astro-code-background:transparent]",
+  "[--astro-code-token-keyword:var(--ir-code-keyword)]",
+  "[--astro-code-token-string:var(--ir-code-string)]",
+  "[--astro-code-token-string-expression:var(--ir-code-string)]",
+  "[--astro-code-token-constant:var(--ir-code-constant)]",
+  "[--astro-code-token-comment:var(--ir-code-comment)]",
+  "[--astro-code-token-function:var(--ir-code-fg)]",
+  "[--astro-code-token-parameter:var(--ir-code-fg)]",
+  "[--astro-code-token-punctuation:var(--ir-code-punctuation)]",
+  "[--astro-code-token-link:var(--ir-code-fg)]"
+];
+
+const body = [
+  "[&_pre]:m-0 [&_pre]:overflow-x-auto [&_pre]:py-5 [&_pre]:text-[max(0.875rem,14px)] [&_pre]:leading-[1.7] [&_pre]:[tab-size:2]",
+  "[&_pre]:[scrollbar-color:var(--color-ghost)_var(--color-black)] [&_pre]:[scrollbar-width:thin]",
+  "[&_pre:focus-visible]:outline-3 [&_pre:focus-visible]:-outline-offset-3 [&_pre:focus-visible]:outline-focus-panel",
+  "[&_pre_*::selection]:bg-lamp [&_pre_*::selection]:text-black",
+  "[&_code]:block [&_code]:min-w-max [&_.line]:inline-block [&_.line]:w-full [&_.line]:px-5",
+  "[&_.is-rule]:relative [&_.is-rule]:bg-lamp/14",
+  "[&_.is-rule]:before:absolute [&_.is-rule]:before:top-[calc(50%-0.21875rem)] [&_.is-rule]:before:left-1.75 [&_.is-rule]:before:size-1.75 [&_.is-rule]:before:rounded-full [&_.is-rule]:before:bg-lamp"
+];
+---
+
+<figure
+  class:list={[
+    "m-0 overflow-hidden rounded-panel bg-black text-paper shadow-set-in dark:bg-panel",
+    tokens
+  ]}
+>
+  <figcaption
+    class="flex items-center gap-2.5 border-b border-panel-rule py-2.5 pr-3 pl-5 text-xs text-engrave-muted caps"
+  >
+    <span class="size-2 rounded-[1px] bg-lamp" aria-hidden="true"></span>
+    {label}
+    <button
+      type="button"
+      class="ml-auto min-h-6 cursor-pointer rounded-key border border-panel-edge bg-transparent px-2 py-0.5 [font-family:inherit] text-xs text-engrave-muted caps transition-colors duration-160 ease-out-expo hover:border-engrave hover:text-engrave focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-panel [&[hidden]]:hidden"
+      data-copy-code={source}
+      aria-label={`Copy code: ${label}`}
+      hidden
+    >
+      Copy
+    </button>
+    <span class="sr-only" aria-live="polite" data-copy-status></span>
+  </figcaption>
+  <div class:list={body}>
+    <Code
+      code={source}
+      lang="ts"
+      theme="css-variables"
+      transformers={[markRule]}
+      tabindex="0"
+      role="region"
+      aria-label={title}
+    />
+  </div>
+</figure>
+
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy-code]")) {
+    if (!navigator.clipboard) continue;
+    button.hidden = false;
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copyCode ?? "");
+        button.textContent = "Copied";
+      } catch {
+        button.textContent = "Copy failed";
+      }
+      const status = button.parentElement?.querySelector("[data-copy-status]");
+      if (status) status.textContent = button.textContent;
+      setTimeout(() => {
+        button.textContent = "Copy";
+        if (status) status.textContent = "";
+      }, 2000);
+    });
+  }
+</script>

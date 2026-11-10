@@ -7,3 +7,6 @@ packages/contracts/src/generated
 target
 **/.gradle-home
 pnpm-lock.yaml
+website/.astro
+website/dist-preview
+website/src/content/docs

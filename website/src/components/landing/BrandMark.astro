@@ -1,0 +1,26 @@
+---
+/**
+ * A third-party mark from Simple Icons (CC0), drawn in one colour (`currentColor`). Marks only
+ * identify the platform or runtime IndeRun works with; the trademark notices live on /notices.
+ * Decorative by default: the text next to the mark always names it.
+ */
+import type { SimpleIcon } from "simple-icons";
+
+interface Props {
+  icon: SimpleIcon;
+  class?: string;
+}
+
+const { icon, class: className = "size-5" } = Astro.props;
+---
+
+<svg
+  class:list={["shrink-0", className]}
+  viewBox="0 0 24 24"
+  fill="currentColor"
+  aria-hidden="true"
+  focusable="false"
+  data-mark={icon.slug}
+>
+  <path d={icon.path}></path>
+</svg>

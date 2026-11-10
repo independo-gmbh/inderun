@@ -1,0 +1,17 @@
+---
+/**
+ * Header actions: the landing's "Get started" push button ahead of Starlight's own social links.
+ * Starlight renders this component in the desktop header and in the mobile menu footer, so the
+ * quickstart is one step away on every docs page and every viewport.
+ */
+import Default from "@astrojs/starlight/components/SocialIcons.astro";
+import Push from "../Push.astro";
+import { LINKS } from "../../site";
+
+const onQuickstart = Astro.url.pathname.replace(/\/$/, "") === LINKS.quickstart;
+---
+
+<Push href={LINKS.quickstart} size="compact" aria-current={onQuickstart ? "page" : undefined}>
+  Get started
+</Push>
+<Default />

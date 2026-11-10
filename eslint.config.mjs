@@ -11,6 +11,8 @@ export default tseslint.config(
       "**/.build/**",
       "**/generated/**",
       "**/node_modules/**",
+      "**/.astro/**",
+      "website/dist-preview/**",
       "packages/contracts/src/generated/**",
       "**/*.d.ts",
       "target/**",

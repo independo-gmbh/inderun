@@ -1,0 +1,208 @@
+---
+/**
+ * Layout for the hand-built pages (landing, imprint, notices, privacy): head, theme, skip link,
+ * header, footer. Docs pages use Starlight's own layout. The head is deliberately minimal and kept
+ * here in one place; metadata comes from components/seo/Metadata.astro and pages add structured
+ * data via the "head" slot.
+ *
+ * The theme uses Starlight's storage and attribute (localStorage `starlight-theme`: "light",
+ * "dark" or empty for auto; `<html data-theme>`), mirroring its ThemeProvider and ThemeSelect, so
+ * a choice carries between these pages and the docs. Without JavaScript there is no attribute,
+ * no theme control, and theme.css follows the OS setting.
+ */
+import "../styles/site.css";
+import { ChevronDown, Menu, Monitor, Moon, Sun, X } from "@lucide/astro";
+import Attribution from "../components/Attribution.astro";
+import Consent from "../components/Consent.astro";
+import Logo from "../components/Logo.astro";
+import Push from "../components/Push.astro";
+import Metadata from "../components/seo/Metadata.astro";
+import { LINKS } from "../site";
+import interUrl from "../assets/fonts/InterVariable.woff2?url";
+import { themeColorScript } from "../theme-color.mjs";
+
+interface Props {
+  /** Full document title. */
+  title: string;
+  /** Meta description, at most 155 characters. */
+  description: string;
+  /** Keep this page out of search indexes (drafts). Preview builds are always noindex. */
+  noindex?: boolean;
+}
+
+const { title, description, noindex = false } = Astro.props;
+const path = Astro.url.pathname.replace(/\/$/, "") || "/";
+const current = (href: string) => (path === href ? "page" : undefined);
+
+/** One stroke width for every Lucide icon on the site. */
+const stroke = 1.75;
+const navLink =
+  "font-link no-underline hover:underline aria-[current=page]:underline aria-[current=page]:decoration-2 js-menu:block js-menu:py-3.5";
+const themeIcon = "pointer-events-none absolute left-2.5 size-4";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline>
+      // Before first paint, as Starlight's ThemeProvider does: no flash of the wrong theme.
+      (() => {
+        const root = document.documentElement;
+        root.classList.add("js");
+        let stored = null;
+        try {
+          stored = localStorage.getItem("starlight-theme");
+        } catch {}
+        const theme =
+          stored || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        root.dataset.theme = theme === "light" ? "light" : "dark";
+      })();
+    </script>
+    <script is:inline set:html={themeColorScript} />
+    <Metadata title={title} description={description} noindex={noindex} />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" href={interUrl} as="font" type="font/woff2" crossorigin />
+    <slot name="head" />
+  </head>
+  <body>
+    <a
+      class="absolute top-3 left-3 z-10 -translate-y-[200%] rounded-plate bg-black px-4 py-2.5 font-semibold text-paper no-underline focus-visible:translate-y-0 focus-visible:outline-lamp"
+      href="#main">Skip to content</a
+    >
+    <Consent />
+
+    <header class="relative border-b border-rule">
+      <div
+        class="mx-auto flex min-h-17 max-w-site flex-wrap items-center justify-between gap-x-6 gap-y-3 px-gutter py-3"
+      >
+        <a class="flex no-underline" href={LINKS.home} aria-current={current(LINKS.home)}>
+          <Logo class="w-35" /><span class="sr-only"> home</span>
+        </a>
+        <nav aria-label="Main">
+          <button
+            class="group peer hidden min-h-11 cursor-pointer items-center gap-2 rounded-plate border-[1.5px] border-ink bg-transparent px-3.5 py-2 font-semibold text-ink aria-expanded:bg-ink aria-expanded:text-ground js-menu:inline-flex"
+            type="button"
+            aria-expanded="false"
+            aria-controls="site-nav-list"
+            data-menu-toggle
+          >
+            <Menu class="size-4 group-aria-expanded:hidden" stroke-width={stroke} aria-hidden="true" />
+            <X class="hidden size-4 group-aria-expanded:block" stroke-width={stroke} aria-hidden="true" />
+            Menu
+          </button>
+          <ul
+            class="flex flex-wrap items-center gap-x-6 gap-y-2 js-menu:absolute js-menu:inset-x-0 js-menu:top-full js-menu:z-20 js-menu:hidden js-menu:flex-col js-menu:items-stretch js-menu:gap-0 js-menu:divide-y js-menu:divide-rule js-menu:border-b-[1.5px] js-menu:border-ink js-menu:bg-ground js-menu:px-gutter js-menu:pt-1 js-menu:pb-4 js-menu:shadow-sheet js-menu:peer-aria-expanded:flex"
+            id="site-nav-list"
+          >
+            <li>
+              <a class={navLink} href={LINKS.docs} aria-current={current(LINKS.docs)}>Docs</a>
+            </li>
+            <li><a class={navLink} href={LINKS.repository}>GitHub</a></li>
+            <li class="hidden in-[.js]:block js-menu:py-3">
+              <div class="relative inline-flex items-center text-ink" data-theme-picker>
+                <Sun class={`${themeIcon} hidden`} stroke-width={stroke} aria-hidden="true" data-theme-icon="light" />
+                <Moon class={`${themeIcon} hidden`} stroke-width={stroke} aria-hidden="true" data-theme-icon="dark" />
+                <Monitor class={themeIcon} stroke-width={stroke} aria-hidden="true" data-theme-icon="auto" />
+                <select
+                  aria-label="Theme"
+                  class="min-h-10 cursor-pointer appearance-none rounded-plate border border-edge bg-ground py-1.5 pr-8 pl-8.5 font-link text-small text-ink hover:border-ink"
+                >
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                  <option value="auto" selected>Auto</option>
+                </select>
+                <ChevronDown
+                  class="pointer-events-none absolute right-2.5 size-4"
+                  stroke-width={stroke}
+                  aria-hidden="true"
+                />
+              </div>
+            </li>
+            <li>
+              <Push
+                href={LINKS.quickstart}
+                size="small"
+                class="js-menu:mt-3 js-menu:mb-1 js-menu:w-full js-menu:justify-center"
+              >
+                Get started
+              </Push>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+
+    <footer class="mt-[clamp(4rem,8vw,7rem)] border-t-[1.5px] border-rule-strong pt-10 pb-12">
+      <div class="mx-auto max-w-site px-gutter">
+        <Attribution />
+      </div>
+    </footer>
+
+    <script is:inline>
+      // Disclosure menu on small screens.
+      (() => {
+        const toggle = document.querySelector("[data-menu-toggle]");
+        if (!toggle) return;
+        const set = (open) => toggle.setAttribute("aria-expanded", String(open));
+        toggle.addEventListener("click", () => {
+          set(toggle.getAttribute("aria-expanded") !== "true");
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+            set(false);
+            toggle.focus();
+          }
+        });
+        matchMedia("(min-width: 40rem)").addEventListener("change", () => set(false));
+      })();
+
+      // Theme picker: mirrors Starlight's ThemeSelect (same key, same values, same attribute).
+      (() => {
+        const key = "starlight-theme";
+        const parse = (value) => (value === "dark" || value === "light" ? value : "auto");
+        const load = () => {
+          try {
+            return parse(localStorage.getItem(key));
+          } catch {
+            return "auto";
+          }
+        };
+        const store = (theme) => {
+          try {
+            localStorage.setItem(key, theme === "auto" ? "" : theme);
+          } catch {}
+        };
+        const preferred = () =>
+          matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        const pickers = document.querySelectorAll("[data-theme-picker]");
+        const apply = (theme) => {
+          document.documentElement.dataset.theme = theme === "auto" ? preferred() : theme;
+          for (const picker of pickers) {
+            const select = picker.querySelector("select");
+            if (select) select.value = theme;
+            for (const icon of picker.querySelectorAll("[data-theme-icon]"))
+              icon.classList.toggle("hidden", icon.dataset.themeIcon !== theme);
+          }
+        };
+        apply(load());
+        for (const picker of pickers)
+          picker.querySelector("select")?.addEventListener("change", (event) => {
+            const theme = parse(event.currentTarget.value);
+            store(theme);
+            apply(theme);
+          });
+        matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+          if (load() === "auto") apply("auto");
+        });
+      })();
+    </script>
+  </body>
+</html>

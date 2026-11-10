@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 1000" width="400" height="1000" role="img" aria-labelledby="am-title am-desc" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" fill="#000">
+  <title id="am-title">IndeRun architecture: component map</title>
+  <desc id="am-desc">Top to bottom: applications and public SDKs (Capacitor, Web/TypeScript, Swift, Kotlin; the Capacitor plugin is a thin bridge into the platform SDK). The IndeRun engine contains execution orchestration, a router/planner and a registry of provider targets. Host services (platform context and facilities) are consulted by the engine and the provider adapters. Provider adapters connect registered targets to five runtimes or services: Apple Foundation Models, Android ML Kit GenAI / Gemini Nano, a browser-managed web system model, ONNX Runtime with a developer-supplied model, and an OpenAI-compatible cloud endpoint that is used only when configured and permitted.</desc>
+  <defs>
+    <marker id="am-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#000"/></marker>
+  </defs>
+  <rect width="400" height="1000" fill="#FAF5EF"/>
+
+  <!-- Applications -->
+  <rect x="16" y="16" width="368" height="158" fill="none" stroke="#000" stroke-width="1.5"/>
+  <text x="28" y="36" font-size="12" font-weight="700" letter-spacing="0.5">APPLICATIONS / PUBLIC SDK</text>
+  <rect x="28" y="46" width="170" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="62" font-size="13" font-weight="600">Capacitor plugin</text>
+  <text x="38" y="77" font-size="11.5">thin bridge, no own engine</text>
+  <rect x="206" y="46" width="170" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="216" y="70" font-size="13" font-weight="600">Web / TypeScript SDK</text>
+  <rect x="28" y="92" width="170" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="116" font-size="13" font-weight="600">Swift SDK</text>
+  <rect x="206" y="92" width="170" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="216" y="116" font-size="13" font-weight="600">Kotlin SDK</text>
+  <text x="28" y="152" font-size="11.5">The Capacitor plugin wraps the platform SDK</text>
+  <text x="28" y="167" font-size="11.5">(Web, Swift or Kotlin) that does the work.</text>
+
+  <line x1="200" y1="174" x2="200" y2="196" stroke="#000" stroke-width="1.5" marker-end="url(#am-arrow)"/>
+
+  <!-- Engine -->
+  <rect x="16" y="196" width="368" height="164" fill="#A0B3FF" stroke="#000" stroke-width="1.5"/>
+  <text x="28" y="216" font-size="12" font-weight="700" letter-spacing="0.5">INDERUN ENGINE</text>
+  <rect x="28" y="226" width="344" height="40" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="243" font-size="13" font-weight="600">Execution orchestration</text>
+  <text x="38" y="258" font-size="11.5">coordinates the run; normalizes output and errors</text>
+  <rect x="28" y="274" width="344" height="40" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="291" font-size="13" font-weight="600">Router / planner</text>
+  <text x="38" y="306" font-size="11.5">decides which registered targets are allowed and capable</text>
+  <rect x="28" y="322" width="344" height="30" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="342" font-size="13" font-weight="600">Registry of provider targets</text>
+
+  <!-- engine -> providers (solid), host services (dashed) -->
+  <line x1="100" y1="360" x2="100" y2="464" stroke="#000" stroke-width="1.5" marker-end="url(#am-arrow)"/>
+  <text x="110" y="418" font-size="11.5">exposes</text>
+  <text x="110" y="432" font-size="11.5">targets</text>
+  <rect x="216" y="384" width="168" height="56" fill="#FAF5EF" stroke="#000" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="226" y="406" font-size="13" font-weight="600">Host services</text>
+  <text x="226" y="422" font-size="11.5">Platform context</text>
+  <text x="226" y="435" font-size="11.5">&amp; facilities</text>
+  <line x1="300" y1="384" x2="300" y2="360" stroke="#000" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#am-arrow)"/>
+  <line x1="300" y1="440" x2="300" y2="464" stroke="#000" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#am-arrow)"/>
+
+  <!-- Providers -->
+  <rect x="16" y="464" width="368" height="96" fill="none" stroke="#000" stroke-width="1.5"/>
+  <text x="28" y="484" font-size="12" font-weight="700" letter-spacing="0.5">PROVIDER ADAPTERS</text>
+  <text x="28" y="504" font-size="11.5">Each registered target is one provider instance, bound</text>
+  <text x="28" y="519" font-size="11.5">to at most one model where a model is known. Its</text>
+  <text x="28" y="534" font-size="11.5">descriptor and live capability check inform routing.</text>
+  <text x="28" y="550" font-size="11.5">Adapters connect a selected target to a backend.</text>
+
+  <line x1="200" y1="560" x2="200" y2="584" stroke="#000" stroke-width="1.5" marker-end="url(#am-arrow)"/>
+
+  <!-- Runtimes -->
+  <rect x="16" y="584" width="368" height="266" fill="none" stroke="#000" stroke-width="1.5"/>
+  <text x="28" y="604" font-size="12" font-weight="700" letter-spacing="0.5">RUNTIMES AND SERVICES</text>
+  <rect x="28" y="614" width="344" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="630" font-size="13" font-weight="600">Apple Foundation Models</text>
+  <text x="38" y="645" font-size="11.5">Apple platforms; runs on the device</text>
+  <rect x="28" y="660" width="344" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="676" font-size="13" font-weight="600">Android ML Kit GenAI / Gemini Nano</text>
+  <text x="38" y="691" font-size="11.5">Android; runs on the device</text>
+  <rect x="28" y="706" width="344" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="722" font-size="13" font-weight="600">Web system-model</text>
+  <text x="38" y="737" font-size="11.5">browser-managed runtime</text>
+  <rect x="28" y="752" width="344" height="38" fill="#FAF5EF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="768" font-size="13" font-weight="600">ONNX Runtime</text>
+  <text x="38" y="783" font-size="11.5">runs a model that you supply</text>
+  <rect x="28" y="798" width="344" height="40" fill="#A0B3FF" stroke="#000" stroke-width="1.5"/>
+  <text x="38" y="814" font-size="13" font-weight="600">OpenAI-compatible cloud endpoint</text>
+  <text x="38" y="829" font-size="11.5">cloud; used only if configured and permitted</text>
+
+  <!-- Legend -->
+  <text x="16" y="878" font-size="12" font-weight="700" letter-spacing="0.5">LEGEND</text>
+  <line x1="16" y1="896" x2="60" y2="896" stroke="#000" stroke-width="1.5" marker-end="url(#am-arrow)"/>
+  <text x="72" y="900" font-size="11.5">Solid: exposes / connects to / wraps</text>
+  <line x1="16" y1="918" x2="60" y2="918" stroke="#000" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#am-arrow)"/>
+  <text x="72" y="922" font-size="11.5">Dashed: supplies context / is consulted by</text>
+  <text x="16" y="948" font-size="11.5">Relationships, not a timeline. Available providers depend</text>
+  <text x="16" y="963" font-size="11.5">on the SDK, platform, device and released version.</text>
+  <text x="16" y="978" font-size="11.5">IndeRun does not itself run a foundation model.</text>
+</svg>

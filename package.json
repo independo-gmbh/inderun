@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "pnpm build:wasm && pnpm -r build",
+    "build": "pnpm build:wasm && pnpm -r --filter \"!@independo/website\" build",
     "build:wasm": "node scripts/build-route-core-wasm.mjs",
     "check:wasm-size": "node scripts/check-wasm-size.mjs",
     "build:route-core-apple": "node scripts/build-route-core-apple.mjs",

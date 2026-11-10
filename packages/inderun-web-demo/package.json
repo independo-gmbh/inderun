@@ -2,7 +2,7 @@
   "name": "@independo/inderun-web-demo",
   "private": true,
   "version": "0.1.0",
-  "description": "Reference web demo: text simplification with the IndeRun text API, on-device first, cloud fallback when permitted, and visible execution provenance.",
+  "description": "Reference web demo: text simplification with the IndeRun text API, on-device first, a cloud route only when configured and permitted, and visible execution provenance.",
   "type": "module",
   "scripts": {
     "dev": "vite",

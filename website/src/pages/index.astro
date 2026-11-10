@@ -1,0 +1,396 @@
+---
+/**
+ * Landing page. Copy follows the website brief §3 with the §8.4 changes, cut to what a developer
+ * needs at each depth: the hero says what IndeRun is, the panel shows why (the model is not on
+ * every device), and each section below answers the next question (what it runs on, why the model
+ * is missing, what the code looks like, what comes back, speech, data, fit). Caveats stay on the
+ * page, one click down in a <details>. The snippet is the type-checked
+ * website/snippets/capacitor-hero.ts; its version pair comes from versions.json.
+ */
+import type { SimpleIcon } from "simple-icons";
+import { siAndroid, siApple, siGooglechrome, siGooglegemini, siOnnx } from "simple-icons";
+import {
+  AppWindow,
+  ArrowRight,
+  Ban,
+  Cloud,
+  Cpu,
+  Gauge,
+  Globe,
+  HardDriveDownload,
+  PackageCheck,
+  Server,
+  Smartphone,
+  ToggleRight
+} from "@lucide/astro";
+import Site from "../layouts/Site.astro";
+import Push from "../components/Push.astro";
+import ArrowLink from "../components/ArrowLink.astro";
+import DevicePanel from "../components/landing/DevicePanel.astro";
+import CodePlate from "../components/landing/CodePlate.astro";
+import BrandMark from "../components/landing/BrandMark.astro";
+import heroSnippet from "../../snippets/capacitor-hero.ts?raw";
+import netidee from "../assets/netidee.svg";
+import JsonLd from "../components/seo/JsonLd.astro";
+import { HERO_SNIPPET_PAIR as pair, LINKS } from "../site";
+import { LANDING } from "../seo";
+
+const { title, description } = LANDING;
+
+const runsOn: { mark?: SimpleIcon; name: string; where: string }[] = [
+  { mark: siApple, name: "Apple Foundation Models", where: "iOS" },
+  { mark: siGooglegemini, name: "Gemini Nano", where: "Android, ML Kit GenAI" },
+  { mark: siGooglechrome, name: "Chrome built-in AI", where: "Web, Prompt API" },
+  { mark: siOnnx, name: "ONNX Runtime", where: "Your own model" },
+  { name: "OpenAI-compatible API", where: "Your server, if you allow it" }
+];
+
+const platforms = [
+  {
+    mark: siApple,
+    platform: "iOS",
+    model: "Apple Foundation Models",
+    needs: [
+      { icon: Smartphone, label: "Eligible device" },
+      { icon: ToggleRight, label: "Apple Intelligence on" },
+      { icon: PackageCheck, label: "Model ready" }
+    ]
+  },
+  {
+    mark: siAndroid,
+    platform: "Android",
+    model: "Gemini Nano via ML Kit GenAI",
+    needs: [
+      { icon: Smartphone, label: "AICore-supported device" },
+      { icon: HardDriveDownload, label: "Model downloaded" },
+      { icon: AppWindow, label: "App in foreground" },
+      { icon: Gauge, label: "Within per-app quota" }
+    ]
+  },
+  {
+    mark: siGooglechrome,
+    platform: "Web",
+    model: "Chrome built-in AI (Prompt API)",
+    needs: [
+      { icon: Globe, label: "Chrome with the Prompt API" },
+      { icon: HardDriveDownload, label: "Model downloaded" }
+    ]
+  }
+];
+
+const sectionTitle = "max-w-[24ch] text-headline font-bold text-ink";
+---
+
+<Site title={title} description={description}>
+  <JsonLd slot="head" />
+
+  <section aria-labelledby="hero-title" class="pt-6 pb-14 lg:pt-16 lg:pb-20">
+    <div
+      class="mx-auto grid max-w-site grid-cols-[minmax(0,1fr)] gap-x-16 gap-y-8 px-gutter lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]"
+    >
+      <div class="lg:self-end">
+        <h1 id="hero-title" class="max-w-[15ch] text-display font-[750] text-ink">
+          On-device AI for the devices your users actually have.
+        </h1>
+        <p class="mt-4 max-w-[30ch] text-title font-semibold text-ink lg:mt-6">
+          On-device when available. Cloud only when you allow it.
+        </p>
+        <p class="mt-3 max-w-[46ch] text-lg leading-relaxed text-ink-muted">
+          One API for Apple Foundation Models, Gemini Nano and your own ONNX models, on iOS, Android
+          and the web. No availability or fallback code per platform.
+        </p>
+        <div class="mt-6 flex flex-wrap items-center gap-3 lg:mt-8">
+          <Push href={LINKS.quickstart}>Get started with Capacitor</Push>
+          <Push href={LINKS.docs} variant="secondary">Read the docs</Push>
+        </div>
+      </div>
+
+      <div class="lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-center">
+        <DevicePanel />
+      </div>
+
+      <p
+        class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted lg:self-start lg:border-t lg:border-rule lg:pt-4"
+      >
+        <span>Open source (MIT) on <a class="text-ink" href={LINKS.repository}>GitHub</a></span>
+        <span aria-hidden="true">·</span>
+        <span>Built by <a class="text-ink" href={LINKS.independoOpenSource}>Independo</a></span>
+        <span aria-hidden="true">·</span>
+        <span class="inline-flex items-center gap-1.5">
+          Supported by
+          <a class="inline-flex rounded-key bg-logo-plate px-1 py-0.5" href={LINKS.netidee}>
+            <img
+              class="h-4.5 w-auto"
+              src={netidee.src}
+              width="112"
+              height="28"
+              alt="netidee"
+              loading="eager"
+              decoding="async"
+            />
+          </a>
+        </span>
+      </p>
+    </div>
+  </section>
+
+  <section aria-labelledby="runs-on-title">
+    <div class="mx-auto max-w-site px-gutter">
+      <div
+        class="flex flex-col gap-4 border-y border-rule py-5 lg:flex-row lg:items-center lg:gap-10"
+      >
+        <h2 id="runs-on-title" class="shrink-0 text-sm font-semibold text-ink-muted">Runs on</h2>
+        <ul class="flex flex-wrap gap-x-8 gap-y-4" role="list">
+          {
+            runsOn.map((item) => (
+              <li class="flex items-center gap-2.5">
+                {item.mark ? (
+                  <BrandMark icon={item.mark} class="size-5 text-ink" />
+                ) : (
+                  <Server class="size-5 text-ink" stroke-width={1.75} aria-hidden="true" />
+                )}
+                <span class="leading-tight">
+                  <span class="block text-sm font-semibold text-ink">{item.name}</span>
+                  <span class="block text-xs text-ink-muted">{item.where}</span>
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="platforms-title" class="pt-20 lg:pt-28">
+    <div class="mx-auto max-w-site px-gutter">
+      <h2 id="platforms-title" class={sectionTitle}>
+        What each platform needs, checked in one call
+      </h2>
+      <ul class="mt-8 border-t-[1.5px] border-rule-strong" role="list">
+        {
+          platforms.map((row) => (
+            <li class="grid gap-x-10 gap-y-3 border-b border-rule py-5 md:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] md:items-center">
+              <p class="flex items-center gap-3">
+                <BrandMark icon={row.mark} class="size-6 text-ink" />
+                <span class="leading-tight">
+                  <span class="block text-lg font-bold text-ink">{row.platform}</span>
+                  <span class="block text-sm text-ink-muted">{row.model}</span>
+                </span>
+              </p>
+              <ul class="flex flex-wrap gap-2" role="list" aria-label={`What ${row.model} needs`}>
+                {row.needs.map((need) => (
+                  <li class="inline-flex items-center gap-2 rounded-plate bg-ground-sunk px-2.5 py-1.5 text-sm text-ink ring-1 ring-rule ring-inset">
+                    <need.icon class="size-4 shrink-0" stroke-width={1.75} aria-hidden="true" />
+                    {need.label}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="mt-6 max-w-[80ch] text-lg text-ink-body">
+        IndeRun checks these at runtime and routes each request to what is ready on that device.
+      </p>
+      <p class="mt-4">
+        <ArrowLink href={LINKS.compatibility} text="Check device requirements" />
+      </p>
+    </div>
+  </section>
+
+  <section aria-labelledby="example-title" class="pt-20 lg:pt-28">
+    <div
+      class="mx-auto grid max-w-site grid-cols-[minmax(0,1fr)] gap-8 px-gutter lg:grid-cols-[minmax(0,4fr)_minmax(0,7fr)] lg:gap-16"
+    >
+      <div class="lg:pt-2">
+        <h2 id="example-title" class={sectionTitle}>Ask for local execution. Mean it.</h2>
+        <p class="mt-4 max-w-[42ch] text-lg leading-relaxed text-ink-muted">
+          Native Capacitor apps register their on-device model automatically. No API key, no
+          server.
+        </p>
+      </div>
+      <div>
+        <CodePlate
+          code={heroSnippet}
+          label="TypeScript · native iOS / Android"
+          title="Local-only Capacitor example"
+          markLine="local_required"
+        />
+        <p class="mt-6 max-w-[62ch] text-lg leading-normal font-semibold text-ink">
+          Check what the device can run, then run the prompt on its own model.
+          <code>local_required</code> keeps the request on the device, and
+          <code>result.provenance</code> tells you which model answered.
+        </p>
+        <details class="group/details mt-4 max-w-[70ch] border-t border-rule pt-3">
+          <summary
+            class="flex cursor-pointer list-none items-center gap-2 py-1 font-semibold text-ink [&::-webkit-details-marker]:hidden"
+          >
+            <ArrowRight
+              class="size-4 transition-transform duration-200 ease-out-expo group-open/details:rotate-90"
+              stroke-width={1.75}
+              aria-hidden="true"
+            />
+            What this example assumes
+          </summary>
+          <p class="mt-2 pb-1 text-small leading-relaxed text-ink-muted">
+            Native iOS/Android with <code>{pair.pluginPackage}</code>. The request succeeds
+            <strong class="text-ink">only</strong> when the current device has an eligible,
+            available local model; otherwise <code>run()</code> rejects with an appropriate error.
+            <code>local_required</code> never authorizes a cloud route. The example is API-checked
+            against released <a href={pair.pluginSourceUrl}>Capacitor plugin v{pair.pluginVersion}</a>
+            with <a href={pair.coreReleaseUrl}>IndeRun v{pair.coreVersion}</a>. Its success on
+            specific devices still requires real-device launch verification. In a browser, local
+            execution needs separate provider registration (for example
+            <code>systemModel: {"{}"}</code> on a supported browser); the zero-option snippet is
+            <strong class="text-ink">not</strong> a Web quickstart.
+          </p>
+        </details>
+        <p class="mt-5">
+          <ArrowLink href={LINKS.quickstart} text="Check device requirements and run the example" />
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="outcomes-title" class="pt-20 lg:pt-28">
+    <div class="mx-auto max-w-site px-gutter">
+      <h2 id="outcomes-title" class={sectionTitle}>Every outcome tells you what happened.</h2>
+      <ul class="mt-8 grid border-t-[1.5px] border-rule-strong md:grid-cols-3" role="list">
+        <li class="border-b border-rule py-6 md:border-b-0 md:pr-8">
+          <h3 class="inline-flex min-h-9 items-center gap-2 rounded-plate border border-plate-edge bg-panel px-2.5 py-1.5 text-plate leading-tight text-engrave caps">
+            <span
+              class="size-3 shrink-0 rounded-full bg-lamp outline-1 outline-offset-1 outline-plate-edge"
+              aria-hidden="true"></span>
+            On device
+          </h3>
+          <p class="mt-4 text-ink-body">
+            The device has an eligible model, so the request stays there.
+          </p>
+          <p class="mt-3 text-sm text-ink-muted">
+            Reports <code>provenance.locality: "on_device"</code>
+          </p>
+        </li>
+        <li class="border-b border-rule py-6 md:border-b-0 md:border-l md:px-8">
+          <h3 class="inline-flex min-h-9 items-center gap-2 rounded-plate border border-plate-edge bg-panel px-2.5 py-1.5 text-plate leading-tight text-engrave caps">
+            <Ban class="size-3.5 shrink-0" stroke-width={2} aria-hidden="true" />
+            Refused
+          </h3>
+          <p class="mt-4 text-ink-body">
+            Privacy is a constraint, not a guess. With <code>local_required</code> and no eligible
+            local provider, nothing runs and nothing is sent.
+          </p>
+          <p class="mt-3 text-sm text-ink-muted">
+            Rejects with <code>errorClass: "CapabilityMismatch"</code> and each provider’s reason
+          </p>
+        </li>
+        <li class="border-rule py-6 md:border-l md:pl-8">
+          <h3 class="inline-flex min-h-9 items-center gap-2 rounded-plate border border-plate-edge bg-panel px-2.5 py-1.5 text-plate leading-tight text-engrave caps">
+            <Cloud class="size-3.5 shrink-0" stroke-width={2} aria-hidden="true" />
+            Your cloud
+          </h3>
+          <p class="mt-4 text-ink-body">
+            Only if allowed. With <code>local_preferred</code>, a cloud target your app configured can take the
+            request.
+          </p>
+          <p class="mt-3 text-sm text-ink-muted">
+            Reports <code>provenance.locality: "cloud"</code>
+          </p>
+        </li>
+      </ul>
+      <p class="mt-6 max-w-[80ch] text-lg text-ink-body">
+        Ask before you run: <code>checkCapabilities()</code> shows what this device can do right now.
+      </p>
+      <p class="mt-4">
+        <ArrowLink href={LINKS.routing} text="When on-device AI is unavailable" />
+      </p>
+    </div>
+  </section>
+
+  <section aria-labelledby="scope-title" class="pt-20 lg:pt-28">
+    <div class="mx-auto max-w-site px-gutter">
+      <h2 class="sr-only" id="scope-title">Data and limits</h2>
+      <div class="grid border-t-[1.5px] border-rule-strong md:grid-cols-2 md:gap-12">
+        <div class="flex gap-3 py-6">
+          <Cpu class="mt-1 size-5 shrink-0 text-ink" stroke-width={1.75} aria-hidden="true" />
+          <div class="max-w-[56ch] text-ink-muted">
+            <p>
+              <strong class="font-semibold text-ink"
+                >IndeRun does not send SDK usage telemetry to Independo.</strong
+              > Your app can inspect what ran. A cloud provider you configure has its own data terms.
+            </p>
+            <p class="mt-2">
+              <a class="font-semibold text-ink" href={LINKS.privacy}>Privacy notice</a>
+            </p>
+          </div>
+        </div>
+        <div class="flex gap-3 border-t border-rule py-6 md:border-t-0">
+          <Smartphone class="mt-1 size-5 shrink-0 text-ink" stroke-width={1.75} aria-hidden="true" />
+          <p class="max-w-[56ch] text-ink-muted">
+            <strong class="font-semibold text-ink"
+              >On-device capabilities depend on hardware, OS and model availability.</strong
+            > Offline capability is not universal.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="speech-title" class="pt-20 lg:pt-28">
+    <div
+      class="mx-auto grid max-w-site grid-cols-[minmax(0,1fr)] gap-6 px-gutter md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-12"
+    >
+      <h2 id="speech-title" class={sectionTitle}>Read it aloud in the Web, Swift and Kotlin SDKs.</h2>
+      <div class="max-w-[60ch] text-lg leading-relaxed text-ink-body">
+        <p>
+          <code>speak()</code> uses the platform’s own voices. Ask for on-device speech and IndeRun
+          uses a voice the platform reports as local (installed Apple voices are assumed local), or
+          refuses. In the browser it refuses, because browsers can’t prove it.
+        </p>
+        <p class="mt-3">Coming to the Capacitor plugin.</p>
+        <p class="mt-4">
+          <ArrowLink href={LINKS.speech} text="Read text aloud: voices and privacy" />
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="closing-title" class="pt-20 pb-8 lg:pt-28 lg:pb-10">
+    <div class="mx-auto max-w-site px-gutter">
+      <p class="max-w-[62ch] text-title font-medium text-ink-body">
+        If you only need on-device prompts on one platform and handle unavailability yourself, a
+        single-platform plugin may be all you need. IndeRun is for apps that need the same rule on
+        iOS, Android and the web.
+      </p>
+      <div
+        class="mt-10 grid gap-8 rounded-panel bg-panel p-6 text-engrave shadow-set-in panel-seams md:p-10 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
+      >
+        <div>
+          <h2
+            id="closing-title"
+            class="text-[clamp(1.875rem,1.35rem+1.8vw,2.75rem)] leading-[1.05] font-bold tracking-[-0.035em]"
+          >
+            See what your device can run.
+          </h2>
+          <p class="mt-3 max-w-[52ch] text-lg text-engrave-muted">
+            Follow the local-only Capacitor quickstart and get a success or an explicit refusal. No
+            cloud credentials needed.
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <a
+            class="inline-flex min-h-11.5 items-center gap-2.5 rounded-plate border-[1.5px] border-paper bg-paper px-4.5 py-2.75 leading-[1.2] font-semibold text-black no-underline transition-colors duration-160 ease-out-expo before:size-2.5 before:flex-none before:rounded-[1px] before:bg-lamp before:outline-1 before:outline-black hover:border-lamp hover:bg-lamp focus-visible:outline-focus-panel active:translate-y-px"
+            href={LINKS.quickstart}
+          >
+            Start the Capacitor quickstart
+          </a>
+          <a
+            class="inline-flex min-h-11.5 items-center rounded-plate border-[1.5px] border-panel-edge px-4.5 py-2.75 leading-[1.2] font-semibold text-engrave no-underline transition-colors duration-160 ease-out-expo hover:border-engrave hover:bg-panel-raised focus-visible:outline-focus-panel active:translate-y-px"
+            href={LINKS.repository}
+          >
+            Source on GitHub
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</Site>

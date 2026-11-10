@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-10T00:00:00Z",
+  "title": "Design System: inderun.dev",
+  "extensions": {
+    "colorMeta": {
+      "lamp": {
+        "role": "primary",
+        "displayName": "Lamp Lilac",
+        "canonical": "#a0b3ff",
+        "tonalRamp": ["#161c38", "#1b2456", "#2c3a7a", "#7088ec", "#8a9ff7", "#a0b3ff", "#e4e9ff", "#f3f5ff"]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Paper Ground",
+        "canonical": "#faf5ef",
+        "tonalRamp": ["#000000", "#121212", "#3a3835", "#4a4641", "#67625b", "#bdb7af", "#d6cec3", "#e2dbd2", "#f1eae1", "#faf5ef"]
+      },
+      "ground-sunk": { "role": "neutral", "displayName": "Paper Sunk", "canonical": "#f1eae1" },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#000000" },
+      "ink-muted": { "role": "neutral", "displayName": "Ink Muted", "canonical": "#4a4641" },
+      "panel": { "role": "neutral", "displayName": "Black Enamel Panel", "canonical": "#000000" },
+      "panel-raised": { "role": "neutral", "displayName": "Raised Enamel", "canonical": "#121212" },
+      "engrave": { "role": "neutral", "displayName": "Engraving", "canonical": "#faf5ef" },
+      "ground-dark": { "role": "neutral", "displayName": "Black Ground (dark theme)", "canonical": "#000000" },
+      "panel-dark": { "role": "neutral", "displayName": "Lifted Panel (dark theme)", "canonical": "#0e0e0e" },
+      "panel-raised-dark": { "role": "neutral", "displayName": "Raised Enamel (dark theme)", "canonical": "#1a1a1a" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero title only." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles, max 24ch." },
+      "title": { "displayName": "Title", "purpose": "Hero support line, closing fit paragraph." },
+      "small": { "displayName": "Small", "purpose": "Footer, compact controls, theme select, caveats." },
+      "meta": { "displayName": "Meta", "purpose": "Device lines and the entry plate on the panel." },
+      "label": { "displayName": "Engraved caps", "purpose": "Code-plate captions, docs table heads, aside titles." },
+      "plate": { "displayName": "Tablet caps", "purpose": "Lamp tablets on and off the panel." }
+    },
+    "shadows": [
+      { "name": "set-in", "value": "inset 0 0 0 1px var(--ir-panel-rule), 0 0 0 5px var(--ir-ground-sunk), 0 0 0 6px var(--ir-rule)", "purpose": "Panels and the code plate recessed into the ground; follows the theme." },
+      { "name": "push", "value": "0 1px 0 rgb(0 0 0 / 0.2), 0 8px 18px -10px rgb(0 0 0 / 0.55)", "purpose": "Primary push button." },
+      { "name": "sheet", "value": "0 18px 30px -22px rgb(0 0 0 / 0.45)", "purpose": "Open mobile menu sheet." },
+      { "name": "docs-code-plate-light", "value": "inset 0 1px 0 rgb(255 255 255 / 0.1), 0 1px 3px rgb(0 0 0 / 0.14), 0 16px 32px -24px rgb(0 0 0 / 0.42)", "purpose": "Code plate on the light docs." }
+    ],
+    "motion": [
+      { "name": "ease-out-expo", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "All transitions." },
+      { "name": "state", "value": "160ms", "purpose": "Push button colour and press." },
+      { "name": "control", "value": "200ms", "purpose": "Rule switch keys, arrow nudge, details chevron." }
+    ],
+    "breakpoints": [
+      { "name": "panel-lanes", "value": "28rem (container query)" },
+      { "name": "menu", "value": "40rem (with JavaScript)" },
+      { "name": "rows-two-column", "value": "48rem" },
+      { "name": "docs-type", "value": "50em" },
+      { "name": "footer-two-column", "value": "47.84rem (container query)" },
+      { "name": "hero-two-column", "value": "64rem" }
+    ],
+    "themes": {
+      "storage": "localStorage starlight-theme (light, dark, empty for auto), shared with Starlight",
+      "attribute": "html[data-theme]",
+      "noScript": "prefers-color-scheme decides"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Push Button",
+      "kind": "button",
+      "refersTo": "push-primary",
+      "description": "Light theme: black key with a square lilac indicator; lights lilac on hover.",
+      "html": "<a class=\"ds-push ds-push-primary\" href=\"#\">Get started with Capacitor</a>",
+      "css": ".ds-push{display:inline-flex;align-items:center;gap:.625rem;min-height:2.875rem;padding:.6875rem 1.125rem;border:1.5px solid;border-radius:3px;font:600 1rem/1.2 Inter,system-ui,sans-serif;letter-spacing:-.005em;text-decoration:none;transition:background-color 160ms cubic-bezier(.16,1,.3,1),color 160ms cubic-bezier(.16,1,.3,1),border-color 160ms cubic-bezier(.16,1,.3,1),translate 160ms cubic-bezier(.16,1,.3,1)}.ds-push:active{translate:0 1px}.ds-push-primary{border-color:#000;background:#000;color:#faf5ef;box-shadow:0 1px 0 rgb(0 0 0/.2),0 8px 18px -10px rgb(0 0 0/.55)}.ds-push-primary::before{content:'';flex:none;width:.625rem;height:.625rem;border-radius:1px;background:#a0b3ff}.ds-push-primary:hover{background:#a0b3ff;color:#000}.ds-push-primary:hover::before{background:#000}.ds-push:focus-visible{outline:3px solid #000;outline-offset:3px;border-radius:2px}"
+    },
+    {
+      "name": "Primary Push Button (dark theme)",
+      "kind": "button",
+      "refersTo": "push-primary-dark",
+      "description": "Dark theme: the lit lamp with black text; turns paper on hover.",
+      "html": "<div class=\"ds-dark\"><a class=\"ds-push-d\" href=\"#\">Get started</a></div>",
+      "css": ".ds-dark{background:#000;padding:1rem}.ds-push-d{display:inline-flex;align-items:center;gap:.625rem;min-height:2.875rem;padding:.6875rem 1.125rem;border:1.5px solid #a0b3ff;border-radius:3px;background:#a0b3ff;color:#000;font:600 1rem/1.2 Inter,system-ui,sans-serif;text-decoration:none;transition:background-color 160ms cubic-bezier(.16,1,.3,1),border-color 160ms cubic-bezier(.16,1,.3,1)}.ds-push-d::before{content:'';flex:none;width:.625rem;height:.625rem;border-radius:1px;background:#000}.ds-push-d:hover{background:#faf5ef;border-color:#faf5ef}.ds-push-d:active{translate:0 1px}.ds-push-d:focus-visible{outline:3px solid #a0b3ff;outline-offset:3px}"
+    },
+    {
+      "name": "Secondary Push Button",
+      "kind": "button",
+      "refersTo": "push-secondary",
+      "description": "Outlined key; fills ink on hover.",
+      "html": "<a class=\"ds-push-secondary\" href=\"#\">Read the docs</a>",
+      "css": ".ds-push-secondary{display:inline-flex;align-items:center;min-height:2.875rem;padding:.6875rem 1.125rem;border:1.5px solid #000;border-radius:3px;background:transparent;color:#000;font:600 1rem/1.2 Inter,system-ui,sans-serif;text-decoration:none;transition:background-color 160ms cubic-bezier(.16,1,.3,1),color 160ms cubic-bezier(.16,1,.3,1)}.ds-push-secondary:hover{background:#000;color:#faf5ef}.ds-push-secondary:active{translate:0 1px}.ds-push-secondary:focus-visible{outline:3px solid #000;outline-offset:3px}"
+    },
+    {
+      "name": "Arrow Link",
+      "kind": "custom",
+      "description": "Inline text link ending a section, arrow kept with the last word.",
+      "html": "<a class=\"ds-arrow\" href=\"#\">How a route is <span class=\"ds-nowrap\">chosen<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></span></a>",
+      "css": ".ds-arrow{color:#000;font:600 1.125rem/1.5 Inter,system-ui,sans-serif;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}.ds-arrow:hover{text-decoration-thickness:2px}.ds-nowrap{white-space:nowrap}.ds-arrow svg{display:inline-block;width:1rem;height:1rem;margin-left:.375rem;vertical-align:-.125em;transition:transform 200ms cubic-bezier(.16,1,.3,1)}.ds-arrow:hover svg{transform:translateX(.25rem)}.ds-arrow:focus-visible{outline:3px solid #000;outline-offset:3px;border-radius:2px}"
+    },
+    {
+      "name": "Device Lane",
+      "kind": "custom",
+      "refersTo": "tablet",
+      "description": "One panel lane: square mark key, engine and device line, track, lamp tablet.",
+      "html": "<div class=\"ds-panel\"><div class=\"ds-lane\"><span class=\"ds-key\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/></svg></span><span class=\"ds-eng\"><b>Apple Foundation Models</b><small>Apple Intelligence devices</small></span><span class=\"ds-track\"></span><span class=\"ds-tablet\"><span class=\"ds-lamp\"></span>On device</span></div></div>",
+      "css": ".ds-panel{background:#000;color:#faf5ef;padding:1.5rem;border-radius:4px;box-shadow:inset 0 0 0 1px #3a3835,0 0 0 5px #f1eae1,0 0 0 6px #d6cec3;background-image:linear-gradient(rgb(250 245 239/.05) 1px,transparent 1px),linear-gradient(90deg,rgb(250 245 239/.05) 1px,transparent 1px);background-size:2.25rem 2.25rem}.ds-lane{display:grid;grid-template-columns:auto minmax(0,12.5rem) minmax(.75rem,1fr) auto;align-items:center;gap:.75rem;font-family:Inter,system-ui,sans-serif}.ds-key{display:grid;place-items:center;width:2.25rem;height:2.25rem;border:1px solid #969390;border-radius:2px;background:#121212}.ds-key svg{width:1.125rem;height:1.125rem}.ds-eng b{display:block;font-size:.875rem;font-weight:600}.ds-eng small{display:block;font-size:.8125rem;color:#bdb7af}.ds-track{height:3px;background:#faf5ef}.ds-tablet{display:flex;align-items:center;gap:.5rem;min-height:2.25rem;width:8rem;padding:.375rem .625rem;border:1px solid rgb(250 245 239/.24);border-radius:3px;background:#121212;font-size:.6875rem;font-weight:600;line-height:1.25;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}.ds-lamp{width:.75rem;height:.75rem;flex:none;border-radius:50%;background:#a0b3ff;outline:1px solid rgb(250 245 239/.24);outline-offset:1px}"
+    },
+    {
+      "name": "Rule Switch",
+      "kind": "chip",
+      "refersTo": "rule-switch-key-set",
+      "description": "Two-key native radio switch on the panel; the set key is lilac with black text.",
+      "html": "<div class=\"ds-sw-wrap\"><fieldset class=\"ds-sw\"><legend class=\"ds-sr\">Privacy rule</legend><label><input type=\"radio\" name=\"ds-rule\" checked>local_required</label><label><input type=\"radio\" name=\"ds-rule\">local_preferred</label></fieldset></div>",
+      "css": ".ds-sw-wrap{background:#000;padding:1rem}.ds-sw{display:inline-flex;margin:0;padding:2px;border:1px solid #969390;border-radius:3px}.ds-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.ds-sw label{position:relative;cursor:pointer;padding:.375rem .625rem;border-radius:2px;font:400 .75rem ui-monospace,SFMono-Regular,Menlo,monospace;color:#bdb7af;transition:color 200ms cubic-bezier(.16,1,.3,1),background-color 200ms cubic-bezier(.16,1,.3,1)}.ds-sw label:hover{color:#faf5ef}.ds-sw input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}.ds-sw label:has(input:checked){background:#a0b3ff;color:#000}.ds-sw label:has(input:focus-visible){outline:3px solid #a0b3ff;outline-offset:2px}"
+    },
+    {
+      "name": "Reason Plate",
+      "kind": "chip",
+      "refersTo": "requirement-plate",
+      "description": "Sunk plate with a Lucide icon naming one condition a platform needs to run on-device.",
+      "html": "<span class=\"ds-reason\"><span class=\"ds-off\"></span>Model downloaded</span>",
+      "css": ".ds-reason{display:inline-flex;align-items:center;gap:.5rem;padding:.375rem .625rem;border-radius:3px;background:#f1eae1;box-shadow:inset 0 0 0 1px #d6cec3;color:#000;font:400 .875rem/1.4 Inter,system-ui,sans-serif}.ds-off{width:.5rem;height:.5rem;flex:none;border-radius:50%;background:#a0b3ff;outline:1px solid #8c857c;outline-offset:1px}"
+    },
+    {
+      "name": "Theme Select",
+      "kind": "input",
+      "refersTo": "theme-select",
+      "description": "Native select on a 3px plate with a leading icon and chevron.",
+      "html": "<span class=\"ds-theme\"><svg class=\"ds-ti\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"20\" height=\"14\" x=\"2\" y=\"3\" rx=\"2\"/><path d=\"M8 21h8\"/><path d=\"M12 17v4\"/></svg><select aria-label=\"Theme\"><option>Dark</option><option>Light</option><option selected>Auto</option></select><svg class=\"ds-tc\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 9 6 6 6-6\"/></svg></span>",
+      "css": ".ds-theme{position:relative;display:inline-flex;align-items:center;color:#000}.ds-theme select{min-height:2.5rem;appearance:none;cursor:pointer;padding:.375rem 2rem .375rem 2.125rem;border:1px solid #8c857c;border-radius:3px;background:#faf5ef;color:#000;font:550 .9375rem Inter,system-ui,sans-serif}.ds-theme select:hover{border-color:#000}.ds-theme select:focus-visible{outline:3px solid #000;outline-offset:3px}.ds-ti,.ds-tc{position:absolute;width:1rem;height:1rem;pointer-events:none}.ds-ti{left:.625rem}.ds-tc{right:.625rem}"
+    },
+    {
+      "name": "Consent Banner",
+      "kind": "banner",
+      "refersTo": "panel",
+      "description": "Black panel docked bottom left (30rem; full width less 0.75rem on phones) asking for consent to Google Analytics cookies (analytics itself runs cookieless either way). Two identical panel keys, Accept and Decline: neither is lit. Reopened by the footer's Cookie settings button.",
+      "html": "<section class=\"ds-consent\" aria-labelledby=\"ds-consent-title\"><h2 id=\"ds-consent-title\">Analytics cookies</h2><p>Google Analytics counts which pages are read, so we can see what developers need. Without your consent it sets no cookies and sends no identifier that recognises you. With it, cookies also count returning visits. Google may process the data in the US. Change it any time under “Cookie settings”. <a href=\"#\">Privacy notice</a></p><div><button type=\"button\">Accept</button><button type=\"button\">Decline</button></div></section>",
+      "css": ".ds-consent{max-width:30rem;padding:1.25rem;border-radius:4px;background:#000;color:#faf5ef;box-shadow:inset 0 0 0 1px #3a3835;font:400 .875rem/1.625 Inter,system-ui,sans-serif}.ds-consent h2{margin:0;font-size:1rem;font-weight:700;letter-spacing:-.015em}.ds-consent p{margin:.5rem 0 0;color:#bdb7af}.ds-consent a{color:#faf5ef;font-weight:600;text-decoration-color:#a0b3ff;text-underline-offset:4px}.ds-consent div{display:flex;flex-wrap:wrap;gap:.625rem;margin-top:1rem}.ds-consent button{min-height:2.5rem;min-width:7rem;padding:.5rem 1rem;border:1.5px solid #969390;border-radius:3px;background:#121212;color:#faf5ef;font:600 .875rem/1.2 Inter,system-ui,sans-serif;cursor:pointer}.ds-consent button:hover{border-color:#faf5ef}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Interlocking Panel",
+    "overview": "The site is built as a railway interlocking: a black enamel route-setting panel set into an off-white ground. Routes are drawn as flat engraved track, ends are lamp tablets, controls are square push keys, labels are engraved caps plates. The hero panel (\"One call. Every device.\") is the proof of the product's claim: one `ai.run(task)` call enters on a single trunk and reaches four lanes, three ending on the device's own model and the fourth, \"No local model\", ending in a stop and a REFUSED tablet, or in YOUR CLOUD only when the rule switch allows it.\n\nThe surface is flat and engineered. The ground carries reading; the panel carries decisions. Independo's brand is used selectively: off-white, black, lilac, Inter. The IndeRun logo (from the 2026-11-10 logo package: the INDERUN wordmark with RUN in a lilac code-span block) marks the header and footer. Third-party platforms are identified by monochrome Simple Icons marks (attributed on /notices); interface icons are Lucide at one stroke width (1.75). The site has two themes sharing Starlight's storage and attribute: the light theme is the paper, the dark theme is a black ground with the panel lifted one step off it. Without JavaScript the OS setting decides. Docs reuse the same world in Read mode.",
+    "keyCharacteristics": [
+      "Two grounds per theme: paper and black panel in light; black ground and a lifted near-black panel in dark.",
+      "Lilac is light: a lamp, a lit key, a background behind black text, or a line or text on black.",
+      "Every outcome is readable as words and symbols with no colour, motion or JavaScript.",
+      "Flat fills, hairline edges, 2 to 4px corners, no decorative gradients beyond the panel's tile seams.",
+      "WCAG 2.2 AA, 3px focus rings, Inter self-hosted, no third-party resources except Google Analytics (cookieless until the visitor accepts cookies)."
+    ],
+    "rules": [
+      { "name": "The Lilac Rule", "body": "Lilac is a lamp or a background with black text on it. Lilac text and lines appear only on black or near-black: the panel in both themes, and the page in the dark theme. Lilac text on off-white is never allowed (1.9:1).", "section": "colors" },
+      { "name": "The Two Grounds Rule", "body": "Paper reads, the panel decides. Each theme has exactly one reading ground and one panel; in the dark theme the panel lifts one step (#0e0e0e) and keeps its own hairline. Do not introduce a third surface colour or a tinted card.", "section": "colors" },
+      { "name": "The Real Text Rule", "body": "Every label, outcome and rule is real HTML text; SVG only draws marks, icons and nothing that has to be read.", "section": "typography" },
+      { "name": "The Set-In Rule", "body": "Depth means \"mounted into the ground\": rings, insets, and one-tone-lighter plates, never floating cards.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use lilac only as a lamp, as a background behind black text, or as text and lines on black.",
+      "Do keep every outcome legible as words and symbols without colour, motion or JavaScript.",
+      "Do use 3px focus rings: ink on paper, lilac on the panel and in the dark theme.",
+      "Do build controls as real elements (radio, select, button, link); keep the 2.5rem minimum target.",
+      "Do take colours from the semantic theme tokens so both themes follow without a `dark:` colour variant.",
+      "Do use Lucide (stroke 1.75) for interface icons and monochrome Simple Icons for third-party marks, always next to the name they identify.",
+      "Do self-host Inter and load no third-party resources; the only exception is Google Analytics, which stays cookieless until the visitor accepts.",
+      "Do keep motion to the exponential ease-out (cubic-bezier(0.16, 1, 0.3, 1)), 160 to 200ms, and honour reduced motion."
+    ],
+    "donts": [
+      "Don't set lilac text on off-white.",
+      "Don't recolour the logo's RUN block, set the wordmark in Inter, or use the logo below its minimum width (120px, endorsed 160px).",
+      "Don't add cards, gradient fills, or hard offset shadows; depth is set-in only.",
+      "Don't convey an outcome by colour or animation alone.",
+      "Don't use a different typeface for display; Inter is binding.",
+      "Don't give Accept more weight than Decline in the consent banner, or set analytics cookies before the visitor accepts."
+    ]
+  }
+}

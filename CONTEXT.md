@@ -3,6 +3,8 @@ name: entrypoint
 description: entrypoint for coding agents working in this repository
 ---
 
+Context for contributors' coding agents. User documentation: https://inderun.dev/docs
+
 ## 1) Project Intent (Read First)
 
 IndeRun is an open-source (MIT) AI execution framework. It provides one unified app-facing API while routing execution across local, edge, and cloud providers.
@@ -168,6 +170,15 @@ Checked-in JavaScript commands:
 - `pnpm verify:packaging` — run `publint` and `attw --pack . --profile esm-only` over the three
   published npm packages, checking that every `exports` subpath resolves the way a consumer's
   TypeScript would. Needs `pnpm build` first. Run by `javascript.yml`.
+- `pnpm --filter website build|build:preview|dev|preview|check|sync:markers|check:markers|check:snippets|check:snippets:release|check:versions|update:api|check:api|check:docs|verify:seo`
+  — the inderun.dev site (`website/`, Astro + Starlight); it reads the published docs from `docs/` and installs the
+  published npm packages, so it needs no Rust toolchain. `build` validates internal links; `check:docs` runs after it. See
+  ADR 024 and `CONTRIBUTING.md` ("Where documentation lives"). `pnpm build` and `pnpm test:js` skip it.
+  `check:snippets:release` fails while any `TODO(verify)` snippet is pending; it is the precondition for a production
+  deploy and is not run by CI.
+- `pnpm --filter website render:og` — re-render the social preview image `website/public/og/default.jpg` from the hero
+  copy, the logo and the engine list in `website/scripts/render-og-image.mjs`; commit the JPEG. Needs Chromium once:
+  `pnpm --filter website exec playwright install chromium-headless-shell`. Not run by the build or CI.
 - `pnpm lint`
 - `pnpm format` / `pnpm format:check` — run formatting/verification across **all**
   languages (JS/TS via Prettier, Rust via `cargo fmt`, Kotlin via Spotless, Swift
@@ -250,6 +261,11 @@ Checked-in release commands:
   (prerelease). Config: `.releaserc`; workflow: `.github/workflows/release.yml`. See
   `docs/release.md`. Do not bump versions by hand — semantic-release derives them from
   Conventional Commits and fans the version out via `scripts/set-version.mjs`.
+- `feat:` is reserved for changes to the SDK itself (packages, contracts, engines, providers,
+  bridges). Website work (`website/`, inderun.dev, its docs pipeline and deploy) is
+  `chore(website):` — never `feat` — and so is a pull request title for it, because a squash merge
+  uses the title as the commit message. Commits scoped `website` cut no release (last rule in
+  `release.config.js`). See `docs/release.md`.
 - When a commit carries a `BREAKING CHANGE:` footer, that footer goes **last** and the
   trailers (`Co-Authored-By`, `Claude-Session`) move above it — everything after
   `BREAKING CHANGE:` is parsed as part of the note and published verbatim in the release
@@ -339,6 +355,7 @@ When behavior or contracts change, update docs in the same task:
 - provider semantics/capabilities: `docs/architecture/providers.md`
 - project framing/scope: `docs/architecture/technical-brief.md`
 - CI/process behavior: `docs/ci.md`
+- published user docs live in the published docs folders (`docs/index.md` and `docs/{getting-started,concepts,guides,platforms,api}/`); see ADR 024
 
 Any change that adds a provider, changes a provider's capability check, task
 support, interaction modes, cancellation behavior, or error mapping MUST update

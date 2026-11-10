@@ -69,6 +69,14 @@ Maven, Gradle, Dependabot, npm, and SwiftPM alike.
 `feat:` → minor, `fix:` → patch. Chore/docs/refactor/test/build/ci/perf/style all produce a
 patch (see `release.config.js` for the exact `releaseRules`).
 
+`feat:` is reserved for changes to the SDK itself: the packages, contracts, engines, providers and
+bridges. Changes to the website (`website/`, inderun.dev, its docs pipeline and its deploy) are
+`chore(website):`, never `feat:`, so a site change never announces an SDK feature in the release
+notes. The same applies to a pull request's title, because a squash merge uses it as the commit
+message. Commits scoped `website` cut no release at all: the last rule in `release.config.js` is
+`{ scope: "website", release: false }`, and it must stay last, because the analyzer applies the
+matching rules in order and only a later rule overrides the `chore` patch.
+
 `BREAKING CHANGE:` (or `!`) → **minor while the project is pre-1.0**, not major. 0.x is where
 "the surface is still moving" is expressed; letting a `!` commit cut `1.0.0` automatically
 would announce a stability guarantee the project has not made yet. Commits still carry `!` and

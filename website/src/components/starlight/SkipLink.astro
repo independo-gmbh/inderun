@@ -1,0 +1,11 @@
+---
+/**
+ * Starlight's skip link, followed by the analytics consent banner (src/components/Consent.astro),
+ * so docs pages carry the banner at the same place in the tab order as the landing pages.
+ */
+import Default from "@astrojs/starlight/components/SkipLink.astro";
+import Consent from "../Consent.astro";
+---
+
+<Default />
+<Consent />

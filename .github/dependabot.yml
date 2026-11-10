@@ -29,6 +29,11 @@ updates:
     # lockfile age check in CI.
     cooldown:
       default-days: 7
+    # The website pins the published @independo/* packages to the tested set in
+    # website/versions.json; those pins move only with that file (sync:markers,
+    # check:versions), never through a Dependabot bump.
+    ignore:
+      - dependency-name: "@independo/*"
     groups:
       npm-routine:
         patterns:

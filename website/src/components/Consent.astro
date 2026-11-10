@@ -1,0 +1,162 @@
+---
+/**
+ * Consent for Google Analytics cookies, on every page (landing and legal pages via
+ * src/layouts/Site.astro, docs via src/components/starlight/SkipLink.astro). It sits right after the
+ * skip link, so keyboard and screen-reader users meet it before the content; visually it is a small
+ * black panel docked bottom left that does not block the page.
+ *
+ * Google's advanced Consent Mode (owner decision, 2026-11-10, approved in legal review): gtag.js
+ * loads on every visit with `analytics_storage` denied, so before a choice and after Decline it
+ * sets no cookies and sends only cookieless pings without a client id. Accept updates
+ * `analytics_storage` to granted, which adds the `_ga` cookies. Advertising storage, ad user data
+ * and ad personalisation stay denied in every case, and Google signals are off. Accept and Decline
+ * are the same control at the same weight. The choice is kept in localStorage (`inderun-consent`,
+ * with its date) and asked again after 12 months; the footer's "Cookie settings" button
+ * (`data-consent-open`) reopens the panel at any time. Declining after accepting returns the tag to
+ * denied and deletes its `_ga` cookies. A browser that sends Global Privacy Control
+ * (`navigator.globalPrivacyControl`) objects to the cookieless measurement, so the tag is not
+ * loaded at all until that visitor accepts; Accept is an explicit choice and still applies. This is
+ * the objection route the privacy notice names. The banner copy and the privacy notice
+ * (src/pages/privacy.astro) describe exactly this; change all three together.
+ *
+ * Analytics loads only on the production host (ANALYTICS.host), so preview channels and local
+ * builds show the banner but never send data. Without JavaScript there is no banner and no
+ * analytics.
+ */
+import { ANALYTICS, LINKS } from "../site";
+
+const key =
+  "m-0 min-h-10 min-w-28 cursor-pointer appearance-none rounded-plate border-[1.5px] border-panel-edge bg-panel-raised px-4 py-2 [font-family:inherit] text-small leading-[1.2] font-semibold text-engrave transition-[border-color,translate] duration-160 ease-out-expo hover:border-engrave focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-panel active:translate-y-px";
+---
+
+<section
+  id="consent"
+  class="fixed inset-x-3 bottom-3 z-[95] m-0 rounded-panel bg-panel p-5 text-small leading-relaxed text-engrave shadow-set-in sm:right-auto sm:bottom-5 sm:left-5 sm:w-[30rem]"
+  aria-labelledby="consent-title"
+  data-pagefind-ignore
+  hidden
+>
+  <h2
+    id="consent-title"
+    class="m-0 text-base leading-tight font-bold tracking-tight text-engrave"
+    tabindex="-1"
+  >
+    Analytics cookies
+  </h2>
+  <p class="mt-2 mb-0 text-pretty text-engrave-muted">
+    Google Analytics counts which pages are read, so we can see what developers need. Without
+    your consent it sets no cookies and sends no identifier that recognises you. With it,
+    cookies also count returning visits. Google may process the data in the US. Change it any time under “Cookie
+    settings”.{" "}
+    <a
+      class="font-semibold text-engrave underline decoration-lamp underline-offset-4 hover:decoration-engrave focus-visible:outline-focus-panel"
+      href={LINKS.privacy}
+    >
+      Privacy notice
+    </a>
+  </p>
+  <div class="mt-4 flex flex-wrap gap-2.5">
+    <button class={key} type="button" data-consent-choice="accept">
+      Accept
+    </button>
+    <button class={key} type="button" data-consent-choice="decline">
+      Decline
+    </button>
+  </div>
+</section>
+<script is:inline define:vars={{ measurementId: ANALYTICS.measurementId, host: ANALYTICS.host }}>
+  (() => {
+    const banner = document.getElementById("consent");
+    if (!banner) return;
+    const KEY = "inderun-consent";
+    const MAX_AGE = 365 * 24 * 60 * 60 * 1000;
+    let opener = null;
+
+    const read = () => {
+      try {
+        const stored = JSON.parse(localStorage.getItem(KEY) ?? "null");
+        if (typeof stored?.analytics !== "boolean" || typeof stored.at !== "number") return null;
+        return Date.now() - stored.at < MAX_AGE ? stored : null;
+      } catch {
+        return null;
+      }
+    };
+    const write = (analytics) => {
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ analytics, at: Date.now() }));
+      } catch {}
+    };
+
+    const load = (granted) => {
+      if (location.hostname !== host) return;
+      if (!granted && navigator.globalPrivacyControl === true) return;
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function gtag() {
+        window.dataLayer.push(arguments);
+      };
+      window.gtag("consent", "default", {
+        analytics_storage: granted ? "granted" : "denied",
+        ad_storage: "denied",
+        ad_user_data: "denied",
+        ad_personalization: "denied"
+      });
+      window.gtag("js", new Date());
+      window.gtag("config", measurementId, {
+        allow_google_signals: false,
+        allow_ad_personalization_signals: false
+      });
+      const script = document.createElement("script");
+      script.async = true;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
+      document.head.append(script);
+    };
+    const grant = () =>
+      window.gtag
+        ? window.gtag("consent", "update", { analytics_storage: "granted" })
+        : load(true);
+    const deny = () => {
+      window.gtag?.("consent", "update", { analytics_storage: "denied" });
+      const domains = ["", location.hostname, `.${location.hostname}`];
+      for (const pair of document.cookie.split(";")) {
+        const name = pair.split("=")[0].trim();
+        if (!name.startsWith("_ga")) continue;
+        for (const domain of domains)
+          document.cookie = `${name}=; Max-Age=0; path=/${domain ? `; domain=${domain}` : ""}`;
+      }
+    };
+
+    const show = (from) => {
+      opener = from ?? null;
+      banner.hidden = false;
+      if (opener) banner.querySelector("#consent-title")?.focus();
+    };
+    const choose = (analytics) => {
+      const before = read();
+      write(analytics);
+      const hadFocus = banner.contains(document.activeElement);
+      banner.hidden = true;
+      if (analytics) grant();
+      else if (before?.analytics) deny();
+      if (hadFocus) (opener ?? document.querySelector("#main, #_top"))?.focus();
+      opener = null;
+    };
+
+    for (const button of banner.querySelectorAll("[data-consent-choice]"))
+      button.addEventListener("click", () =>
+        choose(button.dataset.consentChoice === "accept")
+      );
+    const wireOpeners = () => {
+      for (const button of document.querySelectorAll("[data-consent-open]")) {
+        button.hidden = false;
+        button.addEventListener("click", () => show(button));
+      }
+    };
+    if (document.readyState === "loading")
+      document.addEventListener("DOMContentLoaded", wireOpeners);
+    else wireOpeners();
+
+    const stored = read();
+    load(stored?.analytics === true);
+    if (!stored) show();
+  })();
+</script>

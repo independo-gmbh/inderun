@@ -146,6 +146,59 @@ pnpm --filter @independo/inderun-web test
 - Keep markdown focused on concepts, onboarding, and operational guidance.
 - Remove or rewrite markdown that duplicates generated types, schema descriptions, or source comments.
 - Update external docs only when the public behavior or contributor workflow changes.
+- Where a page belongs, and how the website reads it, is described in [Where documentation lives](#where-documentation-lives).
+
+## Where documentation lives
+
+The folder a Markdown file sits in decides who reads it ([ADR 024](docs/architecture/decisions/024-documentation-architecture.md)).
+
+| Kind of document                                                                | Folder                                                                                  |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| User documentation published on [inderun.dev](https://inderun.dev/docs)         | `docs/index.md` and `docs/{getting-started,concepts,guides,platforms,api}/`             |
+| Architecture, provider families, ADRs, CI and release notes, conformance, plans | the rest of `docs/` (GitHub only; the website never reads it)                           |
+| Device and speech verification records                                          | `docs/verification/`, from [the template](docs/verification/website-launch-template.md) |
+| Entry points that link to the site                                              | `README.md` and the package READMEs                                                     |
+
+**Publish or unpublish.** Move the file into a published folder (or out of it). A published page needs front matter with
+`slug` (starts with `docs/`, and is its URL), `title` and `description` (at most 155 characters), and optionally
+`sidebar.order`. Add the slug to `website/published-urls.txt` for a new destination. Write plain Markdown that reads well on
+GitHub: relative links to other docs and to repository files (the site rewrites them; never write a `/blob/dev/`,
+`/blob/main/` or `/tree/` link by hand), and `> [!NOTE]`, `> [!TIP]`, `> [!WARNING]` or `> [!CAUTION]` for callouts.
+
+**Snippets and versions.** Code samples are files in `website/snippets/`, embedded as `<!-- snippet:NAME -->` followed by a
+blank line and `<!-- /snippet -->`, then filled by `pnpm --filter website sync:markers`. Version facts use
+`<!-- version:NAME -->` … `<!-- /version -->`. Both come from `website/versions.json`, the single source of every version
+the site names; never type a version number in prose. A release bump edits `versions.json`, then runs `sync:markers`
+and `update:api`.
+
+**Commands** (all from the repository root; see `website/package.json`):
+
+```bash
+pnpm --filter website dev                 # local site
+pnpm --filter website sync:markers        # fill snippet and version blocks
+pnpm --filter website check               # astro check
+pnpm --filter website check:markers       # blocks match their sources
+pnpm --filter website check:snippets      # snippets type-check against the pinned packages
+pnpm --filter website check:snippets:release # fails on any pending TODO(verify) snippet; run before a production deploy
+pnpm --filter website check:versions      # versions.json vs package pins and npm
+pnpm --filter website check:api           # API export snapshot (update:api to refresh)
+pnpm --filter website build               # validates internal links and anchors
+pnpm --filter website check:docs          # documentation architecture, after build
+pnpm --filter website verify:seo          # SEO output of the production build
+pnpm --filter website build:preview       # noindex preview build
+```
+
+**In the same pull request as the code.** A change to public behavior, a contract or an install step updates the
+published page that describes it (and the Provider Matrix row for a provider change). A change to a released package
+version updates `website/versions.json`. A new published page updates `website/published-urls.txt` and the sidebar. CI
+(`.github/workflows/website.yml`) catches some disagreements: snippets that no longer type-check, snippet and version
+blocks out of sync with their sources, `versions.json` against the package pins, broken links and anchors, and the
+publication rule (front matter, slugs, published URLs). Whether a page still describes the code's behavior is not
+checked; that relies on review.
+
+**Hosting.** The site is deployed to Firebase Hosting from `website/dist`. A production deploy requires
+`pnpm --filter website check:snippets:release` to pass: it fails while any `TODO(verify)` placeholder snippet remains. The `inderun.com` and `www.inderun.com` to
+`inderun.dev` 301 redirect is a domain setting in the hosting console, not part of `website/firebase.json`; change it there.
 
 ## Change Expectations
 

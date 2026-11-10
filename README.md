@@ -1,4 +1,11 @@
-# IndeRun
+<h1 align="center">
+  <a href="https://inderun.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://inderun.dev/brand/inderun-logo-dark.svg">
+      <img alt="IndeRun" src="https://inderun.dev/brand/inderun-logo-light.svg" width="360">
+    </picture>
+  </a>
+</h1>
 
 <p align="center">
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml"><img alt="JavaScript" src="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml/badge.svg?branch=dev"></a>
@@ -15,348 +22,176 @@
 
 <p align="center">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://inderun.dev/docs"><img alt="Docs: inderun.dev" src="https://img.shields.io/badge/docs-inderun.dev-A0B3FF"></a>
 </p>
 
-**On-device AI with automatic cloud fallback, for cross-platform apps.**
+**On-device AI for the devices your users actually have.**
 
-IndeRun runs a text task on the device when the device can — Apple Foundation Models on iOS and macOS, ML Kit GenAI
-(Gemini Nano) on Android, ONNX Runtime for developer-supplied models, the browser's Prompt API on desktop Chrome — and
-falls back to an OpenAI-compatible cloud provider when it cannot. One API, one normalized result and error shape, on
-**web, Capacitor, iOS, and Android**. Open source, MIT.
+IndeRun runs text tasks on the model a device already has — Apple Foundation Models on iOS, Gemini Nano (ML Kit GenAI)
+on Android, a browser-managed model or your own ONNX model on the web — through one API for Capacitor, TypeScript,
+Swift and Kotlin. Each request says where it may run: `local_required` stays on the device or is refused before
+anything executes; a cloud route is used only if your app configures one and the request permits it. Every result
+reports what ran.
 
-What that buys an application:
+Built and maintained by [Independo](https://www.independo.app) for its accessibility apps. Supported by
+[netidee](https://www.netidee.at/inderun). MIT licensed.
 
-- **It keeps working offline**, wherever a local provider is available on the device.
-- **Input can stay on the device.** `privacy: "local_required"` removes every provider whose data leaves the device
-  from the route, so there is no silent cloud fallback.
-- **It degrades rather than fails.** A device that cannot run the local model routes to the cloud; a request no
-  registered provider can serve is refused up front with a reason, not attempted and failed halfway.
-- **No per-call cost when a capability runs locally**, and the same code path when it does not.
-- **`run()` and `stream()`** — request/response and incremental output with cancellation — behave the same on every
-  platform, down to one shared error taxonomy. Secrets stay out of request payloads, referenced via `authContextRef`.
+**[Documentation](https://inderun.dev/docs)** ·
+[Capacitor quickstart](https://inderun.dev/docs/getting-started/capacitor) ·
+[Compatibility](https://inderun.dev/docs/platforms/compatibility) ·
+[Releases](https://github.com/independo-gmbh/inderun/releases/latest)
 
-Routing is the mechanism rather than the pitch: one shared planner picks providers from the request's constraints plus
-a live capability snapshot, and records why each rejected provider was rejected.
-[Choosing where a task runs](#choosing-where-a-task-runs) covers the constraints; the
-[architecture overview](docs/architecture/architecture.md) covers the rest.
+## Example: on-device only, refused otherwise
 
-IndeRun is built and used in [Independo](https://www.independo.app)'s accessibility products, which is where the
-offline and on-device paths are exercised.
+<!-- snippet:capacitor-local-only -->
+```ts
+import { createIndeRunCapacitor } from "@independo/capacitor-inderun";
+
+// iOS and Android register the platform's on-device model automatically.
+// No cloud provider is configured, so no request can be routed to the cloud.
+const ai = createIndeRunCapacitor();
+
+try {
+  const result = await ai.run({
+    schemaVersion: "1.0",
+    task: { kind: "text_to_text" },
+    prompt: "Rewrite in plain language: Your appointment has been rescheduled.",
+    constraints: { privacy: "local_required" }
+  });
+  console.log(result.output.text, result.provenance?.providerId);
+} catch (error) {
+  // No eligible on-device model (unsupported device, Apple Intelligence off,
+  // Gemini Nano not downloaded, …): refused before execution, with reasons.
+  console.warn(error);
+}
+```
+<!-- /snippet -->
+
+Want a cloud route when the device can't run the task? That is opt-in and server-side: see
+[Routing, privacy and fallback](https://inderun.dev/docs/concepts/routing-and-privacy).
+
+## Read text aloud
+
+The Web, Swift and Kotlin SDKs share one call shape: `listVoices()` reads the voice catalog, `speak()` plays and returns
+a handle with `cancel()`, and `generateSpeech()` returns retrievable audio. System voices are opt-in (register
+`systemSpeech` on the Web, `AppleSystemSpeechProvider` in Swift, `AndroidSystemSpeechProvider` in Kotlin). The Capacitor
+plugin has no speech API yet.
+
+<!-- snippet:web-speak -->
+```ts
+import { createIndeRunWeb, listVoices, speak } from "@independo/inderun-web";
+
+const inderun = createIndeRunWeb({ systemSpeech: {} });
+
+const voices = await listVoices(inderun, { locale: "de-DE" });
+console.log(voices.map((voice) => voice.name));
+
+const playback = await speak(inderun, { text: "Ihr Termin wurde verschoben.", locale: "de-DE" });
+document.querySelector("#stop")?.addEventListener("click", () => playback.cancel());
+
+const { outcome, provenance } = await playback.result;
+console.log(outcome, provenance?.locality); // locality: "unknown" in a browser
+```
+<!-- /snippet -->
+
+- Android enforces `local_required` through each voice's network flag. Installed Apple voices are assumed local, because
+  the API exposes no network flag. Browsers cannot confirm locality, so `local_required` speech is always refused on the
+  web.
+- `generateSpeech()` returns WAV on iOS and Android and is refused on the web, where speech only plays.
+- A voice that is missing fails the request rather than being substituted.
+
+The full walkthrough is in the [speech guide](https://inderun.dev/docs/guides/speech); per-platform snippets are in the
+[Web](packages/inderun-web/README.md#speech), [Swift](ios/IndeRun/README.md#speech) and
+[Kotlin](android/inderun-kotlin/README.md#speech) READMEs.
+
+## Install
+
+<!-- version:install-table -->
+| You build with | Install (tested set) |
+| --- | --- |
+| Capacitor 8 | `npm install @independo/capacitor-inderun@1.2.0` |
+| Web / TypeScript | `pnpm add @independo/inderun-web@0.5.0-rc.17` |
+| Swift (SwiftPM) | `.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0-rc.17")` |
+| Kotlin (Maven Central) | `implementation("app.independo.inderun:inderun-kotlin:0.5.0-rc.17")` |
+<!-- /version -->
+
+Each row links to its guide: [Capacitor](https://inderun.dev/docs/getting-started/capacitor) (see the
+[host project requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md#host-project-requirements)),
+[Web](packages/inderun-web/README.md), [Swift](ios/IndeRun/README.md) and [Kotlin](android/inderun-kotlin/README.md).
+
+## Supported platforms and limitations
+
+<!-- version:platforms-table -->
+| You build with | Package (tested set) | Installs on | On-device model, checked at runtime |
+| --- | --- | --- | --- |
+| Capacitor 8 | `@independo/capacitor-inderun` 1.2.0 (wraps IndeRun 0.4.0) | iOS 16+, Android 8.0 (API 26)+, modern browsers | iOS 26+ on an Apple Intelligence device with it turned on; Android devices with AICore/Gemini Nano; Chrome Prompt API on desktop Chrome when `systemModel` is configured |
+| Web / TypeScript | `@independo/inderun-web` 0.5.0-rc.17 | ES2022 + WebAssembly (Node 24+ for tooling) | Chrome Prompt API; ONNX Runtime Web with a model you supply |
+| Swift | `IndeRun` 0.5.0-rc.17 (SwiftPM) | iOS 16+, macOS 14+, Swift 5.9+ | Apple Foundation Models (iOS/macOS 26+) |
+| Kotlin | `app.independo.inderun:inderun-kotlin` 0.5.0-rc.17 | Android 8.0 (API 26)+, JDK 17 | ML Kit GenAI / Gemini Nano |
+<!-- /version -->
+
+- Installing IndeRun does not make a device capable of on-device AI. Many devices that meet the install floor have no
+  eligible model. Plan for a refusal or a permitted cloud route.
+- Text: `run()` and `stream()`. Speech, in the Web, Swift and Kotlin SDKs: `speak()`, `generateSpeech()` and
+  `listVoices()` with each platform's system voices (playback only on the web; playback or retrievable audio on iOS and
+  Android). The Capacitor plugin has no speech API yet. Realtime sessions are not implemented.
+- In browsers, on-device providers answer whole requests only, so a `local_required` _stream_ is refused.
+- Offline use works only where an on-device model is installed and ready. We don't claim it for every device.
+- Capacitor apps need newer native toolchains than a fresh Capacitor project (Android compileSdk 37, Android Gradle
+  Plugin 9.1+, Kotlin Gradle plugin 2.4.10; iOS deployment target 16). See the plugin README.
+
+The Capacitor bridge is published as
+[`@independo/capacitor-inderun`](https://www.npmjs.com/package/@independo/capacitor-inderun); its source lives in
+[independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun). Both `run()` and `stream()`
+cross the bridge. The bridge owns transport only: it does not plan routes, retry, or apply fallback, and where events
+are lost in transit it reports a transport failure rather than inventing an ending.
 
 ## Status
 
 IndeRun ships two execution modes for `text_to_text`: Mode 1 `run()` (request/response) and Mode 2 `stream()`
 (incremental output with cancellation), both implemented in all three SDKs. Realtime sessions remain planned but
-unimplemented. Every platform can always use the OpenAI-compatible **cloud** provider; **on-device** execution is used
-automatically by routing when the device supports it (or forced with a `localRequired` privacy constraint). See
+unimplemented. Every platform can register an OpenAI-compatible **cloud** provider, which you configure and your request must permit;
+**on-device** execution is chosen by routing when the device supports it (or required with a `local_required` privacy
+constraint). See
 [GitHub Milestones](https://github.com/independo-gmbh/inderun/milestones) for current roadmap status.
 
 Not every provider streams, so whether a stream request can be served depends on the registered providers and is
 decided at routing time rather than discovered partway through. [Streaming (Mode 2)](docs/streaming.md) is the full
-contract — event types, ordering, cancellation, fallback, and what each provider does and does not report.
+contract — event types, ordering, cancellation, and what each provider does and does not report.
 
 `generateText()` and `streamText()` are the primary API: familiar prompt-and-options calls that each compile to one
 canonical `TaskRequest`. `run()` and `stream()` stay public as the advanced, task-shaped execution API — reach for them
 when you build requests programmatically or need the full event sequence. Both layers share one engine, so routing,
-fallback, cancellation, and errors behave identically. See [API layering](docs/architecture/api-layering.md).
+cancellation, and errors behave identically. When to use which, and how model profiles work, is in [API layering](docs/architecture/api-layering.md) and
+[Routing, privacy and fallback](https://inderun.dev/docs/concepts/routing-and-privacy).
 
 `speak()`, `generateSpeech()` and `listVoices()` are the same idea for text-to-speech: `speak()` plays through the device
 and hands back a completion and a `cancel()`, `generateSpeech()` returns retrievable audio where a provider can produce
 it, and `listVoices()` reads the live voice catalog.
 
-### When to use the advanced API
-
-Start with `generateText()` / `streamText()`. Switch to `TaskRequest` with `run()` / `stream()` when you need
-something the facade deliberately leaves out:
-
-- **The raw event sequence.** `stream()` hands back every canonical `StreamEvent` — lifecycle phases, snapshots that
-  retract delivered text, the terminal outcome — where `streamText()` reduces them to text increments and a result.
-  `streamText()`'s `fullStream` carries the same events when you need both.
-- **Requests built by code rather than by hand**, such as a request id you correlate with your own logs, or a
-  request assembled from stored configuration.
-- **Capability checks before a request.** `checkCapabilities()` reports what every registered target can do on this
-  device right now, for UI that should not offer an on-device option the device cannot serve.
-- **Hosts that speak the contract**, such as a bridge that forwards `TaskRequest` and `StreamEvent` across a process
-  boundary.
-
-On the Web the advanced API lives in the same entry point as the facade. Provider authoring — custom adapters, host
-services, building an engine from a `ProviderRegistry` — has its own entry point, `@independo/inderun-web/provider`;
-the [migration guide](docs/migration.md) lists what moved there in 0.4.
-
-## Choosing where a task runs
+## How it decides where a task runs
 
 Placement is a property of the request, not of the call site. `constraints.privacy` says how strict you are:
 
-| `constraints.privacy`       | Effect on routing                                                                                                                                  |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local_required`            | Every provider whose data leaves the device is **rejected** — removed from the chain, so no cloud fallback. If none remains, the request is refused. |
-| `local_preferred`           | Nothing is rejected. On-device providers are **ranked first**; cloud stays in the chain as fallback.                                                 |
-| `cloud_allowed` _(default)_ | No preference from privacy. The default ranking still prefers local → edge → cloud.                                                                  |
-| `cloud_required`            | Non-cloud providers are rejected.                                                                                                                    |
+| `constraints.privacy`       | Effect on routing                                                                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local_required`            | Every provider whose data leaves the device is **rejected**, so no cloud route is possible. If none remains, the request is refused.                        |
+| `local_preferred`           | Nothing is rejected. On-device providers are **ranked first**; a separately configured and permitted cloud target stays in the chain.                        |
+| `cloud_allowed` _(default)_ | No preference from privacy; the default ranking still prefers on-device providers over cloud ones.                                                            |
+| `cloud_required`            | Non-cloud providers are rejected.                                                                                                                            |
 
-`constraints.cloud` (`forbidden` / `allowed` / `required`) is a separate axis. It outranks the privacy axis when
-ordering providers; for rejection the two apply independently.
-
-Everything else is capability. A provider is a candidate only if it declares the task — including the inputs, the
-interaction mode and, for non-text tasks, the output delivery, media types, locale and required voice the request
-asks for — _and_ its live capability check says it can serve them on this host right now. One that cannot is rejected
-before anything is attempted, and the refusal names every rejected provider with a normalized reason code —
-`task_not_supported`, `privacy_constraint`, `streaming_unavailable`, `output_delivery_not_supported`, `offline`,
-`capability_unavailable` and the rest of the planner's fixed vocabulary — on the thrown error's `details`.
-That is the only channel through which a caller learns why a request could not be placed.
-
-Ordering among the survivors is deterministic for a fixed request and capability snapshot, so the same inputs always
-produce the same provider and the same fallback order. See
-[the architecture overview](docs/architecture/architecture.md#placement-constraints).
-
-### Choosing which models a task may use
-
-Models are bound where providers are configured, not at call sites. Every provider instance is a _target_ bound to one
-model — `createIndeRunWeb({ openAI: { models: ["gpt-5.2", "gpt-5-mini"] } })` registers the targets
-`openai:gpt-5.2` and `openai:gpt-5-mini` — and a _model profile_ names an ordered set of targets:
-
-```ts
-const inderun = createIndeRunWeb({
-  openAI: { models: ["gpt-5.2", "gpt-5-mini"], endpointUrl: "/api/inderun/openai-responses", auth: "none" },
-  systemModel: {},
-  modelProfiles: {
-    fast: ["local.system-model.web", "openai:gpt-5-mini"],
-    smart: ["openai:gpt-5.2"]
-  }
-});
-
-await inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt, modelProfile: "smart" });
-```
-
-A request that names no profile routes within the built-in `auto` profile: every registered target. A named profile is
-an allow-list — targets outside it are rejected with `not_in_model_profile` — and its order ranks targets _within_ a
-placement tier, so `local_required` and `local_preferred` keep their meaning. An unknown profile name fails validation.
-Swift and Kotlin take the same profiles as `ModelProfiles` on the engine. See
+Capability is checked too: a provider that cannot serve the task on this host right now is rejected before anything is
+attempted, and the refusal names every rejected provider with a normalized reason code. Ordering among the survivors is
+deterministic for a fixed request and capability snapshot. The full model — `constraints.cloud` and rejection codes — is
+in [Routing, privacy and fallback](https://inderun.dev/docs/concepts/routing-and-privacy) and the
+[architecture overview](docs/architecture/architecture.md#placement-constraints). Model profiles are covered in
 [API layering](docs/architecture/api-layering.md#model-profiles).
 
-## Speaking text
+## Privacy
 
-One call site on every platform: `listVoices()` reads the voice catalog, `speak()` plays and returns a handle with
-`cancel()` and `result`, and `generateSpeech()` returns a `MediaArtifact` to read with `readArtifact()` and release with
-`disposeArtifact()`. The system speech providers are opt-in; register `systemSpeech` (Web), `AppleSystemSpeechProvider`
-(Swift) or `AndroidSystemSpeechProvider` (Kotlin). Snippets per platform are in the
-[Web](packages/inderun-web/README.md#speech), [Swift](ios/IndeRun/README.md#speech) and
-[Kotlin](android/inderun-kotlin/README.md#speech) READMEs.
-
-```ts
-import { createIndeRunWeb, speak } from "@independo/inderun-web";
-
-const inderun = createIndeRunWeb({ systemSpeech: {} });
-const playback = await speak(inderun, { text: "Der Bus kommt.", locale: "de-AT" });
-stopButton.onclick = () => playback.cancel();
-const { finishReason, speech, provenance, timing } = await playback.result;
-// finishReason "stop", or "cancelled" after cancel(); provenance names the provider and its locality;
-// timing?.firstAudioMs is when the first word started, where the platform reports it.
-```
-
-Some providers only play audio; others can also return it. Tell them apart from capabilities rather than by provider
-name: a provider can return audio when its `text_to_speech` capability declares `artifact` delivery.
-
-```ts
-const returnsAudio = (await inderun.checkCapabilities()).some(
-  ({ descriptor, capabilities }) =>
-    capabilities.available &&
-    descriptor.taskCapabilities?.some(
-      (task) =>
-        task.kind === "text_to_speech" && task.outputs.some((out) => out.delivery === "artifact")
-    )
-);
-```
-
-| Platform | Provider | Playback | Retrievable audio |
-| --- | --- | --- | --- |
-| Web | `web_system_speech` (`speechSynthesis`) | Yes | No: `generateSpeech()` is refused by routing |
-| iOS / macOS | `apple_system_speech` (`AVSpeechSynthesizer`) | Yes | `audio/wav` |
-| Android | `android_system_speech` (`TextToSpeech`) | Yes | `audio/wav` |
-
-Voices are the platform's own, so the catalog differs per device. The
-[packages/inderun-web-demo](packages/inderun-web-demo/README.md#speech) Speech panel shows all of this in a browser, and
-[docs/verification/system-speech.md](docs/verification/system-speech.md) records what has been run on which device.
-
-## Platforms
-
-### Web (TypeScript)
-
-**Requirements:** Node 24+ (for tooling/SSR) or a modern browser (ES2022 + WebAssembly).
-
-Install — one package is enough. `@independo/inderun-contracts` and
-`@independo/inderun-route-core-wasm` come with it, and the contract types the SDK's own signatures
-use (`TaskRequest`, `TaskResult`, `StreamEvent`, …) are re-exported from `@independo/inderun-web`,
-so there is nothing to add for a fully typed app:
-
-```sh
-pnpm add @independo/inderun-web
-```
-
-Quick start:
-
-```ts
-import { createIndeRunWeb, generateText, streamText } from "@independo/inderun-web";
-
-const inderun = createIndeRunWeb({
-  // Point at a same-origin proxy that holds the OpenAI key server-side.
-  openAI: { models: ["gpt-5.2"], endpointUrl: "/api/inderun/openai-responses", auth: "none" }
-});
-
-const { text, provenance } = await generateText(inderun, {
-  prompt: "Write a one-sentence summary of IndeRun."
-});
-console.log(text, provenance?.locality); // e.g. "cloud"
-
-const stream = await streamText(inderun, { prompt: "Explain routing.", execution: { privacy: "local_preferred" } });
-for await (const delta of stream.textStream) console.log(delta);
-```
-
-The same request through the advanced API is
-`inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt: "…" })`.
-
-> Browser apps must route OpenAI calls through a same-origin proxy that keeps the key server-side — never ship
-> provider credentials to the browser.
-
-For on-device execution with a developer-supplied ONNX model, pass `onnx` as well (or instead) and
-register the Web ONNX Runtime provider — see the
-[`@independo/inderun-web` README](packages/inderun-web/README.md#on-device-models-onnx-runtime-web)
-and the [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md). The
-provider ships from the `@independo/inderun-web/onnx` subpath.
-
-### Capacitor (hybrid apps)
-
-A thin Capacitor bridge puts the same API in hybrid apps, with the on-device providers of whichever platform the app is
-running on — Apple Foundation Models on iOS, ML Kit GenAI on Android, the Web SDK's providers in the browser — and the
-same OpenAI-compatible fallback everywhere. It is published as
-[`@independo/capacitor-inderun`](https://www.npmjs.com/package/@independo/capacitor-inderun); the source lives in its
-own repository, [independo-gmbh/capacitor-inderun](https://github.com/independo-gmbh/capacitor-inderun).
-
-Both `run()` and `stream()` cross the bridge on all three platforms. The bridge owns transport and never orchestration:
-it does not plan routes, retry, apply fallback, or synthesize a terminal outcome — those stay in the platform SDKs
-below, and where events are lost in transit it reports a transport failure rather than inventing an ending. One
-consequence worth knowing before you build on it: there is no backpressure across the JS boundary, so a slow consumer
-buys memory rather than throttling.
-
-### iOS / macOS (Swift)
-
-**Requirements:**
-
-- SDK: iOS 16+ / macOS 14+, Swift 5.9+ (Swift Package Manager).
-- On-device provider (Apple Foundation Models): an Apple Intelligence–capable device running a FoundationModels-supported
-  OS (iOS 26+ / macOS 26+). Availability is checked at runtime; IndeRun falls back to the cloud provider when it is
-  unavailable. **No special Info.plist entitlement is required** for on-device execution.
-
-Install via Swift Package Manager (consumed by URL + git tag). `from:` is a **lower bound** —
-SwiftPM resolves to the latest compatible release, so this does not need updating per release:
-
-```swift
-.package(url: "https://github.com/independo-gmbh/inderun.git", from: "0.1.0")
-// products: IndeRun, IndeRunCore, IndeRunContracts, IndeRunAppleProviders,
-//           IndeRunOpenAIProviders, IndeRunOnnxProviders
-```
-
-`IndeRun` gives you the engine and its public contract types — it re-exports `IndeRunCore` and
-`IndeRunContracts`, so `import IndeRunSwift` brings `TaskRequest`, `TaskResult` and `StreamRun`
-into scope. It ships no providers: add `IndeRunAppleProviders`, `IndeRunOpenAIProviders` or
-`IndeRunOnnxProviders` for whichever ones you register. Each of those re-exports the contract
-types too, so a provider product on its own is also enough to compile against.
-
-Quick start — on-device by default:
-
-```swift
-import IndeRunSwift
-import IndeRunCore
-import IndeRunAppleProviders
-
-let hostServices = DefaultHostServices.make()
-// makeDefaultRegistry() registers the on-device Apple Foundation Models provider.
-let registry = try AppleProviderRegistryFactory.makeDefaultRegistry()
-let inderun = IndeRun(registry: registry, hostServices: hostServices)
-
-let result = try await inderun.generateText(TextGenerationOptions(
-    .prompt("Translate 'Hello' to Spanish"),
-    execution: TextExecutionOptions(privacy: .localRequired)
-))
-print(result.text, result.provenance?.locality ?? .unknown)
-```
-
-`streamText` returns a `TextStream` with `textStream`, `fullStream`, and `result()`; `run(request:)` and
-`stream(request:)` remain available as the advanced API.
-
-> Need cloud execution too? Register the OpenAI-compatible provider from
-> `IndeRunOpenAIProviders` — see the [iOS SDK README](ios/IndeRun/README.md) and the
-> [provider model](docs/architecture/providers.md).
-
-### Android (Kotlin)
-
-**Requirements:**
-
-- SDK: Android 8.0+ (minSdk 26), JDK 17.
-- On-device provider (ML Kit GenAI): a device with on-device generative-AI support (AICore / Gemini Nano). Availability
-  (available / downloadable / unavailable) is checked at runtime; IndeRun falls back to the cloud provider when it is
-  unavailable.
-
-Add the required permissions to your `AndroidManifest.xml` — needed for cloud execution and for downloading/checking the
-on-device model:
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-```
-
-Install via Gradle (Maven Central) — `latest.release` resolves to the newest published version:
-
-```kotlin
-implementation("app.independo.inderun:inderun-kotlin:latest.release")
-```
-
-That one line is enough for a fully typed app: `inderun-kotlin` exposes `inderun-contracts`,
-`inderun-core` and `kotlinx-coroutines-core` as `api` dependencies, so `TaskRequest`, `TaskResult`,
-the text facade's `Flow`s, and the `Flow<StreamEvent>` returned by `stream()` are on your compile classpath. Cloud execution
-additionally needs `app.independo.inderun:inderun-openai-providers`.
-
-> For reproducible builds, pin an explicit version instead — the Maven Central badge above shows the current release.
-
-Quick start — on-device by default:
-
-```kotlin
-// initialize() registers the ML Kit GenAI on-device provider.
-val indeRun = IndeRun.initialize(this) // `this` is a Context
-
-// generateText() is a suspend function — call it from a coroutine.
-val result = indeRun.generateText(
-    TextGenerationOptions(
-        prompt = "Translate 'Hello' to Spanish",
-        execution = TextExecutionOptions(privacy = Privacy.LocalRequired),
-    )
-)
-println("${result.text} (${result.provenance?.locality})")
-```
-
-`streamText(options, scope)` returns a `TextStream` with `textStream`, `fullStream`, and a `result` deferred;
-`run(TaskRequest)` and `stream(TaskRequest)` remain available as the advanced API.
-
-> Need cloud execution too? Register the OpenAI-compatible provider from
-> `inderun-openai-providers` — see the [Kotlin SDK README](android/inderun-kotlin/README.md)
-> and the [provider model](docs/architecture/providers.md).
-
-## Minimum system requirements
-
-| Platform    | SDK minimum                               | On-device local model                                                              |
-| ----------- | ----------------------------------------- | ---------------------------------------------------------------------------------- |
-| Web         | Node 24+ / modern browser (ES2022 + WASM) | ONNX Runtime (developer-supplied model); Chrome Prompt API on desktop Chrome 138+    |
-| Capacitor   | iOS 16+ / Android 8.0+ (API 26) / web     | Whatever the host platform provides — the rows below on native, the Web row in a PWA |
-| iOS / macOS | iOS 16+ / macOS 14+, Swift 5.9+            | Apple Foundation Models: Apple Intelligence device, iOS 26+ / macOS 26+             |
-| Android     | Android 8.0+ (API 26), JDK 17              | ML Kit GenAI: device with AICore / Gemini Nano support                              |
-
-The OpenAI-compatible cloud provider is available on every platform, and reaches any Responses-API endpoint —
-including [OpenRouter](docs/openrouter.md). On-device execution additionally requires the capabilities above and is
-selected automatically by routing.
-
-System text-to-speech is opt-in on each platform: `AVSpeechSynthesizer` on iOS and macOS, `TextToSpeech` on Android, and
-`speechSynthesis` on the Web, which can only play. See the
-[system speech family doc](docs/architecture/system-speech-provider-family.md).
+IndeRun sends no usage data to Independo. The SDK has a `telemetry` hook and a `telemetry` field on results so _your
+app_ can observe executions locally. The default handler discards events. A cloud provider you configure receives the
+requests you route to it, under its own terms.
 
 ## Credentials & security
 
@@ -375,7 +210,7 @@ environment; on iOS and Android it is a convention, because a native app can rea
 - **OpenRouter** — reach many model vendors through one cloud target with the OpenAI-compatible provider. See
   [OpenRouter](docs/openrouter.md).
 - **Reference demo** — [`packages/inderun-web-demo`](packages/inderun-web-demo/README.md) simplifies text with
-  `generateText()` or `streamText()`, runs on the device first when the browser can, falls back to the cloud only
+  `generateText()` or `streamText()`, runs on the device first when the browser can, uses a cloud route only
   when the chosen privacy allows it, and shows the run's provenance.
 
 ## Packages
@@ -388,23 +223,29 @@ environment; on iOS and Android it is a convention, because a native app can rea
 | `app.independo.inderun:inderun-kotlin` (+ modules) | Maven Central       |
 | `IndeRun` (Swift products)                 | Swift Package Manager (tag) |
 
-## Core Docs
+## Documentation
 
-- [Project brief](docs/architecture/technical-brief.md)
-- [Architecture overview](docs/architecture/architecture.md)
-- [Provider model](docs/architecture/providers.md)
-- [Public API layering](docs/architecture/api-layering.md)
-- [Streaming (Mode 2)](docs/streaming.md)
-- [Migration guide](docs/migration.md)
-- [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md)
-- [Streaming conformance and cross-platform validation](docs/streaming-conformance.md)
-- [Speech conformance and cross-platform validation](docs/speech-conformance.md)
-- [System speech verification record](docs/verification/system-speech.md)
-- [Neural speech preparation tool (Python, offline)](tools/neural-speech/README.md)
-- [CI behavior](docs/ci.md)
-- [Releases & publishing](docs/release.md)
-- [Contributor workflow and build commands](CONTRIBUTING.md)
-- [Agent instructions](AGENTS.md)
+- [inderun.dev/docs](https://inderun.dev/docs) — start here
+- [Capacitor quickstart](https://inderun.dev/docs/getting-started/capacitor)
+- [Routing, privacy and fallback](https://inderun.dev/docs/concepts/routing-and-privacy)
+- [Architecture](https://inderun.dev/docs/concepts/architecture)
+- [Troubleshooting](https://inderun.dev/docs/guides/troubleshooting)
+- [Speech guide](https://inderun.dev/docs/guides/speech)
+- [Compatibility](https://inderun.dev/docs/platforms/compatibility)
+- [TypeScript API reference](https://inderun.dev/docs/api/typescript)
+
+Reference in this repository: [Project brief](docs/architecture/technical-brief.md) ·
+[Architecture overview](docs/architecture/architecture.md) · [Provider model](docs/architecture/providers.md) ·
+[Public API layering](docs/architecture/api-layering.md) · [Streaming (Mode 2)](docs/streaming.md) ·
+[Migration guide](docs/migration.md) · [ONNX Runtime provider family](docs/architecture/onnx-runtime-provider-family.md) ·
+[Streaming conformance](docs/streaming-conformance.md) · [Speech conformance](docs/speech-conformance.md) ·
+[System speech verification record](docs/verification/system-speech.md) ·
+[Neural speech preparation tool](tools/neural-speech/README.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow and build commands. CI behavior is in
+[docs/ci.md](docs/ci.md) and releases in [docs/release.md](docs/release.md).
 
 ## License
 
