@@ -33,11 +33,18 @@ public struct CoreAINeuralSpeechProviderOptions: Sendable {
 /// A ``NeuralSpeechProvider`` that runs a `coreai` package through a ``CoreAINeuralSpeechRuntime``.
 /// Specializing the asset needs the app's consent: register with `autoDownload` or call
 /// `prepare({ allowDownload: true })`, otherwise a device whose specialization cache is empty is skipped.
+///
+/// The factory builds the runtime, so the returned provider owns it: the application releases the
+/// loaded models with the provider's `close()` once no engine routes to it any more (engine
+/// `close()` does not close providers the application registered).
 public func makeCoreAINeuralSpeechProvider(options: CoreAINeuralSpeechProviderOptions) -> NeuralSpeechProvider {
-    NeuralSpeechProvider(options: NeuralSpeechProviderOptions(
-        id: options.id ?? "\(NeuralSpeechProvider.coreAIDefaultId):\(options.modelPackage.id)",
-        modelPackage: options.modelPackage,
-        runtime: CoreAINeuralSpeechRuntime(options: options.runtime),
-        timeout: options.timeout
-    ))
+    NeuralSpeechProvider(
+        options: NeuralSpeechProviderOptions(
+            id: options.id ?? "\(NeuralSpeechProvider.coreAIDefaultId):\(options.modelPackage.id)",
+            modelPackage: options.modelPackage,
+            runtime: CoreAINeuralSpeechRuntime(options: options.runtime),
+            timeout: options.timeout
+        ),
+        ownsRuntime: true
+    )
 }

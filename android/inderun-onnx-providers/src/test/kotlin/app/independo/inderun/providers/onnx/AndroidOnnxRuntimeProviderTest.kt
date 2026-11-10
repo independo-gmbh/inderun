@@ -245,6 +245,41 @@ class AndroidOnnxRuntimeProviderTest {
         }
     }
 
+    private class ClosingRuntime : AndroidOnnxGenAiRuntime by createFixtureOnnxRuntime() {
+        var closes = 0
+
+        override fun close() {
+            closes += 1
+        }
+    }
+
+    @Test
+    fun closeLeavesAnInjectedRuntimeOpen() {
+        val runtime = ClosingRuntime()
+        val provider = providerWith(runtime = runtime)
+
+        provider.close()
+        provider.close()
+
+        assertEquals(0, runtime.closes)
+    }
+
+    @Test
+    fun closeClosesARuntimeTheProviderOwns() {
+        val runtime = ClosingRuntime()
+        val provider = AndroidOnnxRuntimeProvider(
+            modelPackage = modelPackage(),
+            runtime = runtime,
+            id = AndroidOnnxRuntimeProvider.DEFAULT_ID,
+            timeoutMs = null,
+            ownsRuntime = true,
+        )
+
+        provider.close()
+
+        assertEquals(1, runtime.closes)
+    }
+
     private fun providerWith(
         modelPackage: ModelPackage = modelPackage(),
         runtime: AndroidOnnxGenAiRuntime,

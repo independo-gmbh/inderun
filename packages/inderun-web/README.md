@@ -34,7 +34,15 @@ The contract types this SDK's own signatures take and return — `TaskRequest`, 
 | `@independo/inderun-web/provider`                                                             | Provider authors and host integrators | `ProviderAdapter` and the descriptor/capability types, `ProviderRegistry`, `HostServices` and the browser host services, the `create*` error constructors                                                                                    |
 | `@independo/inderun-web/openai`, `/onnx`, `/system-model`, `/system-speech`, `/neural-speech` | Registering a provider by hand        | One provider adapter each                                                                                                                                                                                                                    |
 
-The router, the route planner bindings and the Event Gate are engine internals and are not exported. Moving from 0.3?
+The router, the route planner bindings and the Event Gate are engine internals and are not exported.
+
+The package declares `"sideEffects": false`: no module does anything when imported, so a bundler keeps only what you
+use. An app that imports only the primary functions (`speak`, `generateSpeech`, `listVoices`, `prepare`,
+`generateText`, `streamText`) and calls them on another `IndeRunApi`, such as the Capacitor bridge's, bundles a few
+kilobytes of facade code, without the engine or the WASM route planner loader. Importing `createIndeRunWeb` or `IndeRun` brings
+the engine in as before.
+
+Moving from 0.3?
 See the [migration guide](https://github.com/independo-gmbh/inderun/blob/main/docs/migration.md).
 
 ## Basic Usage

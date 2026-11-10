@@ -8,6 +8,10 @@ import android.content.Context
 import app.independo.inderun.contracts.Format
 import app.independo.inderun.contracts.ModelPackage
 import app.independo.inderun.contracts.SourceType
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -34,26 +38,122 @@ internal data class LoadedSession(
 }
 
 /**
+ * One cached value with a count of the callers using it. Retiring it releases the value only once
+ * the last user has returned, so nothing ever runs on a released session.
+ */
+private class Lease<T>(val value: T, private val onRelease: (T) -> Unit) {
+    private var users = 0
+    private var retired = false
+    private var released = false
+
+    @Synchronized
+    fun acquire() {
+        users += 1
+    }
+
+    fun release() = settle { users -= 1 }
+
+    fun retire() = settle { retired = true }
+
+    private inline fun settle(change: () -> Unit) {
+        val releaseNow = synchronized(this) {
+            change()
+            (retired && users == 0 && !released).also { if (it) released = true }
+        }
+        if (releaseNow) onRelease(value)
+    }
+}
+
+/**
+ * Caches the value loaded for the most recently requested key, and releases what it drops only once
+ * the callers using it have returned. A different key evicts the cached value. [close] drops the
+ * cached value without suspending, and a later [use] loads again. A load still running when [close]
+ * is called is not cached: its value is released once its caller is done with it.
+ */
+internal class LeasedCache<T>(private val onRelease: (T) -> Unit) {
+    /** Serializes loading, so concurrent callers load one key once. */
+    private val mutex = Mutex()
+
+    /** Guards [cached] and [epoch], which [close] changes without suspending. */
+    private val lock = Any()
+    private var cached: Pair<String, Lease<T>>? = null
+
+    /** Bumped by [close], so a load that started before it does not cache its value. */
+    private var epoch = 0
+
+    /** Runs [block] with the value cached for [key], loading it with [load] first when needed. */
+    suspend fun <R> use(key: String, load: suspend () -> T, block: suspend (T) -> R): R {
+        val lease = acquire(key, load)
+        try {
+            return block(lease.value)
+        } finally {
+            lease.release()
+        }
+    }
+
+    /** Drops the cached value; idempotent, never throws, never suspends. */
+    fun close() {
+        synchronized(lock) {
+            epoch += 1
+            cached?.second?.retire()
+            cached = null
+        }
+    }
+
+    private suspend fun acquire(key: String, load: suspend () -> T): Lease<T> = mutex.withLock {
+        val startEpoch = synchronized(lock) {
+            val current = cached
+            if (current != null && current.first == key) {
+                current.second.acquire()
+                return current.second
+            }
+            current?.second?.retire()
+            cached = null
+            epoch
+        }
+
+        // NonCancellable: a load is blocking native work that runs to the end anyway, and a cancelled
+        // `withContext` would drop its result before any lease owns it, leaking the session.
+        val lease = Lease(withContext(NonCancellable) { load() }, onRelease)
+        lease.acquire()
+        synchronized(lock) {
+            if (epoch == startEpoch) cached = key to lease else lease.retire()
+        }
+        // The caller was cancelled during the load: the cache keeps (or the retired lease releases)
+        // the value, and the caller sees its cancellation.
+        if (!currentCoroutineContext().isActive) {
+            lease.release()
+            currentCoroutineContext().ensureActive()
+        }
+        lease
+    }
+}
+
+/**
  * Lazily resolves and caches the loaded session for the most recently requested model package, so
  * repeated `prepare`/`generate` calls do not reload the model and tokenizer every time. A changed
  * `version`/`ref`/checksum evicts the stale session rather than silently reusing it.
+ *
+ * A session the cache drops (on eviction or [close]) is closed on the execution thread once the
+ * generations using it have returned: an ORT session and the tokenizer hold native memory the
+ * garbage collector does not free.
  */
 internal class LoadedSessionBox(context: Context) {
     private val directories = OnnxModelDirectory(context)
-    private val mutex = Mutex()
-    private var cached: LoadedSession? = null
+    private val cache = LeasedCache<LoadedSession> { closeOnExecutionThread(listOf(it::close)) }
 
-    suspend fun loaded(modelPackage: ModelPackage): LoadedSession = mutex.withLock {
+    /** Loads the package's session (or reuses the cached one) and runs [block] with it. */
+    suspend fun <R> use(modelPackage: ModelPackage, block: suspend (LoadedSession) -> R): R {
         val cacheKey = sessionCacheKey(modelPackage)
-        cached?.takeIf { it.cacheKey == cacheKey }?.let { return it }
-
-        cached?.close()
-        cached = null
-
-        val loaded = withContext(OnnxExecutionDispatcher.dispatcher) { load(modelPackage, cacheKey) }
-        cached = loaded
-        loaded
+        return cache.use(
+            key = cacheKey,
+            load = { withContext(OnnxExecutionDispatcher.dispatcher) { load(modelPackage, cacheKey) } },
+            block = block,
+        )
     }
+
+    /** Drops the cached session; see the class documentation. */
+    fun close() = cache.close()
 
     /**
      * Checks what can be checked without loading, cheaply enough for the capability check, which

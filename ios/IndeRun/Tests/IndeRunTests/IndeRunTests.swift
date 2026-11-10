@@ -1578,6 +1578,45 @@ final class IndeRunTests: XCTestCase {
         XCTAssertNil(capabilities.taskCapabilities)
     }
 
+    func testOnnxAppleCloseLeavesAnInjectedRuntimeOpen() async {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage(), runtime: runtime)
+        )
+
+        await provider.close()
+        await provider.close()
+
+        XCTAssertEqual(runtime.closes, 0)
+    }
+
+    func testOnnxAppleCloseClosesARuntimeTheProviderOwns() async {
+        let runtime = CountingOnnxRuntime()
+        let provider = OnnxRuntimeAppleProvider(
+            options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage()),
+            runtime: runtime,
+            ownsRuntime: true
+        )
+
+        await provider.close()
+
+        XCTAssertEqual(runtime.closes, 1)
+    }
+
+    func testOnnxAppleDefaultRuntimeClosesAndStaysUsable() async throws {
+        // The default runtime: close drops nothing loaded yet and leaves the capability check working.
+        let provider = OnnxRuntimeAppleProvider(options: OnnxProviderOptions(modelPackage: makeOnnxModelPackage()))
+        let host = HostServices(connectivity: MockConnectivityService())
+        let before = await provider.capabilities(host: host)
+
+        await provider.close()
+        await provider.close()
+
+        let after = await provider.capabilities(host: host)
+        XCTAssertEqual(after.available, before.available)
+        XCTAssertEqual(after.reason, before.reason)
+    }
+
     func testOnnxAppleRemembersAFailedLoadAndFallsBack() async throws {
         let runtime = CountingOnnxRuntime(loadResult: OnnxRuntimeAvailability(available: false, reason: "model corrupt"))
         let broken = OnnxRuntimeAppleProvider(
@@ -2707,10 +2746,12 @@ final class OpenAIRunVectorTests: XCTestCase {
 private final class CountingOnnxRuntime: OnnxGenAiRuntime, @unchecked Sendable {
     private let lock = NSLock()
     private var loadCount = 0
+    private var closeCount = 0
     private let loadResult: OnnxRuntimeAvailability
     private let fixture = createFixtureOnnxRuntime()
 
     var loads: Int { lock.withLock { loadCount } }
+    var closes: Int { lock.withLock { closeCount } }
 
     init(loadResult: OnnxRuntimeAvailability = OnnxRuntimeAvailability(available: true)) {
         self.loadResult = loadResult
@@ -2727,5 +2768,9 @@ private final class CountingOnnxRuntime: OnnxGenAiRuntime, @unchecked Sendable {
 
     func generate(_ input: OnnxGenerationInput) async throws -> OnnxGenerationOutput {
         try await fixture.generate(input)
+    }
+
+    func close() async {
+        lock.withLock { closeCount += 1 }
     }
 }

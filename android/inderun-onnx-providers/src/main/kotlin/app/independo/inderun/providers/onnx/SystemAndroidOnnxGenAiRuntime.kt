@@ -38,7 +38,7 @@ class SystemAndroidOnnxGenAiRuntime(context: Context) : AndroidOnnxGenAiRuntime 
     }
 
     override suspend fun prepare(modelPackage: ModelPackage): AndroidOnnxRuntimeAvailability = try {
-        session.loaded(modelPackage)
+        session.use(modelPackage) {}
         AndroidOnnxRuntimeAvailability(available = true)
     } catch (error: CancellationException) {
         throw error
@@ -52,10 +52,17 @@ class SystemAndroidOnnxGenAiRuntime(context: Context) : AndroidOnnxGenAiRuntime 
     }
 
     override suspend fun generate(input: AndroidOnnxGenerationInput): AndroidOnnxGenerationOutput {
-        val loaded = session.loaded(input.modelPackage)
-        val prompt = formatMessages(input.messages)
-        val text = decode(loaded, prompt, input)
+        val text = session.use(input.modelPackage) { loaded -> decode(loaded, formatMessages(input.messages), input) }
         return AndroidOnnxGenerationOutput(text = text, finishReason = FinishReason.STOP)
+    }
+
+    /**
+     * Releases the loaded ORT session and tokenizer, whose native memory the garbage collector does
+     * not free. A generation in flight finishes first: the session is closed on the execution thread
+     * once it returns. Idempotent; a later `prepare` or `generate` loads the model again.
+     */
+    override fun close() {
+        session.close()
     }
 
     /**

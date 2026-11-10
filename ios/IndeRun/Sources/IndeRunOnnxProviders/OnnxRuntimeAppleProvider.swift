@@ -69,15 +69,38 @@ public final class OnnxRuntimeAppleProvider: PreparableProviderAdapter, Sendable
     private let id: String
     private let modelPackage: ModelPackage
     private let runtime: any OnnxGenAiRuntime
+    /// Whether ``close()`` closes `runtime`: only for the default runtime this provider built.
+    private let ownsRuntime: Bool
     private let timeout: Duration?
 
     /// Creates an Apple ONNX Runtime provider.
-    /// - Parameter options: Model package plus optional id, runtime, and timeout overrides.
-    public init(options: OnnxProviderOptions) {
+    /// - Parameter options: Model package plus optional id, runtime, and timeout overrides. Without
+    ///   a `runtime` the provider builds a ``SystemOnnxGenAiRuntime`` and owns it.
+    public convenience init(options: OnnxProviderOptions) {
+        self.init(
+            options: options,
+            runtime: options.runtime ?? SystemOnnxGenAiRuntime(),
+            ownsRuntime: options.runtime == nil
+        )
+    }
+
+    /// The designated initializer: `runtime` replaces `options.runtime`, and `ownsRuntime` says
+    /// whether ``close()`` closes it.
+    init(options: OnnxProviderOptions, runtime: any OnnxGenAiRuntime, ownsRuntime: Bool) {
         self.id = options.id
         self.modelPackage = options.modelPackage
-        self.runtime = options.runtime ?? SystemOnnxGenAiRuntime()
+        self.runtime = runtime
+        self.ownsRuntime = ownsRuntime
         self.timeout = options.timeout
+    }
+
+    /// Releases the loaded model when this provider built its runtime (no `runtime` in the
+    /// options); a runtime the application supplied stays the application's to close. The engine
+    /// never calls this: the application registered the provider, so it closes it once no engine
+    /// routes to it. Idempotent; a run after close loads the model again. Mirrors
+    /// `OnnxRuntimeWebProvider.close()`.
+    public func close() async {
+        if ownsRuntime { await runtime.close() }
     }
 
     /// Returns static metadata used by the router for deterministic provider selection.

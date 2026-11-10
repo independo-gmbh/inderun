@@ -39,7 +39,8 @@ registered provider on every request.
 - **Android.** `NeuralSpeechProvider(modelPackage, runtime, id, timeoutMs)`, with `DEFAULT_ID` in its companion.
 - **Apple, Core AI.** `makeCoreAINeuralSpeechProvider(options:)` in `IndeRunCoreAIProviders`, with
   `NeuralSpeechProvider.coreAIDefaultId` (`local.coreai.speech.apple`). It builds the same provider around the composed
-  Core AI runtime, so `runtime` is not passed.
+  Core AI runtime, so `runtime` is not passed, and that provider owns the runtime: its `close()` releases the loaded
+  models.
 
 ## Options
 
@@ -267,7 +268,10 @@ Limitations of this pipeline today:
 - Outlier retry and rate equalisation beyond the bundle's `letter_rate` are not implemented.
 - The cache key (`id@version`) ignores `source.ref`.
 - `close()` (#280): whoever constructed the runtime closes it; an engine never closes a
-  runtime the app passed in. It releases every cached pipeline's graph executor, and is terminal and idempotent. After it,
+  runtime the app passed in. A provider that built its runtime owns it and closes it in its own `close()`: on the Web
+  one built from a `NeuralSpeechRuntimeDescriptor`, on Swift the one `makeCoreAINeuralSpeechProvider` builds
+  (`NeuralSpeechProvider.close()`). The same `close()` leaves an injected runtime open. Kotlin's provider has no
+  `close()` because it always takes an app-built runtime. The runtime's `close()` releases every cached pipeline's graph executor, and is terminal and idempotent. After it,
   `availability` reports unavailable (`runtime closed`) and `prepare`/`synthesize` throw `NeuralSpeechRuntimeError`
   `unavailable` with code `runtime_closed`, which the provider reports as `Unavailable` with
   `details.code: "runtime_closed"`: routing falls back before playback commits, and committed playback ends with that

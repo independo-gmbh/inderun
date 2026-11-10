@@ -120,6 +120,13 @@ several engines.
   empty list (the Swift signature cannot throw) and `disposeArtifact` does nothing.
 - **Mode 1 runs are awaited, not cancelled.** Mode 1 has no cancel path, so close waits for a running
   `run()` to settle; provider timeouts keep that wait finite.
+- **Provider `close()`** exists where a provider can build a resource itself: the Web `NeuralSpeechWebProvider` and
+  `OnnxRuntimeWebProvider`, Swift's `NeuralSpeechProvider` returned by `makeCoreAINeuralSpeechProvider`, and the ONNX
+  text providers built with their default runtime (Swift `OnnxRuntimeAppleProvider` without a `runtime`, Kotlin
+  `AndroidOnnxRuntimeProvider(context, …)`). It closes
+  only that built runtime and leaves an injected one to its creator. The application registered the provider, so
+  the application calls it once no engine routes to the provider any more. `createIndeRunWeb` is the exception: it
+  built its providers, so its engine closes them.
 - **Runtime `close()`** is optional on a neural speech runtime and is the application's call. After it,
   the runtime reports itself unavailable, so routing falls back, and a synthesis that already
   committed ends with a terminal `Unavailable` error rather than a cancellation.
@@ -197,8 +204,11 @@ Each layer has one import surface per SDK, so the layer a symbol belongs to is v
   contract types, `IndeRunException`, `toIndeRunException`, telemetry). `@independo/inderun-web/provider` is the
   provider-authoring entry point: the provider contract types, `ProviderRegistry`, the host-service interfaces and
   their browser implementations, and the `create*` error constructors. Provider adapters keep their own subpaths
-  (`/openai`, `/onnx`, `/system-model`, `/system-speech`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
-  because the advanced API returns them. The internal layer is not exported.
+  (`/openai`, `/onnx`, `/system-model`, `/system-speech`, `/neural-speech`). `StreamRun` and `ProviderCapabilitySnapshot` appear in both entry points
+  because the advanced API returns them. The internal layer is not exported. The package declares
+  `"sideEffects": false` (no module acts on import, which `src/side-effects.test.ts` checks), so a bundler keeps only
+  what an app uses: the primary functions alone, over an `IndeRunApi` such as a bridge's, bundle without the engine or
+  the WASM route planner.
 - **Swift and Kotlin** split along module boundaries: `IndeRunSwift` / `inderun-kotlin` carry the primary and
   advanced layers, `IndeRunCore` / `inderun-core` the provider-authoring layer, and the provider modules one family
   each. The planner bindings are module-internal. `Router`, `RouteSelection` and `EventGate` are still `public` in

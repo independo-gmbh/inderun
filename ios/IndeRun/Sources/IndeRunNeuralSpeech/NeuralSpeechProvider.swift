@@ -85,15 +85,39 @@ public final class NeuralSpeechProvider: StreamingProviderAdapter, PreparablePro
     public let id: String
     private let modelPackage: ModelPackage
     private let runtime: any NeuralSpeechRuntime
+    /// Whether ``close()`` closes `runtime`: only when a factory built the runtime for this provider.
+    private let ownsRuntime: Bool
     private let timeout: Duration?
     private let turns = NeuralSpeechTurns()
     private let load = NeuralSpeechModelLoad()
 
-    public init(options: NeuralSpeechProviderOptions) {
+    /// A provider over the runtime in `options`. That runtime stays the caller's: ``close()`` leaves
+    /// it open, and whoever constructed it closes it.
+    public convenience init(options: NeuralSpeechProviderOptions) {
+        self.init(options: options, ownsRuntime: false)
+    }
+
+    /// A provider that owns `options.runtime` when `ownsRuntime` is true, so ``close()`` closes it.
+    /// For factories in this package that build the runtime themselves
+    /// (`makeCoreAINeuralSpeechProvider`).
+    package init(options: NeuralSpeechProviderOptions, ownsRuntime: Bool) {
         self.id = options.id ?? "\(Self.defaultId):\(options.modelPackage.id)"
         self.modelPackage = options.modelPackage
         self.runtime = options.runtime
+        self.ownsRuntime = ownsRuntime
         self.timeout = options.timeout
+    }
+
+    /// Releases what this provider owns: the runtime a factory built for it
+    /// (`makeCoreAINeuralSpeechProvider`), closed through ``NeuralSpeechRuntime/close()``, which is
+    /// terminal and idempotent. A runtime the application passed in through
+    /// ``init(options:)`` is left open; whoever constructed it closes it. The engine never calls this:
+    /// the application registered the provider, so the application closes it, after the engines using
+    /// it are closed or no longer route to it. After close, the provider reports unavailable
+    /// (`runtime closed`) and a run on it fails with `Unavailable` / `runtime_closed`. Mirrors
+    /// `NeuralSpeechWebProvider.close()`.
+    public func close() async {
+        if ownsRuntime { await runtime.close() }
     }
 
     // MARK: - Descriptor and capabilities
