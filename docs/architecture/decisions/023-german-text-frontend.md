@@ -1,5 +1,7 @@
 # ADR 023 — German text frontend
 
+Update 2026-11-10: English normalization was added later; see the English fixture `contracts/fixtures/speech/english-frontend.json`.
+
 ## Status
 
 Accepted. Recorded for Milestone 5 (issue #260, PR 4b). It builds on the Articulino pipeline of
@@ -90,7 +92,7 @@ upstream code or `num2words` was run to produce expectations.
 ## Consequences
 
 - German text is spoken correctly on every SDK from one implementation, and abbreviation periods no longer end
-  sentences. English and other locales are unchanged; there is no English normalization upstream either.
+  sentences. English is normalized the same way (see `contracts/fixtures/speech/english-frontend.json`); other locales are unchanged.
 - A change to the normalizer rebuilds and recommits `InderunSpeechTextFFI.xcframework` (`pnpm build:route-core-apple`),
   gated by `pnpm verify:route-core-apple`. A Cargo bump affects both frameworks.
 - The Web SDK fetches an extra module (about 1.32 MB gzip as shipped) the first time neural speech speaks
@@ -103,6 +105,7 @@ upstream code or `num2words` was run to produce expectations.
     Making them conditional would shrink each speech artifact.
   - The upstream stages for markup, LaTeX, e-mail and web addresses, phone numbers and Unicode math are not ported;
     they target language-model output and can be added behind the same function.
-  - English normalization, and streaming normalization, are not implemented.
+  - English normalization is done: the same function normalizes `en*` locales and every SDK's Articulino runtime
+    forwards them to the normalizer (`contracts/fixtures/speech/english-frontend.json`). Streaming normalization is not implemented.
   - A one-time typed reference comparison against upstream, if the owner allows running it, would check the fixture
     expectations. The fixture format allows it.

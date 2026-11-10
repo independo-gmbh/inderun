@@ -94,11 +94,11 @@ class ArticulinoRuntime(private val options: ArticulinoRuntimeOptions) : NeuralS
 
     /**
      * Spells out numbers, dates and abbreviations for a grapheme frontend through the shared route
-     * core; any other frontend gets the text unchanged. A failure to reach the core (a missing
+     * core, in German and English; any other frontend or locale gets the text unchanged. A failure to reach the core (a missing
      * native library, a failed JNI call) is `Unavailable`.
      */
     override fun normalizeText(modelPackage: ModelPackage, text: String, locale: String): String {
-        if (modelPackage.speech?.frontend?.kind != FrontendKind.Grapheme || !isGerman(locale)) return text
+        if (modelPackage.speech?.frontend?.kind != FrontendKind.Grapheme || !hasSpeechTextFrontend(locale)) return text
         return try {
             options.textNormalizer(text, locale)
         } catch (error: Exception) {
@@ -108,8 +108,11 @@ class ArticulinoRuntime(private val options: ArticulinoRuntimeOptions) : NeuralS
         }
     }
 
-    /** True when the language subtag of [locale] is `de` (case-insensitive, `-` or `_` separated). */
-    private fun isGerman(locale: String): Boolean = locale.split('-', '_').first().equals("de", ignoreCase = true)
+    /** True when the language subtag of [locale] is `de` or `en` (case-insensitive, `-` or `_` separated). */
+    private fun hasSpeechTextFrontend(locale: String): Boolean {
+        val language = locale.split('-', '_').first()
+        return language.equals("de", ignoreCase = true) || language.equals("en", ignoreCase = true)
+    }
 
     private fun frontendUnavailable(error: Throwable) = NeuralSpeechRuntimeError(
         NeuralSpeechRuntimeErrorKind.Unavailable,

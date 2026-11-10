@@ -85,10 +85,10 @@ class ArticulinoNormalizeTextTest {
     }
 
     @Test
-    fun textThatIsNotGermanIsReturnedUnchangedWithoutCrossingTheFfi() {
+    fun unsupportedLocalesNeverReachTheFfiAndKeepTheText() {
         val lone = "Hello \uD800 World\u0000!"
         val failing = runtime { _, _ -> throw IllegalStateException("must not be called") }
-        for (locale in listOf("en-US", "fr", "", "deu")) {
+        for (locale in listOf("fr", "", "deu", "eng")) {
             assertEquals(lone, failing.normalizeText(packageWith(FrontendKind.Grapheme), lone, locale))
             assertEquals(lone, runtime().normalizeText(packageWith(FrontendKind.Grapheme), lone, locale))
         }
@@ -105,5 +105,19 @@ class ArticulinoNormalizeTextTest {
             recording.normalizeText(packageWith(FrontendKind.Grapheme), "x", locale)
         }
         assertEquals(listOf("de", "de-DE", "DE_at", "De-CH"), seen)
+    }
+
+    @Test
+    fun englishTextReachesTheSpeechTextNormalizer() {
+        val seen = mutableListOf<String>()
+        val recording = runtime { text, locale ->
+            seen += locale
+            "normalized $text"
+        }
+        val locales = listOf("en", "en-US", "en-GB", "EN_us")
+        for (locale in locales) {
+            assertEquals("normalized at 3 pm", recording.normalizeText(packageWith(FrontendKind.Grapheme), "at 3 pm", locale))
+        }
+        assertEquals(locales, seen)
     }
 }
