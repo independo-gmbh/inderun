@@ -57,7 +57,7 @@ Install via Swift Package Manager (consumed by URL and git tag). The line below 
 
 <!-- version:swiftpm-install -->
 ```swift
-.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0-rc.17")
+.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0")
 ```
 <!-- /version -->
 

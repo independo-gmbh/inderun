@@ -1,160 +1,52 @@
 ---
 slug: docs/getting-started/example
-title: "Local-only starter app"
-description: "Run a credential-free Capacitor starter that shows what the device can run, executes a local-only task, and refuses cleanly on unsupported devices."
+title: "Local-first starter app"
+description: "Start from the plugin's local-first Capacitor starter: device capabilities, a local-only task that refuses cleanly, and speech with system voices."
 sidebar:
   order: 2
 ---
 
-## What you'll build
+## What it is
 
-A one-screen Capacitor app with no credentials and no server: a text box, a **Run on device** button, a list of what the device can run, and an output area. On an eligible device it shows the result and where it ran. On an unsupported device it shows the refusal and the providers that were rejected. Both outcomes are correct.
+The plugin repository ships a small Capacitor 8 + Vite + TypeScript app to copy when you start your own: [`examples/local-first-starter/`](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0/examples/local-first-starter). It needs no credentials and no server, and nothing it does leaves the device.
 
-> [!NOTE]
-> The planned starter repository does not exist yet, so this page has you build the same screen yourself. Nothing here claims a result from any particular device; use [your own run](#record-your-run) for that.
+It shows three things:
+
+- **What runs on this device.** `checkCapabilities()` lists each provider with its type, whether it is available (and why not), and per-task readiness.
+- **A local-only task.** `run()` with `constraints.privacy` set to `"local_required"` shows the answer and where it ran. On a device with no on-device model it shows the refusal instead. That is a correct outcome: the prompt was not sent anywhere else. See [Read the outcome](capacitor.md#read-the-outcome).
+- **Speech with system voices.** `speak()` with `systemSpeech: true`, a **Stop** button that calls `cancel()`, and the finish reason once playback has settled. See [Read text aloud](../guides/speech.md).
+
+All of the app's logic is one file, `src/main.ts`. Neural voices are not part of it.
 
 ## Prerequisites
 
-- Node 24 or newer, and the host requirements from the [Capacitor quickstart](capacitor.md#before-you-start).
-- A physical iOS or Android device. Xcode 26 for iOS, Android Studio for Android.
+- Node 24 and pnpm, and the host requirements from the [Capacitor quickstart](capacitor.md#before-you-start).
+- Xcode 26 for iOS, Android Studio for Android. A physical device is the way to see a real result; a browser run (`pnpm dev`) only shows the refusal and the browser's own speech.
 
-## Create the app
+## Get it and run it
 
-Create a new Capacitor app and add the native platforms, following the [Capacitor getting started guide](https://capacitorjs.com/docs/getting-started). The starter works with whichever package manager your app uses. This page shows npm commands; use the equivalent command of your own package manager (for example `pnpm create @capacitor/app@latest`, `pnpm add` and `pnpm build`):
+The starter is not part of the plugin's workspace: it installs the plugin from the repository root. Clone the plugin repository at the tag this site documents, then follow the starter's own README for the install, the one-time native project changes, and the run commands:
 
+<!-- version:capacitor-clone -->
 ```sh
-npm init @capacitor/app@latest
-npx cap add ios
-npx cap add android
-```
-
-Run the commands inside the new project folder (after `npm init` has created it and you have run `npm install` there if the prompts did not). Before you sync iOS, set the deployment target to 16.0 and apply the Android settings described in the quickstart.
-
-## Add the plugin
-
-<!-- version:capacitor-install -->
-```sh
-npm install @independo/capacitor-inderun@1.2.0 @capacitor/core@8
+git clone --branch v1.3.0 https://github.com/independo-gmbh/capacitor-inderun.git
 ```
 <!-- /version -->
 
-Set the iOS deployment target and the Android values from the quickstart, then sync:
-
-```sh
-npx cap sync
-```
-
-## Add the screen
-
-Put this markup in the app's `index.html` body:
-
-```html
-<main>
-  <h1>IndeRun local-only starter</h1>
-  <label for="prompt">Text to rewrite</label>
-  <textarea id="prompt" rows="4">Rewrite in plain language: Your appointment has been rescheduled.</textarea>
-  <button id="run" type="button">Run on device</button>
-  <h2>What this device can run</h2>
-  <ul id="capabilities"></ul>
-  <h2>Result</h2>
-  <pre id="output" aria-live="polite"></pre>
-</main>
-```
-
-Save this as a TypeScript module and load it from your app's entry file (for example `import "./starter";`):
-
-<!-- snippet:capacitor-starter -->
-```ts
-import { createIndeRunCapacitor, type IndeRunError } from "@independo/capacitor-inderun";
-
-// iOS and Android register the platform's on-device model; no cloud provider is configured.
-const ai = createIndeRunCapacitor();
-
-type RejectedProvider = { providerId: string; reasons: { code: string }[] };
-
-const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const prompt = byId<HTMLTextAreaElement>("prompt");
-const button = byId<HTMLButtonElement>("run");
-const capabilityList = byId<HTMLUListElement>("capabilities");
-const output = byId<HTMLPreElement>("output");
-
-function addItem(list: HTMLElement, text: string) {
-  const item = document.createElement("li");
-  item.textContent = text;
-  list.append(item);
-}
-
-async function showCapabilities() {
-  capabilityList.replaceChildren();
-  for (const provider of await ai.checkCapabilities()) {
-    const { available, reason } = provider.capabilities;
-    addItem(
-      capabilityList,
-      `${provider.providerId} (${provider.descriptor.type}): ` +
-        (available ? "available" : `unavailable: ${reason ?? "no reason reported"}`)
-    );
-  }
-}
-
-async function runLocalOnly() {
-  button.disabled = true;
-  output.textContent = "Running…";
-  try {
-    const result = await ai.run({
-      schemaVersion: "1.0",
-      task: { kind: "text_to_text" },
-      prompt: prompt.value,
-      constraints: { privacy: "local_required" }
-    });
-    output.textContent = [
-      result.output.text,
-      "",
-      `provider: ${result.provenance?.providerId}`,
-      `locality: ${result.provenance?.locality}`
-    ].join("\n");
-  } catch (error) {
-    const refusal = error as IndeRunError;
-    const rejected = (refusal.details?.rejectedProviders ?? []) as RejectedProvider[];
-    output.textContent = [
-      `Refused: ${refusal.message}`,
-      ...rejected.map(
-        (entry) => `- ${entry.providerId}: ${entry.reasons.map((r) => r.code).join(", ")}`
-      )
-    ].join("\n");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-button.addEventListener("click", () => void runLocalOnly());
-void showCapabilities();
-```
-<!-- /snippet -->
-
-The request uses `local_required` and no cloud provider is configured, so nothing can leave the device.
-
-## Build and run
-
-Build your web assets with the project's build script (`npm run build`, or `pnpm build` with pnpm), then sync and run on a connected device. [`npx cap run`](https://capacitorjs.com/docs/cli/commands/run) syncs first, builds and deploys; `--list` shows the available targets:
-
-```sh
-npm run build
-npx cap run ios --list
-npx cap run ios --target <device-id>
-npx cap run android --list
-npx cap run android --target <device-id>
-```
+The [starter's README](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0/examples/local-first-starter/README.md) is the source for those steps, so they stay matched to the tag. They are the same settings the quickstart lists: iOS deployment target 16.0, compileSdk 37, and the Android build tooling versions.
 
 ## Expected result
 
-**On an eligible device**, the capability list shows the on-device provider as available. After you press **Run on device**, the output area shows the rewritten text, the provider id and `locality: on_device`.
+**On an eligible device**, the capability list shows the on-device provider as available. After you ask, the output shows the answer, the provider id and `locality: on_device`.
 
-**On an unsupported device**, the capability list shows the provider as unavailable with the platform's reason, and pressing the button shows `Refused: No eligible local provider found for task 'text_to_text'.` followed by each rejected provider and its reason codes. That refusal is the correct outcome: the device cannot run the task under `local_required`, and nothing ran. See [Read the outcome](capacitor.md#read-the-outcome).
+**On an unsupported device**, the capability list shows the provider as unavailable with the platform's reason, and asking shows the refusal with each rejected provider and its reason codes. The device cannot run the task under `local_required`, and nothing ran.
+
+**Speak** plays through the device's own voice. On iOS the app owns the audio session: to hear speech with the silent switch on, set the `AVAudioSession` category in your app before calling `speak()`.
 
 ## Record your run
 
-If you want a record of what you saw on your device (model, OS version, available or refused, reason codes), see the [device record template](../verification/website-launch-template.md). Please record only what you observed.
+If you want a record of what you saw on your device (model, OS version, available or refused, reason codes), see the [device record template](../verification/website-launch-template.md). Please record only what you observed. No device record for this starter is published yet.
 
 ## Diagnostic app
 
-For advanced bridge testing, the plugin repository ships a larger [diagnostic example app](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.2.0/example-app) (pinned to v1.2.0).
+For advanced bridge testing, the plugin repository ships a larger [diagnostic example app](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0/example-app) (pinned to v1.3.0).

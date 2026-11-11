@@ -53,6 +53,8 @@ export const VERSION_BLOCKS = {
       "sh",
       `npm install ${v.capacitorPlugin.package}@${v.capacitorPlugin.version} @capacitor/core@${v.capacitorPlugin.capacitor}`
     ),
+  "capacitor-clone": (v) =>
+    fence("sh", `git clone --branch ${v.capacitorPlugin.tag} ${v.capacitorPlugin.repository}.git`),
   "web-install": (v) =>
     fence("sh", `pnpm add @independo/inderun-web@${v.packages["@independo/inderun-web"]}`),
   "swiftpm-install": (v) =>
@@ -81,9 +83,30 @@ export const VERSION_BLOCKS = {
     `| Kotlin (Maven Central) | \`implementation("${v.kotlin.group}:${v.kotlin.artifact}:${v.kotlin.version}")\` |\n`
 };
 
+const PLUGIN_TAG_URL =
+  /(github\.com\/independo-gmbh\/capacitor-inderun\/(?:blob|tree)\/)v\d[\w.-]*/g;
+const PLUGIN_TAG_PROSE = /((?:pinned to |\) at |section \()\s*)v\d+\.\d+\.\d+(?:-[\w.]+)?/g;
+
+/**
+ * Keeps every pinned link to the plugin repository, and the "pinned to vX" wording beside it,
+ * on `capacitorPlugin.tag`. Only lines that link to the plugin repository are touched.
+ */
+function pinPluginTag(text, versions) {
+  const tag = versions.capacitorPlugin.tag;
+  return text
+    .split("\n")
+    .map((line) =>
+      line.includes("github.com/independo-gmbh/capacitor-inderun/")
+        ? line.replace(PLUGIN_TAG_URL, `$1${tag}`).replace(PLUGIN_TAG_PROSE, `$1${tag}`)
+        : line
+    )
+    .join("\n");
+}
+
 /** Renders every block in `text`. Returns the new text and the names it touched. */
-export function renderBlocks(text, versions = readVersions()) {
+export function renderBlocks(input, versions = readVersions()) {
   const used = [];
+  const text = pinPluginTag(input, versions);
   const output = text.replace(BLOCK, (_match, open, kind, name, _body, close) => {
     used.push({ kind, name });
     if (kind === "snippet") return `${open}${fence("ts", readSnippet(name))}${close}`;

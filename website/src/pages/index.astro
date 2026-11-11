@@ -339,14 +339,17 @@ const sectionTitle = "max-w-[24ch] text-headline font-bold text-ink";
     <div
       class="mx-auto grid max-w-site grid-cols-[minmax(0,1fr)] gap-6 px-gutter md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-12"
     >
-      <h2 id="speech-title" class={sectionTitle}>Read it aloud in the Web, Swift and Kotlin SDKs.</h2>
+      <h2 id="speech-title" class={sectionTitle}>Read it aloud in the Capacitor, Web, Swift and Kotlin SDKs.</h2>
       <div class="max-w-[60ch] text-lg leading-relaxed text-ink-body">
         <p>
           <code>speak()</code> uses the platform’s own voices. Ask for on-device speech and IndeRun
           uses a voice the platform reports as local (installed Apple voices are assumed local), or
           refuses. In the browser it refuses, because browsers can’t prove it.
         </p>
-        <p class="mt-3">Coming to the Capacitor plugin.</p>
+        <p class="mt-3">
+          The Capacitor plugin has the same calls: <code>speak()</code>, <code>generateSpeech()</code>
+          and <code>listVoices()</code>.
+        </p>
         <p class="mt-4">
           <ArrowLink href={LINKS.speech} text="Read text aloud: voices and privacy" />
         </p>

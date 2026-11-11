@@ -9,7 +9,7 @@ sidebar:
 IndeRun has two kinds of requirements. The **install floor** is what lets your app build and start. The **model requirement** is what lets a device run a task on its own model. A device can meet the first and not the second, which is why IndeRun checks at runtime and refuses when no eligible model is there.
 
 <!-- version:tested-set -->
-Tested set: IndeRun **0.5.0-rc.17** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.2.0**, which wraps IndeRun 0.4.0. Examples type-checked against these on 2026-11-10.
+Tested set: IndeRun **0.5.0** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.3.0**, which wraps IndeRun 0.5.0. Examples type-checked against these on 2026-11-11.
 <!-- /version -->
 
 ## Supported platforms and limitations
@@ -17,10 +17,10 @@ Tested set: IndeRun **0.5.0-rc.17** (`@independo/inderun-web`, SwiftPM, Maven) a
 <!-- version:platforms-table -->
 | You build with | Package (tested set) | Installs on | On-device model, checked at runtime |
 | --- | --- | --- | --- |
-| Capacitor 8 | `@independo/capacitor-inderun` 1.2.0 (wraps IndeRun 0.4.0) | iOS 16+, Android 8.0 (API 26)+, modern browsers | iOS 26+ on an Apple Intelligence device with it turned on; Android devices with AICore/Gemini Nano; Chrome Prompt API on desktop Chrome when `systemModel` is configured |
-| Web / TypeScript | `@independo/inderun-web` 0.5.0-rc.17 | ES2022 + WebAssembly (Node 24+ for tooling) | Chrome Prompt API; ONNX Runtime Web with a model you supply |
-| Swift | `IndeRun` 0.5.0-rc.17 (SwiftPM) | iOS 16+, macOS 14+, Swift 5.9+ | Apple Foundation Models (iOS/macOS 26+) |
-| Kotlin | `app.independo.inderun:inderun-kotlin` 0.5.0-rc.17 | Android 8.0 (API 26)+, JDK 17 | ML Kit GenAI / Gemini Nano |
+| Capacitor 8 | `@independo/capacitor-inderun` 1.3.0 (wraps IndeRun 0.5.0) | iOS 16+, Android 8.0 (API 26)+, modern browsers | iOS 26+ on an Apple Intelligence device with it turned on; Android devices with AICore/Gemini Nano; Chrome Prompt API on desktop Chrome when `systemModel` is configured |
+| Web / TypeScript | `@independo/inderun-web` 0.5.0 | ES2022 + WebAssembly (Node 24+ for tooling) | Chrome Prompt API; ONNX Runtime Web with a model you supply |
+| Swift | `IndeRun` 0.5.0 (SwiftPM) | iOS 16+, macOS 14+, Swift 5.9+ | Apple Foundation Models (iOS/macOS 26+) |
+| Kotlin | `app.independo.inderun:inderun-kotlin` 0.5.0 | Android 8.0 (API 26)+, JDK 17 | ML Kit GenAI / Gemini Nano |
 <!-- /version -->
 
 Versions to install:
@@ -28,13 +28,13 @@ Versions to install:
 <!-- version:install-table -->
 | You build with | Install (tested set) |
 | --- | --- |
-| Capacitor 8 | `npm install @independo/capacitor-inderun@1.2.0` |
-| Web / TypeScript | `pnpm add @independo/inderun-web@0.5.0-rc.17` |
-| Swift (SwiftPM) | `.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0-rc.17")` |
-| Kotlin (Maven Central) | `implementation("app.independo.inderun:inderun-kotlin:0.5.0-rc.17")` |
+| Capacitor 8 | `npm install @independo/capacitor-inderun@1.3.0` |
+| Web / TypeScript | `pnpm add @independo/inderun-web@0.5.0` |
+| Swift (SwiftPM) | `.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0")` |
+| Kotlin (Maven Central) | `implementation("app.independo.inderun:inderun-kotlin:0.5.0")` |
 <!-- /version -->
 
-Capacitor toolchain: Capacitor 8, Xcode 26, `compileSdk` 37, Android Gradle plugin 9.1+, Kotlin Gradle plugin 2.4.10, iOS deployment target 16.0. The exact settings and failure strings are in the [Capacitor quickstart](../getting-started/capacitor.md#install) and the plugin's [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md#host-project-requirements).
+Capacitor toolchain: Capacitor 8, Xcode 26, `compileSdk` 37, Android Gradle plugin 9.1+, Kotlin Gradle plugin 2.4.21, iOS deployment target 16.0. The exact settings and failure strings are in the [Capacitor quickstart](../getting-started/capacitor.md#install) and the plugin's [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0/README.md#host-project-requirements).
 
 Kotlin SDK host requirements (`compileSdk`, Android Gradle plugin, Gradle, Kotlin Gradle plugin, JDK), each with the build error it prevents and the releases it applies to: [Android host requirements](../../android/README.md#host-requirements).
 
@@ -48,7 +48,7 @@ Usage guides for each SDK: [Web](../../packages/inderun-web/README.md), [Swift](
 - No claim is made that tasks work offline in general. A model that is not downloaded or not ready is unavailable.
 - There is no edge provider today, and IndeRun does not fall back to a cloud provider automatically: a cloud route exists only if your app configured one and the request's rule permits it.
 - Realtime sessions (`openSession()`) are not implemented. `run()` and `stream()` are; not every provider streams.
-- The Capacitor plugin release listed above has no speech API. Speech is available through the Web, Swift and Kotlin SDKs.
+- Speech through the Capacitor plugin (`speak()`, `generateSpeech()`, `listVoices()`) behaves as each platform does underneath it, and the browser refuses `local_required` speech. Device records for the plugin are still owed; see [system speech verification](../verification/system-speech.md).
 - IndeRun is an execution layer. It is not a model, and not an accessibility certification.
 
 ## What each platform needs, checked in one call

@@ -1,32 +1,32 @@
 {
   "$comment": "The single source for every version the site, the READMEs and the snippet type-check name. Edit here, then run `pnpm --filter website sync:markers`. See docs/architecture/decisions/024-documentation-architecture.md.",
-  "mode": "prerelease",
-  "testedAt": "2026-11-10",
+  "mode": "release",
+  "testedAt": "2026-11-11",
   "core": {
-    "version": "0.5.0-rc.17",
-    "tag": "v0.5.0-rc.17",
-    "npmDistTag": "dev"
+    "version": "0.5.0",
+    "tag": "v0.5.0",
+    "npmDistTag": "latest"
   },
   "packages": {
-    "@independo/inderun-web": "0.5.0-rc.17",
-    "@independo/inderun-contracts": "0.5.0-rc.17",
-    "@independo/capacitor-inderun": "1.2.0"
+    "@independo/inderun-web": "0.5.0",
+    "@independo/inderun-contracts": "0.5.0",
+    "@independo/capacitor-inderun": "1.3.0"
   },
   "capacitorPlugin": {
     "package": "@independo/capacitor-inderun",
-    "version": "1.2.0",
-    "tag": "v1.2.0",
+    "version": "1.3.0",
+    "tag": "v1.3.0",
     "repository": "https://github.com/independo-gmbh/capacitor-inderun",
-    "pinsCore": "0.4.0",
+    "pinsCore": "0.5.0",
     "capacitor": "8"
   },
   "swift": {
     "url": "https://github.com/independo-gmbh/inderun.git",
-    "version": "0.5.0-rc.17"
+    "version": "0.5.0"
   },
   "kotlin": {
     "group": "app.independo.inderun",
     "artifact": "inderun-kotlin",
-    "version": "0.5.0-rc.17"
+    "version": "0.5.0"
   }
 }

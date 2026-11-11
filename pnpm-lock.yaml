@@ -212,14 +212,14 @@ importers:
         specifier: 8.6.0
         version: 8.6.0
       '@independo/capacitor-inderun':
-        specifier: 1.2.0
-        version: 1.2.0(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))
+        specifier: 1.3.0
+        version: 1.3.0(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)
       '@independo/inderun-contracts':
-        specifier: 0.5.0-rc.17
-        version: 0.5.0-rc.17
+        specifier: 0.5.0
+        version: 0.5.0
       '@independo/inderun-web':
-        specifier: 0.5.0-rc.17
-        version: 0.5.0-rc.17(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)
+        specifier: 0.5.0
+        version: 0.5.0(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)
       playwright:
         specifier: 1.64.1
         version: 1.64.1
@@ -1017,39 +1017,22 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@independo/capacitor-inderun@1.2.0':
-    resolution: {integrity: sha512-ye55SbBKC2qnOIpki6UNbff0PY0LsqxMjOzq10XCWpIJpDWBfi09LZP77IW1/t+1chKaw52YfNBgFdq0l1qeqA==}
+  '@independo/capacitor-inderun@1.3.0':
+    resolution: {integrity: sha512-pq7IUthW3Zrzw69+I407GFpZY2JMJLnBn8MERIpwSH/Q0bPs2X3QAMKf6VOhHy+a8Q5P+XKtj03pUuN8IVgETA==}
     engines: {node: '>=24'}
     peerDependencies:
       '@capacitor/core': ^8.0.0
 
-  '@independo/inderun-contracts@0.4.0':
-    resolution: {integrity: sha512-O3RMopQ/3h55Mv0AsDJU2YBEUhxt0zGe7tFMLqdr4BT+tRA2Im+ksNjxK7XPtkdx/vkudNY1hJktQLN/Zrdsgw==}
+  '@independo/inderun-contracts@0.5.0':
+    resolution: {integrity: sha512-IoldQCZJSgYBsMkA1gwVBsYxufRvpQRh81gwstNtlJK8OY+ZHwnAAvkRBD2ddLQAcN7IIncsvAb9U/PA+byYWw==}
     engines: {node: '>=24'}
 
-  '@independo/inderun-contracts@0.5.0-rc.17':
-    resolution: {integrity: sha512-mkC09Dk4GmoBt7yCTyNaQsixBI1KpCWMKy5QcJtakPQrwSE775/RbyxQarD4DdfXEFjVgf59Bez0bou9o7a95g==}
+  '@independo/inderun-route-core-wasm@0.5.0':
+    resolution: {integrity: sha512-O04iqJU/nXV6Uy2PGogrUZlNylmJ6wUPGqMvco+xpSWXpqekMbx8gSzx0q/CsaHrLfHdXZmkkvpouRY498eNbg==}
     engines: {node: '>=24'}
 
-  '@independo/inderun-route-core-wasm@0.4.0':
-    resolution: {integrity: sha512-CYuQ0AUiTA3+O/49ka9hxcKCiNPDUpgAuvk0LNfZMTe4dVRaPPNXni9+KrvM+Te9nFJyTomHg5OPmDM+G3Guqw==}
-    engines: {node: '>=24'}
-
-  '@independo/inderun-route-core-wasm@0.5.0-rc.17':
-    resolution: {integrity: sha512-XWekVnanU6fdD5CLKulDfdLTJpad3l58goo95fytqo7BdTd/Jlw2ujmhA38cGSFNCOKXmzMXcsWrXaWIL7OruQ==}
-    engines: {node: '>=24'}
-
-  '@independo/inderun-web@0.4.0':
-    resolution: {integrity: sha512-X17izOEYTFhD8GqxxvfRAx8iMpsDH2umElHguEokow4eVmjKlwkvP9qdSluKL2a4nVT0DCKJCbNyA8BYfEwD/g==}
-    engines: {node: '>=24'}
-    peerDependencies:
-      '@huggingface/transformers': ^4.0.0
-    peerDependenciesMeta:
-      '@huggingface/transformers':
-        optional: true
-
-  '@independo/inderun-web@0.5.0-rc.17':
-    resolution: {integrity: sha512-GY2lD4ySxOr+57uXJrY54lxPG9mkjjQtFz7YtK0uuxj6uvj7h9fxQQH/DjCzvNt1Wyh5v8VsM12PzVhJVjCCcA==}
+  '@independo/inderun-web@0.5.0':
+    resolution: {integrity: sha512-tuzIspGESY15VXjmh0+4jh4cG+mpt71Q5wFLkeF7UpfTu6Vv+jR4BFFkpz3xGHg2LjVJZBTbGjbQfA3r3l+46Q==}
     engines: {node: '>=24'}
     peerDependencies:
       '@huggingface/transformers': ^4.0.0
@@ -6075,37 +6058,25 @@ snapshots:
   '@img/sharp-win32-x64@0.35.5':
     optional: true
 
-  '@independo/capacitor-inderun@1.2.0(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))':
+  '@independo/capacitor-inderun@1.3.0(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)':
     dependencies:
       '@capacitor/core': 8.6.0
-      '@independo/inderun-contracts': 0.4.0
-      '@independo/inderun-web': 0.4.0(@huggingface/transformers@4.3.2(@types/node@26.6.6))
+      '@independo/inderun-contracts': 0.5.0
+      '@independo/inderun-web': 0.5.0(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)
     transitivePeerDependencies:
       - '@huggingface/transformers'
+      - onnxruntime-web
 
-  '@independo/inderun-contracts@0.4.0':
+  '@independo/inderun-contracts@0.5.0':
     dependencies:
       ajv: 8.20.0
 
-  '@independo/inderun-contracts@0.5.0-rc.17':
+  '@independo/inderun-route-core-wasm@0.5.0': {}
+
+  '@independo/inderun-web@0.5.0(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)':
     dependencies:
-      ajv: 8.20.0
-
-  '@independo/inderun-route-core-wasm@0.4.0': {}
-
-  '@independo/inderun-route-core-wasm@0.5.0-rc.17': {}
-
-  '@independo/inderun-web@0.4.0(@huggingface/transformers@4.3.2(@types/node@26.6.6))':
-    dependencies:
-      '@independo/inderun-contracts': 0.4.0
-      '@independo/inderun-route-core-wasm': 0.4.0
-    optionalDependencies:
-      '@huggingface/transformers': 4.3.2(@types/node@26.6.6)
-
-  '@independo/inderun-web@0.5.0-rc.17(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)':
-    dependencies:
-      '@independo/inderun-contracts': 0.5.0-rc.17
-      '@independo/inderun-route-core-wasm': 0.5.0-rc.17
+      '@independo/inderun-contracts': 0.5.0
+      '@independo/inderun-route-core-wasm': 0.5.0
     optionalDependencies:
       '@huggingface/transformers': 4.3.2(@types/node@26.6.6)
       onnxruntime-web: 1.31.1

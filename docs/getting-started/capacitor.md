@@ -11,13 +11,13 @@ sidebar:
 A Capacitor app that runs one text task on the device's own model, or shows why it can't. No API keys, no server.
 
 <!-- version:capacitor-version -->
-Version: `@independo/capacitor-inderun` **1.2.0**, which includes IndeRun 0.4.0. The examples on this page are type-checked against it (2026-11-10).
+Version: `@independo/capacitor-inderun` **1.3.0**, which includes IndeRun 0.5.0. The examples on this page are type-checked against it (2026-11-11).
 <!-- /version -->
 
 ## Before you start
 
 > [!NOTE]
-> You need Capacitor 8, Node 24 or newer, Xcode 26 for Apple Foundation Models, and Android Studio with `compileSdk` 37, Android Gradle plugin (AGP) 9.1 or newer and the Kotlin Gradle plugin 2.4.10. Test on a **physical** device: results from simulators and emulators don't tell you what a real device can run.
+> You need Capacitor 8, Node 24 or newer, Xcode 26 for Apple Foundation Models, and Android Studio with `compileSdk` 37, Android Gradle plugin (AGP) 9.1 or newer and the Kotlin Gradle plugin 2.4.21. Test on a **physical** device: results from simulators and emulators don't tell you what a real device can run.
 >
 > The install floors (iOS 16, Android 8.0 / API 26) are not the model requirements. A device can run your app and still have no eligible on-device model. See [Compatibility and requirements](../platforms/compatibility.md).
 
@@ -25,7 +25,7 @@ Version: `@independo/capacitor-inderun` **1.2.0**, which includes IndeRun 0.4.0.
 
 <!-- version:capacitor-install -->
 ```sh
-npm install @independo/capacitor-inderun@1.2.0 @capacitor/core@8
+npm install @independo/capacitor-inderun@1.3.0 @capacitor/core@8
 ```
 <!-- /version -->
 
@@ -41,9 +41,9 @@ With pnpm, use `pnpm add` with the same two packages. Don't sync yet: set the iO
 | --- | --- | --- |
 | `compileSdkVersion` in `android/variables.gradle` | `37` | _requires libraries and applications that depend on it to compile against version 37 or later_ |
 | Android Gradle plugin | `9.1.0` or newer (Gradle 9.x) | _requires Android Gradle plugin 9.1.0 or higher_ |
-| `org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10` on the app's `buildscript` classpath | n/a | _Module was compiled with an incompatible version of Kotlin … metadata is 2.4.0, expected version is 2.2.0_ |
+| `org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21` on the app's `buildscript` classpath | n/a | _Module was compiled with an incompatible version of Kotlin … metadata is 2.4.0, expected version is 2.2.0_ |
 
-The plugin README has the full list, including `minSdkVersion` 26 and the `buildscript` snippet for the Kotlin plugin: [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.2.0/README.md#host-project-requirements) (pinned to v1.2.0). Failures are also listed in [Troubleshooting](../guides/troubleshooting.md).
+The plugin README has the full list, including `minSdkVersion` 26 and the `buildscript` snippet for the Kotlin plugin: [Host Project Requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0/README.md#host-project-requirements) (pinned to v1.3.0). Failures are also listed in [Troubleshooting](../guides/troubleshooting.md).
 
 Then sync the native projects:
 
@@ -152,6 +152,6 @@ A refusal is correct behaviour, not a setup error: the device cannot run the tas
 
 ## Next
 
-- Build the [local-only starter app](example.md) and run it on a device.
+- Run the [local-first starter app](example.md) on a device.
 - Allow a cloud route that you configure yourself: [When on-device AI is unavailable](../concepts/routing-and-privacy.md).
 - Build or model problems: [Troubleshooting](../guides/troubleshooting.md).

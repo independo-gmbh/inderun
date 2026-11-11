@@ -1,18 +1,15 @@
 ---
 slug: docs/guides/speech
 title: "Read text aloud: voices and privacy"
-description: "Add text-to-speech in the Web, Swift and Kotlin SDKs, check which voices stay on the device, and refuse speech that would leave it. Not in Capacitor yet."
+description: "Add text-to-speech in the Web, Swift, Kotlin and Capacitor SDKs, check which voices stay on the device, and refuse speech that would leave it."
 sidebar:
   order: 1
 ---
 
 The first question about speech is not how to add it. It is where the voice runs: on the device, or on a server. Platform text-to-speech APIs can do either, and the answer differs by platform and by voice. This page covers what each platform lets IndeRun enforce, and how to ask for on-device speech. For the full platform summary, see [Compatibility and requirements](../platforms/compatibility.md).
 
-> [!NOTE]
-> The Capacitor plugin release in the tested set has no speech API. Until it does, speech is available through the Web SDK (shown below), Swift and Kotlin. The plugin's calls will be added here when it ships them.
-
 <!-- version:tested-set -->
-Tested set: IndeRun **0.5.0-rc.17** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.2.0**, which wraps IndeRun 0.4.0. Examples type-checked against these on 2026-11-10.
+Tested set: IndeRun **0.5.0** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.3.0**, which wraps IndeRun 0.5.0. Examples type-checked against these on 2026-11-11.
 <!-- /version -->
 
 ## Speak text
@@ -42,6 +39,33 @@ The handle has two parts:
 - `result` is a promise that settles when playback ends. It resolves when playback finishes or is stopped (`outcome` tells you which) and rejects with the run's error if playback failed. `provenance.locality` says where the voice ran; in a browser it is `"unknown"`.
 
 `speak()` needs a `locale` (a BCP 47 tag such as `de-DE`). Browsers, Chrome in particular, may refuse to speak without a user gesture, so start playback from a click or tap.
+
+In the Capacitor plugin, `speak()` is a method of the instance. Speech providers register only when asked for, so pass `systemSpeech: true`:
+
+<!-- snippet:capacitor-speak -->
+```ts
+import { createIndeRunCapacitor } from "@independo/capacitor-inderun";
+
+// Speech providers register only when asked for. `systemSpeech` is AVSpeechSynthesizer on iOS and
+// TextToSpeech on Android; the app never receives audio bytes.
+const ai = createIndeRunCapacitor({ systemSpeech: true });
+
+const playback = await ai.speak({
+  text: "Your appointment has been rescheduled.",
+  locale: "en-US",
+  execution: { privacy: "local_required" }
+});
+
+// Stop early with `cancel()`; no audio plays after it returns.
+setTimeout(() => void playback.cancel(), 1500);
+
+// `result` settles when playback ends or is stopped.
+const result = await playback.result;
+console.log(result.outcome, result.provenance?.providerId);
+```
+<!-- /snippet -->
+
+`cancel()` stops the audio and `result` settles when playback ends or is stopped, as on the web. The app never receives audio bytes.
 
 ## Which voices stay on the device
 
@@ -88,7 +112,40 @@ try {
 
 `generateSpeech()` returns audio as a media artifact instead of playing it. It returns WAV on iOS and Android. On the web it is refused: no standard browser API returns the audio, so IndeRun refuses the request instead of returning empty bytes. Use `speak()` for playback in a browser.
 
-With the Web, Swift and Kotlin SDKs, read the returned artifact with `readArtifact()` and release it with `disposeArtifact()`; see the [Web SDK README](../../packages/inderun-web/README.md).
+With the Web, Swift and Kotlin SDKs, read the returned artifact with `readArtifact()` and release it with `disposeArtifact()`; see the [Web SDK README](../../packages/inderun-web/README.md). The Capacitor plugin works the same way:
+
+<!-- snippet:capacitor-generate-speech -->
+```ts
+import { createIndeRunCapacitor } from "@independo/capacitor-inderun";
+
+const ai = createIndeRunCapacitor({ systemSpeech: true });
+
+// Silent: this returns an artifact handle, never bytes. The audio is WAV on iOS and Android; the
+// browser's system speech can only play, so routing refuses it here.
+const speech = await ai.generateSpeech({
+  text: "Your appointment has been rescheduled.",
+  locale: "en-US",
+  mediaTypes: ["audio/wav"]
+});
+
+try {
+  const chunks: Uint8Array[] = [];
+  let offset = 0;
+  for (;;) {
+    const chunk = await ai.readArtifact({ artifactId: speech.artifact.id, offset });
+    chunks.push(chunk.bytes);
+    offset += chunk.bytes.byteLength;
+    if (chunk.done) {
+      break;
+    }
+  }
+  const wav = new Blob(chunks as BlobPart[], { type: speech.artifact.mediaType });
+  console.log(wav.size, speech.artifact.mediaType);
+} finally {
+  await ai.disposeArtifact(speech.artifact);
+}
+```
+<!-- /snippet -->
 
 ## Choose a voice
 

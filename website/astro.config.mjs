@@ -201,7 +201,7 @@ export default defineConfig({
           items: [
             { label: "Introduction", slug: "docs" },
             { label: "Capacitor quickstart", slug: "docs/getting-started/capacitor" },
-            { label: "Local-only starter app", slug: "docs/getting-started/example" }
+            { label: "Local-first starter app", slug: "docs/getting-started/example" }
           ]
         },
         {
