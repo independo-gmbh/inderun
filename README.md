@@ -109,14 +109,14 @@ The full walkthrough is in the [speech guide](https://inderun.dev/docs/guides/sp
 <!-- version:install-table -->
 | You build with | Install (tested set) |
 | --- | --- |
-| Capacitor 8 | `npm install @independo/capacitor-inderun@1.3.0-dev.1` |
+| Capacitor 8 | `npm install @independo/capacitor-inderun@1.3.0` |
 | Web / TypeScript | `pnpm add @independo/inderun-web@0.5.0` |
 | Swift (SwiftPM) | `.package(url: "https://github.com/independo-gmbh/inderun.git", exact: "0.5.0")` |
 | Kotlin (Maven Central) | `implementation("app.independo.inderun:inderun-kotlin:0.5.0")` |
 <!-- /version -->
 
 Each row links to its guide: [Capacitor](https://inderun.dev/docs/getting-started/capacitor) (see the
-[host project requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0-dev.1/README.md#host-project-requirements)),
+[host project requirements](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0/README.md#host-project-requirements)),
 [Web](packages/inderun-web/README.md), [Swift](ios/IndeRun/README.md) and [Kotlin](android/inderun-kotlin/README.md).
 
 ## Supported platforms and limitations
@@ -124,7 +124,7 @@ Each row links to its guide: [Capacitor](https://inderun.dev/docs/getting-starte
 <!-- version:platforms-table -->
 | You build with | Package (tested set) | Installs on | On-device model, checked at runtime |
 | --- | --- | --- | --- |
-| Capacitor 8 | `@independo/capacitor-inderun` 1.3.0-dev.1 (wraps IndeRun 0.5.0) | iOS 16+, Android 8.0 (API 26)+, modern browsers | iOS 26+ on an Apple Intelligence device with it turned on; Android devices with AICore/Gemini Nano; Chrome Prompt API on desktop Chrome when `systemModel` is configured |
+| Capacitor 8 | `@independo/capacitor-inderun` 1.3.0 (wraps IndeRun 0.5.0) | iOS 16+, Android 8.0 (API 26)+, modern browsers | iOS 26+ on an Apple Intelligence device with it turned on; Android devices with AICore/Gemini Nano; Chrome Prompt API on desktop Chrome when `systemModel` is configured |
 | Web / TypeScript | `@independo/inderun-web` 0.5.0 | ES2022 + WebAssembly (Node 24+ for tooling) | Chrome Prompt API; ONNX Runtime Web with a model you supply |
 | Swift | `IndeRun` 0.5.0 (SwiftPM) | iOS 16+, macOS 14+, Swift 5.9+ | Apple Foundation Models (iOS/macOS 26+) |
 | Kotlin | `app.independo.inderun:inderun-kotlin` 0.5.0 | Android 8.0 (API 26)+, JDK 17 | ML Kit GenAI / Gemini Nano |

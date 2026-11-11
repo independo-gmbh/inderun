@@ -9,7 +9,7 @@ sidebar:
 The first question about speech is not how to add it. It is where the voice runs: on the device, or on a server. Platform text-to-speech APIs can do either, and the answer differs by platform and by voice. This page covers what each platform lets IndeRun enforce, and how to ask for on-device speech. For the full platform summary, see [Compatibility and requirements](../platforms/compatibility.md).
 
 <!-- version:tested-set -->
-Tested set: IndeRun **0.5.0** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.3.0-dev.1**, which wraps IndeRun 0.5.0. Examples type-checked against these on 2026-11-11.
+Tested set: IndeRun **0.5.0** (`@independo/inderun-web`, SwiftPM, Maven) and `@independo/capacitor-inderun` **1.3.0**, which wraps IndeRun 0.5.0. Examples type-checked against these on 2026-11-11.
 <!-- /version -->
 
 ## Speak text

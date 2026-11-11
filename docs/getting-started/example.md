@@ -8,7 +8,7 @@ sidebar:
 
 ## What it is
 
-The plugin repository ships a small Capacitor 8 + Vite + TypeScript app to copy when you start your own: [`examples/local-first-starter/`](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0-dev.1/examples/local-first-starter). It needs no credentials and no server, and nothing it does leaves the device.
+The plugin repository ships a small Capacitor 8 + Vite + TypeScript app to copy when you start your own: [`examples/local-first-starter/`](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0/examples/local-first-starter). It needs no credentials and no server, and nothing it does leaves the device.
 
 It shows three things:
 
@@ -29,11 +29,11 @@ The starter is not part of the plugin's workspace: it installs the plugin from t
 
 <!-- version:capacitor-clone -->
 ```sh
-git clone --branch v1.3.0-dev.1 https://github.com/independo-gmbh/capacitor-inderun.git
+git clone --branch v1.3.0 https://github.com/independo-gmbh/capacitor-inderun.git
 ```
 <!-- /version -->
 
-The [starter's README](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0-dev.1/examples/local-first-starter/README.md) is the source for those steps, so they stay matched to the tag. They are the same settings the quickstart lists: iOS deployment target 16.0, compileSdk 37, and the Android build tooling versions.
+The [starter's README](https://github.com/independo-gmbh/capacitor-inderun/blob/v1.3.0/examples/local-first-starter/README.md) is the source for those steps, so they stay matched to the tag. They are the same settings the quickstart lists: iOS deployment target 16.0, compileSdk 37, and the Android build tooling versions.
 
 ## Expected result
 
@@ -49,4 +49,4 @@ If you want a record of what you saw on your device (model, OS version, availabl
 
 ## Diagnostic app
 
-For advanced bridge testing, the plugin repository ships a larger [diagnostic example app](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0-dev.1/example-app) (pinned to v1.3.0-dev.1).
+For advanced bridge testing, the plugin repository ships a larger [diagnostic example app](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0/example-app) (pinned to v1.3.0).

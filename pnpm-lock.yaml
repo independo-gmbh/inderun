@@ -212,8 +212,8 @@ importers:
         specifier: 8.6.0
         version: 8.6.0
       '@independo/capacitor-inderun':
-        specifier: 1.3.0-dev.1
-        version: 1.3.0-dev.1(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)
+        specifier: 1.3.0
+        version: 1.3.0(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)
       '@independo/inderun-contracts':
         specifier: 0.5.0
         version: 0.5.0
@@ -1017,8 +1017,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@independo/capacitor-inderun@1.3.0-dev.1':
-    resolution: {integrity: sha512-efBAq6xqMW26BNi1TF++ti02wYI2lL6ZQXVGzPUgu4zbTcVi4VizjjyYfHxRzual7vGCQgOyWeceKCcQqsh1jQ==}
+  '@independo/capacitor-inderun@1.3.0':
+    resolution: {integrity: sha512-pq7IUthW3Zrzw69+I407GFpZY2JMJLnBn8MERIpwSH/Q0bPs2X3QAMKf6VOhHy+a8Q5P+XKtj03pUuN8IVgETA==}
     engines: {node: '>=24'}
     peerDependencies:
       '@capacitor/core': ^8.0.0
@@ -6058,7 +6058,7 @@ snapshots:
   '@img/sharp-win32-x64@0.35.5':
     optional: true
 
-  '@independo/capacitor-inderun@1.3.0-dev.1(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)':
+  '@independo/capacitor-inderun@1.3.0(@capacitor/core@8.6.0)(@huggingface/transformers@4.3.2(@types/node@26.6.6))(onnxruntime-web@1.31.1)':
     dependencies:
       '@capacitor/core': 8.6.0
       '@independo/inderun-contracts': 0.5.0

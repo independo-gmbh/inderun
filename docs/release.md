@@ -183,7 +183,7 @@ the speech quick start from the [README](../README.md#speaking-text) on each pla
    `inderun-system-speech-providers:<version>`, register `AndroidSystemSpeechProvider(context)`, and run the same two
    calls on an emulator.
 4. **Capacitor:** install the published bridge into the plugin's example app, or the
-   [local-first starter](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0-dev.1/examples/local-first-starter),
+   [local-first starter](https://github.com/independo-gmbh/capacitor-inderun/tree/v1.3.0/examples/local-first-starter),
    and run `speak()` with `cancel()` and `generateSpeech()` on an iOS simulator, an Android emulator and a browser.
 
 Record each result, with the version, in [verification/system-speech.md](./verification/system-speech.md).

@@ -1,6 +1,6 @@
 {
   "package": "@independo/capacitor-inderun",
-  "version": "1.3.0-dev.1",
+  "version": "1.3.0",
   "exports": [
     "function createIndeRunCapacitor",
     "function getArtifactReadRequestValidationIssues",
