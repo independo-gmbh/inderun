@@ -138,7 +138,7 @@ Each row links to its guide: [Capacitor](https://inderun.dev/docs/getting-starte
 - In browsers, on-device providers answer whole requests only, so a `local_required` _stream_ is refused.
 - Offline use works only where an on-device model is installed and ready. We don't claim it for every device.
 - Capacitor apps need newer native toolchains than a fresh Capacitor project (Android compileSdk 37, Android Gradle
-  Plugin 9.1+, Kotlin Gradle plugin 2.4.10; iOS deployment target 16). See the plugin README.
+  Plugin 9.1+, Kotlin Gradle plugin 2.4.21; iOS deployment target 16). See the plugin README.
 
 The Capacitor bridge is published as
 [`@independo/capacitor-inderun`](https://www.npmjs.com/package/@independo/capacitor-inderun); its source lives in
