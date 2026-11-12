@@ -1,9 +1,10 @@
 /**
  * Verifies the built site's SEO surface: one title and description per page, absolute canonical
  * on https://inderun.dev without a trailing slash, parsable JSON-LD whose @id references resolve,
- * a sitemap index with one website and one docs sitemap, limited to published-urls.txt and dated
- * from the lastmod manifest (plugins/sitemap-lastmod.mjs), robots and llms.txt, and no unfinished
- * `TODO(` placeholder on any page. Ported and trimmed from
+ * a sitemap index with one website, one docs and one API reference sitemap, limited to
+ * published-urls.txt plus the generated API reference pages and dated from the lastmod manifest
+ * (plugins/sitemap-lastmod.mjs), robots and llms.txt, and no unfinished `TODO(` placeholder on
+ * any page. Ported and trimmed from
  * independo.app's verify-seo-output.mjs.
  *
  *   node scripts/verify-seo-output.mjs              check dist/ (production)
@@ -13,7 +14,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readSitemapPaths, readDocsPaths } from "../published-urls.mjs";
+import {
+  findApiReferencePaths,
+  isApiReferencePath,
+  readDocsPaths,
+  readSitemapPaths
+} from "../published-urls.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ORIGIN = "https://inderun.dev";
@@ -159,15 +165,24 @@ for (const file of htmlFiles(DIST)) {
     if (!html.includes(`"@id":"${id}"`)) fail("index.html", `landing graph is missing ${id}`);
 }
 
-// Sitemap: the index points to exactly one website and one docs sitemap; every entry is dated.
-const SITEMAPS = { "sitemap-website-0.xml": false, "sitemap-docs-0.xml": true };
+// Sitemap: the index points to exactly one website, one docs and one API reference sitemap; every
+// entry is dated.
+const SITEMAPS = {
+  "sitemap-website-0.xml": "website",
+  "sitemap-docs-0.xml": "docs",
+  "sitemap-api-0.xml": "api"
+};
+const sitemapOf = (pathname) =>
+  isApiReferencePath(pathname) ? "api" : /^\/docs(\/|$)/.test(pathname) ? "docs" : "website";
 const read = (f) =>
   fs.existsSync(path.join(DIST, f)) ? fs.readFileSync(path.join(DIST, f), "utf8") : "";
 const entries = (xml, tag) =>
   [
     ...xml.matchAll(new RegExp(`<${tag}><loc>([^<]*)</loc>(?:<lastmod>([^<]*)</lastmod>)?`, "g"))
   ].map((m) => ({ loc: m[1], lastmod: m[2] }));
-const wanted = new Set(readSitemapPaths().map((p) => `${ORIGIN}${p === "/" ? "/" : p}`));
+const wanted = new Set(
+  [...readSitemapPaths(), ...findApiReferencePaths(DIST)].map((p) => `${ORIGIN}${p}`)
+);
 const sitemapFiles = fs.readdirSync(DIST).filter((f) => /^sitemap-.*\.xml$/.test(f));
 const expectedFiles = ["sitemap-index.xml", ...Object.keys(SITEMAPS)];
 if (sitemapFiles.sort().join() !== [...expectedFiles].sort().join())
@@ -179,21 +194,22 @@ if (
     .map((f) => `${ORIGIN}/${f}`)
     .join()
 )
-  fail("sitemap-index.xml", `must list ${Object.keys(SITEMAPS).join(" and ")}`);
+  fail("sitemap-index.xml", `must list ${Object.keys(SITEMAPS).join(", ")}`);
 for (const e of indexed) if (!e.lastmod) fail("sitemap-index.xml", `${e.loc} has no <lastmod>`);
 const lastmodManifest = JSON.parse(read("sitemap-lastmod-manifest.json") || '{"pages":{}}');
 const locs = [];
-for (const [file, docs] of Object.entries(SITEMAPS))
+for (const [file, kind] of Object.entries(SITEMAPS))
   for (const { loc, lastmod } of entries(read(file), "url")) {
     locs.push(loc);
-    if (/^\/docs(\/|$)/.test(new URL(loc).pathname) !== docs)
-      fail(file, `${loc} belongs in the ${docs ? "website" : "docs"} sitemap`);
+    const belongs = sitemapOf(new URL(loc).pathname);
+    if (belongs !== kind) fail(file, `${loc} belongs in the ${belongs} sitemap`);
     if (!lastmod) fail(file, `${loc} has no <lastmod>`);
     else if (lastmodManifest.pages[loc]?.lastmod !== lastmod)
       fail(file, `${loc} <lastmod> differs from sitemap-lastmod-manifest.json`);
   }
 for (const loc of locs)
-  if (!wanted.has(loc)) fail("sitemap", `${loc} is not in published-urls.txt`);
+  if (!wanted.has(loc))
+    fail("sitemap", `${loc} is neither in published-urls.txt nor a built API reference page`);
 for (const loc of wanted) if (!locs.includes(loc)) fail("sitemap", `${loc} is missing`);
 if (new Set(locs).size !== locs.length) fail("sitemap", "duplicate URLs");
 
