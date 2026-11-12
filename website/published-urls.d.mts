@@ -4,3 +4,5 @@ export const NOTICES_PATH: string;
 export function parseDocsPaths(text: string): string[];
 export function readDocsPaths(): string[];
 export function readSitemapPaths(): string[];
+export function isApiReferencePath(pathname: string): boolean;
+export function findApiReferencePaths(outDir: string): string[];

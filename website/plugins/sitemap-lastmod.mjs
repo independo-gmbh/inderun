@@ -133,10 +133,12 @@ async function loadBaseline(site, cacheFile) {
 }
 
 /**
- * @param {{ site: string, paths: string[] }} options The site origin and the sitemap's paths
- *   (no trailing slash; "/" for the landing page).
+ * @param {{ site: string, paths: string[], discover?: (outDir: string) => string[] }} options The
+ *   site origin and the sitemap's paths (no trailing slash; "/" for the landing page). `discover`
+ *   adds the paths of pages that only exist after the build (the generated API reference); it
+ *   receives the output directory and runs before any page is hashed.
  */
-export function sitemapLastmod({ site, paths }) {
+export function sitemapLastmod({ site, paths, discover }) {
   const lastmods = new Map();
   let cacheFile;
 
@@ -153,7 +155,8 @@ export function sitemapLastmod({ site, paths }) {
           const buildAt = process.env.SITEMAP_LASTMOD_BUILD_AT ?? new Date().toISOString();
           const pages = {};
           let kept = 0;
-          for (const pagePath of paths) {
+          const allPaths = [...paths, ...(discover?.(outDir) ?? [])];
+          for (const pagePath of allPaths) {
             const url = new URL(pagePath, site).href;
             const file = path.join(outDir, pagePath === "/" ? "" : pagePath, "index.html");
             if (!fs.existsSync(file)) throw new Error(`sitemap-lastmod: no built page for ${url}`);
@@ -168,7 +171,7 @@ export function sitemapLastmod({ site, paths }) {
           fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
           fs.writeFileSync(cacheFile, manifest);
           logger.info(
-            `${paths.length} pages, ${kept} dates kept from the baseline (${source}), ${paths.length - kept} set to ${buildAt}`
+            `${allPaths.length} pages, ${kept} dates kept from the baseline (${source}), ${allPaths.length - kept} set to ${buildAt}`
           );
         }
       }

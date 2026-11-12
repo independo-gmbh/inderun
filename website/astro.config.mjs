@@ -8,7 +8,7 @@ import remarkRepoLinks from "./plugins/remark-repo-links.mjs";
 import remarkGithubAlerts from "./plugins/remark-github-alerts.mjs";
 import { sitemapLastmod } from "./plugins/sitemap-lastmod.mjs";
 import { REPOSITORY, SITE, pinnedRepoUrl, readVersions } from "./docs-architecture.mjs";
-import { readSitemapPaths } from "./published-urls.mjs";
+import { findApiReferencePaths, isApiReferencePath, readSitemapPaths } from "./published-urls.mjs";
 import { enamelCodeTheme } from "./src/styles/code-theme.mjs";
 import { THEME_COLORS, themeColorScript } from "./src/theme-color.mjs";
 
@@ -30,8 +30,13 @@ const typeDocOptions = {
 const stripSlash = (url) => url.replace(/\/$/, "");
 const sitemapPaths = readSitemapPaths();
 const sitemapUrls = new Set(sitemapPaths.map((p) => stripSlash(`${SITE}${p}`)));
-const lastmod = sitemapLastmod({ site: SITE, paths: sitemapPaths });
+const lastmod = sitemapLastmod({
+  site: SITE,
+  paths: sitemapPaths,
+  discover: findApiReferencePaths
+});
 const isDocsUrl = (url) => /^\/docs(\/|$)/.test(new URL(url).pathname);
+const isApiReferenceUrl = (url) => isApiReferencePath(stripSlash(new URL(url).pathname));
 
 const external = (label, href) => ({
   label,
@@ -52,16 +57,17 @@ export default defineConfig({
   integrations: [
     lastmod.integration,
     // Added explicitly so Starlight skips its own copy (it checks for an integration named
-    // "@astrojs/sitemap"). Only the landing page, the nine docs destinations and the three legal
-    // pages are listed: sitemap-index.xml points to sitemap-website-0.xml (landing and legal pages) and
-    // sitemap-docs-0.xml. Each <lastmod> moves only when the page's content does
-    // (plugins/sitemap-lastmod.mjs, whose integration has to run first).
+    // "@astrojs/sitemap"). sitemap-index.xml points to sitemap-website-0.xml (landing and legal
+    // pages), sitemap-docs-0.xml (the nine docs destinations) and sitemap-api-0.xml (the generated
+    // API reference). No other page is listed. Each <lastmod> moves only when the page's content
+    // does (plugins/sitemap-lastmod.mjs, whose integration has to run first).
     sitemap({
-      filter: (page) => sitemapUrls.has(stripSlash(page)),
+      filter: (page) => sitemapUrls.has(stripSlash(page)) || isApiReferenceUrl(page),
       serialize: lastmod.serialize,
       chunks: {
         website: (item) => (isDocsUrl(item.url) ? undefined : item),
-        docs: (item) => (isDocsUrl(item.url) ? item : undefined)
+        docs: (item) => (isDocsUrl(item.url) && !isApiReferenceUrl(item.url) ? item : undefined),
+        api: (item) => (isApiReferenceUrl(item.url) ? item : undefined)
       }
     }),
     starlight({

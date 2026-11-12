@@ -67,8 +67,11 @@ in a slash.
 
 ### Sitemap
 
-`/sitemap-index.xml` (also reachable as `/sitemap.xml`, a 301 in `firebase.json`) points to two sitemaps:
-`sitemap-website-0.xml` for the landing and legal pages, and `sitemap-docs-0.xml` for the docs destinations. Each
+`/sitemap-index.xml` (also reachable as `/sitemap.xml`, a 301 in `firebase.json`) points to three sitemaps:
+`sitemap-website-0.xml` for the landing and legal pages, `sitemap-docs-0.xml` for the docs destinations, and
+`sitemap-api-0.xml` for the generated API reference under `/docs/api/typescript/{capacitor,web}`. The API reference
+pages are listed but not curated: they are generated from the pinned packages at build time, so the sitemap takes them
+from the build output rather than from `published-urls.txt`, and `llms.txt` leaves them out. Each
 `<lastmod>` is the time the page's _content_ last changed, as on independo.app: the build hashes what a reader sees of
 each page and keeps the date from the previous deploy's `sitemap-lastmod-manifest.json`, fetched from the live site,
 while the hash is unchanged (`website/plugins/sitemap-lastmod.mjs`). A rebuild, a dependency update or a style change
@@ -180,7 +183,8 @@ contracts or the Web SDK entry point. Its `website` job runs these steps, in ord
    - every `blob`/`tree` link to this repository uses `core.tag`, and every one to `capacitor-inderun` uses
      `capacitorPlugin.tag`.
 8. `verify:seo` — one title, description, canonical (no trailing slash) and robots meta per page, JSON-LD whose
-   references resolve, the sitemap index with its website and docs sitemaps limited to `published-urls.txt`, every
+   references resolve, the sitemap index with its website, docs and API reference sitemaps limited to
+   `published-urls.txt` plus the built API reference pages, every
    entry dated from the lastmod manifest, and `llms.txt`.
 9. `build:preview` and `verify-seo-output.mjs --preview` — every preview page is `noindex` and `robots.txt` disallows all.
 
