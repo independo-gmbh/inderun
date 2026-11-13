@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or idea
+    url: https://github.com/independo-gmbh/inderun/discussions
+    about: Ask how to use IndeRun, or share what you are building, in GitHub Discussions.
+  - name: Documentation
+    url: https://inderun.dev/docs
+    about: Quickstart, routing and privacy rules, and device requirements.
+  - name: Capacitor plugin
+    url: https://github.com/independo-gmbh/capacitor-inderun/issues
+    about: Problems that only happen through the Capacitor bridge belong in the plugin repository.
+  - name: Security vulnerability
+    url: https://github.com/independo-gmbh/inderun/blob/dev/SECURITY.md
+    about: Please report vulnerabilities privately, not in a public issue.
