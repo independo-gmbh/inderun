@@ -248,6 +248,10 @@ export default defineConfig({
             external("Migration guide", pinnedRepoUrl("docs/migration.md")),
             external("Contributing", pinnedRepoUrl("CONTRIBUTING.md")),
             external("License (MIT)", pinnedRepoUrl("LICENSE")),
+            external(
+              "Docs licence (CC BY-SA 4.0)",
+              "https://creativecommons.org/licenses/by-sa/4.0/"
+            ),
             external("Source", REPOSITORY)
           ]
         }

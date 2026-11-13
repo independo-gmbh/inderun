@@ -61,6 +61,7 @@ export function landingGraph() {
         url: SITE,
         name: "IndeRun",
         inLanguage: "en",
+        license: LINKS.docsLicense,
         publisher: { "@id": IDS.organization }
       },
       {

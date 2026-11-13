@@ -159,6 +159,10 @@ The folder a Markdown file sits in decides who reads it ([ADR 024](docs/architec
 | Device and speech verification records                                          | `docs/verification/`, from [the template](docs/verification/website-launch-template.md) |
 | Entry points that link to the site                                              | `README.md` and the package READMEs                                                     |
 
+**Licence.** Documentation is licensed under CC BY-SA 4.0 ([`LICENSE-docs`](LICENSE-docs)); code, including the
+samples in `website/snippets/`, under MIT ([`LICENSE`](LICENSE)). By contributing a documentation change you agree to
+license it under CC BY-SA 4.0.
+
 **Publish or unpublish.** Move the file into a published folder (or out of it). A published page needs front matter with
 `slug` (starts with `docs/`, and is its URL), `title` and `description` (at most 155 characters), and optionally
 `sidebar.order`. Add the slug to `website/published-urls.txt` for a new destination. Write plain Markdown that reads well on

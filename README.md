@@ -1,31 +1,22 @@
-<h1 align="center">
-  <a href="https://inderun.dev">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://inderun.dev/brand/inderun-logo-dark.svg">
-      <img alt="IndeRun" src="https://inderun.dev/brand/inderun-logo-light.svg" width="360">
-    </picture>
-  </a>
-</h1>
+<p align="center">
+  <img src="https://inderun.dev/brand/inderun-icon-lilac.svg" width="128" height="128" alt="IndeRun logo" />
+</p>
+<h1 align="center">IndeRun</h1>
+<p align="center">On-device AI for the devices your users actually have.<br>On-device when available. Cloud only when you allow it.</p>
 
 <p align="center">
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml"><img alt="JavaScript" src="https://github.com/independo-gmbh/inderun/actions/workflows/javascript.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml"><img alt="Rust" src="https://github.com/independo-gmbh/inderun/actions/workflows/rust.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml"><img alt="Swift" src="https://github.com/independo-gmbh/inderun/actions/workflows/swift.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml"><img alt="Android" src="https://github.com/independo-gmbh/inderun/actions/workflows/android.yml/badge.svg?branch=dev"></a>
-</p>
-
-<p align="center">
+<br>
   <a href="https://www.npmjs.com/package/@independo/inderun-web"><img alt="npm: @independo/inderun-web" src="https://img.shields.io/npm/v/@independo/inderun-web?logo=npm&label=inderun-web"></a>
   <a href="https://central.sonatype.com/artifact/app.independo.inderun/inderun-kotlin"><img alt="Maven Central: app.independo.inderun:inderun-kotlin" src="https://img.shields.io/maven-metadata/v?metadataUrl=https%3A%2F%2Frepo1.maven.org%2Fmaven2%2Fapp%2Findependo%2Finderun%2Finderun-kotlin%2Fmaven-metadata.xml&filter=%21*-*&logo=apachemaven&label=inderun-kotlin"></a>
   <a href="https://github.com/independo-gmbh/inderun/releases"><img alt="Swift Package Manager" src="https://img.shields.io/github/v/release/independo-gmbh/inderun?logo=swift&label=SwiftPM"></a>
-</p>
-
-<p align="center">
+<br>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="https://inderun.dev/docs"><img alt="Docs: inderun.dev" src="https://img.shields.io/badge/docs-inderun.dev-A0B3FF"></a>
 </p>
-
-**On-device AI for the devices your users actually have.**
 
 IndeRun runs text tasks on the model a device already has — Apple Foundation Models on iOS, Gemini Nano (ML Kit GenAI)
 on Android, a browser-managed model or your own ONNX model on the web — through one API for Capacitor, TypeScript,
@@ -249,7 +240,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow and build co
 
 ## License
 
-MIT. See `LICENSE`.
+The code is MIT licensed; see [`LICENSE`](LICENSE).
+
+The documentation (the Markdown files in `docs/` and the text of [inderun.dev](https://inderun.dev)) is licensed under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); see [`LICENSE-docs`](LICENSE-docs). Code samples in the
+documentation are code, so you can also use them under MIT. The IndeRun and Independo names and logos are not covered by
+either licence.
 
 ## Sponsorship & Development
 

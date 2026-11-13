@@ -1,0 +1,67 @@
+name: Bug or device report
+description: Something did not work as documented on a device or in a browser, including a refusal you could not understand.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A refusal on a device without an eligible model is often the expected
+        result, but a refusal we did not explain well is a bug too, so please report it.
+
+        Do not paste user data, real prompts from your users, API keys or tokens.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where it ran
+      multiple: true
+      options:
+        - Capacitor app on iOS
+        - Capacitor app on Android
+        - Capacitor app on the web
+        - Web / TypeScript SDK (@independo/inderun-web)
+        - Swift SDK
+        - Kotlin SDK
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and OS
+      description: Model and OS version, or browser and version.
+      placeholder: "Pixel 8a, Android 16 / iPhone 15 Pro, iOS 26.1 / Chrome 142 on macOS"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: IndeRun versions
+      description: The packages and versions you installed.
+      placeholder: "@independo/inderun-web 0.5.0, @independo/capacitor-inderun 1.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: Request and result
+      description: |
+        The task and privacy rule you sent (for example `text_to_text` with `local_required`), and what came back:
+        `provenance.providerId` and `locality`, or the `IndeRunError` class, message and rejected providers with their
+        reason codes. The output of `checkCapabilities()` helps too.
+      render: text
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest code or steps that show the problem.
+  - type: input
+    id: found-via
+    attributes:
+      label: How did you find IndeRun? (optional)
+      description: IndeRun collects no usage data, so this is the only way we learn which docs and channels help.
