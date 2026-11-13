@@ -1,0 +1,22 @@
+IndeRun documentation licence
+
+Copyright (c) 2025-2026 Independo GmbH
+
+The IndeRun documentation is licensed under the Creative Commons
+Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0). This
+covers the Markdown files in docs/ and the text of the inderun.dev
+website.
+
+  Licence summary: https://creativecommons.org/licenses/by-sa/4.0/
+  Legal code:      https://creativecommons.org/licenses/by-sa/4.0/legalcode
+
+Not covered by this licence:
+
+- Source code, including the code samples in the documentation and in
+  website/snippets/. Code is licensed under the MIT licence in LICENSE,
+  so you can copy a sample into your app under MIT terms.
+- The IndeRun and Independo names and logos, and the third-party
+  trademarks and logos listed on https://inderun.dev/notices.
+
+Suggested attribution: "IndeRun documentation by Independo GmbH,
+https://inderun.dev, licensed under CC BY-SA 4.0."

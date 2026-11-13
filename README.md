@@ -240,7 +240,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow and build co
 
 ## License
 
-MIT. See `LICENSE`.
+The code is MIT licensed; see [`LICENSE`](LICENSE).
+
+The documentation (the Markdown files in `docs/` and the text of [inderun.dev](https://inderun.dev)) is licensed under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); see [`LICENSE-docs`](LICENSE-docs). Code samples in the
+documentation are code, so you can also use them under MIT. The IndeRun and Independo names and logos are not covered by
+either licence.
 
 ## Sponsorship & Development
 

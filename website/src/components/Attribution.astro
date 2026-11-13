@@ -1,7 +1,7 @@
 ---
 /**
- * The IndeRun attribution and footer links: Independo, netidee, the legal pages, the "No SDK
- * usage telemetry" line and the Independo GmbH copyright. One copy, rendered by the landing footer
+ * The IndeRun attribution and footer links: Independo, netidee, the legal pages, the licence and "No
+ * SDK usage telemetry" line and the Independo GmbH copyright. One copy, rendered by the landing footer
  * (src/layouts/Site.astro) and by the docs footer (src/components/starlight/Footer.astro), so the two
  * can never disagree. The colours are theme tokens, so it follows the light and dark theme on both.
  *
@@ -86,7 +86,10 @@ const groups: { id: string; title: string; links: FooterLink[] }[] = [
         <a class={inline} href={LINKS.independoOpenSource}>Independo GmbH</a>, supported by
         <a class={inline} href={LINKS.netidee}>netidee</a>.
       </p>
-      <p class="mt-2 mb-0 text-pretty">MIT-licensed SDK · No SDK usage telemetry.</p>
+      <p class="mt-2 mb-0 text-pretty">
+        MIT-licensed SDK · Documentation under
+        <a class={inline} href={LINKS.docsLicense} rel="license">CC BY-SA 4.0</a> · No SDK usage telemetry.
+      </p>
     </div>
     <nav
       aria-label="Footer"
