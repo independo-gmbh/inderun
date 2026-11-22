@@ -7,7 +7,7 @@
   "toolchain": "1.96.0",
   "rustcVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)",
   "sources": {
-    "Cargo.lock": "69a81d7228f8c5f797289331de5969afd942e9bfbe4c50dd3dee4a30c82b29b6",
+    "Cargo.lock": "661a48a29d708fe7d1876a9f05521ae358636e20f9b598465de3d58331d64537",
     "Cargo.toml": "da102fd879097c2a0f36853d493f85912a5119169da5932d5d00d9b9d5f2f546",
     "rust-toolchain.toml": "cbfaf80ce835f1e53afb97c397f8f851c98fce28f46fa4384e271eacf9c012ef",
     "rust/inderun-route-core/Cargo.toml": "5c0e4904f58ff024d989f7aeb5bd3ba1c3127712043e98399cfea029eabd9aa8",
@@ -46,15 +46,15 @@
   "files": {
     "Info.plist": "e77e2b85f1b36d38a307d1ba93ab6422e9897e026fd8c2381cf511041d5306dd",
     "ios-arm64/InderunSpeechTextFFI.framework/Headers/inderun_speech_text.h": "5f53c9ac80a966f029cfcf2cc4f2b84bebbd83e4ff34d83f4f5a1699741abef8",
-    "ios-arm64/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "d9af07d3300a66640db61c1507d9bdbb45d091a5b84c85f1cb5b265d54085c97",
+    "ios-arm64/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "fd33c95016cbd324e893cdf560ad5a394300a1eba39e670de19375466bbfe538",
     "ios-arm64/InderunSpeechTextFFI.framework/Info.plist": "8918e6d0ec646ae877e8a3d73b496f1fd6a0cf14b0a3d5d9b8ccbdf095db0b95",
     "ios-arm64/InderunSpeechTextFFI.framework/Modules/module.modulemap": "63620fb4cf055e9c65b64c4c9b94d9168c71800b382dd3f481fff5fcc31bc8ab",
     "ios-arm64_x86_64-simulator/InderunSpeechTextFFI.framework/Headers/inderun_speech_text.h": "5f53c9ac80a966f029cfcf2cc4f2b84bebbd83e4ff34d83f4f5a1699741abef8",
-    "ios-arm64_x86_64-simulator/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "15b0067a6697d78f58af4f11f49ca422e8f5ec7317b60d5a802ddd662e73ae22",
+    "ios-arm64_x86_64-simulator/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "f93e7407263ca44ef07d287b3e5e7ed85d7cf6a2539e6c98a4337a9a397d6508",
     "ios-arm64_x86_64-simulator/InderunSpeechTextFFI.framework/Info.plist": "d394494c1e32afc15f9f3dabda8420984af6d0128af02a03d085c6907448ade3",
     "ios-arm64_x86_64-simulator/InderunSpeechTextFFI.framework/Modules/module.modulemap": "63620fb4cf055e9c65b64c4c9b94d9168c71800b382dd3f481fff5fcc31bc8ab",
     "macos-arm64_x86_64/InderunSpeechTextFFI.framework/Headers/inderun_speech_text.h": "5f53c9ac80a966f029cfcf2cc4f2b84bebbd83e4ff34d83f4f5a1699741abef8",
-    "macos-arm64_x86_64/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "4713220d90a06f69916ebde99a08678e055f22f52635e51efb16deefba1695f4",
+    "macos-arm64_x86_64/InderunSpeechTextFFI.framework/InderunSpeechTextFFI": "b6eccef9e54c33207d22b953764caca1da141c4e28015bf8d87be34bc3333bea",
     "macos-arm64_x86_64/InderunSpeechTextFFI.framework/Info.plist": "f0022bc7a832039228fed06291ea78a204774ec40c0ce78126a3394248ea79d1",
     "macos-arm64_x86_64/InderunSpeechTextFFI.framework/Modules/module.modulemap": "63620fb4cf055e9c65b64c4c9b94d9168c71800b382dd3f481fff5fcc31bc8ab"
   }
