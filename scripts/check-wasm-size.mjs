@@ -6,6 +6,10 @@
  *
  * Budgets are the release-profile size measured when the gate was added, plus 15 %,
  * rounded up to 10 KiB. Raise one deliberately, in the change that grows the module.
+ *
+ * Raised since: `inderun_route_core` by 26 KiB raw / 11 KiB gzip (the measured growth,
+ * rounded up to the next KiB) when serde_json's `float_roundtrip` went in, so a
+ * control value comes back from the planner bit for bit (#311).
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -16,7 +20,7 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const generated = join(repoRoot, "packages", "inderun-route-core-wasm", "generated");
 
 const budgets = [
-  { name: "inderun_route_core", raw: 399_360, gzip: 122_880 },
+  { name: "inderun_route_core", raw: 425_984, gzip: 134_144 },
   { name: "inderun_speech_text", raw: 2_048_000, gzip: 634_880 }
 ];
 

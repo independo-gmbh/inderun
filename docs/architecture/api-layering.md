@@ -56,6 +56,13 @@ The Web SDK is the reference developer experience. Swift and Kotlin expose the s
 
 Options cover the common case and nothing else:
 
+The option types split by what a call can honour ([ADR 025](./decisions/025-speech-controls.md)): `SpeechOptions` holds
+the common fields (`text`, `locale`, `localeMatch`, `voice`, `controls` and the shared execution fields),
+`SpeakOptions` adds `playback` (volume, never the device volume), and `GenerateSpeechOptions` adds `mediaTypes` and
+`destinationRef`. A control is `{ value, requirement }` with `requirement` defaulting to `preferred`; the result's
+`speech.controls` reports each as applied or not applied with a reason. Bridges that take raw JSON validate it with
+`RawTaskRequestValidation.issues(_:)` on Swift and `rawTaskRequestIssues(JSONObject)` on Kotlin.
+
 | Facade option | Canonical `TaskRequest` field |
 | --- | --- |
 | `prompt` | `prompt` |
@@ -83,17 +90,22 @@ already decide.
   has no audible effect, and returns a `MediaArtifact` to read with `readArtifact()` and release with
   `disposeArtifact()`. It is not cancellable, like `generateText()`.
 - `listVoices(inderun, options)` reads `checkCapabilities()` and returns every voice registered providers offer right
-  now, each with `id`, `name`, traits and `providerId`. An entry also carries `locales` (every tag the voice
-  speaks), `kind` (`platform` or `model`, from whether the provider names a model; the neural speech family is the first `model` kind) and `model`. Pass an entry as
-  `voice` to speak with it (`asSpeechVoice()` on Swift and Kotlin). An id is opaque and scoped to its provider and
-  device; ADR 018 section 3 sets the fallback rules.
+  now, each with `id`, `name`, traits and `providerId`. `listVoices` takes `includeControls` (each voice then carries
+  `controls`, one `SpeechVoiceControl` per control and delivery with `available`, `reason` and `range`; a voice whose
+  provider declares no controls gets `controls: []`, so empty means none, never unknown, and provider-instance
+  controls are not listed) and `includeUnavailable` (also list voices that cannot speak now, with `available: false`;
+  a contradictory declaration reads `reason: "contradictory declaration"`). An entry also carries `locales` (every tag
+  the voice speaks), `kind` (`platform` or `model`, from whether the provider names a model; the neural speech family
+  is the first `model` kind) and `model`. Pass an entry as `voice` to speak with it (`asSpeechVoice()` on Swift and
+  Kotlin). An id is opaque and scoped to its provider and device; ADR 018 section 3 sets the fallback rules.
 
 Playback and retrievable audio are separate capabilities. A provider that can only play is refused for
 `generateSpeech()` by routing, and the two are never substituted for one another.
 
 | Facade option | Canonical `TaskRequest` field |
 | --- | --- |
-| `text`, `locale`, `localeMatch`, `voice` | `speech.*` |
+| `text`, `locale`, `localeMatch`, `voice`, `controls` | `speech.*` |
+| `playback` (`speak` only) | `delivery.playback` |
 | `mediaTypes`, `destinationRef` (`generateSpeech` only) | `delivery.*` |
 | `model`, `execution`, `authContextRef`, `telemetry`, `requestId` | as in the text API |
 

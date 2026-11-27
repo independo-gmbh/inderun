@@ -1,5 +1,6 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.SpeechControlState
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -56,11 +57,59 @@ class SharedCoreRoutePlannerConformanceTest {
                         voice.gender?.let { put("gender", it.rawValue) }
                         voice.networkRequired?.let { put("networkRequired", it) }
                         voice.readiness?.let { put("readiness", it.rawValue) }
+                        voice.controlStates?.let { states -> put("controlStates", states.map(::controlStateMap)) }
                     }.toSortedMap()
                 }
             }
             assertEquals(id, expectedVoices, parsedVoices)
+
+            // Every candidate's control application plan, field by field. org.json may parse a
+            // whole number as an Integer, so numbers are compared as Doubles on both sides.
+            val expectedControls = expected.getJSONArray("candidates").let { candidates ->
+                List(candidates.length()) { candidates.getJSONObject(it).optJSONArray("controls")?.let(::numbersAsDoubles) }
+            }
+            val parsedControls = parsed.candidates.map { candidate ->
+                candidate.controls?.map { plan ->
+                    buildMap<String, Any> {
+                        put("decision", plan.decision.rawValue)
+                        put("id", plan.id.rawValue)
+                        plan.reason?.let { put("reason", it.rawValue) }
+                        put("requirement", plan.requirement.rawValue)
+                        put("value", plan.value)
+                    }.toSortedMap()
+                }
+            }
+            assertEquals(id, expectedControls, parsedControls)
         }
+    }
+
+    /** A parsed voice control override in the fixture's JSON shape, for comparing bound voices. */
+    private fun controlStateMap(state: SpeechControlState): Map<String, Any> = buildMap<String, Any> {
+        state.available?.let { put("available", it) }
+        put("delivery", state.delivery.rawValue)
+        put("id", state.id.rawValue)
+        state.range?.let { range ->
+            put(
+                "range",
+                buildMap<String, Any> {
+                    range.default?.let { put("default", it) }
+                    put("max", range.max)
+                    put("min", range.min)
+                    range.step?.let { put("step", it) }
+                }.toSortedMap(),
+            )
+        }
+        state.reason?.let { put("reason", it) }
+    }.toSortedMap()
+
+    /** [normalize] with every number as a Double. */
+    private fun numbersAsDoubles(value: Any?): Any? = toDoubles(normalize(value))
+
+    private fun toDoubles(value: Any?): Any? = when (value) {
+        is Number -> value.toDouble()
+        is Map<*, *> -> value.mapValues { toDoubles(it.value) }.toSortedMap(compareBy { it as String })
+        is List<*> -> value.map(::toDoubles)
+        else -> value
     }
 
     /** Key order is not significant in JSON, so compare sorted structures. */

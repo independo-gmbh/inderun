@@ -9,16 +9,21 @@ import {
   getTaskRequestValidationIssues
 } from "./index.js";
 
-// The ADR 025 scenario catalogs for the engine's control checks. The SDK handlers land with
-// Stage 2 of #311; until then this keeps every payload in them valid against the schemas, so a
-// handler never tests a shape the contract does not admit.
-function load(name: string): { cases: Array<Record<string, unknown> & { id: string }> } {
+// The ADR 025 scenario catalogs for the engine's control checks. Each SDK runs them through its
+// own handlers (Stage 2 of #311); this keeps every payload in them valid against the schemas, so
+// a handler never tests a shape the contract does not admit.
+type Catalog = {
+  cases: Array<Record<string, unknown> & { id: string }>;
+  $scriptSteps?: Record<string, string>;
+};
+
+function load(name: string): Catalog {
   return JSON.parse(
     readFileSync(
       fileURLToPath(new URL(`../../../contracts/fixtures/execution/${name}`, import.meta.url)),
       "utf8"
     )
-  ) as { cases: Array<Record<string, unknown> & { id: string }> };
+  ) as Catalog;
 }
 
 /** A one-candidate plan around the given controls, absent when they are null. */
@@ -39,6 +44,35 @@ describe("control-plan-integrity fixture", () => {
       expect(getRoutePlanValidationIssues(planWith(entry.candidateControls))).toEqual([]);
       if ("fallbackCandidateControls" in entry) {
         expect(getRoutePlanValidationIssues(planWith(entry.fallbackCandidateControls))).toEqual([]);
+      }
+    });
+  }
+});
+
+describe("control-execution fixture", () => {
+  const catalog = load("control-execution.json");
+  const steps = Object.keys(catalog.$scriptSteps ?? {});
+
+  for (const entry of catalog.cases) {
+    it(`${entry.id}: request, scripts, plans and outputs are valid contract shapes`, () => {
+      expect(getTaskRequestValidationIssues(entry.request)).toEqual([]);
+      const modes = entry.modes as string[];
+      expect(modes.length).toBeGreaterThan(0);
+      for (const mode of modes) expect(["run", "stream"]).toContain(mode);
+      const providers = entry.providers as Array<{ id: string; script: string[] }>;
+      for (const provider of providers) {
+        for (const step of provider.script) expect(steps).toContain(step);
+      }
+      const expected = entry.expect as {
+        receivedControls?: Record<string, unknown>;
+        output?: unknown;
+      };
+      for (const [providerId, controls] of Object.entries(expected.receivedControls ?? {})) {
+        expect(providers.map((provider) => provider.id)).toContain(providerId);
+        expect(getRoutePlanValidationIssues(planWith(controls))).toEqual([]);
+      }
+      if (expected.output !== undefined) {
+        expect(getTaskOutputValidationIssues(expected.output)).toEqual([]);
       }
     });
   }

@@ -33,6 +33,18 @@ System speech adapters put a platform's own text-to-speech behind the canonical 
   it, and on the Web a `run()` playback cannot be stopped.
 - **Never substitutes.** A required locale, voice or format is met or refused, and playback and artifact never stand in
   for each other.
+- **Applies speech controls it can state ([ADR 025](./decisions/025-speech-controls.md)).** Rate and pitch apply to
+  playback and artifact; volume applies to playback only, as attenuation of this utterance and never the device or
+  master volume. A control is applied only when the engine's plan says so and is reported through `reportSpeech`; an
+  omitted one is left unset on the platform, so a request without controls speaks with the user's own system settings.
+  Android's rate and pitch outlive the utterance, so one an earlier utterance set is restored to the user's system
+  text-to-speech default before the next utterance that does not set it; when the platform refuses that restore twice,
+  the attempt ends before commit with `CapabilityMismatch` / `speech_settings_not_restored` and the next utterance tries
+  again. A required control the platform refuses, or on Android a required volume the engine no longer applies, ends
+  before commit with `CapabilityMismatch` / `speech_control_unsupported`, so fallback stays possible; a preferred one
+  the platform refuses is recorded `not_applied` / `provider_rejected`. The declared ranges are conservative choices and device evidence is
+  still owed: see [Speech controls](../verification/system-speech.md#speech-controls). The platform mapping lives in
+  code comments in the provider directories linked below.
 - **Reports when the first word started.** A finished playback carries `playback.timing.firstAudioMs`, from the
   provider starting to handle the request until the platform's first word callback: `willSpeakRangeOfSpeechString` on
   Apple, `onRangeStart` on Android, the first `boundary` event on the Web. It includes the provider's own turn wait and

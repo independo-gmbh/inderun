@@ -6,6 +6,7 @@ import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.AttemptOutcome
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Cloud
+import app.independo.inderun.contracts.ControlDelivery
 import app.independo.inderun.contracts.ExecutionProvenance
 import app.independo.inderun.contracts.ExecutionProvenanceAttempt
 import app.independo.inderun.contracts.FinishReason
@@ -37,6 +38,13 @@ import app.independo.inderun.contracts.RequestedUnitNumber
 import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
 import app.independo.inderun.contracts.SharedSynthesisControls
+import app.independo.inderun.contracts.SpeechControlDeclaration
+import app.independo.inderun.contracts.SpeechControlId
+import app.independo.inderun.contracts.SpeechControlLifetime
+import app.independo.inderun.contracts.SpeechControlPhase
+import app.independo.inderun.contracts.SpeechControlRange
+import app.independo.inderun.contracts.SpeechControlState
+import app.independo.inderun.contracts.SpeechControlValueKind
 import app.independo.inderun.contracts.SpeechOutput
 import app.independo.inderun.contracts.SpeechVoice
 import app.independo.inderun.contracts.StreamEvent
@@ -256,6 +264,7 @@ class SpeechGenerationTest {
         is Map<*, *> -> entries.associate { (key, value) -> key to value.normalized() }
         is List<*> -> map { it.normalized() }
         is Int -> toLong()
+        is Double -> if (this % 1.0 == 0.0) toLong() else this
         else -> this
     }
 
@@ -533,6 +542,8 @@ class SpeechGenerationTest {
             val voices = ScriptedApi(snapshots = snapshots).listVoices(
                 locale = options?.optString("locale")?.takeIf { it.isNotEmpty() },
                 localeMatch = options?.optString("localeMatch")?.takeIf { it.isNotEmpty() }?.let { LocaleMatch.fromRawValue(it) },
+                includeControls = options?.optBoolean("includeControls", false) ?: false,
+                includeUnavailable = options?.optBoolean("includeUnavailable", false) ?: false,
             )
             assertEquals(vector.getString("id"), vector.getJSONArray("expected").normalized(), voices.map { voiceMap(it) }.normalized())
         }
@@ -553,26 +564,53 @@ class SpeechGenerationTest {
                     name = voice.optString("name").takeIf { it.isNotEmpty() },
                     networkRequired = if (voice.has("networkRequired")) voice.getBoolean("networkRequired") else null,
                     readiness = voice.optString("readiness").takeIf { it.isNotEmpty() }?.let { ProviderReadiness.fromRawValue(it) },
+                    controlStates = voice.optJSONArray("controlStates")?.let(::controlStatesFrom),
                 )
             }
         }
         val descriptor = json.getJSONObject("descriptor")
+        val declarations = descriptor.getJSONArray("taskCapabilities").getJSONObject(0).optJSONArray("controls")?.let { array ->
+            (0 until array.length()).map { index ->
+                val entry = array.getJSONObject(index)
+                SpeechControlDeclaration(
+                    deliveries = entry.getJSONArray("deliveries").let { list -> (0 until list.length()).map { ControlDelivery.fromRawValue(list.getString(it))!! } },
+                    id = SpeechControlId.fromRawValue(entry.getString("id"))!!,
+                    lifetime = SpeechControlLifetime.fromRawValue(entry.getString("lifetime"))!!,
+                    phase = SpeechControlPhase.fromRawValue(entry.getString("phase"))!!,
+                    valueKind = SpeechControlValueKind.fromRawValue(entry.getString("valueKind"))!!,
+                )
+            }
+        }
         return ProviderCapabilitySnapshot(
             capabilities = ProviderDynamicCapabilities(
                 available = capabilities.getBoolean("available"),
                 taskCapabilities = listOf(
                     ProviderTaskAvailability(
                         available = if (task.has("available")) task.getBoolean("available") else null,
+                        controlStates = task.optJSONArray("controlStates")?.let(::controlStatesFrom),
                         kind = task.getString("kind"),
                         voices = voices,
                     ),
                 ),
             ),
-            descriptor = speechDescriptor(ProviderType.Local).copy(
+            descriptor = speechDescriptor(ProviderType.Local).let { skeleton ->
+                skeleton.copy(taskCapabilities = skeleton.taskCapabilities?.map { it.copy(controls = declarations) })
+            }.copy(
                 model = descriptor.optString("model").takeIf { it.isNotEmpty() },
                 transport = ProviderTransport.fromRawValue(descriptor.getString("transport"))!!,
             ),
             providerId = json.getString("providerId"),
+        )
+    }
+
+    private fun controlStatesFrom(array: JSONArray): List<SpeechControlState> = (0 until array.length()).map { index ->
+        val entry = array.getJSONObject(index)
+        SpeechControlState(
+            available = if (entry.has("available")) entry.getBoolean("available") else null,
+            delivery = ControlDelivery.fromRawValue(entry.getString("delivery"))!!,
+            id = SpeechControlId.fromRawValue(entry.getString("id"))!!,
+            range = entry.optJSONObject("range")?.let { SpeechControlRange(min = it.getDouble("min"), max = it.getDouble("max")) },
+            reason = entry.optString("reason").takeIf { it.isNotEmpty() },
         )
     }
 
@@ -588,6 +626,22 @@ class SpeechGenerationTest {
         voice.gender?.let { put("gender", it.rawValue) }
         voice.networkRequired?.let { put("networkRequired", it) }
         voice.readiness?.let { put("readiness", it.rawValue) }
+        voice.available?.let { put("available", it) }
+        voice.controls?.let { controls ->
+            put(
+                "controls",
+                controls.map { control ->
+                    buildMap {
+                        put("id", control.id.rawValue)
+                        put("delivery", control.delivery.rawValue)
+                        put("phase", control.phase.rawValue)
+                        control.available?.let { put("available", it) }
+                        control.reason?.let { put("reason", it) }
+                        control.range?.let { put("range", mapOf("min" to it.min, "max" to it.max)) }
+                    }
+                },
+            )
+        }
     }
 
     @Test

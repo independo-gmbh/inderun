@@ -158,3 +158,42 @@ const voices = await listVoices(inderun, { locale: "de-DE" });
 Each entry carries a `locale`, an opaque `id` that is meaningful only on that device, a display `name` and, where the provider can tell, `networkRequired`. Pass an entry as `voice` to `speak()`. Never write an `id` by hand.
 
 A missing voice fails rather than being replaced. If you require a voice that is no longer installed, the request is refused with `voice_not_available`; if you only prefer it (the default), the traits stored with the voice choose instead (see [ADR 018](../architecture/decisions/018-speech-application-api.md)). The `speech` field of the result reports the locale and voice actually used, so an unmet preference is visible. By default the locale matches by language, so `de-AT` may be served by a `de-DE` voice; ask for `localeMatch: "exact"` if you need the whole tag. A locale with no voice is refused with `locale_not_supported`.
+
+## Speech rate, pitch and volume
+
+Speech controls are newer than the tested set above: they ship with the release that follows it, so examples here are not type-checked against 0.5.0. Three controls exist: `controls.speakingRate` and `controls.pitch` (both multipliers where `1` is the voice's normal setting) and `playback.volume` (0 to 1, attenuation of this utterance only, never the device volume). Volume applies to `speak()`; `generateSpeech()` takes rate and pitch. Each control is `{ value, requirement }`, and `requirement` defaults to `"preferred"`.
+
+A preferred control is applied when the voice and platform can, and otherwise left out, never rounded or approximated. A required control is met or the request is refused, so IndeRun picks a voice that supports it or falls back to another provider:
+
+```ts
+// Read slower, and fail over to a provider that can do it rather than speak at the default rate.
+await speak(inderun, {
+  text: "Ihr Termin wurde verschoben.",
+  locale: "de-DE",
+  controls: { speakingRate: { value: 0.8, requirement: "required" } }
+});
+```
+
+A preferred pitch that no voice supports does not stop the speech. The result says what happened. `speech.controls` lists each requested control with `status: "applied"` and the `effective` value, or `status: "not_applied"` with a `reason` such as `unsupported` or `out_of_range`:
+
+```ts
+const playback = await speak(inderun, {
+  text: "Hallo",
+  locale: "de-DE",
+  controls: { pitch: { value: 1.2 } }
+});
+const { speech } = await playback.result;
+console.log(speech?.controls); // [{ id: "speech.pitch", status: "not_applied", reason: "unsupported", ... }]
+```
+
+To build a settings screen, ask `listVoices()` for the controls each voice offers. Every entry then carries `controls`, one item per control and delivery with `available`, a `range` where one is known, and a `reason` where it is not available. A voice of a provider that offers no controls has `controls: []`, so an empty list means none, not unknown. Only voices that can speak right now are listed unless you pass `includeUnavailable`:
+
+```ts
+const voices = await listVoices(inderun, { locale: "de-DE", includeControls: true });
+const rate = voices[0]?.controls?.find((c) => c.id === "speech.speakingRate" && c.delivery === "playback");
+// Drive a slider from rate?.range (min, max, step) when rate?.available is true.
+```
+
+Preview and speech go through the same call: a settings screen previews the slider value by calling `speak()` with the same `controls` the app will use later, so the preview is exactly what will be spoken. The ranges the system speech providers report are conservative and still to be confirmed on devices (see the [verification record](../verification/system-speech.md#speech-controls)); the neural speech family declares no controls.
+
+If you stored a voice as a numeric index into an older list, move to the provider-scoped opaque `id` that `listVoices()` returns. An index changes when voices are installed or removed, while the `id` names one voice of one provider; keep the whole entry (or its `id` and `providerId`) and pass it as `voice`.

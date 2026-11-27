@@ -54,6 +54,29 @@ export interface RunContext {
    */
   voice?: NonNullable<SharedRoutePlan["candidates"][number]["voice"]>;
   /**
+   * The candidate's control application plan (ADR 025 §3), verbatim: one entry per speech
+   * control the request named, in request order, each `decision: apply` (apply the value
+   * through the platform's documented path, before commit) or `decision: omit` (leave the
+   * control at its normal behaviour and report it as not applied with the plan's reason).
+   * Absent when the request names no controls. The engine has checked it against the request
+   * before the first attempt. A `required` entry the platform refuses at run time fails the
+   * attempt before commit with `CapabilityMismatch` (`details.code: speech_control_unsupported`),
+   * which may fall back.
+   */
+  controls?: NonNullable<SharedRoutePlan["candidates"][number]["controls"]>;
+  /**
+   * Reports what this attempt has settled so far for a speech run: the locale and voice it
+   * speaks with and one `SpeechControlOutcome` per control it has applied or omitted. Call it
+   * once the values are known, typically right after `commit()`. Only a stream that ends
+   * cancelled reads it: the cancelled terminal outcome keeps these records and records every
+   * other requested control as `not_reported` (ADR 025 §4). A completed run reports through its
+   * output's `speech` instead, so `run()` ignores it. A `text_to_speech` provider should return
+   * that section; one that returns none reports no control records, and a run with a required
+   * control then fails with `output_mismatch`. A later call replaces an earlier one; a call after
+   * the attempt ended or the run was cancelled is ignored.
+   */
+  reportSpeech(speech: NonNullable<TaskOutput["speech"]>): void;
+  /**
    * Commits the run to this provider. Call it immediately before the attempt's first
    * externally observable effect — for managed playback, no later than the first moment
    * sound may reach the user. After commit, a failure ends the run instead of falling back

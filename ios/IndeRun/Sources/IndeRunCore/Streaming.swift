@@ -89,11 +89,14 @@ public struct ProviderStreamContext: Sendable {
     /// under the same rule (ADR 016 §4). The engine has re-checked it against the request's
     /// privacy policy immediately before the attempt.
     public let voice: ProviderVoice?
+    /// The candidate's control application plan; see ``RunContext/controls``.
+    public let controls: [ControlApplicationPlan]?
     /// Where the provider writes retrievable media for an `artifact` request (ADR 017); see
     /// ``RunContext/artifacts``. Finishing an artifact commits the run, and is refused once the
     /// stream was cancelled or has ended.
     public let artifacts: any ArtifactSink
     private let commitHandler: @Sendable () -> Bool
+    private let reportSpeechHandler: @Sendable (SpeechOutput) -> Void
 
     /// - Parameters:
     ///   - artifacts: Where the provider writes artifacts. The engine supplies the attempt's
@@ -101,19 +104,25 @@ public struct ProviderStreamContext: Sendable {
     ///     ``ArtifactStore`` of its own, handing over under `commit`.
     ///   - commit: What ``commit()`` does. The engine supplies its own; when `nil`, the
     ///     context commits unless `cancellation` has fired.
+    ///   - reportSpeech: What ``reportSpeech(_:)`` does; the engine supplies its own, and a
+    ///     context built elsewhere ignores the call.
     public init(
         runId: String,
         hostServices: HostServices,
         cancellation: StreamCancellationToken,
         voice: ProviderVoice? = nil,
+        controls: [ControlApplicationPlan]? = nil,
         artifacts: (any ArtifactSink)? = nil,
-        commit: (@Sendable () -> Bool)? = nil
+        commit: (@Sendable () -> Bool)? = nil,
+        reportSpeech: @escaping @Sendable (SpeechOutput) -> Void = { _ in }
     ) {
         let commitHandler = commit ?? { !cancellation.isCancelled }
         self.runId = runId
         self.hostServices = hostServices
         self.cancellation = cancellation
         self.voice = voice
+        self.controls = controls
+        self.reportSpeechHandler = reportSpeech
         self.artifacts = artifacts ?? ArtifactStore().attempt(commit: commitHandler)
         self.commitHandler = commitHandler
     }
@@ -133,6 +142,14 @@ public struct ProviderStreamContext: Sendable {
     /// Text streams commit implicitly on their first content event and need not call it.
     public func commit() -> Bool {
         commitHandler()
+    }
+
+    /// Reports what this attempt has settled so far for a speech run; see
+    /// ``RunContext/reportSpeech(_:)``. A stream that ends cancelled keeps the last report in its
+    /// terminal outcome (ADR 025 section 4); a call after the attempt ended, after the stream was
+    /// cancelled, or after the terminal event is ignored.
+    public func reportSpeech(_ speech: SpeechOutput) {
+        reportSpeechHandler(speech)
     }
 }
 

@@ -15,6 +15,7 @@ import { SystemSpeechWebProvider } from "./provider.js";
 import {
   SystemSpeechRuntimeError,
   type SystemSpeechRuntime,
+  type SystemSpeechUtterance,
   type SystemSpeechVoice
 } from "./runtime.js";
 
@@ -28,9 +29,31 @@ const ANNA_TOO: SystemSpeechVoice = {
   localService: true
 };
 
+const PLAYBACK_STATES = [
+  {
+    id: "speech.speakingRate",
+    delivery: "playback",
+    available: true,
+    range: { min: 0.5, max: 2, default: 1, step: 0.1 }
+  },
+  {
+    id: "speech.pitch",
+    delivery: "playback",
+    available: true,
+    range: { min: 0.5, max: 2, default: 1, step: 0.1 }
+  },
+  {
+    id: "playback.volume",
+    delivery: "playback",
+    available: true,
+    range: { min: 0, max: 1, default: 1, step: 0.05 }
+  }
+];
+
 /** A scripted runtime: utterances finish at once, or hold until released or aborted. */
 function fakeRuntime(voices: SystemSpeechVoice[] = [LOCAL, NETWORK]) {
   const spoken: { text: string; voice?: string }[] = [];
+  const utterances: SystemSpeechUtterance[] = [];
   const stopped: string[] = [];
   const held = new Map<string, () => void>();
   const holds = new Set<string>();
@@ -41,6 +64,7 @@ function fakeRuntime(voices: SystemSpeechVoice[] = [LOCAL, NETWORK]) {
     whenIdle: async () => {},
     whenVoicesListed: async () => state.voices.length > 0,
     speak: (utterance, signal) => {
+      utterances.push(utterance);
       spoken.push({
         text: utterance.text,
         ...(utterance.voice !== undefined ? { voice: utterance.voice.uri } : {})
@@ -56,7 +80,7 @@ function fakeRuntime(voices: SystemSpeechVoice[] = [LOCAL, NETWORK]) {
       });
     }
   };
-  return { runtime, spoken, stopped, held, holds, state };
+  return { runtime, spoken, utterances, stopped, held, holds, state };
 }
 
 function engine(runtime: SystemSpeechRuntime, online = true): IndeRun {
@@ -82,6 +106,29 @@ describe("SystemSpeechWebProvider", () => {
     expect(task.cancel).toBe("hard");
     expect(task.interaction.stream).toBe(true);
     expect(task.privacy).toEqual({ dataLeavesDevice: true });
+    expect(task.controls).toEqual([
+      {
+        id: "speech.speakingRate",
+        valueKind: "number",
+        phase: "synthesis",
+        lifetime: "utterance",
+        deliveries: ["playback"]
+      },
+      {
+        id: "speech.pitch",
+        valueKind: "number",
+        phase: "synthesis",
+        lifetime: "utterance",
+        deliveries: ["playback"]
+      },
+      {
+        id: "playback.volume",
+        valueKind: "number",
+        phase: "playback",
+        lifetime: "utterance",
+        deliveries: ["playback"]
+      }
+    ]);
   });
 
   it("reports a missing API as unavailable rather than failing", async () => {
@@ -186,9 +233,10 @@ describe("SystemSpeechWebProvider", () => {
     const capabilities = await provider.capabilities(host());
 
     expect(capabilities.taskCapabilities![0]!.voices).toEqual([
-      { id: "local", locale: "de-DE" },
+      { id: "local", locale: "de-DE", controlStates: PLAYBACK_STATES },
       { id: "remote", locale: "de-DE", networkRequired: true }
     ]);
+    expect(capabilities.taskCapabilities![0]!.controlStates).toBeUndefined();
   });
 
   it("lists every voice, also those with identical traits and names", async () => {
@@ -256,7 +304,9 @@ describe("SystemSpeechWebProvider", () => {
 
     const capabilities = await provider.capabilities(host(false));
 
-    expect(capabilities.taskCapabilities![0]!.voices).toEqual([{ id: "local", locale: "de-DE" }]);
+    expect(capabilities.taskCapabilities![0]!.voices).toEqual([
+      { id: "local", locale: "de-DE", controlStates: PLAYBACK_STATES }
+    ]);
   });
 
   it("is unavailable offline when only network voices exist", async () => {
@@ -425,6 +475,7 @@ describe("speech through the engine", () => {
       hostServices: createBrowserHostServices(),
       voice: { id: "gone", locale: "de-DE", networkRequired: true },
       commit: vi.fn(() => true),
+      reportSpeech: () => {},
       artifacts: { create: vi.fn() }
     };
     const provider = new SystemSpeechWebProvider({ runtime: fake.runtime });
@@ -538,5 +589,245 @@ describe("speech through the engine", () => {
     expect(cancelled.finishReason).toBe("cancelled");
     expect(cancelled.provenance?.attempts[0]?.committed).toBeUndefined();
     expect(fake.spoken.map((call) => call.text)).toEqual(["eins", "drei"]);
+  });
+});
+
+describe("speech controls", () => {
+  const request = (extra: Record<string, unknown> = {}, playback?: unknown): TaskRequest =>
+    ({
+      schemaVersion: "1.1",
+      task: { kind: "text_to_speech" },
+      speech: { text: "Hallo", locale: "de-DE", ...extra },
+      delivery: { mode: "playback", ...(playback !== undefined ? { playback } : {}) }
+    }) as TaskRequest;
+
+  it("hands the utterance exactly the applied values and records them", async () => {
+    const fake = fakeRuntime();
+
+    const result = await engine(fake.runtime).run(
+      request(
+        { controls: { speakingRate: { value: 1.5 }, pitch: { value: 0.8 } } },
+        { volume: { value: 0.5 } }
+      )
+    );
+
+    expect(fake.utterances[0]).toMatchObject({ rate: 1.5, pitch: 0.8, volume: 0.5 });
+    expect(result.output).toMatchObject({
+      speech: {
+        controls: [
+          {
+            id: "speech.speakingRate",
+            requested: 1.5,
+            effective: 1.5,
+            status: "applied",
+            method: "platform_synthesis"
+          },
+          {
+            id: "speech.pitch",
+            requested: 0.8,
+            effective: 0.8,
+            status: "applied",
+            method: "platform_synthesis"
+          },
+          {
+            id: "playback.volume",
+            requested: 0.5,
+            effective: 0.5,
+            status: "applied",
+            method: "playback_attenuation"
+          }
+        ]
+      }
+    });
+  });
+
+  it("leaves an omitted control unset and reports the plan's reason", async () => {
+    const fake = fakeRuntime();
+
+    const result = await engine(fake.runtime).run(
+      request({ controls: { speakingRate: { value: 1.5 }, pitch: { value: 5 } } })
+    );
+
+    const utterance = fake.utterances[0]!;
+    expect(utterance.rate).toBe(1.5);
+    expect("pitch" in utterance).toBe(false);
+    expect("volume" in utterance).toBe(false);
+    expect(result.output).toMatchObject({
+      speech: {
+        controls: [
+          { id: "speech.speakingRate", status: "applied" },
+          { id: "speech.pitch", requested: 5, status: "not_applied", reason: "out_of_range" }
+        ]
+      }
+    });
+  });
+
+  it("leaves every property unset and emits no records without controls", async () => {
+    const fake = fakeRuntime();
+
+    const result = await engine(fake.runtime).run(request());
+
+    const utterance = fake.utterances[0]!;
+    expect("rate" in utterance || "pitch" in utterance || "volume" in utterance).toBe(false);
+    expect((result.output as { speech?: object }).speech).not.toHaveProperty("controls");
+  });
+
+  it("never routes a required control to a network voice", async () => {
+    const fake = fakeRuntime([NETWORK]);
+
+    await expect(
+      engine(fake.runtime).run(
+        request({ controls: { speakingRate: { value: 1.5, requirement: "required" } } })
+      )
+    ).rejects.toBeInstanceOf(IndeRunException);
+    expect(fake.utterances).toEqual([]);
+  });
+
+  it("keeps the reported records when cancelled after commit", async () => {
+    const fake = fakeRuntime();
+    fake.holds.add("Hallo");
+
+    const playback = await speak(engine(fake.runtime), {
+      text: "Hallo",
+      locale: "de-DE",
+      controls: { speakingRate: { value: 1.5 } }
+    });
+    await tick();
+    playback.cancel("stop");
+    const ending = await playback.result;
+
+    expect(ending.finishReason).toBe("cancelled");
+    expect(ending.speech?.controls).toMatchObject([
+      { id: "speech.speakingRate", status: "applied", effective: 1.5 }
+    ]);
+  });
+});
+
+describe("speech controls rechecked at the turn", () => {
+  const request: TaskRequest = {
+    schemaVersion: "1.1",
+    task: { kind: "text_to_speech" },
+    speech: { text: "Hallo", locale: "de-DE" },
+    delivery: { mode: "playback" }
+  };
+  const bound = { id: "local", locale: "de-DE", controlStates: PLAYBACK_STATES };
+
+  function turn(
+    voices: SystemSpeechVoice[],
+    controls: Record<string, unknown>[]
+  ): {
+    provider: SystemSpeechWebProvider;
+    context: Record<string, unknown> & { commit: () => boolean };
+    fake: ReturnType<typeof fakeRuntime>;
+  } {
+    const fake = fakeRuntime(voices);
+    const context = {
+      runId: "r",
+      hostServices: createBrowserHostServices(),
+      voice: bound,
+      controls,
+      commit: vi.fn(() => true),
+      reportSpeech: () => {},
+      artifacts: { create: vi.fn() }
+    };
+    return { provider: new SystemSpeechWebProvider({ runtime: fake.runtime }), context, fake };
+  }
+
+  it.each([
+    ["false", false],
+    ["undefined", undefined]
+  ])(
+    "refuses a required control before commit when the voice's localService became %s",
+    async (_label, localService) => {
+      const { provider, context, fake } = turn(
+        [
+          { uri: "local", locale: "de-DE", ...(localService === undefined ? {} : { localService }) }
+        ],
+        [{ id: "speech.speakingRate", value: 1.5, requirement: "required", decision: "apply" }]
+      );
+
+      await expect(provider.run(request, context as never)).rejects.toMatchObject({
+        errorClass: "CapabilityMismatch",
+        details: { code: "speech_control_unsupported" }
+      });
+      expect(context.commit).not.toHaveBeenCalled();
+      expect(fake.utterances).toEqual([]);
+    }
+  );
+
+  it("drops preferred controls to not_applied/availability_unknown and passes no value on", async () => {
+    const { provider, context, fake } = turn(
+      [{ uri: "local", locale: "de-DE", localService: false }],
+      [
+        { id: "speech.pitch", value: 1.2, requirement: "preferred", decision: "apply" },
+        { id: "playback.volume", value: 0.5, requirement: "preferred", decision: "apply" }
+      ]
+    );
+
+    const result = await provider.run(request, context as never);
+
+    expect(fake.utterances).toHaveLength(1);
+    expect("pitch" in fake.utterances[0]!).toBe(false);
+    expect("volume" in fake.utterances[0]!).toBe(false);
+    expect(result.output).toMatchObject({
+      speech: {
+        controls: [
+          {
+            id: "speech.pitch",
+            requested: 1.2,
+            status: "not_applied",
+            reason: "availability_unknown"
+          },
+          {
+            id: "playback.volume",
+            requested: 0.5,
+            status: "not_applied",
+            reason: "availability_unknown"
+          }
+        ]
+      }
+    });
+  });
+
+  it("keeps applying controls while the live voice is still on-device", async () => {
+    const { provider, context, fake } = turn(
+      [LOCAL],
+      [{ id: "speech.pitch", value: 1.2, requirement: "preferred", decision: "apply" }]
+    );
+
+    await provider.run(request, context as never);
+
+    expect(fake.utterances[0]).toMatchObject({ pitch: 1.2 });
+  });
+
+  it("falls back to the next provider when a queued required control loses support", async () => {
+    const fake = fakeRuntime();
+    fake.holds.add("eins");
+    const other = fakeRuntime();
+    const registry = new ProviderRegistry();
+    registry.register(new SystemSpeechWebProvider({ runtime: fake.runtime }));
+    registry.register(new SystemSpeechWebProvider({ id: "z_other", runtime: other.runtime }));
+    const inderun = new IndeRun(registry, createBrowserHostServices());
+
+    const first = await speak(inderun, { text: "eins", locale: "de-DE" });
+    await tick();
+    const second = await speak(inderun, {
+      text: "zwei",
+      locale: "de-DE",
+      controls: { speakingRate: { value: 1.5, requirement: "required" } }
+    });
+    await tick();
+    fake.state.voices = [{ ...LOCAL, localService: false }];
+    fake.held.get("eins")!();
+    await first.result;
+    const ending = await second.result;
+
+    expect(fake.spoken.map((call) => call.text)).toEqual(["eins"]);
+    expect(other.spoken.map((call) => call.text)).toEqual(["zwei"]);
+    expect(ending.provenance?.attempts[0]).toMatchObject({
+      outcome: "failed",
+      errorClass: "CapabilityMismatch"
+    });
+    expect(ending.provenance?.attempts[0]?.committed).toBeUndefined();
   });
 });

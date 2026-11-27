@@ -167,6 +167,14 @@ the hint says. Voices are one `ProviderVoice` per `speech.voices[]` entry, with
 all its `locales`, never `networkRequired`. The task's `locales` are the union across voices. IndeRun stores and downloads
 nothing (ADR 019); the developer supplies the package files.
 
+## Speech controls
+
+The family declares no speech controls ([ADR 025](./decisions/025-speech-controls.md)). The Articulino `speed` and
+`pauseMs` stay runtime options, not shared controls: they are not requested through `speech.controls`, not negotiated by
+the planner and never reported as control records. A request with a preferred control reaches this family with the
+control omitted, and its record reads `not_applied` / `not_reported`; a request with a required control is never routed
+here.
+
 ## Playback and artifact
 
 **Playback** needs the host's `audioOutput`. The provider takes its turn, then refuses before commit, in this order: a

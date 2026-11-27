@@ -1,7 +1,9 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.ControlApplicationPlan
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.SpeechOutput
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.TaskOutput
@@ -89,6 +91,8 @@ data class ProviderStreamContext(
      * immediately before the attempt.
      */
     val voice: ProviderVoice? = null,
+    /** The candidate's control application plan; see [RunContext.controls]. */
+    val controls: List<ControlApplicationPlan>? = null,
     /**
      * Where the provider writes retrievable media for an `artifact` request; see
      * [RunContext.artifacts]. Handing an artifact over commits the run.
@@ -99,6 +103,8 @@ data class ProviderStreamContext(
      * provider's own unit test -- always commits.
      */
     private val commitHandler: () -> Boolean = { true },
+    /** What [reportSpeech] does; the engine supplies its own, and a context built elsewhere ignores the call. */
+    private val reportSpeechHandler: (SpeechOutput) -> Unit = {},
 ) {
     /**
      * Commits the run to this provider. Call it immediately before the attempt's first
@@ -116,6 +122,14 @@ data class ProviderStreamContext(
      * and every stream commits at the latest when it hands over its result.
      */
     fun commit(): Boolean = commitHandler()
+
+    /**
+     * Reports what this attempt has settled so far for a speech run; see [RunContext.reportSpeech].
+     * A stream that ends cancelled keeps the last report in its terminal outcome (ADR 025 section
+     * 4); a call after the attempt ended, after the stream was cancelled, or after the terminal
+     * event is ignored.
+     */
+    fun reportSpeech(speech: SpeechOutput) = reportSpeechHandler(speech)
 }
 
 /**

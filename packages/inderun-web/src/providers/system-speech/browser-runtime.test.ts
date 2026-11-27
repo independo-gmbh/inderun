@@ -103,6 +103,39 @@ describe("createBrowserSpeechRuntime", () => {
     expect(wait).not.toHaveBeenCalled();
   });
 
+  it("assigns only the controls it is given to the utterance", async () => {
+    const fake = fakeSynthesis();
+    const made: BrowserSpeechUtterance[] = [];
+    const runtime = createBrowserSpeechRuntime({
+      synthesis: () => fake.synthesis,
+      createUtterance: () => {
+        const utterance = {
+          lang: "",
+          voice: null,
+          onstart: null,
+          onend: null,
+          onerror: null
+        } as BrowserSpeechUtterance;
+        made.push(utterance);
+        return utterance;
+      },
+      idlePollMs: 1
+    });
+
+    const first = runtime.speak({ text: "a", locale: "de", rate: 1.5, volume: 0.5 });
+    await vi.waitFor(() => expect(fake.spoken.length).toBe(1));
+    fake.spoken[0]!.onend?.();
+    await first;
+    const second = runtime.speak({ text: "b", locale: "de" });
+    await vi.waitFor(() => expect(fake.spoken.length).toBe(2));
+    fake.spoken[1]!.onend?.();
+    await second;
+
+    expect(made[0]).toMatchObject({ rate: 1.5, volume: 0.5 });
+    expect("pitch" in made[0]!).toBe(false);
+    expect("rate" in made[1]! || "pitch" in made[1]! || "volume" in made[1]!).toBe(false);
+  });
+
   it("fails an utterance that never starts", async () => {
     const fake = fakeSynthesis();
     const runtime = createBrowserSpeechRuntime({

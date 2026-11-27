@@ -42,7 +42,10 @@ OpenAI-compatible provider streams on all three platforms. Apple Foundation
 Models and Android ML Kit GenAI stream on-device; the remaining local/platform
 provider families (ONNX Runtime, web system-model) do not stream yet.
 Text-to-speech is implemented through `speak()` / `generateSpeech()` /
-`listVoices()` and the system speech providers on all three platforms (ADR 018). A neural speech provider family
+`listVoices()` and the system speech providers on all three platforms (ADR 018).
+Speech controls (rate, pitch, playback volume; ADR 025) ship through `speech.controls` and `delivery.playback`,
+with planner negotiation, per-control outcomes and system speech support on all three platforms; native OS and package
+floors are unchanged, and the neural family declares no controls. A neural speech provider family
 (`local.onnx.speech.*`, runtime seam, fixture runtime) exists on all three SDKs; its ONNX executor and the first model
 pipeline (Articulino) ship, the Apple Core AI runtime ships for iOS/macOS 27 (ADR 022, with its conversion record), and the German text frontend (numbers, dates, abbreviations before sentence splitting) ships (ADR 023; see also ADR 020, ADR 021). The three demos carry an opt-in Voices lab (#260 PR 6) that downloads
 neural models from a checksummed catalog.

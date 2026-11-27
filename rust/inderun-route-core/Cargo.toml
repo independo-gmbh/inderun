@@ -10,7 +10,10 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `float_roundtrip`: the planner echoes each requested control value into the plan, and
+# every engine compares that plan to the request exactly. The default fast float parser can
+# be off by one ulp (1.1400000000000001 parses as 1.14), which refuses the run.
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 jni = { version = "0.22.4", optional = true }
 fancy-regex = { version = "0.20", optional = true }
 

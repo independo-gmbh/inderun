@@ -902,3 +902,65 @@ describe("NeuralSpeechWebProvider runtime descriptors", () => {
     expect(await injected.availability(PACKAGE)).toEqual({ available: true });
   });
 });
+
+describe("NeuralSpeechWebProvider speech controls", () => {
+  it("declares no controls and no control states", async () => {
+    const { provider } = createProvider();
+    const task = provider.describe().taskCapabilities?.[0];
+    expect(task).not.toHaveProperty("controls");
+    const dynamic = await provider.capabilities(host);
+    expect(dynamic.taskCapabilities?.[0]).not.toHaveProperty("controlStates");
+    expect(dynamic.taskCapabilities?.[0]).not.toHaveProperty("controls");
+  });
+
+  it("reports a preferred control as not applied and never claims it applied", async () => {
+    const { provider } = createProvider();
+    const registry = new ProviderRegistry();
+    registry.register(provider);
+    const audio = createFixtureAudioOutput();
+    const engine = new IndeRun(registry, { ...host, audioOutput: audio.service });
+
+    const result = await engine.run(
+      speechRequest({
+        speech: {
+          text: "Hallo Welt.",
+          locale: "de-AT",
+          controls: { speakingRate: { value: 1.5 }, pitch: { value: 0.8 } }
+        }
+      })
+    );
+
+    const controls = (result.output as { speech?: { controls?: { status: string }[] } }).speech
+      ?.controls;
+    expect(controls).toHaveLength(2);
+    expect(controls?.every((record) => record.status === "not_applied")).toBe(true);
+    expect(controls).toMatchObject([
+      { id: "speech.speakingRate", requested: 1.5, status: "not_applied", reason: "not_reported" },
+      { id: "speech.pitch", requested: 0.8, status: "not_applied", reason: "not_reported" }
+    ]);
+  });
+
+  it("refuses a required control instead of ignoring it", async () => {
+    const { provider } = createProvider();
+    const registry = new ProviderRegistry();
+    registry.register(provider);
+    const engine = new IndeRun(registry, {
+      ...host,
+      audioOutput: createFixtureAudioOutput().service
+    });
+
+    const error = await rejection(
+      engine.run(
+        speechRequest({
+          speech: {
+            text: "Hallo Welt.",
+            locale: "de-AT",
+            controls: { speakingRate: { value: 1.5, requirement: "required" } }
+          }
+        })
+      )
+    );
+
+    expect(error.errorClass).toBe("CapabilityMismatch");
+  });
+});

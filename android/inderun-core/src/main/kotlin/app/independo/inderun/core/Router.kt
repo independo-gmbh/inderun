@@ -1,5 +1,6 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.ControlApplicationPlan
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.ModelProfile
@@ -21,6 +22,11 @@ data class RouteCandidate(
      * policy. Null when the task has no voice or the provider does not list its voices.
      */
     val voice: ProviderVoice? = null,
+    /**
+     * The control application plan for this provider (ADR 025 section 3), verbatim from the route
+     * plan. Null when the request names no controls.
+     */
+    val controls: List<ControlApplicationPlan>? = null,
 )
 
 data class RouteSelection(
@@ -131,13 +137,13 @@ class Router private constructor(
         routePlan: SharedPlannerRoutePlan,
     ): RouteSelection {
         routePlan.selectedProviderId?.let { selectedProviderId ->
-            // Each planned snapshot keeps the voice its candidate was bound to.
+            // Each planned snapshot keeps the voice and control plan its candidate was bound to.
             val orderedSnapshots = routePlan.candidates.mapNotNull { candidate ->
                 snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == candidate.providerId }
-                    ?.let { it to candidate.voice }
+                    ?.let { Triple(it, candidate.voice, candidate.controls) }
             }.ifEmpty {
                 snapshots.firstOrNull { snapshot -> snapshot.descriptor.id == selectedProviderId }
-                    ?.let { listOf(it to null) }
+                    ?.let { listOf(Triple(it, null, null)) }
                     .orEmpty()
             }
 
@@ -146,8 +152,8 @@ class Router private constructor(
             } ?: orderedSnapshots.firstOrNull()
 
             if (selected != null) {
-                val candidates = (listOf(selected) + orderedSnapshots.drop(1)).map { (snapshot, voice) ->
-                    RouteCandidate(provider = snapshot.provider, voice = voice)
+                val candidates = (listOf(selected) + orderedSnapshots.drop(1)).map { (snapshot, voice, controls) ->
+                    RouteCandidate(provider = snapshot.provider, voice = voice, controls = controls)
                 }
                 return RouteSelection(
                     provider = selected.first.provider,

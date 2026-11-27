@@ -1,5 +1,5 @@
 {
-  "$comment": "ADR 025 section 4: the engine validates and completes the control records a provider reports, before the output leaves the engine. 'reported' is what the provider put in output.speech.controls; 'expected' is either the records the caller receives, in request order, or a failure with errorClass Internal and details.code 'output_mismatch' (the provider broke the contract after commit, so there is no fallback). A required control on a completed run must be applied; on a cancelled run, missing records become not_applied / not_reported. Scenario catalog: each SDK registers one handler per case id (Stage 2 of #311).",
+  "$comment": "ADR 025 section 4: the engine validates and completes the control records a provider reports, before the output leaves the engine. 'reported' is what the provider put in output.speech.controls, or null when its output has no speech section at all; 'expected' is either the records the caller receives, in request order, or a failure with errorClass Internal and details.code 'output_mismatch' (the provider broke the contract after commit, so there is no fallback). A required control on a completed run must be applied, so an output without a speech section fails only when a control is required; for preferred-only controls it passes unchanged ('expected' then lists no controls: no section, no records); on a cancelled run, missing records become not_applied / not_reported. Scenario catalog: each SDK registers one handler per case id (Stage 2 of #311).",
   "cases": [
     {
       "id": "complete_records",
@@ -504,6 +504,69 @@
             "reason": "not_reported"
           }
         ]
+      }
+    },
+    {
+      "id": "preferred_only_no_speech_section",
+      "description": "Every control is preferred and the provider returns no speech section. The output passes unchanged: no section and no records, because the engine never invents the locale a section would state.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": null,
+      "expected": {
+        "failed": false
+      }
+    },
+    {
+      "id": "required_no_speech_section",
+      "description": "A required control and no speech section: nothing states the required control was applied, so the completed run fails.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "reported": null,
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
       }
     }
   ]

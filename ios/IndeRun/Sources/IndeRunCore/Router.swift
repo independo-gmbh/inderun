@@ -8,10 +8,14 @@ public struct RouteCandidate: Sendable {
     /// privacy policy. `nil` when the task has no voice or the provider does not list
     /// its voices.
     public let voice: ProviderVoice?
+    /// The control application plan for this provider (ADR 025 section 3), verbatim from the
+    /// route plan. `nil` when the request names no controls.
+    public let controls: [ControlApplicationPlan]?
 
-    public init(provider: any ProviderAdapter, voice: ProviderVoice? = nil) {
+    public init(provider: any ProviderAdapter, voice: ProviderVoice? = nil, controls: [ControlApplicationPlan]? = nil) {
         self.provider = provider
         self.voice = voice
+        self.controls = controls
     }
 }
 
@@ -187,7 +191,7 @@ public final class Router: Sendable {
     ) throws -> RouteSelection {
         let planned: [(id: String, candidate: RouteCandidate)] = routePlan.candidates.compactMap { candidate in
             snapshots.first(where: { $0.descriptor.id == candidate.providerId }).map { snapshot in
-                (snapshot.descriptor.id, RouteCandidate(provider: snapshot.provider, voice: candidate.voice))
+                (snapshot.descriptor.id, RouteCandidate(provider: snapshot.provider, voice: candidate.voice, controls: candidate.controls))
             }
         }
 

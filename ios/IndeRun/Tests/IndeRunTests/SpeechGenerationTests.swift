@@ -185,7 +185,9 @@ final class SpeechGenerationTests: XCTestCase {
             let raw = vector.options?.mapValues(\.value) ?? [:]
             let voices = await ScriptedApi(snapshots: vector.snapshots).listVoices(
                 locale: raw["locale"] as? String,
-                localeMatch: (raw["localeMatch"] as? String).flatMap(LocaleMatch.init(rawValue:))
+                localeMatch: (raw["localeMatch"] as? String).flatMap(LocaleMatch.init(rawValue:)),
+                includeControls: raw["includeControls"] as? Bool ?? false,
+                includeUnavailable: raw["includeUnavailable"] as? Bool ?? false
             )
             let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(voices)) as? NSArray
             XCTAssertEqual(encoded, vector.expected.value as? NSArray, vector.id)

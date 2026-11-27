@@ -2,7 +2,7 @@ import type { TaskRequest } from "@independo/inderun-contracts";
 import type { HostServices } from "./host.js";
 import type { ProviderAdapter } from "./provider.js";
 import type { ProviderRegistry } from "./registry.js";
-import type { BoundVoice } from "./task-profiles.js";
+import type { BoundVoice, ControlApplicationPlan } from "./task-profiles.js";
 import {
   createCapabilityMismatch,
   createInternal,
@@ -30,6 +30,11 @@ export interface RouteCandidate {
    * policy. Absent when the task has no voice or the provider does not list its voices.
    */
   voice?: BoundVoice;
+  /**
+   * The control application plan for this provider (ADR 025 §3), verbatim from the route plan.
+   * Absent when the request names no controls.
+   */
+  controls?: ControlApplicationPlan[];
 }
 
 /**
@@ -170,7 +175,8 @@ export class Router {
       return [
         {
           provider: snapshot.provider,
-          ...(candidate.voice !== undefined ? { voice: candidate.voice } : {})
+          ...(candidate.voice !== undefined ? { voice: candidate.voice } : {}),
+          ...(candidate.controls !== undefined ? { controls: candidate.controls } : {})
         }
       ];
     });

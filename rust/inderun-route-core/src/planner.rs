@@ -1,10 +1,11 @@
 //! Deterministic route-planning algorithm.
 //!
 //! [`plan_route`] sorts the candidate providers by placement, model-profile,
-//! preference, voice and locale rank, filters out any that violate the request
-//! constraints, binds each candidate to the voice it must use when the
-//! provider lists its voices, and produces a [`RoutePlan`] with a stable
-//! selection plus an inspectable explanation.
+//! preference, voice, speech-control and locale rank, filters out any that
+//! violate the request constraints, binds each candidate to the voice it must
+//! use when the provider lists its voices, attaches what that candidate must do
+//! with each requested speech control, and produces a [`RoutePlan`] with a
+//! stable selection plus an inspectable explanation.
 //!
 //! Invariants worth preserving:
 //!
@@ -47,12 +48,21 @@
 //!   A voice that is not prepared cannot be bound for a run. In `prepare` mode
 //!   it can, so an application can make it ready, and it ranks behind ready
 //!   voices unless the request names it, so prepare warms what a run would use.
+//! - A required speech control is a hard filter on the voice, never on its
+//!   own: a voice qualifies for binding only when it also meets every required
+//!   control, so everything ranked from the bound voice (privacy placement,
+//!   voice id, exact locale region) reads a voice that can really serve the
+//!   request. A provider that lists no voices is held to its task state. A
+//!   preferred control only ranks, after the voice id and before the locale
+//!   region. Without controls every control rank is 0 and no plan changes;
+//!   the negotiation itself lives in [`crate::controls`].
 //! - `infer_failure_code` keeps `offline` ahead of `capability_mismatch`: an
 //!   offline host is the more actionable diagnostic even when the surviving
 //!   providers also failed a mode check.
 
 use std::cmp::Ordering;
 
+use crate::controls::{ControlCapability, requested_controls};
 use crate::model::*;
 
 pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
@@ -60,18 +70,21 @@ pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
     let mut providers = input.providers.clone();
     providers.sort_by(|left, right| compare_inputs(left, right, &input));
 
+    let requested = requested_controls(&input);
     let mut candidates = Vec::new();
     let mut rejected_providers = Vec::new();
 
     for provider in &providers {
         let reasons = evaluate_provider(provider, &input);
         if reasons.is_empty() {
+            let voice = select_voice(provider, &input);
             candidates.push(Candidate {
                 provider_id: provider.descriptor.id.clone(),
-                // Speech controls are planned in a later change (ADR 025); until then none are bound.
-                controls: None,
+                controls: requested
+                    .as_ref()
+                    .map(|requested| requested.plan(control_capability(provider, &input), voice)),
                 order: candidates.len() as i64,
-                voice: select_voice(provider, &input).cloned(),
+                voice: voice.cloned(),
             });
         } else {
             rejected_providers.push(RejectedProvider {
@@ -153,14 +166,46 @@ fn compare_inputs(left: &Provider, right: &Provider, input: &RoutePlannerInput) 
         .then_with(|| left.descriptor.id.cmp(&right.descriptor.id))
 }
 
-fn priority_tuple(provider: &Provider, input: &RoutePlannerInput) -> (u8, usize, u8, u8, u8) {
+fn priority_tuple(
+    provider: &Provider,
+    input: &RoutePlannerInput,
+) -> (u8, usize, u8, u8, usize, u8) {
     (
         placement_rank(provider, input),
         profile_rank(provider, input.model_profile.as_ref()),
         preference_rank(provider, input),
         voice_rank(provider, input),
+        controls_rank(provider, input),
         locale_rank(provider, input),
     )
+}
+
+/// The number of preferred speech controls the provider cannot apply at their
+/// value on the voice it would bind (on its task state when it binds none), so
+/// the provider that honours more of them ranks first. A request without
+/// controls ranks everyone 0.
+fn controls_rank(provider: &Provider, input: &RoutePlannerInput) -> usize {
+    let Some(requested) = requested_controls(input) else {
+        return 0;
+    };
+    if resolve_task(provider, &input.task.kind).is_none() {
+        return requested.preferred_count();
+    }
+    requested.unmet_preferred(
+        control_capability(provider, input),
+        select_voice(provider, input),
+    )
+}
+
+/// The provider's control declarations and task-level control states for the
+/// requested task; empty when it declares none or cannot serve the task.
+fn control_capability<'a>(
+    provider: &'a Provider,
+    input: &RoutePlannerInput,
+) -> ControlCapability<'a> {
+    resolve_task(provider, &input.task.kind)
+        .map(|task| task.control_capability())
+        .unwrap_or_default()
 }
 
 /// A voice id belongs to one provider, so that provider ranks ahead of those
@@ -185,7 +230,11 @@ fn voice_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
 /// a provider known to offer the exact tag ranks ahead of one that only offers
 /// another region of the language (or cannot say). It ranks after every
 /// explicit routing priority, and a request without a locale ranks everyone 0,
-/// so text plans are unaffected.
+/// so text plans are unaffected. With speech controls, a provider that lists
+/// voices offers the tag only when the voice [`select_voice`] binds speaks it,
+/// so a voice the candidate would never use (one that misses a required trait
+/// or control, or is not prepared) does not raise its rank. Without controls,
+/// any usable voice with the tag counts, as it always has.
 fn locale_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
     let Some(locale) = &input.task.locale else {
         return 0;
@@ -196,6 +245,9 @@ fn locale_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
     let private = is_data_private(provider, &input.task.kind);
     let exact = |tag: &str| tag.eq_ignore_ascii_case(&locale.tag);
     let offers_exact = match task.voices() {
+        Some(_) if requested_controls(input).is_some() => {
+            select_voice(provider, input).is_some_and(|voice| voice_locales(voice).any(exact))
+        }
         Some(voices) => voices
             .iter()
             .any(|voice| voice_locales(voice).any(exact) && voice_is_usable(voice, input, private)),
@@ -208,16 +260,19 @@ fn locale_rank(provider: &Provider, input: &RoutePlannerInput) -> u8 {
 
 /// Picks the voice a candidate must use, so the planner's privacy decision
 /// binds the voice that actually speaks rather than only the provider. Only
-/// voices that satisfy the request's locale, required traits and privacy
-/// qualify; among them, on-device before network when the request prefers
-/// privacy, then a preferred id, then a preferred gender, then the exact locale
-/// region, then on-device before network, then the provider's own listing
-/// order.
+/// voices that satisfy the request's locale, required traits, privacy and
+/// required speech controls qualify; among them, on-device before network when
+/// the request prefers privacy, then a preferred id, then a preferred gender,
+/// then more preferred speech controls met, then readiness, then the exact
+/// locale region, then on-device before network, then the provider's own
+/// listing order. A request that names no locale, voice or speech control binds
+/// no voice.
 fn select_voice<'a>(
     provider: &'a Provider,
     input: &RoutePlannerInput,
 ) -> Option<&'a ProviderVoice> {
-    if input.task.locale.is_none() && input.task.voice.is_none() {
+    let requested = requested_controls(input);
+    if input.task.locale.is_none() && input.task.voice.is_none() && requested.is_none() {
         return None;
     }
     let task = resolve_task(provider, &input.task.kind)?;
@@ -229,6 +284,7 @@ fn select_voice<'a>(
         .and_then(|voice| voice.gender.as_ref());
     let preferred_id = requested_voice_id(provider, input);
     let prefers_privacy = prefers_privacy(input);
+    let controls = task.control_capability();
 
     task.voices()?
         .iter()
@@ -236,12 +292,18 @@ fn select_voice<'a>(
             voice_fits(voice, &provider.descriptor.id, input)
                 && voice_is_usable(voice, input, private)
                 && (prepares(input) || voice_is_ready(voice))
+                && requested
+                    .as_ref()
+                    .is_none_or(|requested| requested.meets_required(controls, Some(voice)))
         })
         .min_by_key(|voice| {
             (
                 prefers_privacy && !voice_is_local(voice, private),
                 preferred_id.is_some_and(|id| voice.id.as_ref() != Some(id)),
                 preferred_gender.is_some_and(|gender| voice.gender.as_ref() != Some(gender)),
+                requested.as_ref().map_or(0, |requested| {
+                    requested.unmet_preferred(controls, Some(voice))
+                }),
                 !voice_is_ready(voice),
                 input.task.locale.as_ref().is_some_and(|locale| {
                     !voice_locales(voice).any(|tag| tag.eq_ignore_ascii_case(&locale.tag))
@@ -428,6 +490,7 @@ struct ResolvedTask<'a> {
     prepare: bool,
     outputs: Vec<ProviderTaskOutput>,
     static_locales: Option<&'a [String]>,
+    controls: &'a [SpeechControlDeclaration],
     dynamic: Option<&'a ProviderTaskAvailability>,
 }
 
@@ -442,6 +505,17 @@ impl<'a> ResolvedTask<'a> {
         self.dynamic
             .and_then(|dynamic| dynamic.locales.as_deref())
             .or(self.static_locales)
+    }
+
+    /// The static control declarations with the dynamic task-level states.
+    fn control_capability(&self) -> ControlCapability<'a> {
+        ControlCapability {
+            declarations: self.controls,
+            states: self
+                .dynamic
+                .and_then(|dynamic| dynamic.control_states.as_deref())
+                .unwrap_or_default(),
+        }
     }
 }
 
@@ -468,6 +542,7 @@ fn resolve_task<'a>(provider: &'a Provider, kind: &str) -> Option<ResolvedTask<'
                 prepare: entry.interaction.prepare.unwrap_or(false),
                 outputs: entry.outputs.clone(),
                 static_locales: entry.locales.as_deref(),
+                controls: entry.controls.as_deref().unwrap_or_default(),
                 dynamic,
             })
         }
@@ -482,6 +557,7 @@ fn resolve_task<'a>(provider: &'a Provider, kind: &str) -> Option<ResolvedTask<'
                     media_types: None,
                 }],
                 static_locales: None,
+                controls: &[],
                 dynamic,
             })
         }
@@ -536,8 +612,8 @@ fn wants_stream(input: &RoutePlannerInput) -> bool {
 
 /// Collects every reason the provider cannot serve the request, in a fixed
 /// order: task, model profile, input kinds, interaction mode, output delivery,
-/// media type, locale, voice, placement, availability. An empty list means the
-/// provider is a candidate.
+/// media type, locale, voice, speech controls, placement, availability. An
+/// empty list means the provider is a candidate.
 fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reason> {
     let descriptor = &provider.descriptor;
     let capabilities = &provider.capabilities;
@@ -725,6 +801,7 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
         // Under local-required privacy, a voice that sends data off the device
         // does not count; when only such voices fit, the refusal is a privacy one.
         let usable = |voice: &ProviderVoice| voice_is_usable(voice, input, private);
+        let voice_checks_start = reasons.len();
 
         if let Some(locale) = &input.task.locale {
             match voices {
@@ -819,6 +896,30 @@ fn evaluate_provider(provider: &Provider, input: &RoutePlannerInput) -> Vec<Reas
                     }
                 }
             }
+        }
+
+        // Required speech controls narrow the voices that passed the checks
+        // above, so they are only judged once those checks found some: a
+        // provider without a fitting voice reports that, not every control.
+        // Prepare mode has no controls, so readiness always applies here.
+        if reasons.len() == voice_checks_start
+            && let Some(requested) = requested_controls(input)
+        {
+            let bindable = voices.map(|voices| {
+                voices
+                    .iter()
+                    .filter(|voice| {
+                        voice_fits(voice, &descriptor.id, input)
+                            && usable(voice)
+                            && voice_is_ready(voice)
+                    })
+                    .collect::<Vec<_>>()
+            });
+            reasons.extend(requested.rejection_reasons(
+                &descriptor.id,
+                task.control_capability(),
+                bindable.as_deref(),
+            ));
         }
     }
 

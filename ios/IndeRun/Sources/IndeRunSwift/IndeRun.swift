@@ -165,6 +165,10 @@ public final class IndeRun: IndeRunApi {
             let candidates = routeSelection.candidates
             let providers = candidates.map(\.provider)
             provenance.routed(routeSelection.routePlan)
+            // A plan that does not match the request's controls stops the run before any attempt.
+            if let mismatch = checkControlPlans(request: request, candidates: routeSelection.candidates) {
+                throw mismatch
+            }
             let delivery = TaskProfiles.profile(for: request.task.kind).delivery(request)
 
             let routeTime = hostServices.clock?.now() ?? Int64(Date().timeIntervalSince1970 * 1000)
@@ -207,12 +211,15 @@ public final class IndeRun: IndeRunApi {
                         throw refusal
                     }
 
+                    // Mode 1 has no cancel path, so the context's `reportSpeech` has no reader here:
+                    // the result's own speech output carries the records.
                     var result = try await provider.run(
                         request: request,
                         context: RunContext(
                             runId: runId,
                             hostServices: hostServices,
                             voice: candidate.voice,
+                            controls: candidate.controls,
                             artifacts: attemptArtifacts,
                             commit: commit
                         )
@@ -378,6 +385,12 @@ public final class IndeRun: IndeRunApi {
                 interactionMode: .stream,
                 modelProfile: plannerModelProfile(for: request)
             )
+            provenance.routed(routeSelection.routePlan)
+            // A plan that does not match the request's controls stops the run before any attempt,
+            // so it surfaces like a routing failure: a thrown error, never a started run.
+            if let mismatch = checkControlPlans(request: request, candidates: routeSelection.candidates) {
+                throw mismatch
+            }
         } catch {
             let exception = toIndeRunException(error, fallbackRunId: runId)
             provenance.routingFailed(exception.details)
@@ -492,16 +505,24 @@ public final class IndeRun: IndeRunApi {
             provider: (any ProviderAdapter)?,
             committed: Bool,
             attempted: [String],
-            delivered: TaskOutput? = nil
+            delivered: TaskOutput? = nil,
+            reportedSpeech: SpeechOutput? = nil
         ) {
             let providerId = provider?.describe().id
             if let providerId { provenance.attempted(providerId, .cancelled, committed: committed) }
+            // Committed playback keeps the control records reported before the stop (ADR 025
+            // section 4).
+            let speech = providerId.flatMap {
+                committed && delivery == .playback
+                    ? cancelledSpeechOutcome(request: request, reported: reportedSpeech, providerId: $0)
+                    : nil
+            }
             let outcome = StreamTerminalOutcome.cancelled(
                 runId: runId,
                 partialText: textRun ? partialText : nil,
                 output: delivered ?? (
                     committed && delivery == .playback
-                        ? TaskOutput(playback: PlaybackOutput(timing: nil))
+                        ? TaskOutput(playback: PlaybackOutput(timing: nil), speech: speech)
                         : nil
                 ),
                 reason: cancellation.reason,
@@ -587,6 +608,13 @@ public final class IndeRun: IndeRunApi {
             }
 
             let commit: @Sendable () -> Bool = { markCommitted { cancellation.isCancelled || gate.isTerminated } }
+            // What the provider reported before a stop; a report after it, or from an attempt the
+            // run has left, is a late callback and is dropped.
+            let reported = SpeechReport()
+            let reportSpeech: @Sendable (SpeechOutput) -> Void = { speech in
+                if latch.isClosed || cancellation.isCancelled || gate.isTerminated { return }
+                reported.set(speech)
+            }
             let attemptArtifacts = artifacts.attempt(commit: commit)
             // Whatever the attempt finished and did not return is discarded on every exit; the
             // cancelled and committed-failure paths release earlier, before their terminal.
@@ -608,8 +636,10 @@ public final class IndeRun: IndeRunApi {
                     hostServices: hostServices,
                     cancellation: cancellation,
                     voice: candidate.voice,
+                    controls: candidate.controls,
                     artifacts: attemptArtifacts,
-                    commit: commit
+                    commit: commit,
+                    reportSpeech: reportSpeech
                 )
 
                 var terminatedInLoop = false
@@ -712,7 +742,8 @@ public final class IndeRun: IndeRunApi {
                         partialText: partialText,
                         provider: provider,
                         committed: latch.isCommitted,
-                        attempted: attemptedProviderIds
+                        attempted: attemptedProviderIds,
+                        reportedSpeech: reported.value
                     )
                     return
                 }
@@ -729,7 +760,8 @@ public final class IndeRun: IndeRunApi {
                         partialText: partialText,
                         provider: provider,
                         committed: latch.isCommitted,
-                        attempted: attemptedProviderIds
+                        attempted: attemptedProviderIds,
+                        reportedSpeech: reported.value
                     )
                     return
                 }
@@ -853,7 +885,8 @@ public final class IndeRun: IndeRunApi {
     /// Checks that an artifact in a provider's output is one this attempt produced, swaps in the
     /// reference the store holds, and only then checks the output against the requested
     /// delivery: the artifact's media type, size and ownership are the engine's record rather
-    /// than the provider's claim.
+    /// than the provider's claim. Last, it validates and completes the speech control records
+    /// (`completeOutputControls`, ADR 025 section 4).
     private func normalizeOutput(
         request: TaskRequest,
         delivery: OutputDelivery,
@@ -876,7 +909,7 @@ public final class IndeRun: IndeRunApi {
         if let mismatch = checkOutput(request: request, delivery: delivery, output: resolved, providerId: providerId) {
             throw mismatch
         }
-        return resolved
+        return try completeOutputControls(request: request, output: resolved, providerId: providerId)
     }
 
     /// Refuses, before routing, an artifact request whose `destinationRef` this host cannot
@@ -1071,6 +1104,13 @@ private final class CommitLatch: @unchecked Sendable {
         return committed
     }
 
+    /// Whether the attempt has ended (see ``close()``).
+    var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
     /// Commits unless `refused()` says the run can no longer commit. `granted` is what
     /// `commit()` returns to the provider; `first` is true only for the call that committed.
     func commit(unless refused: () -> Bool) -> (granted: Bool, first: Bool) {
@@ -1090,5 +1130,23 @@ private final class CommitLatch: @unchecked Sendable {
         defer { lock.unlock() }
         closed = true
         return committed
+    }
+}
+
+/// The last speech outcome an attempt reported through `reportSpeech` (ADR 025 section 4).
+private final class SpeechReport: @unchecked Sendable {
+    private let lock = NSLock()
+    private var speech: SpeechOutput?
+
+    var value: SpeechOutput? {
+        lock.lock()
+        defer { lock.unlock() }
+        return speech
+    }
+
+    func set(_ newValue: SpeechOutput) {
+        lock.lock()
+        speech = newValue
+        lock.unlock()
     }
 }

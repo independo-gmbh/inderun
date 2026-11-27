@@ -748,6 +748,48 @@ final class NeuralSpeechProviderTests: XCTestCase {
         XCTAssertTrue(other.synthesized.isEmpty)
     }
 
+    // MARK: - Speech controls (ADR 025)
+
+    func testNeuralSpeechDeclaresNoControlsAndReportsNoControlStates() async throws {
+        let provider = makeProvider()
+
+        XCTAssertNil(try XCTUnwrap(provider.describe().taskCapabilities?.first).controls)
+        let capabilities = await provider.capabilities(host: host)
+        XCTAssertNil(try XCTUnwrap(capabilities.taskCapabilities?.first).controlStates)
+    }
+
+    func testEngineRecordsAPreferredControlAsNotReportedAndNeverClaimsItApplied() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(makeProvider())
+        let engine = IndeRun(registry: registry, hostServices: hostWith(FixtureAudioOutputService()))
+
+        let result = try await engine.run(request: speechRequest(controls: SharedSynthesisControls(
+            pitch: RequestedNumber(requirement: nil, value: 0.8),
+            speakingRate: RequestedNumber(requirement: nil, value: 1.5)
+        )))
+
+        let records = try XCTUnwrap(result.output.speech?.controls)
+        XCTAssertEqual(records.map(\.id), [.speechSpeakingRate, .speechPitch])
+        XCTAssertEqual(records.map(\.status), [.notApplied, .notApplied])
+        XCTAssertEqual(records.map(\.reason), [.notReported, .notReported])
+        XCTAssertEqual(records.map(\.effective), [nil, nil])
+    }
+
+    func testEngineRefusesARequiredControlTheNeuralProviderDoesNotDeclare() async throws {
+        let registry = ProviderRegistry()
+        try registry.register(makeProvider())
+        let engine = IndeRun(registry: registry, hostServices: hostWith(FixtureAudioOutputService()))
+
+        let error = await refusal {
+            _ = try await engine.run(request: speechRequest(controls: SharedSynthesisControls(
+                pitch: nil,
+                speakingRate: RequestedNumber(requirement: .requirementLevelRequired, value: 1.5)
+            )))
+        }
+
+        XCTAssertEqual(error?.errorClass, .CapabilityMismatch)
+    }
+
     private func twoProviderEngine(_ first: any NeuralSpeechRuntime, _ second: any NeuralSpeechRuntime) throws -> IndeRun {
         let registry = ProviderRegistry()
         try registry.register(makeProvider(id: "tts-a", runtime: first))
@@ -823,12 +865,13 @@ private func speechRequest(
     mode: OutputDelivery = .playback,
     text: String = "Hallo Welt.",
     timeoutMs: Int? = nil,
-    locale: String = "de-AT"
+    locale: String = "de-AT",
+    controls: SharedSynthesisControls? = nil
 ) -> TaskRequest {
     TaskRequest(
         task: TaskDescriptor(kind: .textToSpeech),
         constraints: timeoutMs.map { TaskRequestConstraints(timeoutMs: $0) },
-        speech: SpeechInput(controls: nil, locale: locale, localeMatch: nil, text: text, voice: nil),
+        speech: SpeechInput(controls: controls, locale: locale, localeMatch: nil, text: text, voice: nil),
         delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: mode, playback: nil)
     )
 }

@@ -1,5 +1,5 @@
 {
-  "$comment": "ADR 025 section 3: a control application plan that does not match the request prevents execution. The planner boundary is unversioned, and a route core or binding built without the plan would otherwise turn a required control into 'no controls'. Each case gives the request and the 'controls' of the planned candidate (null means the key is absent); 'fallbackCandidateControls', when present, is a second candidate's. The engine checks every candidate after planning and before any attempt: each requested control exactly once, in request order, with the requested id, value and requirement, every required one with decision 'apply'; no entry for a control the request did not name. A mismatch fails the run with errorClass Internal and details.code 'control_plan_mismatch' and no attempt. Scenario catalog: each SDK registers one handler per case id (Stage 2 of #311).",
+  "$comment": "ADR 025 section 3: a control application plan that does not match the request prevents execution. The planner boundary is unversioned, and a route core or binding built without the plan would otherwise turn a required control into 'no controls'. Each case gives the request and the 'controls' of the planned candidate (null means the key is absent); 'fallbackCandidateControls', when present, is a second candidate's. The engine checks every candidate after planning and before any attempt: each requested control exactly once, in request order, with the requested id, value and requirement, every required one with decision 'apply'; an 'omit' entry with a reason and an 'apply' entry without one; no entry for a control the request did not name. A mismatch fails the run with errorClass Internal and details.code 'control_plan_mismatch' and no attempt. Scenario catalog: each SDK registers one handler per case id (Stage 2 of #311).",
   "cases": [
     {
       "id": "consistent_plan",
@@ -415,6 +415,79 @@
         }
       ],
       "fallbackCandidateControls": null,
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "omit_without_reason",
+      "description": "The plan omits a preferred control without saying why. An omission always carries its reason, which becomes the outcome record's reason.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.pitch",
+          "value": 1.05,
+          "requirement": "preferred",
+          "decision": "omit"
+        }
+      ],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "apply_with_reason",
+      "description": "The plan applies a control and also gives an omission reason. An applied entry carries no reason, so the plan contradicts itself.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "preferred",
+          "decision": "apply",
+          "reason": "unsupported"
+        }
+      ],
       "expected": {
         "refused": true,
         "errorClass": "Internal",

@@ -27,6 +27,7 @@ import {
   createCapabilityMismatch,
   createInternal,
   createUnavailable,
+  IndeRunException,
   toIndeRunException
 } from "./errors.js";
 import { type TelemetryEvent, type TelemetryService, NoOpTelemetryService } from "./telemetry.js";
@@ -40,9 +41,13 @@ import {
 } from "./model-profiles.js";
 import { ProvenanceRecorder } from "./provenance.js";
 import {
+  cancelledSpeechOutcome,
+  checkControlPlans,
   checkOutput,
+  completeOutputControls,
   type OutputDelivery,
   recheckBoundVoice,
+  type SpeechOutput,
   taskProfileFor
 } from "./task-profiles.js";
 import {
@@ -359,6 +364,9 @@ export class IndeRun implements IndeRunApi {
       );
       const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
       provenance.routed(routeSelection.routePlan);
+      // A plan that does not match the request's controls stops the run before any attempt.
+      const planMismatch = checkControlPlans(request, routeSelection.routePlan.candidates);
+      if (planMismatch !== undefined) throw planMismatch;
       const delivery = taskProfileFor(request.task.kind)!.delivery(request);
 
       this.emitRouteDecided(runId, request, routeSelection, providers.length);
@@ -370,6 +378,7 @@ export class IndeRun implements IndeRunApi {
       for (const [index, provider] of providers.entries()) {
         const providerId = provider.describe().id;
         const voice = routeSelection.candidates[index]?.voice;
+        const controls = routeSelection.candidates[index]?.controls;
         provenance.voiceBound(providerId, request.task.kind, voice);
         attemptedProviderIds.push(providerId);
         let committed = false;
@@ -392,6 +401,10 @@ export class IndeRun implements IndeRunApi {
             runId,
             hostServices: this.hostServices,
             ...(voice !== undefined ? { voice } : {}),
+            ...(controls !== undefined ? { controls } : {}),
+            // Mode 1 has no cancel path, so a report made before the end has no reader: the
+            // result's own speech output carries the records.
+            reportSpeech: () => {},
             commit,
             artifacts: attemptArtifacts
           });
@@ -551,13 +564,17 @@ export class IndeRun implements IndeRunApi {
         "stream",
         modelProfile
       );
+      provenance.routed(routeSelection.routePlan);
+      // A plan that does not match the request's controls stops the run before any attempt,
+      // so it surfaces like a routing failure: a rejected promise, never a started run.
+      const planMismatch = checkControlPlans(request, routeSelection.routePlan.candidates);
+      if (planMismatch !== undefined) throw planMismatch;
     } catch (error) {
       const exception = toIndeRunException(error, { runId });
       provenance.routingFailed(exception.details);
       throw exception.withProvenance(provenance.build());
     }
     const providers = [routeSelection.provider, ...routeSelection.fallbackProviders];
-    provenance.routed(routeSelection.routePlan);
 
     this.emitRouteDecided(runId, request, routeSelection, providers.length);
 
@@ -603,13 +620,19 @@ export class IndeRun implements IndeRunApi {
       const cancelledOutcome = (
         partialText: string,
         cancelledProvider?: ProviderAdapter,
-        delivered?: TaskOutput
+        delivered?: TaskOutput,
+        reportedSpeech?: SpeechOutput
       ): StreamTerminalOutcome => {
         const reason =
           typeof controller.signal.reason === "string" ? controller.signal.reason : undefined;
         if (cancelledProvider !== undefined) {
           provenance.attempted(cancelledProvider.describe().id, "cancelled", undefined, committed);
         }
+        // Committed playback keeps the control records reported before the stop (ADR 025 §4).
+        const speech =
+          playbackCommitted && cancelledProvider !== undefined
+            ? cancelledSpeechOutcome(request, reportedSpeech, cancelledProvider.describe().id)
+            : undefined;
         return {
           outcome: "cancelled",
           runId,
@@ -618,7 +641,15 @@ export class IndeRun implements IndeRunApi {
           // artifact already written to its destination is reported, since the application
           // owns those bytes now. An uncommitted non-text run produced nothing to report.
           ...(textRun ? { partialText } : {}),
-          ...(playbackCommitted ? { output: { type: "playback" as const, playback: {} } } : {}),
+          ...(playbackCommitted
+            ? {
+                output: {
+                  type: "playback" as const,
+                  playback: {},
+                  ...(speech !== undefined ? { speech } : {})
+                }
+              }
+            : {}),
           ...(delivered !== undefined ? { output: delivered } : {}),
           ...(reason !== undefined ? { reason } : {}),
           provenance: provenance.build(cancelledProvider?.describe())
@@ -632,6 +663,7 @@ export class IndeRun implements IndeRunApi {
 
         const providerId = provider.describe().id;
         const voice = routeSelection.candidates[index]?.voice;
+        const controls = routeSelection.candidates[index]?.controls;
         provenance.voiceBound(providerId, request.task.kind, voice);
         attemptedProviderIds.push(providerId);
         safeEmit({
@@ -663,6 +695,13 @@ export class IndeRun implements IndeRunApi {
         };
         const attemptArtifacts = artifacts.attempt(commit);
         let keptArtifactId: string | undefined;
+        // What the provider reported before a stop; a report after it, or from an attempt the
+        // run has left, is a late callback and is dropped.
+        let reportedSpeech: SpeechOutput | undefined;
+        const reportSpeech = (speech: SpeechOutput) => {
+          if (!attemptOpen || controller.signal.aborted || gate.isTerminated()) return;
+          reportedSpeech = speech;
+        };
 
         let partialText = "";
         try {
@@ -674,6 +713,8 @@ export class IndeRun implements IndeRunApi {
             hostServices: hostServices,
             signal: controller.signal,
             ...(voice !== undefined ? { voice } : {}),
+            ...(controls !== undefined ? { controls } : {}),
+            reportSpeech,
             commit,
             artifacts: attemptArtifacts
           });
@@ -767,7 +808,10 @@ export class IndeRun implements IndeRunApi {
 
           if (controller.signal.aborted) {
             attemptArtifacts.release();
-            const terminal = gate.terminate(cancelledOutcome(partialText, provider), now());
+            const terminal = gate.terminate(
+              cancelledOutcome(partialText, provider, undefined, reportedSpeech),
+              now()
+            );
             safeEmit({
               type: "stream_cancelled",
               runId,
@@ -783,7 +827,10 @@ export class IndeRun implements IndeRunApi {
         } catch (err) {
           if (controller.signal.aborted) {
             attemptArtifacts.release();
-            const terminal = gate.terminate(cancelledOutcome(partialText, provider), now());
+            const terminal = gate.terminate(
+              cancelledOutcome(partialText, provider, undefined, reportedSpeech),
+              now()
+            );
             safeEmit({
               type: "stream_cancelled",
               runId,
@@ -1218,7 +1265,8 @@ export class IndeRun implements IndeRunApi {
    * Checks that an artifact in a provider's output is one this attempt produced, swaps in the
    * reference the store holds, and only then checks the output against the requested delivery:
    * the artifact's media type, size and ownership are the engine's record rather than the
-   * provider's claim.
+   * provider's claim. Last, it validates and completes the speech control records
+   * (`completeOutputControls`, ADR 025 §4).
    */
   private normalizeOutput(
     request: TaskRequest,
@@ -1239,7 +1287,9 @@ export class IndeRun implements IndeRunApi {
     }
     const mismatch = checkOutput(request, delivery, resolved, providerId);
     if (mismatch !== undefined) throw mismatch;
-    return resolved!;
+    const completed = completeOutputControls(request, resolved!, providerId);
+    if (completed instanceof IndeRunException) throw completed;
+    return completed;
   }
 
   async checkCapabilities(): Promise<ProviderCapabilitySnapshot[]> {

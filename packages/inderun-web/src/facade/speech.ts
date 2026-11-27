@@ -133,12 +133,55 @@ export interface GeneratedSpeech {
   taskResult: TaskResult;
 }
 
+type SnapshotTask = NonNullable<
+  ProviderCapabilitySnapshot["descriptor"]["taskCapabilities"]
+>[number];
+type SpeechControlDeclaration = NonNullable<SnapshotTask["controls"]>[number];
+type SpeechControlId = SpeechControlDeclaration["id"];
+type SpeechControlPhase = SpeechControlDeclaration["phase"];
+type ControlDelivery = SpeechControlDeclaration["deliveries"][number];
+type SpeechControlRange = NonNullable<
+  NonNullable<
+    NonNullable<
+      ProviderCapabilitySnapshot["capabilities"]["taskCapabilities"]
+    >[number]["controlStates"]
+  >[number]["range"]
+>;
+
 /** Options for {@link listVoices}. */
 export interface ListVoicesOptions {
   /** Keep only voices that can serve this BCP 47 tag. */
   locale?: string;
   /** How `locale` compares, with the same meaning as on a request. Defaults to `"language"`. */
   localeMatch?: SpeechInput["localeMatch"];
+  /**
+   * Add each voice's per-request controls ({@link SpeechVoiceInfo.controls}), read from the same
+   * capability snapshot. Defaults to `false`.
+   */
+  includeControls?: boolean;
+  /**
+   * Also list the voices of providers and tasks that are unavailable, with what is known of them
+   * and `available: false`. Defaults to `false`. Nothing is prepared, downloaded, loaded or
+   * synthesized to find them.
+   */
+  includeUnavailable?: boolean;
+}
+
+/**
+ * One speech control as a voice offers it on one delivery: the merged state of the task's and the
+ * voice's `controlStates`, reported as declared and never decided. A field the provider has not
+ * reported stays absent, and absent is not support.
+ */
+export interface SpeechVoiceControl {
+  id: SpeechControlId;
+  delivery: ControlDelivery;
+  phase: SpeechControlPhase;
+  /** Whether the control works here. Absent when unknown. */
+  available?: boolean;
+  /** Why the control does not work, when `available` is `false`. */
+  reason?: string;
+  /** The values it accepts. Absent when unknown, or when the control is unavailable. */
+  range?: SpeechControlRange;
 }
 
 /**
@@ -168,6 +211,13 @@ export interface SpeechVoiceInfo {
   networkRequired?: boolean;
   /** `"not_prepared"` and `"preparing"` mean "not yet". Absent means ready. See `prepare()`. */
   readiness?: ProviderReadiness;
+  /**
+   * The per-request controls of this voice, one per declared control and delivery. Present only
+   * with `includeControls`.
+   */
+  controls?: SpeechVoiceControl[];
+  /** `false` for a voice of an unavailable provider or task. Present only with `includeUnavailable`. */
+  available?: boolean;
 }
 
 /** The canonical `TaskRequest` a speech call compiles to. */
@@ -273,8 +323,9 @@ export async function generateSpeech(
 
 /**
  * Lists the voices the registered providers offer right now, in registration and provider order.
- * A provider that is unavailable contributes none; one that cannot enumerate its voices
- * contributes none either, and can still serve a request.
+ * A provider that is unavailable contributes none (unless `includeUnavailable`); one that cannot
+ * enumerate its voices contributes none either, and can still serve a request. A projection of
+ * `checkCapabilities()` and nothing more: it never prepares, downloads, loads or synthesizes.
  */
 export async function listVoices(
   inderun: IndeRunApi,
@@ -282,9 +333,13 @@ export async function listVoices(
 ): Promise<SpeechVoiceInfo[]> {
   const voices: SpeechVoiceInfo[] = [];
   for (const { providerId, descriptor, capabilities } of await inderun.checkCapabilities()) {
-    if (!capabilities.available) continue;
     const task = capabilities.taskCapabilities?.find((entry) => entry.kind === "text_to_speech");
-    if (task === undefined || task.available === false) continue;
+    if (task === undefined) continue;
+    const unavailable = !capabilities.available || task.available === false;
+    if (unavailable && options.includeUnavailable !== true) continue;
+    const declarations = descriptor?.taskCapabilities?.find(
+      (entry) => entry.kind === "text_to_speech"
+    )?.controls;
     for (const voice of task.voices ?? []) {
       if (options.locale !== undefined && !localeMatches(voice, options)) continue;
       const model = descriptor?.model;
@@ -298,11 +353,109 @@ export async function listVoices(
         ...(voice.locales !== undefined ? { locales: voice.locales } : {}),
         ...(voice.gender !== undefined ? { gender: voice.gender } : {}),
         ...(voice.networkRequired !== undefined ? { networkRequired: voice.networkRequired } : {}),
-        ...(voice.readiness !== undefined ? { readiness: voice.readiness } : {})
+        ...(voice.readiness !== undefined ? { readiness: voice.readiness } : {}),
+        ...(options.includeControls === true
+          ? { controls: voiceControls(declarations, task.controlStates, voice, unavailable) }
+          : {}),
+        ...(unavailable ? { available: false } : {})
       });
     }
   }
   return voices;
+}
+
+type ControlStates = NonNullable<ProviderVoice["controlStates"]>;
+
+/**
+ * The listed controls of one voice: each `lifetime: utterance` declaration times each delivery it
+ * lists, in declaration order. The merge is the route planner's: the voice's state for
+ * `(id, delivery)` overlays the task's, field by field, and a state for an undeclared delivery is
+ * never read. An id declared twice, a declaration that breaks its id's invariant
+ * ({@link keepsInvariant}), or two states for one `(id, delivery)` at one level, are
+ * contradictory and read `available: false`. Unknown stays absent.
+ */
+function voiceControls(
+  declarations: SpeechControlDeclaration[] | undefined,
+  taskStates: ControlStates | undefined,
+  voice: ProviderVoice,
+  unavailable: boolean
+): SpeechVoiceControl[] {
+  const controls: SpeechVoiceControl[] = [];
+  const listed = new Set<SpeechControlId>();
+  for (const declaration of declarations ?? []) {
+    if (declaration.lifetime !== "utterance" || listed.has(declaration.id)) continue;
+    listed.add(declaration.id);
+    const contradictory =
+      declarations!.filter((entry) => entry.id === declaration.id).length > 1 ||
+      !keepsInvariant(declaration);
+    for (const delivery of declaration.deliveries) {
+      const control = { id: declaration.id, delivery, phase: declaration.phase };
+      if (unavailable) {
+        controls.push({ ...control, available: false });
+        continue;
+      }
+      const taskMatches = statesFor(taskStates, declaration.id, delivery);
+      const voiceMatches = statesFor(voice.controlStates, declaration.id, delivery);
+      if (contradictory || taskMatches.length > 1 || voiceMatches.length > 1) {
+        controls.push({ ...control, available: false, reason: "contradictory declaration" });
+        continue;
+      }
+      const [task] = taskMatches;
+      const [bound] = voiceMatches;
+      const available = bound?.available ?? task?.available;
+      const reason = bound?.reason ?? task?.reason;
+      const range = bound?.range ?? task?.range;
+      controls.push({
+        ...control,
+        ...(available !== undefined ? { available } : {}),
+        ...(reason !== undefined ? { reason } : {}),
+        ...(range !== undefined ? { range } : {})
+      });
+    }
+  }
+  return controls;
+}
+
+/**
+ * The route planner's declaration invariant (`declaration_keeps_invariant` in the route core), the
+ * schema's `allOf` on a control declaration: rate and pitch are `number` controls of the
+ * `synthesis` phase, volume a `number` control of the `playback` phase, and a `playback`-phase
+ * control lists only the `playback` delivery. A typed declaration can break it without the schema.
+ */
+function keepsInvariant(declaration: SpeechControlDeclaration): boolean {
+  return (
+    declaration.valueKind === "number" &&
+    declaration.phase === requiredPhase(declaration.id) &&
+    (declaration.phase !== "playback" ||
+      declaration.deliveries.every((delivery) => delivery === "playback"))
+  );
+}
+
+/**
+ * The phase a shared control id requires. Exhaustive, so a new id must choose one; an id outside
+ * the enum (an untyped caller) requires no phase it can meet, so its declaration is contradictory.
+ */
+function requiredPhase(id: SpeechControlId): SpeechControlPhase | undefined {
+  switch (id) {
+    case "speech.speakingRate":
+    case "speech.pitch":
+      return "synthesis";
+    case "playback.volume":
+      return "playback";
+    default: {
+      const unknown: never = id;
+      void unknown;
+      return undefined;
+    }
+  }
+}
+
+function statesFor(
+  states: ControlStates | undefined,
+  id: SpeechControlId,
+  delivery: ControlDelivery
+): ControlStates {
+  return (states ?? []).filter((state) => state.id === id && state.delivery === delivery);
 }
 
 type ProviderVoice = NonNullable<

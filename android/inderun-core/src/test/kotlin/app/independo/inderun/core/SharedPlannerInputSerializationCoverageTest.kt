@@ -81,6 +81,31 @@ class SharedPlannerInputSerializationCoverageTest {
         )
     }
 
+    /**
+     * A control value reaches the shared core bit for bit: the planner echoes it into the plan,
+     * and the engine compares that plan to the request exactly. `controls_float_round_trip` in
+     * the conformance vectors covers the JNI side with the same value.
+     */
+    @Test
+    fun `control values are serialized without rounding`() {
+        val value = 1.1400000000000001
+        val input = fullyPopulatedInput().let { input ->
+            input.copy(
+                task = input.task.copy(
+                    controls = listOf(
+                        ControlRequirement(id = SpeechControlId.SpeechSpeakingRate, value = value, requirement = RequirementLevel.Required),
+                    ),
+                ),
+            )
+        }
+
+        val json = input.toJson()
+        val emitted = JSONObject(json).getJSONObject("task").getJSONArray("controls").getJSONObject(0).getDouble("value")
+
+        assertEquals(value.toRawBits(), emitted.toRawBits())
+        assertEquals(true, json.contains("1.1400000000000001"))
+    }
+
     private fun fullyPopulatedInput(): SharedPlannerInput = SharedPlannerInput(
         task = RoutePlannerInputTask(
             kind = "text_to_speech",

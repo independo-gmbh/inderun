@@ -105,7 +105,8 @@ Controls are declared in the existing per-task structures, not in a second regis
   `provider_instance`) and `deliveries` (`playback`, `artifact`; text output has no speech controls). The shared ids
   fix kind and phase, and the schema enforces it: `speech.speakingRate` and `speech.pitch` are `number` and
   `synthesis`; `playback.volume` is `number` and `playback`, and lists only the `playback` delivery. A synthesis
-  control lists each delivery whose path applies it.
+  control lists each delivery whose path applies it. A typed SDK declaration never passes through the schema, so
+  routing checks the same rule itself (see contradictory declarations below).
 - **Dynamic**: `ProviderDynamicCapabilities.taskCapabilities[].controlStates[]`, one `SpeechControlState` per id **and
   delivery**: `id`, `delivery`, `available`, `reason`, and for a number a `range` of `min`, `max`, `default` and
   `step`. A provider whose playback and artifact paths differ, say rate 0.5 to 2.0 when playing and 0.8 to 1.2 when
@@ -122,10 +123,10 @@ merged range is known and contains the value. A number control with `available: 
 required control.
 
 **Contradictory declarations are refused, never resolved.** What the schema cannot express, routing treats as a
-declaration error: an id declared twice for one task, or two states for one id and delivery at the same level, make
-that control unsupported for that provider, so a required control rejects it with `speech_control_unsupported`. A state
-for a delivery the control does not declare is ignored. Losing optional capability metadata only ever reads as unknown
-support.
+declaration error: an id declared twice for one task, a declaration that breaks its id's kind, phase or delivery
+rule, or two states for one id and delivery at the same level, make that control unsupported for that provider, so a
+required control rejects it with `speech_control_unsupported`. A state for a delivery the control does not declare is
+ignored. Losing optional capability metadata only ever reads as unknown support.
 
 `SpeechControlId` is a closed enum of the three ids above. A future provider-owned control is a new, namespaced enum
 value with a typed request field, added by a later decision; there is no open options map. `lifetime: provider_instance`
@@ -144,10 +145,13 @@ rate, pitch, volume. The shared Rust planner evaluates them on the voice it bind
   traits, privacy and every required control together, for the requested delivery. A required voice id is never
   substituted for one that supports the control. A provider that lists no voices is checked against its task state
   alone.
+- **A request with controls binds a voice.** A request that carries controls is planned against the voices the provider
+  could bind, so its candidate names the voice the controls were evaluated on.
 - **Ranking reads the bound voice.** Everything the planner ranks a provider by that depends on a voice, the exact
   locale region and the privacy placement under `local_preferred` or `optimizeFor: privacy` included, is read from the
-  voice it would bind: one that meets every hard requirement, controls included. Another voice of the same provider
-  that offers the exact region but fails a required control does not raise the provider's rank.
+  voice it could bind: for a request with speech controls, the exact-region test reads the voice the candidate binds,
+  which meets every hard requirement, controls included; without controls the existing rule applies. Another voice of
+  the same provider that offers the exact region but fails a required control does not raise the provider's rank.
 - **Stable reasons.** A provider with no such voice is rejected with `speech_control_out_of_range` when a candidate
   voice supports the control but not the value, and with `speech_control_unsupported` otherwise. When nothing remains,
   routing fails with `CapabilityMismatch` and the per-provider reasons, as for any other requirement.
@@ -163,10 +167,11 @@ rate, pitch, volume. The shared Rust planner evaluates them on the voice it bind
 **A missing plan is not an empty request.** Capability metadata may be lost safely, because losing it reads as unknown
 support. An execution instruction may not: the planner boundary carries no version, so a route core or binding built
 without plans would return candidates with none, and a required control would vanish. After planning and before the
-first attempt, the engine therefore checks the plan of every candidate, fallbacks included, against the request. Each
-requested control appears exactly once, in request order, with the request's id, value and requirement. Every required
-one has `decision: apply`. No entry names a control the request did not. A plan that fails any of these, including an
-absent or empty one, fails the run with `Internal` (`details.code: control_plan_mismatch`) and no attempt is made.
+first attempt, the engine therefore checks the plan of every candidate it will attempt, fallbacks included, against
+the request. Each requested control appears exactly once, in request order, with the request's id, value and
+requirement. Every required one has `decision: apply`. An `omit` carries its reason and an `apply` none. No entry
+names a control the request did not. A plan that fails any of these, including an absent or empty one, fails the run
+with `Internal` (`details.code: control_plan_mismatch`) and no attempt is made.
 `contracts/fixtures/execution/control-plan-integrity.json` holds the cases.
 
 Before commit, the provider rechecks its live voice and applies the plan. Privacy is rechecked there too, as today:
@@ -201,6 +206,9 @@ leaves it:
 - A preferred control the provider reported nothing for is recorded as `not_applied` with `not_reported`.
 - A completed run whose required control is missing or `not_applied` fails. Such a failure comes after commit, so it
   is `Internal` (`details.code: output_mismatch`) and nothing is replayed.
+- Records live in the output's `speech` section. An output without one has no records: with only preferred controls
+  it passes unchanged, since the engine never invents the locale the section states; with a required control it
+  fails as above.
 - A cancelled terminal outcome keeps what was reported before the stop, and records the rest as `not_reported`;
   cancellation stays an ending, not a failure.
 
