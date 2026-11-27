@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import XCTest
 @testable import IndeRunAppleProviders
@@ -14,6 +15,8 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
     private var recordedVoices: [String] = []
     private var recordedWarmed: [String] = []
     private var recordedStopped: [String] = []
+    private var recordedSpeakControls: [AppleSpeechControls] = []
+    private var recordedRenderControls: [AppleSpeechControls] = []
     private var held: [String: CheckedContinuation<Void, Error>] = [:]
     private var heldTexts: Set<String> = []
     private var failures: [String: Error] = [:]
@@ -35,6 +38,8 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
     var spokenVoices: [String] { lock.withLock { recordedVoices } }
     var warmedVoices: [String] { lock.withLock { recordedWarmed } }
     var stopped: [String] { lock.withLock { recordedStopped } }
+    var speakControls: [AppleSpeechControls] { lock.withLock { recordedSpeakControls } }
+    var renderControls: [AppleSpeechControls] { lock.withLock { recordedRenderControls } }
     var renderCount: Int { lock.withLock { rendered } }
 
     /// Voice lookup is synchronous and happens before the handoff, so blocking here is time the
@@ -65,9 +70,10 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
         lock.withLock { recordedWarmed.append(voice.identifier) }
     }
 
-    func speak(text: String, voice: AppleSpeechVoice) async throws -> SpokenAudio {
+    func speak(text: String, voice: AppleSpeechVoice, controls: AppleSpeechControls) async throws -> SpokenAudio {
         let (holds, failure) = lock.withLock {
             recordedSpoken.append(text)
+            recordedSpeakControls.append(controls)
             recordedVoices.append(voice.identifier)
             return (heldTexts.contains(text), failures[text])
         }
@@ -93,8 +99,16 @@ private final class ScriptedSpeechRuntime: AppleSpeechRuntime, @unchecked Sendab
         return SpokenAudio(durationMs: 900, firstAudioMs: lock.withLock { reportedFirstAudioMs })
     }
 
-    func render(text: String, voice: AppleSpeechVoice, maxBytes: Int) async throws -> RenderedSpeech {
-        lock.withLock { rendered += 1 }
+    func render(
+        text: String,
+        voice: AppleSpeechVoice,
+        controls: AppleSpeechControls,
+        maxBytes: Int
+    ) async throws -> RenderedSpeech {
+        lock.withLock {
+            rendered += 1
+            recordedRenderControls.append(controls)
+        }
         return RenderedSpeech(samples: Data(repeating: 1, count: 2200), sampleRate: 22_000)
     }
 }
@@ -392,7 +406,7 @@ final class AppleSystemSpeechProviderTests: XCTestCase {
         let runtime = ScriptedSpeechRuntime()
         let inderun = try engine(runtime)
 
-        let speech = try await inderun.generateSpeech(GenerateSpeechOptions(hallo, mediaTypes: ["audio/wav"]))
+        let speech = try await inderun.generateSpeech(GenerateSpeechOptions(hallo.speech, mediaTypes: ["audio/wav"]))
         let chunk = try await inderun.readArtifact(
             request: ArtifactReadRequest(artifactId: speech.artifact.id, maxBytes: nil, offset: nil)
         )
@@ -411,11 +425,136 @@ final class AppleSystemSpeechProviderTests: XCTestCase {
         let inderun = try engine(runtime)
 
         do {
-            _ = try await inderun.generateSpeech(GenerateSpeechOptions(hallo, mediaTypes: ["audio/mpeg"]))
+            _ = try await inderun.generateSpeech(GenerateSpeechOptions(hallo.speech, mediaTypes: ["audio/mpeg"]))
             XCTFail("expected a routing refusal")
         } catch let error as IndeRunException {
             XCTAssertEqual(error.errorClass, .CapabilityMismatch)
         }
         XCTAssertEqual(runtime.renderCount, 0)
+    }
+
+    // MARK: - Controls (ADR 025)
+
+    private func number(_ value: Double) -> RequestedNumber {
+        RequestedNumber(requirement: nil, value: value)
+    }
+
+    func testDeclaresRateAndPitchForBothDeliveriesAndVolumeForPlayback() throws {
+        let task = try XCTUnwrap(AppleSystemSpeechProvider(runtime: ScriptedSpeechRuntime()).describe().taskCapabilities?.first)
+        let controls = try XCTUnwrap(task.controls)
+
+        XCTAssertEqual(controls.map(\.id), [.speechSpeakingRate, .speechPitch, .playbackVolume])
+        XCTAssertEqual(controls.map(\.deliveries), [[.playback, .artifact], [.playback, .artifact], [.playback]])
+        XCTAssertEqual(controls.map(\.phase), [.synthesis, .synthesis, .playback])
+        XCTAssertTrue(controls.allSatisfy { $0.lifetime == .utterance && $0.valueKind == .number })
+    }
+
+    func testReportsTaskLevelControlStates() async throws {
+        let provider = AppleSystemSpeechProvider(runtime: ScriptedSpeechRuntime())
+        let dynamic = await provider.capabilities(host: HostServices(connectivity: MockConnectivityService(), clock: MockClockService()))
+        let states = try XCTUnwrap(dynamic.taskCapabilities?.first?.controlStates)
+
+        func state(_ id: SpeechControlId, _ delivery: ControlDelivery) -> SpeechControlState? {
+            states.first { $0.id == id && $0.delivery == delivery }
+        }
+        XCTAssertEqual(states.count, 5)
+        XCTAssertNil(state(.playbackVolume, .artifact))
+        for (id, delivery) in [(SpeechControlId.speechSpeakingRate, ControlDelivery.playback), (.speechSpeakingRate, .artifact),
+                               (.speechPitch, .playback), (.speechPitch, .artifact)] {
+            let range = try XCTUnwrap(state(id, delivery)?.range)
+            XCTAssertEqual(state(id, delivery)?.available, true)
+            XCTAssertEqual([range.min, range.max, range.speechControlRangeDefault, range.step], [0.5, 2, 1, 0.05])
+        }
+        let volume = try XCTUnwrap(state(.playbackVolume, .playback)?.range)
+        XCTAssertEqual(state(.playbackVolume, .playback)?.available, true)
+        XCTAssertEqual([volume.min, volume.max, volume.speechControlRangeDefault, volume.step], [0, 1, 1, 0.05])
+    }
+
+    func testRateRangeStaysInsideThePlatformRateRangeWithoutClamping() {
+        let minimum = AVSpeechUtteranceMinimumSpeechRate
+        let maximum = AVSpeechUtteranceMaximumSpeechRate
+        for factor in [0.5, 2.0] {
+            let rate = Float(Double(AVSpeechUtteranceDefaultSpeechRate) * factor)
+            XCTAssertTrue((minimum...maximum).contains(rate), "factor \(factor) -> \(rate)")
+        }
+    }
+
+    func testPlaybackPassesAppliedRatePitchAndVolumeAndRecordsThem() async throws {
+        let runtime = ScriptedSpeechRuntime()
+        let ending = try await engine(runtime).speak(SpeakOptions(
+            "Hallo",
+            locale: "de-AT",
+            controls: SharedSynthesisControls(pitch: number(1.25), speakingRate: number(0.75)),
+            playback: PlaybackControls(volume: RequestedUnitNumber(requirement: nil, value: 0.5))
+        )).result()
+
+        XCTAssertEqual(runtime.speakControls, [AppleSpeechControls(rate: 0.75, pitch: 1.25, volume: 0.5)])
+        let records = try XCTUnwrap(ending.speech?.controls)
+        XCTAssertEqual(records.map(\.id), [.speechSpeakingRate, .speechPitch, .playbackVolume])
+        XCTAssertEqual(records.map(\.status), [.applied, .applied, .applied])
+        XCTAssertEqual(records.map(\.requested), [0.75, 1.25, 0.5])
+        XCTAssertEqual(records.map(\.effective), [0.75, 1.25, 0.5])
+        XCTAssertEqual(records.map(\.method), [.platformSynthesis, .platformSynthesis, .playbackAttenuation])
+    }
+
+    func testAnOmittedControlStaysUnsetAndIsRecordedNotApplied() async throws {
+        let runtime = ScriptedSpeechRuntime()
+        let ending = try await engine(runtime).speak(SpeakOptions(
+            "Hallo",
+            locale: "de-AT",
+            controls: SharedSynthesisControls(pitch: nil, speakingRate: number(3))
+        )).result()
+
+        XCTAssertEqual(runtime.speakControls, [AppleSpeechControls()])
+        let record = try XCTUnwrap(ending.speech?.controls?.first)
+        XCTAssertEqual(record.status, .notApplied)
+        XCTAssertEqual(record.reason, .outOfRange)
+        XCTAssertEqual(record.requested, 3)
+        XCTAssertNil(record.effective)
+    }
+
+    func testRenderPassesRateAndPitchAndNeverVolume() async throws {
+        let runtime = ScriptedSpeechRuntime()
+        let speech = try await engine(runtime).generateSpeech(GenerateSpeechOptions(
+            SpeechOptions(
+                "Hallo",
+                locale: "de-AT",
+                controls: SharedSynthesisControls(pitch: number(0.5), speakingRate: number(2))
+            ),
+            mediaTypes: ["audio/wav"]
+        ))
+
+        XCTAssertEqual(runtime.renderControls, [AppleSpeechControls(rate: 2, pitch: 0.5, volume: nil)])
+        let records = try XCTUnwrap(speech.speech?.controls)
+        XCTAssertEqual(records.map(\.method), [.platformSynthesis, .platformSynthesis])
+        XCTAssertEqual(records.map(\.effective), [2, 0.5])
+    }
+
+    func testARunWithoutControlsIsUnchanged() async throws {
+        let runtime = ScriptedSpeechRuntime()
+        let ending = try await engine(runtime).speak(hallo).result()
+
+        XCTAssertEqual(runtime.speakControls, [AppleSpeechControls()])
+        XCTAssertNil(ending.speech?.controls)
+        XCTAssertEqual(ending.finishReason, .stop)
+    }
+
+    func testCancellationWithControlsStillEndsCancelled() async throws {
+        let runtime = ScriptedSpeechRuntime()
+        runtime.hold("Hallo")
+        let run = try await engine(runtime).stream(request: SpeakOptions(
+            "Hallo",
+            locale: "de-AT",
+            controls: SharedSynthesisControls(pitch: nil, speakingRate: number(1.5))
+        ).taskRequest())
+        try await waitUntil { !runtime.spoken.isEmpty }
+        run.cancel(reason: "stop")
+        var terminals: [Outcome?] = []
+        for try await event in run.events where event.type == "terminal" {
+            terminals.append(event.payload?.outcome)
+        }
+
+        XCTAssertEqual(terminals, [.cancelled])
+        XCTAssertEqual(runtime.stopped, ["Hallo"])
     }
 }

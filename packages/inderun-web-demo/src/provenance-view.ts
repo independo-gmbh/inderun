@@ -45,7 +45,9 @@ const REJECTION_TEXT: Record<RejectionCode, string> = {
   locale_not_supported: "does not speak this language",
   voice_not_available: "has no matching voice",
   prepare_not_supported: "has nothing to prepare",
-  not_ready: "is not ready yet"
+  not_ready: "is not ready yet",
+  speech_control_unsupported: "cannot apply a required speech control",
+  speech_control_out_of_range: "cannot apply a required speech control at this value"
 };
 
 const STREAMING_CODES: readonly RejectionCode[] = [

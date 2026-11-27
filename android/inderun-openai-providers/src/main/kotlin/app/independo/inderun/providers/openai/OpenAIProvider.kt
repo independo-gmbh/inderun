@@ -290,7 +290,7 @@ class OpenAIProvider(
             finishReason = finishReason(json),
             output = TaskOutput(type = TaskOutputType.TEXT, text = outputText),
             runId = context.runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             telemetry = TaskResultTelemetry(
                 providerUsed = options.id,
                 reportedModel = reportedModel(json),

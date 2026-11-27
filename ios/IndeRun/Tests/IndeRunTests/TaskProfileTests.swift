@@ -101,6 +101,7 @@ private struct FirstVoicePlanner: RoutePlanning {
         return SharedPlannerRoutePlan(
             candidates: providers.enumerated().map { order, provider in
                 Candidate(
+                    controls: nil,
                     order: order,
                     providerId: provider.descriptor.id,
                     voice: provider.capabilities.taskCapabilities?.first?.voices?.first
@@ -126,12 +127,13 @@ final class TaskProfileTests: XCTestCase {
             task: TaskDescriptor(kind: .textToSpeech),
             constraints: TaskRequestConstraints(privacy: privacy),
             speech: SpeechInput(
+                controls: nil,
                 locale: "de-AT",
                 localeMatch: nil,
                 text: "Hallo",
                 voice: SpeechVoice(gender: .female, requirement: nil)
             ),
-            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback)
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback, playback: nil)
         )
     }
 
@@ -255,7 +257,7 @@ final class TaskProfileTests: XCTestCase {
         var request = speechRequest()
         request.speech?.text = ""
         request.speech?.voice = SpeechVoice(gender: nil, requirement: .requirementLevelRequired)
-        request.delivery = OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .inline)
+        request.delivery = OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .inline, playback: nil)
 
         let issues = TaskProfiles.profile(for: .textToSpeech).validate(request)
 

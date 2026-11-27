@@ -412,7 +412,7 @@ public final class OpenAIProvider: StreamingProviderAdapter, @unchecked Sendable
             output: TaskOutput(text: outputText),
             provenance: nil,
             runId: context.runId,
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             telemetry: TaskResultTelemetry(
                 providerUsed: options.id,
                 totalMs: 0,

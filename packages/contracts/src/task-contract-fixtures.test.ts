@@ -36,6 +36,11 @@ type FixtureFile = {
   cases: FixtureCase[];
   /** Requests the schema's per-kind rules reject; every SDK must reject them too. */
   invalidRequests?: Array<{ id: string; request: unknown }>;
+  /**
+   * JSON payloads the schema rejects that the Swift and Kotlin typed APIs cannot construct
+   * (unknown keys, unknown enum strings, another schema version). Only the schema sees them.
+   */
+  invalidPayloads?: Array<{ id: string; request: unknown }>;
 };
 
 const fixtureFiles = readdirSync(fixturesDir)
@@ -73,7 +78,7 @@ describe("task-contract fixtures", () => {
               // The terminal StreamEvent embeds its own copy of the outcome.
               expect(
                 getStreamEventValidationIssues({
-                  schemaVersion: "1.0",
+                  schemaVersion: "1.1",
                   runId: "run_fixture",
                   sequence: 0,
                   timestamp: 0,
@@ -91,7 +96,10 @@ describe("task-contract fixtures", () => {
         }
       }
 
-      for (const invalid of fixture.invalidRequests ?? []) {
+      for (const invalid of [
+        ...(fixture.invalidRequests ?? []),
+        ...(fixture.invalidPayloads ?? [])
+      ]) {
         it(`${invalid.id}: is rejected by the schema`, () => {
           expect(getTaskRequestValidationIssues(invalid.request)).not.toEqual([]);
         });

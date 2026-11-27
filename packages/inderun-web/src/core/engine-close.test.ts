@@ -260,7 +260,7 @@ describe("IndeRun.close()", () => {
         writer.write(new Uint8Array([1, 2, 3]));
         const artifact = writer.finish();
         return {
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           runId: context.runId,
           output: { type: "artifact", artifact },
           finishReason: "stop",
@@ -270,7 +270,7 @@ describe("IndeRun.close()", () => {
     };
     const engine = engineOf(provider);
     const result = await engine.run({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_speech" },
       speech: { text: "Hallo", locale: "de-AT" },
       delivery: { mode: "artifact", mediaTypes: ["audio/wav"] },

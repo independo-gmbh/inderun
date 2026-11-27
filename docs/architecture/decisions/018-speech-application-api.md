@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Recorded for Milestone 5 (issue #246). It settles what [ADR 016](./016-modality-extensible-task-contracts.md)
+Accepted; section 3a amended by [ADR 025](./025-speech-controls.md). Recorded for Milestone 5 (issue #246). It settles what [ADR 016](./016-modality-extensible-task-contracts.md)
 left to #246: the names of the speech entry points, voice discovery, and how an application selects one voice.
 
 ## Context

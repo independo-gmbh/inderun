@@ -332,7 +332,7 @@ class AndroidMlKitGenAiProvider(
                 finishReason = canonicalFinishReason(output.finishReason),
                 output = TaskOutput(type = TaskOutputType.TEXT, text = output.text),
                 runId = context.runId,
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 telemetry = TaskResultTelemetry(providerUsed = id, totalMs = duration.toDouble()),
             )
         } catch (error: CancellationException) {

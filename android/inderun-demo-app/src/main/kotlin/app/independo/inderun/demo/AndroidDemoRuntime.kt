@@ -71,7 +71,7 @@ internal class AndroidDemoRuntime(
     private val telemetryService = DemoTelemetryService()
     private val speechProvider = AndroidSystemSpeechProvider(context)
 
-    override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = makeIndeRun(settings).listVoices(locale)
+    override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = makeIndeRun(settings).listVoices(locale, includeControls = true)
 
     override suspend fun prepareSpeech(request: PrepareRequest, settings: DemoSettings, scope: CoroutineScope) {
         makeIndeRun(settings).prepare(scope, request).result.await()
@@ -82,13 +82,14 @@ internal class AndroidDemoRuntime(
     override suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String {
         val inderun = makeIndeRun(settings)
         val started = System.nanoTime()
-        val speech = inderun.generateSpeech(GenerateSpeechOptions(options))
+        val speech = inderun.generateSpeech(GenerateSpeechOptions(options.speech))
         val renderedMs = (System.nanoTime() - started) / 1_000_000
         val first = inderun.readArtifact(ArtifactReadRequest(artifactId = speech.artifact.id))
         val header = first.bytes.copyOf(4).decodeToString()
         inderun.disposeArtifact(speech.artifact)
         return "${speech.artifact.mediaType} · $header · ${first.totalBytes} bytes · ${speech.artifact.durationMs} ms · " +
-            "rendered in $renderedMs ms · ${speech.provenance?.locality?.rawValue}"
+            "rendered in $renderedMs ms · ${speech.provenance?.locality?.rawValue}" +
+            (speech.speech?.controls.describeControls()?.let { " · $it" } ?: "")
     }
 
     override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = makeIndeRun(settings).checkCapabilities()
@@ -168,7 +169,7 @@ internal class AndroidDemoRuntime(
     override fun lastRouteDecision(): RouteDecision? = telemetryService.lastRouteDecision()
 
     private fun makeRequest(prompt: String, privacy: PrivacyPreference) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = prompt,
         task = TaskRequestTask(),
         // SystemAndroidOnnxGenAiRuntime recomputes the full sequence on every decode step (no

@@ -15,7 +15,7 @@ import type {
 
 export function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_text" },
     prompt: "test prompt",
     constraints: { privacy: "local_required" },
@@ -29,7 +29,7 @@ export function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest
  */
 export function createSpeechRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_speech" },
     speech: { text: "Hallo", locale: "de-AT" },
     delivery: { mode: "playback" },
@@ -228,7 +228,7 @@ export function createFakeStreamProvider(
     },
     async run(req: TaskRequest): Promise<TaskResult> {
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: req.requestId || "run-123",
         output: { type: "text", text: "unused" },
         finishReason: "stop",

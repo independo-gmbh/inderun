@@ -1,0 +1,349 @@
+{
+  "$comment": "ADR 025 section 3, execution: how a control application plan reaches the attempt, and how commit, fallback and cancellation treat a speech run with controls. Like streaming/engine-conformance.json and execution/artifact-lifecycle.json this is a scenario catalog: 'request', 'providers' and 'expect' are shared data, but the trigger -- when the consumer cancels relative to the provider -- stays in each platform's own concurrency primitives. Each SDK registers one handler per case id and runs it once per entry of 'modes' ('run' is Mode 1 run(), 'stream' is Mode 2 stream() drained to its terminal); a guard test fails when the handler ids and the ids here differ (Stage 2 of #311). Every fake is a local provider that declares text_to_speech with playback output, locale de-AT, run and stream, soft cancellation, and lists no voices. For each id in its 'controls' it declares a number control with lifetime 'utterance' and deliveries ['playback'] (phase 'synthesis' for speech.speakingRate and speech.pitch, 'playback' for playback.volume) and a task-level control state for delivery 'playback' with available true and range min 0.5, max 2 for rate and pitch, min 0, max 1 for volume. Routing runs through the real shared planner, so the plan each fake receives is the planner's. The fake runs its 'script' in order; see '$scriptSteps'. 'cancelWhen: waiting' means the consumer cancels the run once the fake has reached its 'wait_for_cancellation' step. A handler waits for each fake's script to end before it checks 'commitResults', because an SDK may end the stream as soon as the cancel is called, before the fake's later steps have run.",
+  "$scriptSteps": {
+    "refuse_control": "Fail the attempt before commit with CapabilityMismatch, details.code 'speech_control_unsupported': the platform refused a required control.",
+    "commit": "Call commit() on the context and record what it returned.",
+    "report_applied": "Report the speech outcome so far through the context (Web RunContext.reportSpeech): locale 'de-AT' and, for each plan entry with decision 'apply', a record { id, requested: value, status: 'applied', effective: value, method } with method 'playback_attenuation' for playback.volume and 'platform_synthesis' otherwise.",
+    "finish": "End the attempt with a playback output: { type: 'playback', playback: {}, speech: { locale: 'de-AT', controls } }, where controls has one record per plan entry: 'apply' as in report_applied, 'omit' as { id, requested: value, status: 'not_applied', reason: the plan's reason }; the controls key is absent when the fake received no plan. run() returns it as the result; stream() yields it as the result event.",
+    "fail": "Fail the attempt with Unavailable (not retryable).",
+    "wait_for_cancellation": "Wait until the run is cancelled (stream only). The steps after it run once the cancellation has been observed, as late callbacks."
+  },
+  "$expectKeys": {
+    "outcome": "How the run ended: 'completed' (run() resolved, or the terminal is completed), 'failed' (run() threw, or the terminal is an error), 'cancelled' (terminal cancelled).",
+    "errorClass": "For 'failed': the error class of the thrown error or of the terminal's error.",
+    "providerCallCounts": "How many times each fake's run() or stream() was entered.",
+    "receivedControls": "The controls of the context each fake's attempt received (Web RunContext.controls), by provider id, compared by deep equality.",
+    "attempts": "Provenance attempts as [providerId, outcome] pairs, in attempt order.",
+    "attemptErrorClasses": "Provenance attempt errorClass by provider id, for the failed attempts listed.",
+    "committedAttempts": "The provider ids whose provenance attempt carries committed: true.",
+    "fallbackOccurred": "provenance.fallbackOccurred.",
+    "commitResults": "What each fake's commit() calls returned, in order.",
+    "output": "The result's output (run) or the terminal's output (stream), by deep equality.",
+    "absentOutput": "The terminal carries no output key.",
+    "eventTypes": "Stream mode: the type of every delivered StreamEvent, in order. Nothing follows the terminal."
+  },
+  "cases": [
+    {
+      "id": "precommit_control_refusal_falls_back_once",
+      "description": "The first provider refuses a required control before commit; the run falls back exactly once, and the fallback works from its own plan, not the first provider's.",
+      "modes": ["run", "stream"],
+      "request": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": { "value": 0.85, "requirement": "required" },
+            "pitch": { "value": 1.05 }
+          }
+        },
+        "delivery": { "mode": "playback" }
+      },
+      "providers": [
+        {
+          "id": "a_primary",
+          "controls": ["speech.speakingRate", "speech.pitch"],
+          "script": ["refuse_control"]
+        },
+        { "id": "b_secondary", "controls": ["speech.speakingRate"], "script": ["commit", "finish"] }
+      ],
+      "expect": {
+        "outcome": "completed",
+        "providerCallCounts": { "a_primary": 1, "b_secondary": 1 },
+        "receivedControls": {
+          "a_primary": [
+            {
+              "id": "speech.speakingRate",
+              "value": 0.85,
+              "requirement": "required",
+              "decision": "apply"
+            },
+            { "id": "speech.pitch", "value": 1.05, "requirement": "preferred", "decision": "apply" }
+          ],
+          "b_secondary": [
+            {
+              "id": "speech.speakingRate",
+              "value": 0.85,
+              "requirement": "required",
+              "decision": "apply"
+            },
+            {
+              "id": "speech.pitch",
+              "value": 1.05,
+              "requirement": "preferred",
+              "decision": "omit",
+              "reason": "unsupported"
+            }
+          ]
+        },
+        "attempts": [
+          ["a_primary", "failed"],
+          ["b_secondary", "succeeded"]
+        ],
+        "attemptErrorClasses": { "a_primary": "CapabilityMismatch" },
+        "committedAttempts": ["b_secondary"],
+        "fallbackOccurred": true,
+        "output": {
+          "type": "playback",
+          "playback": {},
+          "speech": {
+            "locale": "de-AT",
+            "controls": [
+              {
+                "id": "speech.speakingRate",
+                "requested": 0.85,
+                "status": "applied",
+                "effective": 0.85,
+                "method": "platform_synthesis"
+              },
+              {
+                "id": "speech.pitch",
+                "requested": 1.05,
+                "status": "not_applied",
+                "reason": "unsupported"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "postcommit_failure_is_not_replayed",
+      "description": "A provider that committed and then fails ends the run: the fallback is never entered, because the user may already have heard the first one.",
+      "modes": ["run", "stream"],
+      "request": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": { "speakingRate": { "value": 0.85, "requirement": "required" } }
+        },
+        "delivery": { "mode": "playback" }
+      },
+      "providers": [
+        { "id": "a_primary", "controls": ["speech.speakingRate"], "script": ["commit", "fail"] },
+        { "id": "b_secondary", "controls": ["speech.speakingRate"], "script": ["commit", "finish"] }
+      ],
+      "expect": {
+        "outcome": "failed",
+        "errorClass": "Unavailable",
+        "providerCallCounts": { "a_primary": 1, "b_secondary": 0 },
+        "attempts": [["a_primary", "failed"]],
+        "committedAttempts": ["a_primary"],
+        "fallbackOccurred": false
+      }
+    },
+    {
+      "id": "cancel_before_commit_runs_nothing",
+      "description": "Cancelled while the provider waits before commit: the run ends cancelled, the provider's late commit is refused, and no fallback is tried.",
+      "modes": ["stream"],
+      "cancelWhen": "waiting",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": { "speakingRate": { "value": 0.85, "requirement": "required" } }
+        },
+        "delivery": { "mode": "playback" }
+      },
+      "providers": [
+        {
+          "id": "a_primary",
+          "controls": ["speech.speakingRate"],
+          "script": ["wait_for_cancellation", "commit"]
+        },
+        { "id": "b_secondary", "controls": ["speech.speakingRate"], "script": ["commit", "finish"] }
+      ],
+      "expect": {
+        "outcome": "cancelled",
+        "providerCallCounts": { "a_primary": 1, "b_secondary": 0 },
+        "commitResults": { "a_primary": [false] },
+        "attempts": [["a_primary", "cancelled"]],
+        "committedAttempts": [],
+        "absentOutput": true,
+        "eventTypes": ["terminal"]
+      }
+    },
+    {
+      "id": "cancel_after_commit_keeps_known_records",
+      "description": "The provider commits, reports the rate as applied and is then cancelled: the cancelled terminal keeps the reported record and records the other requested controls as not reported.",
+      "modes": ["stream"],
+      "cancelWhen": "waiting",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": { "value": 0.85, "requirement": "required" },
+            "pitch": { "value": 1.05 }
+          }
+        },
+        "delivery": { "mode": "playback", "playback": { "volume": { "value": 0.7 } } }
+      },
+      "providers": [
+        {
+          "id": "a_primary",
+          "controls": ["speech.speakingRate"],
+          "script": ["commit", "report_applied", "wait_for_cancellation"]
+        }
+      ],
+      "expect": {
+        "outcome": "cancelled",
+        "providerCallCounts": { "a_primary": 1 },
+        "attempts": [["a_primary", "cancelled"]],
+        "committedAttempts": ["a_primary"],
+        "output": {
+          "type": "playback",
+          "playback": {},
+          "speech": {
+            "locale": "de-AT",
+            "controls": [
+              {
+                "id": "speech.speakingRate",
+                "requested": 0.85,
+                "status": "applied",
+                "effective": 0.85,
+                "method": "platform_synthesis"
+              },
+              {
+                "id": "speech.pitch",
+                "requested": 1.05,
+                "status": "not_applied",
+                "reason": "not_reported"
+              },
+              {
+                "id": "playback.volume",
+                "requested": 0.7,
+                "status": "not_applied",
+                "reason": "not_reported"
+              }
+            ]
+          }
+        },
+        "eventTypes": ["terminal"]
+      }
+    },
+    {
+      "id": "late_callback_after_cancel_is_suppressed",
+      "description": "After the cancel the provider reports, commits and hands over a result: none of it reaches the caller, and the cancelled terminal is the last event.",
+      "modes": ["stream"],
+      "cancelWhen": "waiting",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": { "speakingRate": { "value": 0.85, "requirement": "required" } }
+        },
+        "delivery": { "mode": "playback" }
+      },
+      "providers": [
+        {
+          "id": "a_primary",
+          "controls": ["speech.speakingRate"],
+          "script": ["commit", "wait_for_cancellation", "report_applied", "commit", "finish"]
+        }
+      ],
+      "expect": {
+        "outcome": "cancelled",
+        "providerCallCounts": { "a_primary": 1 },
+        "commitResults": { "a_primary": [true, false] },
+        "attempts": [["a_primary", "cancelled"]],
+        "committedAttempts": ["a_primary"],
+        "output": { "type": "playback", "playback": {} },
+        "eventTypes": ["terminal"]
+      }
+    },
+    {
+      "id": "plan_reaches_provider",
+      "description": "The attempt's context carries the candidate's plan verbatim: applied where the provider supports the control, omitted with the planner's reason where it does not.",
+      "modes": ["run", "stream"],
+      "request": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": { "value": 0.85, "requirement": "required" },
+            "pitch": { "value": 1.05 }
+          }
+        },
+        "delivery": { "mode": "playback", "playback": { "volume": { "value": 0.7 } } }
+      },
+      "providers": [
+        {
+          "id": "a_primary",
+          "controls": ["speech.speakingRate", "playback.volume"],
+          "script": ["commit", "finish"]
+        }
+      ],
+      "expect": {
+        "outcome": "completed",
+        "providerCallCounts": { "a_primary": 1 },
+        "receivedControls": {
+          "a_primary": [
+            {
+              "id": "speech.speakingRate",
+              "value": 0.85,
+              "requirement": "required",
+              "decision": "apply"
+            },
+            {
+              "id": "speech.pitch",
+              "value": 1.05,
+              "requirement": "preferred",
+              "decision": "omit",
+              "reason": "unsupported"
+            },
+            {
+              "id": "playback.volume",
+              "value": 0.7,
+              "requirement": "preferred",
+              "decision": "apply"
+            }
+          ]
+        },
+        "attempts": [["a_primary", "succeeded"]],
+        "committedAttempts": ["a_primary"],
+        "fallbackOccurred": false,
+        "output": {
+          "type": "playback",
+          "playback": {},
+          "speech": {
+            "locale": "de-AT",
+            "controls": [
+              {
+                "id": "speech.speakingRate",
+                "requested": 0.85,
+                "status": "applied",
+                "effective": 0.85,
+                "method": "platform_synthesis"
+              },
+              {
+                "id": "speech.pitch",
+                "requested": 1.05,
+                "status": "not_applied",
+                "reason": "unsupported"
+              },
+              {
+                "id": "playback.volume",
+                "requested": 0.7,
+                "status": "applied",
+                "effective": 0.7,
+                "method": "playback_attenuation"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

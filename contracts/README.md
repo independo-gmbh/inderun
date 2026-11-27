@@ -60,6 +60,11 @@ rejecting every one. `fixtures/artifacts/media-artifacts.json` holds valid and i
 engine-owned artifact store: ranged reads, disposal, the size limits, and the artifacts the engine discards on its
 own. Each SDK registers one handler per case id behind the same kind of guard test.
 `artifact-read-request.schema.json` (`ArtifactReadRequest`) is the input of `IndeRunApi.readArtifact`.
+`fixtures/versioning/schema-versions.json` pins the one accepted `schemaVersion` of every run-scoped document; the Web
+validators, Swift `Codable` and Kotlin's `SchemaVersion` all run it. `fixtures/execution/control-plan-integrity.json`
+and `fixtures/execution/control-outcomes.json` are scenario catalogs for the engine's speech-control checks (ADR 025):
+a candidate's control plan that does not match its request prevents execution, and a provider's control records are
+validated and completed before the output leaves the engine.
 `fixtures/speech/utterance-corpus.json` is the real-audio corpus (#251): synthetic German and English utterances, an
 unsupported locale that must be refused, and repeat and cancel scenarios. It is not a vector with expected output, because
 a real synthesizer's bytes differ by device; the Apple and Android real-speech suites run it against the platform's own
@@ -116,7 +121,7 @@ only authority on which Kotlin entry name belongs to which schema value, includi
 (`system` becomes `RoleSystem`, because `System` is a reserved name in its Kotlin renderer).
 
 `contracts/scripts/kotlin-enum-wire-values.mjs` holds the single table of enums whose Kotlin type or
-entry names deviate from quicktype's default (`Role` becomes `MessageRole`, `The10` becomes `V1_0`).
+entry names deviate from quicktype's default (`Role` becomes `MessageRole`, `The10` becomes `V1_1`).
 It renames only — whether an enum carries `rawValue` is not a per-enum decision. `pnpm generate` and
 `pnpm verify:enum-wire-parity` both fail when Kotlin and Swift disagree on a wire value, or when any
 Kotlin enum is emitted without one (issue #212).
@@ -124,8 +129,12 @@ Kotlin enum is emitted without one (issue #212).
 ## Schema evolution and forward compatibility
 
 - **Additive, backward-compatible changes** (new optional properties, a new `StreamEvent.type`
-  variant) do not bump `schemaVersion` or the `$id` version segment. Every schema keeps
-  `additionalProperties: true` for this reason, and `StreamEvent` specifically closes its type
+  variant) do not bump `schemaVersion` or the `$id` version segment, as long as losing them is safe
+  (see "Additions that change what executes" below). Every schema keeps `additionalProperties: true` for this reason, with one
+  deliberate exception: the closed speech-control objects of the request (`speech.controls`,
+  `delivery.playback` and the `RequestedNumber` / `RequestedUnitNumber` inside them) set
+  `additionalProperties: false`, because a misspelled control that is ignored is the failure they
+  exist to prevent ([ADR 025](../docs/architecture/decisions/025-speech-controls.md)), and `StreamEvent` specifically closes its type
   union with an open catch-all branch so a consumer built against an older revision of the schema
   does not hard-fail when a newer, additive revision introduces a new known event type.
 - **Widening a discriminator** from a `const` to an `enum`, with the new value's requirements expressed as an
@@ -134,9 +143,22 @@ Kotlin enum is emitted without one (issue #212).
   1.0 contracts ([ADR 016](../docs/architecture/decisions/016-modality-extensible-task-contracts.md)). quicktype does
   not read `if`/`then`, so the per-value requirements live only in the validators; the generated types carry every
   branch's fields as optional properties.
+- **Additions that change what executes** bump the minor `schemaVersion`, not the `$id` segment
+  ([ADR 025](../docs/architecture/decisions/025-speech-controls.md)). An older consumer drops an unknown field without an
+  error, which is safe for information and unsafe for a hard requirement: a required speaking rate that an old bridge
+  drops would speak at full speed and report success. So such an addition raises `schemaVersion` (`1.0` to `1.1` for
+  the speech controls) on every run-scoped schema at once, and every older engine and bridge refuses the request
+  before execution. The SDKs accept and emit exactly one version; there is no dual-version window while the packages
+  are pre-1.0. The capability and output schemas carry no version: their new fields are optional, and losing
+  them reads as "unknown", which never counts as support. The planner schemas carry none either, but a lost control
+  plan is not "unknown": the engine refuses a run whose plan does not match its request. A raw JSON entry point that
+  decodes requests checks the closed control objects before decoding (Swift `RawTaskRequestValidation`, Kotlin
+  `rawTaskRequestIssues`), because the generated `Codable` types and hand-written parsers drop unknown keys.
 - **Breaking changes** (removing/renaming a required field, changing what a `const`/`enum` value
-  means) require a new `$id` version segment (e.g. `.../2.0/...`) and a new `schemaVersion` const,
-  coexisting with `1.0` during a migration window. The existing "rejects unsupported schema
+  means) require a new `$id` version segment (e.g. `.../2.0/...`) and a new `schemaVersion` const.
+  While the packages are pre-1.0, a new version replaces the old one in a new minor release, with
+  no window in which both are accepted (ADR 025); whether a later major change gets a coexistence
+  window is left to the decision that introduces it. The existing "rejects unsupported schema
   versions" tests in `packages/contracts/src/validators.test.ts` already assert an out-of-range
   `schemaVersion` is rejected by the current validator — that mechanism is what a version bump
   relies on.

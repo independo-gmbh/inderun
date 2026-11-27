@@ -290,7 +290,7 @@ class NeuralSpeechProviderTest {
         text: String = "Hallo Welt.",
         timeoutMs: Long? = null,
     ) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
         constraints = timeoutMs?.let { TaskRequestConstraints(timeoutMs = it) },
         speech = SpeechInput(locale = "de-AT", text = text),
@@ -569,7 +569,7 @@ class NeuralSpeechProviderTest {
         val inline = refusal { provider.run(request(delivery = OutputDelivery.Inline), runContext(audio, commits)) }
         val text = refusal {
             provider.run(
-                TaskRequest(schemaVersion = SchemaVersion.V1_0, task = TaskRequestTask(kind = TaskKind.TEXT_TO_TEXT), prompt = "Hello"),
+                TaskRequest(schemaVersion = SchemaVersion.V1_1, task = TaskRequestTask(kind = TaskKind.TEXT_TO_TEXT), prompt = "Hello"),
                 runContext(audio, commits),
             )
         }
@@ -877,7 +877,7 @@ class NeuralSpeechProviderTest {
     // --- pre-split text hook -------------------------------------------------------------------
 
     private fun speechRequest(locale: String, text: String, delivery: OutputDelivery = OutputDelivery.Playback) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
         speech = SpeechInput(locale = locale, text = text),
         delivery = OutputDeliveryRequest(mode = delivery),

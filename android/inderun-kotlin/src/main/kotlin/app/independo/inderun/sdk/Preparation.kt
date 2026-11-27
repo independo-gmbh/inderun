@@ -253,7 +253,7 @@ suspend fun IndeRunApi.prepare(
                     outcome = StreamTerminalOutcome(
                         outcome = payload.outcome ?: Outcome.Completed,
                         runId = runId,
-                        schemaVersion = app.independo.inderun.contracts.SchemaVersion.V1_0,
+                        schemaVersion = app.independo.inderun.contracts.SchemaVersion.V1_1,
                     ),
                 ),
             )

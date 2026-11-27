@@ -48,7 +48,7 @@ export interface IndeRunExceptionParams {
  */
 export class IndeRunException extends Error {
   /** The schema version matching the API contracts. */
-  readonly schemaVersion = "1.0";
+  readonly schemaVersion = "1.1";
   /** The categorized class of error. */
   readonly errorClass: IndeRunErrorClass;
   /** The unique execution run ID. */

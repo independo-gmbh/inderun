@@ -2,7 +2,7 @@ import Foundation
 import IndeRunContracts
 
 public struct IndeRunException: Error, CustomStringConvertible, Sendable {
-    public let schemaVersion: String = "1.0"
+    public let schemaVersion: SchemaVersion = .the11
     public let errorClass: IndeRunErrorClass
     public let message: String
     public let runId: String?

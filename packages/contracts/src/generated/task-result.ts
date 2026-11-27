@@ -36,7 +36,7 @@ export type TaskResult = {
     /**
      * Contract schema version used to interpret the result payload.
      */
-    schemaVersion: "1.0";
+    schemaVersion: "1.1";
     /**
      * Required metadata providing an overview of the execution result and performance metrics.
      */
@@ -236,6 +236,12 @@ export type PreparationStatus = "prepared" | "already_ready" | "skipped" | "fail
  */
 export type SpeechOutput = {
     /**
+     * One record per speech control the request named, and none for others (ADR 025).
+     * Application is reported, never inferred from the request. A successful run never reports
+     * a required control as not applied.
+     */
+    controls?: SpeechControlOutcome[];
+    /**
      * BCP 47 tag of the locale that was spoken.
      */
     locale: string;
@@ -245,6 +251,64 @@ export type SpeechOutput = {
     voice?: SpeechOutputVoice;
     [property: string]: unknown;
 }
+
+export type SpeechControlOutcome = {
+    /**
+     * The value the platform accepted, in the shared control's units. Absent when unknown. An
+     * accepted setting, not an acoustic measurement.
+     */
+    effective?: number;
+    id:         SpeechControlId;
+    /**
+     * How an applied control took effect: 'platform_synthesis' (the platform synthesized with
+     * it) or 'playback_attenuation' (this utterance's playback was attenuated).
+     */
+    method?: SpeechControlMethod;
+    /**
+     * Why a control was not applied: a route-plan omission reason ('unsupported',
+     * 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the
+     * platform refused the value at run time), or 'not_reported' (the provider reported
+     * nothing, so the engine records it as not applied).
+     */
+    reason?: SpeechControlOutcomeReason;
+    /**
+     * The value the request named.
+     */
+    requested: number;
+    /**
+     * 'applied': the provider set the value through the platform's documented path.
+     * 'not_applied': it did not; see reason.
+     */
+    status: SpeechControlStatus;
+    [property: string]: unknown;
+}
+
+/**
+ * A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal),
+ * 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of
+ * one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.
+ */
+export type SpeechControlId = "speech.speakingRate" | "speech.pitch" | "playback.volume";
+
+/**
+ * How an applied control took effect: 'platform_synthesis' (the platform synthesized with
+ * it) or 'playback_attenuation' (this utterance's playback was attenuated).
+ */
+export type SpeechControlMethod = "platform_synthesis" | "playback_attenuation";
+
+/**
+ * Why a control was not applied: a route-plan omission reason ('unsupported',
+ * 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the
+ * platform refused the value at run time), or 'not_reported' (the provider reported
+ * nothing, so the engine records it as not applied).
+ */
+export type SpeechControlOutcomeReason = "unsupported" | "out_of_range" | "range_unknown" | "availability_unknown" | "provider_rejected" | "not_reported";
+
+/**
+ * 'applied': the provider set the value through the platform's documented path.
+ * 'not_applied': it did not; see reason.
+ */
+export type SpeechControlStatus = "applied" | "not_applied";
 
 /**
  * The voice that spoke, as the catalog lists it.
@@ -334,7 +398,7 @@ export type ExecutionProvenance = {
     /**
      * Contract schema version used to interpret this provenance record.
      */
-    schemaVersion: "1.0";
+    schemaVersion: "1.1";
     [property: string]: unknown;
 }
 
@@ -387,7 +451,7 @@ export type ExecutionProvenanceRouteRejection = {
     [property: string]: unknown;
 }
 
-export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available" | "prepare_not_supported" | "not_ready";
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available" | "prepare_not_supported" | "not_ready" | "speech_control_unsupported" | "speech_control_out_of_range";
 
 /**
  * Required metadata providing an overview of the execution result and performance metrics.

@@ -9,7 +9,7 @@
   "properties": {
     "schemaVersion": {
       "description": "Contract schema version used to interpret the result payload.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "runId": {
       "description": "A unique, opaque identifier assigned by the engine for this specific execution attempt.",

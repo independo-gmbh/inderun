@@ -27,6 +27,12 @@ export const DEFAULT_SYSTEM_SPEECH_WEB_PROVIDER_ID = "web_system_speech";
 const TASK = "text_to_speech";
 
 type ListedVoice = NonNullable<RunContext["voice"]>;
+type ControlPlan = NonNullable<RunContext["controls"]>;
+type SpeechControlState = NonNullable<ListedVoice["controlStates"]>[number];
+type SpeechControlOutcome = NonNullable<
+  NonNullable<NonNullable<TaskOutput["speech"]>["controls"]>
+>[number];
+type SpeechControlId = ControlPlan[number]["id"];
 
 /** Options for {@link SystemSpeechWebProvider}. */
 export interface SystemSpeechProviderOptions {
@@ -89,6 +95,29 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
           interaction: { run: true, stream: true, prepare: true },
           cancel: "hard",
           outputs: [{ delivery: "playback" }],
+          controls: [
+            {
+              id: "speech.speakingRate",
+              valueKind: "number",
+              phase: "synthesis",
+              lifetime: "utterance",
+              deliveries: ["playback"]
+            },
+            {
+              id: "speech.pitch",
+              valueKind: "number",
+              phase: "synthesis",
+              lifetime: "utterance",
+              deliveries: ["playback"]
+            },
+            {
+              id: "playback.volume",
+              valueKind: "number",
+              phase: "playback",
+              lifetime: "utterance",
+              deliveries: ["playback"]
+            }
+          ],
           privacy: { dataLeavesDevice: true }
         }
       ]
@@ -145,7 +174,7 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
       });
     }
     return {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: context.runId,
       output,
       finishReason: "stop",
@@ -184,14 +213,27 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
     return this.inTurn(signal, async () => {
       await this.runtime.whenIdle(signal);
       const voice = await this.resolveVoice(context);
+      const controls = this.recheckControls(context, voice);
       // Committed only now: a call that waited its turn has made no sound, and may have been
       // cancelled meanwhile.
       if (signal?.aborted === true || !context.commit()) return undefined;
       const locale = voice?.locale ?? speech.locale;
+      const reported = {
+        locale,
+        ...(voice !== undefined ? { voice: toUsedVoice(voice) } : {}),
+        ...(controls !== undefined ? { controls: controlRecords(controls) } : {})
+      };
       try {
         const handoffAt = Date.now();
+        // Everything the final output will carry is known here, so a stop keeps the records.
+        context.reportSpeech(reported);
         const ending = await this.runtime.speak(
-          { text: speech.text, locale, ...(voice !== undefined ? { voice } : {}) },
+          {
+            text: speech.text,
+            locale,
+            ...(voice !== undefined ? { voice } : {}),
+            ...appliedValues(controls)
+          },
           signal
         );
         if (ending.stopped === true) return undefined;
@@ -205,7 +247,7 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
         return {
           type: "playback",
           playback: Object.keys(timing).length > 0 ? { timing } : {},
-          speech: { locale, ...(voice !== undefined ? { voice: toUsedVoice(voice) } : {}) }
+          speech: reported
         };
       } catch (error) {
         throw this.normalized(error, context.runId);
@@ -230,6 +272,37 @@ export class SystemSpeechWebProvider implements PreparableProviderAdapter {
       });
     }
     return match;
+  }
+
+  /**
+   * Re-evaluates the plan's `apply` entries against the live voice, before commit. Planning saw the
+   * voice's control states, but a queued run may find the same URI no longer on-device. A required
+   * control that lost support is refused so the run can fall back; a preferred one is reported
+   * `not_applied` and never reaches the runtime. The value range is constant, so only
+   * availability can change.
+   */
+  private recheckControls(
+    context: RunContext,
+    voice: SystemSpeechVoice | undefined
+  ): ControlPlan | undefined {
+    const plan = context.controls;
+    if (plan === undefined || (voice !== undefined && hasControlStates(voice))) return plan;
+    if (!plan.some((entry) => entry.decision === "apply")) return plan;
+    if (plan.some((entry) => entry.decision === "apply" && entry.requirement === "required")) {
+      throw createCapabilityMismatch(
+        "The browser voice no longer supports the required speech controls.",
+        {
+          runId: context.runId,
+          providerId: this.id,
+          details: { code: "speech_control_unsupported" }
+        }
+      );
+    }
+    return plan.map((entry) =>
+      entry.decision === "apply"
+        ? { ...entry, decision: "omit" as const, reason: "availability_unknown" as const }
+        : entry
+    );
   }
 
   /**
@@ -278,8 +351,84 @@ function toListedVoice(voice: SystemSpeechVoice): ListedVoice {
     id: voice.uri,
     ...(voice.name !== undefined ? { name: voice.name } : {}),
     locale: voice.locale,
-    ...(voice.localService === false ? { networkRequired: true } : {})
+    ...(voice.localService === false ? { networkRequired: true } : {}),
+    ...(hasControlStates(voice) ? { controlStates: PLAYBACK_CONTROL_STATES } : {})
   };
+}
+
+/** The one rule for a voice carrying control states, shared by discovery and the turn recheck. */
+function hasControlStates(voice: SystemSpeechVoice): boolean {
+  return voice.localService === true;
+}
+
+/**
+ * Source: Web Speech API `SpeechSynthesisUtterance.rate` (0.1 to 10), `pitch` (0 to 2) and
+ * `volume` (0 to 1). The ranges are chosen conservatively inside those bounds; device evidence is
+ * pending in `docs/verification/system-speech.md`. Only on-device voices (`localService: true`)
+ * carry states, and a voice that is a network voice or says nothing stays unknown, so a required
+ * control never routes to it. The presence of the API properties alone is not a claim.
+ */
+const PLAYBACK_CONTROL_STATES: SpeechControlState[] = [
+  {
+    id: "speech.speakingRate",
+    delivery: "playback",
+    available: true,
+    range: { min: 0.5, max: 2, default: 1, step: 0.1 }
+  },
+  {
+    id: "speech.pitch",
+    delivery: "playback",
+    available: true,
+    range: { min: 0.5, max: 2, default: 1, step: 0.1 }
+  },
+  {
+    id: "playback.volume",
+    delivery: "playback",
+    available: true,
+    range: { min: 0, max: 1, default: 1, step: 0.05 }
+  }
+];
+
+const CONTROL_METHODS: Record<SpeechControlId, "platform_synthesis" | "playback_attenuation"> = {
+  "speech.speakingRate": "platform_synthesis",
+  "speech.pitch": "platform_synthesis",
+  "playback.volume": "playback_attenuation"
+};
+
+/** One record per plan entry, from the plan alone: the browser cannot refuse an assigned value. */
+function controlRecords(plan: ControlPlan): SpeechControlOutcome[] {
+  return plan.map((entry) =>
+    entry.decision === "apply"
+      ? {
+          id: entry.id,
+          requested: entry.value,
+          effective: entry.value,
+          status: "applied",
+          method: CONTROL_METHODS[entry.id]
+        }
+      : {
+          id: entry.id,
+          requested: entry.value,
+          status: "not_applied",
+          ...(entry.reason !== undefined ? { reason: entry.reason } : {})
+        }
+  );
+}
+
+/** Only values the plan applies; an omitted control stays unset so the browser default holds. */
+function appliedValues(plan: ControlPlan | undefined): {
+  rate?: number;
+  pitch?: number;
+  volume?: number;
+} {
+  const values: { rate?: number; pitch?: number; volume?: number } = {};
+  for (const entry of plan ?? []) {
+    if (entry.decision !== "apply") continue;
+    if (entry.id === "speech.speakingRate") values.rate = entry.value;
+    else if (entry.id === "speech.pitch") values.pitch = entry.value;
+    else values.volume = entry.value;
+  }
+  return values;
 }
 
 function toUsedVoice(voice: SystemSpeechVoice) {

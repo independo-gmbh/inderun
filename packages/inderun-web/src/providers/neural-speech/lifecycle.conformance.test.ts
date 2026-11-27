@@ -242,7 +242,7 @@ async function until(condition: () => boolean, ms: number, label: string): Promi
 
 function speechRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_speech" },
     speech: { text: TEXT, locale: LOCALE },
     delivery: { mode: "playback" },

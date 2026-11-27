@@ -3,6 +3,7 @@ import {
   type GenerateSpeechOptions,
   type IndeRunApi,
   type SpeakOptions,
+  type SpeechOptions,
   type generateSpeech as sdkGenerateSpeech,
   type prepare as sdkPrepare,
   type speak as sdkSpeak
@@ -122,7 +123,7 @@ function utteranceAt(ctx: Context, index: number): CorpusUtterance {
   return found;
 }
 
-function optionsFor(ctx: Context, utterance: CorpusUtterance): SpeakOptions {
+function optionsFor(ctx: Context, utterance: CorpusUtterance): SpeechOptions {
   return {
     text: utterance.text,
     locale: utterance.locale,

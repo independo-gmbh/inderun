@@ -8,6 +8,15 @@ import {
   type ProviderCapabilitySnapshot,
   type SpeechVoiceInfo
 } from "@independo/inderun-web";
+import {
+  CONTROL_IDS,
+  controlState,
+  deliveryNote,
+  describeControls,
+  playbackControls,
+  synthesisControls,
+  type ChosenControls
+} from "./speech-controls";
 
 const LOCALES: { tag: string; label: string }[] = [
   { tag: "de-AT", label: "Deutsch (Österreich)" },
@@ -56,6 +65,11 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
       <select id="speech-locale"></select>
       <label for="speech-voice">Voice</label>
       <select id="speech-voice"></select>
+      <fieldset id="speech-controls">
+        <legend>Speech controls</legend>
+        <div id="speech-control-rows"></div>
+        <label><input id="speech-require-rate" type="checkbox" /> Require rate</label>
+      </fieldset>
       <div class="actions">
         <button id="speech-speak" type="button">Speak</button>
         <button id="speech-stop" type="button" disabled>Stop</button>
@@ -75,6 +89,8 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
   const speakButton = root.querySelector<HTMLButtonElement>("#speech-speak")!;
   const stopButton = root.querySelector<HTMLButtonElement>("#speech-stop")!;
   const generateButton = root.querySelector<HTMLButtonElement>("#speech-generate")!;
+  const controlRows = root.querySelector<HTMLElement>("#speech-control-rows")!;
+  const requireRate = root.querySelector<HTMLInputElement>("#speech-require-rate")!;
   const voices = root.querySelector<HTMLElement>("#speech-voices")!;
   const delivery = root.querySelector<HTMLElement>("#speech-delivery")!;
   const status = root.querySelector<HTMLElement>("#speech-status")!;
@@ -90,7 +106,7 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
 
   let available: SpeechVoiceInfo[] = [];
   const showVoices = async () => {
-    available = await listVoices(inderun, { locale: locale.value });
+    available = await listVoices(inderun, { locale: locale.value, includeControls: true });
     voices.textContent = `${available.length} voice(s) available for ${locale.value}.`;
     const option = (label: string, value: string) => {
       const element = document.createElement("option");
@@ -107,9 +123,78 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
       // Names repeat, so a repeated one gets a number.
       voice.append(option(count === 1 ? name : `${name} ${count}`, String(index)));
     });
+    showControls();
     // Optional: without this the first speak() would wait for the browser by itself.
     void prepare(inderun, { tasks: ["text_to_speech"], locale: locale.value });
   };
+  // One row per control: a checkbox turns it on, a slider sets it. A control the picked voice does
+  // not offer is disabled and says why; nothing is sent for a row that is off.
+  const chosen = (): ChosenControls => {
+    const value = (id: string) => {
+      const row = controlRows.querySelector<HTMLInputElement>(`input[type=range][data-id="${id}"]`);
+      const on = controlRows.querySelector<HTMLInputElement>(
+        `input[type=checkbox][data-id="${id}"]`
+      );
+      return on?.checked === true && row !== null ? Number(row.value) : undefined;
+    };
+    return {
+      ...(value("speech.speakingRate") !== undefined ? { rate: value("speech.speakingRate") } : {}),
+      ...(value("speech.pitch") !== undefined ? { pitch: value("speech.pitch") } : {}),
+      ...(value("playback.volume") !== undefined ? { volume: value("playback.volume") } : {}),
+      requireRate: requireRate.checked
+    };
+  };
+  const showControls = () => {
+    const picked = voice.value === "" ? undefined : available[Number(voice.value)];
+    controlRows.replaceChildren();
+    for (const { id, label } of CONTROL_IDS) {
+      const playback = controlState(picked, id, "playback");
+      const artifact = id === "playback.volume" ? undefined : controlState(picked, id, "artifact");
+      const state = playback.usable || artifact === undefined ? playback : artifact;
+      const row = document.createElement("div");
+      const on = document.createElement("input");
+      on.type = "checkbox";
+      on.dataset.id = id;
+      on.disabled = !state.usable;
+      on.setAttribute("aria-label", `Set ${label.toLowerCase()}`);
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.dataset.id = id;
+      slider.min = String(state.min);
+      slider.max = String(state.max);
+      slider.step = String(state.step);
+      slider.value = String(state.value);
+      slider.disabled = true;
+      slider.setAttribute("aria-label", label);
+      const readout = document.createElement("output");
+      readout.textContent = state.usable ? slider.value : "";
+      const note = document.createElement("small");
+      // Per delivery: what the voice offers, and whether the chosen value would be sent there.
+      const refreshNote = () => {
+        const chosenValue = on.checked ? Number(slider.value) : undefined;
+        note.textContent = [
+          `Speak: ${deliveryNote(picked, id, "playback", chosenValue)}`,
+          id !== "playback.volume"
+            ? `Generate: ${deliveryNote(picked, id, "artifact", chosenValue)}`
+            : undefined
+        ]
+          .filter((part) => part !== undefined)
+          .join(" · ");
+      };
+      on.addEventListener("change", () => {
+        slider.disabled = !on.checked;
+        refreshNote();
+      });
+      slider.addEventListener("input", () => {
+        readout.textContent = slider.value;
+        refreshNote();
+      });
+      refreshNote();
+      row.append(on, ` ${label} `, slider, readout, " ", note);
+      controlRows.append(row);
+    }
+  };
+  voice.addEventListener("change", showControls);
   locale.addEventListener("change", () => void showVoices());
   void showVoices();
 
@@ -144,7 +229,13 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
         const playback = await speak(inderun, {
           text: text.value,
           locale: locale.value,
-          ...(picked !== undefined ? { voice: picked } : {})
+          ...(picked !== undefined ? { voice: picked } : {}),
+          ...(synthesisControls(chosen(), picked, "playback") !== undefined
+            ? { controls: synthesisControls(chosen(), picked, "playback")! }
+            : {}),
+          ...(playbackControls(chosen(), picked) !== undefined
+            ? { playback: playbackControls(chosen(), picked)! }
+            : {})
         });
         stop = () => playback.cancel("stopped from the demo");
         stopButton.disabled = false;
@@ -155,6 +246,7 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
           finishReason,
           speech?.locale ?? locale.value,
           speech?.voice?.name,
+          describeControls(speech?.controls),
           provenance?.providerId,
           provenance?.locality,
           timing?.firstAudioMs !== undefined
@@ -194,7 +286,10 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
         const generated = await generateSpeech(inderun, {
           text: text.value,
           locale: locale.value,
-          ...(picked !== undefined ? { voice: picked } : {})
+          ...(picked !== undefined ? { voice: picked } : {}),
+          ...(synthesisControls(chosen(), picked, "artifact") !== undefined
+            ? { controls: synthesisControls(chosen(), picked, "artifact")! }
+            : {})
         });
         const chunks: Uint8Array[] = [];
         try {
@@ -219,6 +314,7 @@ export function mountSpeechPanel(root: HTMLElement, inderun: IndeRunApi): void {
           generated.artifact.mediaType,
           `${bytes} bytes`,
           duration !== undefined ? `${Math.round(duration)} ms of audio` : undefined,
+          describeControls(generated.speech?.controls),
           generated.provenance?.providerId,
           generated.provenance?.locality
         ]

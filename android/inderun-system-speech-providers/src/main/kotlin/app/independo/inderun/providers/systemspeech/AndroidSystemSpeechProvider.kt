@@ -2,6 +2,9 @@ package app.independo.inderun.providers.systemspeech
 
 import android.content.Context
 import app.independo.inderun.contracts.CancelSemantics
+import app.independo.inderun.contracts.ControlApplicationPlan
+import app.independo.inderun.contracts.ControlDecision
+import app.independo.inderun.contracts.ControlDelivery
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.LocaleMatch
 import app.independo.inderun.contracts.OutputDelivery
@@ -20,6 +23,18 @@ import app.independo.inderun.contracts.ProviderTaskOutput
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.RequirementLevel
+import app.independo.inderun.contracts.SpeechControlDeclaration
+import app.independo.inderun.contracts.SpeechControlId
+import app.independo.inderun.contracts.SpeechControlLifetime
+import app.independo.inderun.contracts.SpeechControlMethod
+import app.independo.inderun.contracts.SpeechControlOutcome
+import app.independo.inderun.contracts.SpeechControlOutcomeReason
+import app.independo.inderun.contracts.SpeechControlPhase
+import app.independo.inderun.contracts.SpeechControlRange
+import app.independo.inderun.contracts.SpeechControlState
+import app.independo.inderun.contracts.SpeechControlStatus
+import app.independo.inderun.contracts.SpeechControlValueKind
 import app.independo.inderun.contracts.SpeechInput
 import app.independo.inderun.contracts.SpeechOutput
 import app.independo.inderun.contracts.SpeechOutputVoice
@@ -72,6 +87,12 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Locality is reported per voice from `Voice.isNetworkConnectionRequired`. An engine that lists no
  * voices gives nothing to check, so a `local_required` request is refused before commit.
+ *
+ * Speech controls are applied inside the turn, before commit, so their refusals are
+ * `CapabilityMismatch` errors that leave fallback open: `speech_control_unsupported` for a `required`
+ * control the platform refuses or no longer applies, and `speech_settings_not_restored` when the
+ * engine twice refuses to put back the user's default rate or pitch after an earlier utterance or a
+ * refused setter changed it.
  */
 class AndroidSystemSpeechProvider(
     private val id: String,
@@ -84,6 +105,14 @@ class AndroidSystemSpeechProvider(
 
     private val turn = Mutex()
     private val downloading = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * The engine settings an earlier utterance changed and nothing has restored yet. Read and
+     * written only inside [turn]. A setter that was called counts as a change even when it failed
+     * or the run ended before speaking, so the next utterance that does not set it restores the
+     * user's default.
+     */
+    private val changedSettings = mutableSetOf<SpeechControlId>()
 
     override fun describe(): ProviderDescriptor = ProviderDescriptor(
         id = id,
@@ -110,6 +139,7 @@ class AndroidSystemSpeechProvider(
                     ProviderTaskOutput(delivery = OutputDelivery.Playback),
                     ProviderTaskOutput(delivery = OutputDelivery.Artifact, mediaTypes = listOf(MEDIA_TYPE)),
                 ),
+                controls = declaredControls(engine.attenuatesPlayback),
             ),
         ),
         // Per task, not per provider: each listed voice states its own `networkRequired`.
@@ -130,7 +160,7 @@ class AndroidSystemSpeechProvider(
         if (voices.isEmpty()) {
             return ProviderDynamicCapabilities(
                 available = true,
-                taskCapabilities = listOf(ProviderTaskAvailability(kind = TASK)),
+                taskCapabilities = listOf(ProviderTaskAvailability(kind = TASK, controlStates = controlStates(engine.attenuatesPlayback))),
             )
         }
         val online = host.connectivity.isOnline()
@@ -151,7 +181,9 @@ class AndroidSystemSpeechProvider(
             }
         return ProviderDynamicCapabilities(
             available = true,
-            taskCapabilities = listOf(ProviderTaskAvailability(kind = TASK, voices = listed)),
+            taskCapabilities = listOf(
+                ProviderTaskAvailability(kind = TASK, voices = listed, controlStates = controlStates(engine.attenuatesPlayback)),
+            ),
         )
     }
 
@@ -200,7 +232,7 @@ class AndroidSystemSpeechProvider(
     )
 
     override suspend fun run(request: TaskRequest, context: RunContext): TaskResult {
-        val output = execute(request, context.runId, context.voice, context.artifacts, context::commit)
+        val output = execute(request, context.runId, context.voice, context.controls, context.artifacts, context::reportSpeech, context::commit)
             ?: throw CancellationException("The run was cancelled before it could commit.")
         return TaskResult(
             finishReason = FinishReason.STOP,
@@ -216,7 +248,7 @@ class AndroidSystemSpeechProvider(
      * by falling through when it may not start, because the engine owns the `cancelled` outcome.
      */
     override fun stream(request: TaskRequest, context: ProviderStreamContext): Flow<ProviderStreamEvent> = flow {
-        val output = execute(request, context.runId, context.voice, context.artifacts, context::commit)
+        val output = execute(request, context.runId, context.voice, context.controls, context.artifacts, context::reportSpeech, context::commit)
         if (output != null) emit(ProviderStreamEvent.Result(output, FinishReason.STOP))
     }
 
@@ -227,7 +259,9 @@ class AndroidSystemSpeechProvider(
         request: TaskRequest,
         runId: String,
         bound: ProviderVoice?,
+        controls: List<ControlApplicationPlan>?,
         artifacts: ArtifactSink,
+        reportSpeech: (SpeechOutput) -> Unit,
         commit: () -> Boolean,
     ): TaskOutput? {
         // The clock for `firstAudioMs` starts here, so waiting for the turn lock and voice
@@ -241,7 +275,11 @@ class AndroidSystemSpeechProvider(
         try {
             return turn.withLock {
                 val voice = selectVoice(speech, bound, request.constraints?.privacy, runId)
+                // Every setter runs here, inside the turn and before commit, so a refused required
+                // control still falls back and no setting leaks into the next queued utterance.
+                val applied = applyControls(controls, delivery, runId)
                 val used = SpeechOutput(
+                    controls = applied.records,
                     locale = voice?.locale ?: speech.locale,
                     voice = voice?.let { SpeechOutputVoice(id = it.name, name = it.name) },
                 )
@@ -250,8 +288,11 @@ class AndroidSystemSpeechProvider(
                         // Committed only now: a call that waited its turn has made no sound, and
                         // may have been cancelled meanwhile.
                         if (!commit()) return@withLock null
+                        // What the final output carries is known now, so a stop keeps the records.
+                        // No suspension point lies between the commit and this report.
+                        reportSpeech(used)
                         val handoffAt = System.nanoTime()
-                        val spoken = engine.speakWithTimings(speech.text)
+                        val spoken = engine.speakWithTimings(speech.text, applied.volume)
                         // The engine times from its own handoff; add what came before it. An
                         // engine that reports no first word leaves it absent, never overhead-only.
                         val firstAudioMs = spoken.firstAudioMs?.let { it + (handoffAt - receivedAt) / 1_000_000.0 }
@@ -283,6 +324,119 @@ class AndroidSystemSpeechProvider(
                 details = mapOf("originalError" to error.message),
             )
         }
+    }
+
+    /** What the plan's controls came to: the output records, and the volume a playback run passes on. */
+    private class AppliedControls(val records: List<SpeechControlOutcome>?, val volume: Double?)
+
+    /**
+     * Sets rate and pitch on the engine and builds one record per plan entry, in plan order.
+     * The engine's rate and pitch are shared and outlive the utterance, and they start at the
+     * user's own system defaults: an utterance that does not apply one leaves it alone, unless an
+     * earlier utterance changed it, which is then restored to the user's default first so it never
+     * carries over. A request without controls on a fresh provider calls no setter at all.
+     * A setter the platform refuses fails a `required` control before commit and records a
+     * `preferred` one as `provider_rejected` with that setting restored. A restore the platform
+     * refuses twice fails the attempt before commit with `speech_settings_not_restored`, because
+     * the engine would otherwise speak with a value this utterance did not ask for.
+     *
+     * Volume has no setter: it is the speak parameter, and a render never gets one. It is checked
+     * first, against one reading of [AndroidSpeechEngine.attenuatesPlayback], because the engine can
+     * stop attenuating after planning: a `required` volume it no longer applies fails before any
+     * setter runs, and a `preferred` one is recorded `unsupported`.
+     */
+    private suspend fun applyControls(plan: List<ControlApplicationPlan>?, delivery: OutputDelivery, runId: String): AppliedControls {
+        val playback = delivery == OutputDelivery.Playback
+        val volumeApplies = playback && engine.attenuatesPlayback
+        val volumeEntry = plan?.firstOrNull { it.id == SpeechControlId.PlaybackVolume && it.decision == ControlDecision.Apply }
+        if (volumeEntry?.requirement == RequirementLevel.Required && playback && !volumeApplies) {
+            throw createCapabilityMismatch(
+                "The TTS engine no longer applies the required control '${SpeechControlId.PlaybackVolume.rawValue}'.",
+                runId,
+                this.id,
+                details = mapOf("code" to "speech_control_unsupported"),
+            )
+        }
+        val rejected = mutableSetOf<SpeechControlId>()
+        for (id in listOf(SpeechControlId.SpeechSpeakingRate, SpeechControlId.SpeechPitch)) {
+            val entry = plan?.firstOrNull { it.id == id && it.decision == ControlDecision.Apply }
+            if (entry == null) {
+                if (id in changedSettings) restore(id, runId)
+                continue
+            }
+            changedSettings += id
+            if (!set(id, entry.value)) {
+                if (entry.requirement == RequirementLevel.Required) {
+                    throw createCapabilityMismatch(
+                        "The TTS engine refused the required control '${id.rawValue}'.",
+                        runId,
+                        this.id,
+                        details = mapOf("code" to "speech_control_unsupported"),
+                    )
+                }
+                restore(id, runId)
+                rejected += id
+            }
+        }
+        if (plan == null) return AppliedControls(null, null)
+        var volume: Double? = null
+        val records = plan.map { entry ->
+            fun notApplied(reason: SpeechControlOutcomeReason) = SpeechControlOutcome(
+                id = entry.id,
+                reason = reason,
+                requested = entry.value,
+                status = SpeechControlStatus.NotApplied,
+            )
+            when {
+                entry.decision != ControlDecision.Apply ->
+                    notApplied(entry.reason?.let { SpeechControlOutcomeReason.fromRawValue(it.rawValue) } ?: SpeechControlOutcomeReason.Unsupported)
+                entry.id in rejected -> notApplied(SpeechControlOutcomeReason.ProviderRejected)
+                entry.id == SpeechControlId.PlaybackVolume && !volumeApplies ->
+                    notApplied(SpeechControlOutcomeReason.Unsupported)
+                else -> {
+                    if (entry.id == SpeechControlId.PlaybackVolume) volume = entry.value
+                    SpeechControlOutcome(
+                        effective = entry.value,
+                        id = entry.id,
+                        method = if (entry.id == SpeechControlId.PlaybackVolume) {
+                            SpeechControlMethod.PlaybackAttenuation
+                        } else {
+                            SpeechControlMethod.PlatformSynthesis
+                        },
+                        requested = entry.value,
+                        status = SpeechControlStatus.Applied,
+                    )
+                }
+            }
+        }
+        return AppliedControls(records, volume)
+    }
+
+    private suspend fun set(control: SpeechControlId, value: Double): Boolean = if (control == SpeechControlId.SpeechSpeakingRate) {
+        engine.setSpeechRate(value)
+    } else {
+        engine.setPitch(value)
+    }
+
+    /**
+     * Puts the user's default back, retrying once. A restore refused twice fails the attempt before
+     * commit and stays marked, so the next utterance tries again. The provider never substitutes a
+     * value of its own for the user's default.
+     */
+    private suspend fun restore(control: SpeechControlId, runId: String) {
+        repeat(RESTORE_ATTEMPTS) {
+            val restored = if (control == SpeechControlId.SpeechSpeakingRate) engine.resetSpeechRate() else engine.resetPitch()
+            if (restored) {
+                changedSettings -= control
+                return
+            }
+        }
+        throw createCapabilityMismatch(
+            "The TTS engine refused to restore the user's default for '${control.rawValue}'.",
+            runId,
+            id,
+            details = mapOf("code" to "speech_settings_not_restored"),
+        )
     }
 
     /**
@@ -362,7 +516,47 @@ class AndroidSystemSpeechProvider(
         const val DEFAULT_ID = "android_system_speech"
 
         private val TASK = TaskKind.TEXT_TO_SPEECH.rawValue
+
+        /**
+         * Rate and pitch shape the synthesis in both deliveries; volume attenuates playback only, and
+         * only on an engine that applies it ([AndroidSpeechEngine.attenuatesPlayback]).
+         */
+        private fun declaredControls(attenuates: Boolean) = listOfNotNull(
+            declaration(SpeechControlId.SpeechSpeakingRate, SpeechControlPhase.Synthesis, ControlDelivery.Playback, ControlDelivery.Artifact),
+            declaration(SpeechControlId.SpeechPitch, SpeechControlPhase.Synthesis, ControlDelivery.Playback, ControlDelivery.Artifact),
+            if (attenuates) declaration(SpeechControlId.PlaybackVolume, SpeechControlPhase.Playback, ControlDelivery.Playback) else null,
+        )
+
+        private fun declaration(id: SpeechControlId, phase: SpeechControlPhase, vararg deliveries: ControlDelivery) = SpeechControlDeclaration(
+            deliveries = deliveries.toList(),
+            id = id,
+            lifetime = SpeechControlLifetime.Utterance,
+            phase = phase,
+            valueKind = SpeechControlValueKind.Number,
+        )
+
+        private val RATE_PITCH_RANGE = SpeechControlRange(default = 1.0, max = 2.0, min = 0.5, step = 0.05)
+        private val VOLUME_RANGE = SpeechControlRange(default = 1.0, max = 1.0, min = 0.0, step = 0.05)
+
+        /**
+         * `TextToSpeech.setSpeechRate` and `setPitch` document 1.0 as normal with no upper bound, so
+         * 0.5 to 2 is a conservative choice pending device evidence. Volume is `KEY_PARAM_VOLUME`,
+         * 0 to 1, stated only when the engine applies it. The ranges hold for every installed voice,
+         * so they are task-level states.
+         */
+        private fun controlStates(attenuates: Boolean) = if (attenuates) RATE_PITCH_STATES + VOLUME_STATE else RATE_PITCH_STATES
+
+        private val RATE_PITCH_STATES = listOf(
+            SpeechControlState(available = true, delivery = ControlDelivery.Playback, id = SpeechControlId.SpeechSpeakingRate, range = RATE_PITCH_RANGE),
+            SpeechControlState(available = true, delivery = ControlDelivery.Artifact, id = SpeechControlId.SpeechSpeakingRate, range = RATE_PITCH_RANGE),
+            SpeechControlState(available = true, delivery = ControlDelivery.Playback, id = SpeechControlId.SpeechPitch, range = RATE_PITCH_RANGE),
+            SpeechControlState(available = true, delivery = ControlDelivery.Artifact, id = SpeechControlId.SpeechPitch, range = RATE_PITCH_RANGE),
+        )
+        private val VOLUME_STATE = SpeechControlState(available = true, delivery = ControlDelivery.Playback, id = SpeechControlId.PlaybackVolume, range = VOLUME_RANGE)
         private const val MEDIA_TYPE = "audio/wav"
+
+        /** A refused restore is tried once more before the attempt is refused. */
+        private const val RESTORE_ATTEMPTS = 2
         private const val DOWNLOAD_POLL_MS = 1_000L
         private const val DOWNLOAD_TIMEOUT_MS = 10L * 60 * 1_000
 

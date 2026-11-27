@@ -19,6 +19,7 @@
 		A10000000000000000000007 /* IndeRunAppleProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000034 /* IndeRunAppleProviders */; };
 		A10000000000000000000008 /* IndeRunOpenAIProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000035 /* IndeRunOpenAIProviders */; };
 		A10000000000000000000009 /* IndeRunOnnxProviders in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000036 /* IndeRunOnnxProviders */; };
+		A20000000000000000000A02 /* SpeechControlChoices.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000A01 /* SpeechControlChoices.swift */; };
 		A20000000000000000000012 /* NeuralCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* NeuralCatalog.swift */; };
 		A20000000000000000000022 /* DemoNeuralModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* DemoNeuralModelDownloader.swift */; };
 		A20000000000000000000032 /* VoicesLabViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000031 /* VoicesLabViewModel.swift */; };
@@ -27,6 +28,7 @@
 		A20000000000000000000062 /* neural-model-catalog.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* neural-model-catalog.json */; };
 		A20000000000000000000072 /* utterance-corpus.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000071 /* utterance-corpus.json */; };
 		A20000000000000000000082 /* catalog-to-package.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000081 /* catalog-to-package.json */; };
+		A20000000000000000000A12 /* SpeechControlChoicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000A11 /* SpeechControlChoicesTests.swift */; };
 		A20000000000000000000092 /* NeuralCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000091 /* NeuralCatalogTests.swift */; };
 		A200000000000000000000A2 /* NeuralDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000000000000A1 /* NeuralDownloaderTests.swift */; };
 		A200000000000000000000B2 /* VoicesLabViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000000000000B1 /* VoicesLabViewModelTests.swift */; };
@@ -53,6 +55,7 @@
 		A10000000000000000000013 /* DemoViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoViewModel.swift; sourceTree = "<group>"; };
 		A10000000000000000000014 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		A10000000000000000000015 /* DemoOnnxModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoOnnxModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000A01 /* SpeechControlChoices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechControlChoices.swift; sourceTree = "<group>"; };
 		A20000000000000000000011 /* NeuralCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeuralCatalog.swift; sourceTree = "<group>"; };
 		A20000000000000000000021 /* DemoNeuralModelDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoNeuralModelDownloader.swift; sourceTree = "<group>"; };
 		A20000000000000000000031 /* VoicesLabViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicesLabViewModel.swift; sourceTree = "<group>"; };
@@ -61,6 +64,7 @@
 		A20000000000000000000061 /* neural-model-catalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = neural-model-catalog.json; path = ../../../contracts/fixtures/speech/neural-model-catalog.json; sourceTree = SOURCE_ROOT; };
 		A20000000000000000000071 /* utterance-corpus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = utterance-corpus.json; path = ../../../contracts/fixtures/speech/utterance-corpus.json; sourceTree = SOURCE_ROOT; };
 		A20000000000000000000081 /* catalog-to-package.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = catalog-to-package.json; path = ../../../contracts/fixtures/speech/catalog-to-package.json; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000A11 /* SpeechControlChoicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechControlChoicesTests.swift; sourceTree = "<group>"; };
 		A20000000000000000000091 /* NeuralCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeuralCatalogTests.swift; sourceTree = "<group>"; };
 		A200000000000000000000A1 /* NeuralDownloaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeuralDownloaderTests.swift; sourceTree = "<group>"; };
 		A200000000000000000000B1 /* VoicesLabViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicesLabViewModelTests.swift; sourceTree = "<group>"; };
@@ -120,6 +124,7 @@
 				A10000000000000000000017 /* SpeechScreen.swift */,
 				A10000000000000000000013 /* DemoViewModel.swift */,
 				A10000000000000000000015 /* DemoOnnxModel.swift */,
+				A20000000000000000000A01 /* SpeechControlChoices.swift */,
 				A20000000000000000000011 /* NeuralCatalog.swift */,
 				A20000000000000000000021 /* DemoNeuralModelDownloader.swift */,
 				A20000000000000000000031 /* VoicesLabViewModel.swift */,
@@ -151,6 +156,7 @@
 		A200000000000000000000E1 /* IndeRunDemoTests */ = {
 			isa = PBXGroup;
 			children = (
+				A20000000000000000000A11 /* SpeechControlChoicesTests.swift */,
 				A20000000000000000000091 /* NeuralCatalogTests.swift */,
 				A200000000000000000000A1 /* NeuralDownloaderTests.swift */,
 				A200000000000000000000B1 /* VoicesLabViewModelTests.swift */,
@@ -280,6 +286,7 @@
 				A1000000000000000000000C /* SpeechScreen.swift in Sources */,
 				A10000000000000000000003 /* DemoViewModel.swift in Sources */,
 				A1000000000000000000000A /* DemoOnnxModel.swift in Sources */,
+				A20000000000000000000A02 /* SpeechControlChoices.swift in Sources */,
 				A20000000000000000000012 /* NeuralCatalog.swift in Sources */,
 				A20000000000000000000022 /* DemoNeuralModelDownloader.swift in Sources */,
 				A20000000000000000000032 /* VoicesLabViewModel.swift in Sources */,
@@ -292,6 +299,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A20000000000000000000A12 /* SpeechControlChoicesTests.swift in Sources */,
 				A20000000000000000000092 /* NeuralCatalogTests.swift in Sources */,
 				A200000000000000000000A2 /* NeuralDownloaderTests.swift in Sources */,
 				A200000000000000000000B2 /* VoicesLabViewModelTests.swift in Sources */,

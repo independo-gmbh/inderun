@@ -94,7 +94,7 @@ private class FakeApi(
     override suspend fun stream(request: TaskRequest): StreamRun {
         requests += request
         return StreamRun(
-            handle = StreamRunHandle(providerId = "p1", runId = "run_1", schemaVersion = SchemaVersion.V1_0, startedAt = 0.0),
+            handle = StreamRunHandle(providerId = "p1", runId = "run_1", schemaVersion = SchemaVersion.V1_1, startedAt = 0.0),
             events = source ?: flowOf(*events.toTypedArray()),
         ) { reason -> cancels += reason }
     }
@@ -252,7 +252,7 @@ class TextGenerationTest {
             finishReason = FinishReason.STOP,
             output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = "run_1",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             telemetry = TaskResultTelemetry(providerUsed = "p1", totalMs = 5.0),
             provenance = provenance(AttemptOutcome.Succeeded),
         )
@@ -293,7 +293,7 @@ class TextGenerationTest {
                 finishReason = FinishReason.STOP,
                 output = TaskOutput(type = TaskOutputType.TEXT, text = "Echo: ${request.prompt}"),
                 runId = context.runId,
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 telemetry = TaskResultTelemetry(providerUsed = "local_a", totalMs = 0.0),
             )
         }
@@ -329,7 +329,7 @@ class TextGenerationTest {
     private fun event(type: String, payload: Payload) = StreamEvent(
         payload = payload,
         runId = "run_1",
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         sequence = sequence++,
         timestamp = 0.0,
         type = type,

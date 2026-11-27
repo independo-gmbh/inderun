@@ -54,7 +54,8 @@ public struct TaskRequest: Codable, Sendable {
     public var prompt: String?
     /// Optional identifier for tracking or correlating this specific execution attempt.
     public var requestId: String?
-    /// Contract schema version used to interpret the request payload.
+    /// Contract schema version used to interpret the request payload. Only '1.1' is accepted
+    /// (ADR 025).
     public var schemaVersion: SchemaVersion
     /// The text_to_speech payload. Required for text_to_speech and forbidden for every other
     /// kind.
@@ -254,17 +255,24 @@ public struct OutputDeliveryRequest: Codable, Sendable {
     /// requirement. Absent means the provider chooses and the artifact reports what it produced.
     public var mediaTypes: [String]?
     public var mode: OutputDelivery
+    /// Only valid with 'playback' delivery: settings that shape how this utterance is heard,
+    /// never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0
+    /// (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are
+    /// rejected.
+    public var playback: PlaybackControls?
 
     public enum CodingKeys: String, CodingKey {
         case destinationRef = "destinationRef"
         case mediaTypes = "mediaTypes"
         case mode = "mode"
+        case playback = "playback"
     }
 
-    public init(destinationRef: String?, mediaTypes: [String]?, mode: OutputDelivery) {
+    public init(destinationRef: String?, mediaTypes: [String]?, mode: OutputDelivery, playback: PlaybackControls?) {
         self.destinationRef = destinationRef
         self.mediaTypes = mediaTypes
         self.mode = mode
+        self.playback = playback
     }
 }
 
@@ -289,12 +297,14 @@ public extension OutputDeliveryRequest {
     func with(
         destinationRef: String?? = nil,
         mediaTypes: [String]?? = nil,
-        mode: OutputDelivery? = nil
+        mode: OutputDelivery? = nil,
+        playback: PlaybackControls?? = nil
     ) -> OutputDeliveryRequest {
         return OutputDeliveryRequest(
             destinationRef: destinationRef ?? self.destinationRef,
             mediaTypes: mediaTypes ?? self.mediaTypes,
-            mode: mode ?? self.mode
+            mode: mode ?? self.mode,
+            playback: playback ?? self.playback
         )
     }
 
@@ -314,6 +324,121 @@ public enum OutputDelivery: String, Codable, Sendable {
     case artifact = "artifact"
     case inline = "inline"
     case playback = "playback"
+}
+
+/// Only valid with 'playback' delivery: settings that shape how this utterance is heard,
+/// never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0
+/// (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are
+/// rejected.
+// MARK: - PlaybackControls
+public struct PlaybackControls: Codable, Sendable {
+    public var volume: RequestedUnitNumber?
+
+    public enum CodingKeys: String, CodingKey {
+        case volume = "volume"
+    }
+
+    public init(volume: RequestedUnitNumber?) {
+        self.volume = volume
+    }
+}
+
+// MARK: PlaybackControls convenience initializers and mutators
+
+public extension PlaybackControls {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(PlaybackControls.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        volume: RequestedUnitNumber?? = nil
+    ) -> PlaybackControls {
+        return PlaybackControls(
+            volume: volume ?? self.volume
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A requested numeric setting between 0 and 1, and how strictly it applies.
+// MARK: - RequestedUnitNumber
+public struct RequestedUnitNumber: Codable, Sendable {
+    public var requirement: RequirementLevel?
+    /// The requested value: finite, from 0 to 1.
+    public var value: Double
+
+    public enum CodingKeys: String, CodingKey {
+        case requirement = "requirement"
+        case value = "value"
+    }
+
+    public init(requirement: RequirementLevel?, value: Double) {
+        self.requirement = requirement
+        self.value = value
+    }
+}
+
+// MARK: RequestedUnitNumber convenience initializers and mutators
+
+public extension RequestedUnitNumber {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(RequestedUnitNumber.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        requirement: RequirementLevel?? = nil,
+        value: Double? = nil
+    ) -> RequestedUnitNumber {
+        return RequestedUnitNumber(
+            requirement: requirement ?? self.requirement,
+            value: value ?? self.value
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'preferred' (default) or 'required'. A required voice must name an id or a trait.
+///
+/// 'required' takes part in routing; 'preferred' does not.
+public enum RequirementLevel: String, Codable, Sendable {
+    case preferred = "preferred"
+    case requirementLevelRequired = "required"
 }
 
 /// Optional configuration for fine-tuning how the AI model generates its response.
@@ -513,13 +638,20 @@ public enum OptimizeFor: String, Codable, Sendable {
 }
 
 public enum SchemaVersion: String, Codable, Sendable {
-    case the10 = "1.0"
+    case the11 = "1.1"
 }
 
 /// The text_to_speech payload. Required for text_to_speech and forbidden for every other
 /// kind.
 // MARK: - SpeechInput
 public struct SpeechInput: Codable, Sendable {
+    /// Relative synthesis settings shared across providers (ADR 025). speakingRate: relative
+    /// pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or
+    /// a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not
+    /// hertz. Each is a preference by default; a 'required' one takes part in routing and is
+    /// never ignored. An absent control means the provider's normal behaviour. Support and
+    /// per-voice ranges are checked by routing, not here. Unknown controls are rejected.
+    public var controls: SharedSynthesisControls?
     /// BCP 47 tag of the language to speak, e.g. 'de-AT'.
     public var locale: String
     /// 'language' (default): the primary language subtag is a hard requirement and the region is
@@ -533,13 +665,15 @@ public struct SpeechInput: Codable, Sendable {
     public var voice: SpeechVoice?
 
     public enum CodingKeys: String, CodingKey {
+        case controls = "controls"
         case locale = "locale"
         case localeMatch = "localeMatch"
         case text = "text"
         case voice = "voice"
     }
 
-    public init(locale: String, localeMatch: LocaleMatch?, text: String, voice: SpeechVoice?) {
+    public init(controls: SharedSynthesisControls?, locale: String, localeMatch: LocaleMatch?, text: String, voice: SpeechVoice?) {
+        self.controls = controls
         self.locale = locale
         self.localeMatch = localeMatch
         self.text = text
@@ -566,16 +700,133 @@ public extension SpeechInput {
     }
 
     func with(
+        controls: SharedSynthesisControls?? = nil,
         locale: String? = nil,
         localeMatch: LocaleMatch?? = nil,
         text: String? = nil,
         voice: SpeechVoice?? = nil
     ) -> SpeechInput {
         return SpeechInput(
+            controls: controls ?? self.controls,
             locale: locale ?? self.locale,
             localeMatch: localeMatch ?? self.localeMatch,
             text: text ?? self.text,
             voice: voice ?? self.voice
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Relative synthesis settings shared across providers (ADR 025). speakingRate: relative
+/// pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or
+/// a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not
+/// hertz. Each is a preference by default; a 'required' one takes part in routing and is
+/// never ignored. An absent control means the provider's normal behaviour. Support and
+/// per-voice ranges are checked by routing, not here. Unknown controls are rejected.
+// MARK: - SharedSynthesisControls
+public struct SharedSynthesisControls: Codable, Sendable {
+    public var pitch: RequestedNumber?
+    public var speakingRate: RequestedNumber?
+
+    public enum CodingKeys: String, CodingKey {
+        case pitch = "pitch"
+        case speakingRate = "speakingRate"
+    }
+
+    public init(pitch: RequestedNumber?, speakingRate: RequestedNumber?) {
+        self.pitch = pitch
+        self.speakingRate = speakingRate
+    }
+}
+
+// MARK: SharedSynthesisControls convenience initializers and mutators
+
+public extension SharedSynthesisControls {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SharedSynthesisControls.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        pitch: RequestedNumber?? = nil,
+        speakingRate: RequestedNumber?? = nil
+    ) -> SharedSynthesisControls {
+        return SharedSynthesisControls(
+            pitch: pitch ?? self.pitch,
+            speakingRate: speakingRate ?? self.speakingRate
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A requested numeric setting and how strictly it applies. 'preferred' (default) may be
+/// omitted and reported when unsupported; 'required' is met or the run is refused.
+// MARK: - RequestedNumber
+public struct RequestedNumber: Codable, Sendable {
+    public var requirement: RequirementLevel?
+    /// The requested value: finite and greater than 0.
+    public var value: Double
+
+    public enum CodingKeys: String, CodingKey {
+        case requirement = "requirement"
+        case value = "value"
+    }
+
+    public init(requirement: RequirementLevel?, value: Double) {
+        self.requirement = requirement
+        self.value = value
+    }
+}
+
+// MARK: RequestedNumber convenience initializers and mutators
+
+public extension RequestedNumber {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(RequestedNumber.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        requirement: RequirementLevel?? = nil,
+        value: Double? = nil
+    ) -> RequestedNumber {
+        return RequestedNumber(
+            requirement: requirement ?? self.requirement,
+            value: value ?? self.value
         )
     }
 
@@ -677,14 +928,6 @@ public enum VoiceGender: String, Codable, Sendable {
     case female = "female"
     case male = "male"
     case neutral = "neutral"
-}
-
-/// 'preferred' (default) or 'required'. A required voice must name an id or a trait.
-///
-/// 'required' takes part in routing; 'preferred' does not.
-public enum RequirementLevel: String, Codable, Sendable {
-    case preferred = "preferred"
-    case requirementLevelRequired = "required"
 }
 
 /// A descriptor specifying the type of work to be performed. The kind selects which payload
@@ -1358,17 +1601,23 @@ public enum PreparationStatus: String, Codable, Sendable {
 /// visible without being an error.
 // MARK: - SpeechOutput
 public struct SpeechOutput: Codable, Sendable {
+    /// One record per speech control the request named, and none for others (ADR 025).
+    /// Application is reported, never inferred from the request. A successful run never reports
+    /// a required control as not applied.
+    public var controls: [SpeechControlOutcome]?
     /// BCP 47 tag of the locale that was spoken.
     public var locale: String
     /// The voice that spoke, as the catalog lists it.
     public var voice: SpeechOutputVoice?
 
     public enum CodingKeys: String, CodingKey {
+        case controls = "controls"
         case locale = "locale"
         case voice = "voice"
     }
 
-    public init(locale: String, voice: SpeechOutputVoice?) {
+    public init(controls: [SpeechControlOutcome]?, locale: String, voice: SpeechOutputVoice?) {
+        self.controls = controls
         self.locale = locale
         self.voice = voice
     }
@@ -1393,10 +1642,12 @@ public extension SpeechOutput {
     }
 
     func with(
+        controls: [SpeechControlOutcome]?? = nil,
         locale: String? = nil,
         voice: SpeechOutputVoice?? = nil
     ) -> SpeechOutput {
         return SpeechOutput(
+            controls: controls ?? self.controls,
             locale: locale ?? self.locale,
             voice: voice ?? self.voice
         )
@@ -1409,6 +1660,126 @@ public extension SpeechOutput {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
+}
+
+// MARK: - SpeechControlOutcome
+public struct SpeechControlOutcome: Codable, Sendable {
+    /// The value the platform accepted, in the shared control's units. Absent when unknown. An
+    /// accepted setting, not an acoustic measurement.
+    public var effective: Double?
+    public var id: SpeechControlId
+    /// How an applied control took effect: 'platform_synthesis' (the platform synthesized with
+    /// it) or 'playback_attenuation' (this utterance's playback was attenuated).
+    public var method: SpeechControlMethod?
+    /// Why a control was not applied: a route-plan omission reason ('unsupported',
+    /// 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the
+    /// platform refused the value at run time), or 'not_reported' (the provider reported
+    /// nothing, so the engine records it as not applied).
+    public var reason: SpeechControlOutcomeReason?
+    /// The value the request named.
+    public var requested: Double
+    /// 'applied': the provider set the value through the platform's documented path.
+    /// 'not_applied': it did not; see reason.
+    public var status: SpeechControlStatus
+
+    public enum CodingKeys: String, CodingKey {
+        case effective = "effective"
+        case id = "id"
+        case method = "method"
+        case reason = "reason"
+        case requested = "requested"
+        case status = "status"
+    }
+
+    public init(effective: Double?, id: SpeechControlId, method: SpeechControlMethod?, reason: SpeechControlOutcomeReason?, requested: Double, status: SpeechControlStatus) {
+        self.effective = effective
+        self.id = id
+        self.method = method
+        self.reason = reason
+        self.requested = requested
+        self.status = status
+    }
+}
+
+// MARK: SpeechControlOutcome convenience initializers and mutators
+
+public extension SpeechControlOutcome {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechControlOutcome.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        effective: Double?? = nil,
+        id: SpeechControlId? = nil,
+        method: SpeechControlMethod?? = nil,
+        reason: SpeechControlOutcomeReason?? = nil,
+        requested: Double? = nil,
+        status: SpeechControlStatus? = nil
+    ) -> SpeechControlOutcome {
+        return SpeechControlOutcome(
+            effective: effective ?? self.effective,
+            id: id ?? self.id,
+            method: method ?? self.method,
+            reason: reason ?? self.reason,
+            requested: requested ?? self.requested,
+            status: status ?? self.status
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal),
+/// 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of
+/// one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.
+public enum SpeechControlId: String, Codable, Sendable {
+    case playbackVolume = "playback.volume"
+    case speechPitch = "speech.pitch"
+    case speechSpeakingRate = "speech.speakingRate"
+}
+
+/// How an applied control took effect: 'platform_synthesis' (the platform synthesized with
+/// it) or 'playback_attenuation' (this utterance's playback was attenuated).
+public enum SpeechControlMethod: String, Codable, Sendable {
+    case platformSynthesis = "platform_synthesis"
+    case playbackAttenuation = "playback_attenuation"
+}
+
+/// Why a control was not applied: a route-plan omission reason ('unsupported',
+/// 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the
+/// platform refused the value at run time), or 'not_reported' (the provider reported
+/// nothing, so the engine records it as not applied).
+public enum SpeechControlOutcomeReason: String, Codable, Sendable {
+    case availabilityUnknown = "availability_unknown"
+    case notReported = "not_reported"
+    case outOfRange = "out_of_range"
+    case providerRejected = "provider_rejected"
+    case rangeUnknown = "range_unknown"
+    case unsupported = "unsupported"
+}
+
+/// 'applied': the provider set the value through the platform's documented path.
+/// 'not_applied': it did not; see reason.
+public enum SpeechControlStatus: String, Codable, Sendable {
+    case applied = "applied"
+    case notApplied = "not_applied"
 }
 
 /// The voice that spoke, as the catalog lists it.
@@ -1780,7 +2151,10 @@ public extension ExecutionProvenanceRouteRejection {
 /// provider's task capability lacks an input kind, output delivery, media type, locale or
 /// voice the request requires. 'prepare_not_supported' means the task capability declares no
 /// prepare(). 'not_ready' means the provider, task or required voice exists but is not
-/// prepared yet, so prepare() can make it available.
+/// prepared yet, so prepare() can make it available. 'speech_control_unsupported' means no
+/// voice the provider could bind supports a required speech control for the requested
+/// delivery; 'speech_control_out_of_range' means one supports it, but not the requested
+/// value (ADR 025).
 public enum Code: String, Codable, Sendable {
     case capabilityUnavailable = "capability_unavailable"
     case cloudConstraint = "cloud_constraint"
@@ -1794,6 +2168,8 @@ public enum Code: String, Codable, Sendable {
     case prepareNotSupported = "prepare_not_supported"
     case privacyConstraint = "privacy_constraint"
     case runNotSupported = "run_not_supported"
+    case speechControlOutOfRange = "speech_control_out_of_range"
+    case speechControlUnsupported = "speech_control_unsupported"
     case streamingNotSupported = "streaming_not_supported"
     case streamingUnavailable = "streaming_unavailable"
     case taskNotSupported = "task_not_supported"
@@ -2704,6 +3080,10 @@ public struct ProviderTaskAvailability: Codable, Sendable {
     public var available: Bool?
     /// Whether cancellation is honored for this task right now. Absent inherits. Never null.
     public var cancellationAvailable: Bool?
+    /// The live state of each declared speech control for this task (ADR 025), at most one entry
+    /// per id and delivery. A voice's own controlStates override these for that voice. A control
+    /// and delivery with no entry are in the unknown state.
+    public var controlStates: [SpeechControlState]?
     /// The task kind this entry describes.
     public var kind: String
     /// BCP 47 locales available for this task right now. Absent means the provider cannot
@@ -2726,6 +3106,7 @@ public struct ProviderTaskAvailability: Codable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case available = "available"
         case cancellationAvailable = "cancellationAvailable"
+        case controlStates = "controlStates"
         case kind = "kind"
         case locales = "locales"
         case readiness = "readiness"
@@ -2735,9 +3116,10 @@ public struct ProviderTaskAvailability: Codable, Sendable {
         case voices = "voices"
     }
 
-    public init(available: Bool?, cancellationAvailable: Bool?, kind: String, locales: [String]?, readiness: ProviderReadiness?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, voices: [ProviderVoice]?) {
+    public init(available: Bool?, cancellationAvailable: Bool?, controlStates: [SpeechControlState]?, kind: String, locales: [String]?, readiness: ProviderReadiness?, reason: String?, streamingAvailable: Bool?, streamingUnavailableReason: String?, voices: [ProviderVoice]?) {
         self.available = available
         self.cancellationAvailable = cancellationAvailable
+        self.controlStates = controlStates
         self.kind = kind
         self.locales = locales
         self.readiness = readiness
@@ -2769,6 +3151,7 @@ public extension ProviderTaskAvailability {
     func with(
         available: Bool?? = nil,
         cancellationAvailable: Bool?? = nil,
+        controlStates: [SpeechControlState]?? = nil,
         kind: String? = nil,
         locales: [String]?? = nil,
         readiness: ProviderReadiness?? = nil,
@@ -2780,6 +3163,7 @@ public extension ProviderTaskAvailability {
         return ProviderTaskAvailability(
             available: available ?? self.available,
             cancellationAvailable: cancellationAvailable ?? self.cancellationAvailable,
+            controlStates: controlStates ?? self.controlStates,
             kind: kind ?? self.kind,
             locales: locales ?? self.locales,
             readiness: readiness ?? self.readiness,
@@ -2787,6 +3171,161 @@ public extension ProviderTaskAvailability {
             streamingAvailable: streamingAvailable ?? self.streamingAvailable,
             streamingUnavailableReason: streamingUnavailableReason ?? self.streamingUnavailableReason,
             voices: voices ?? self.voices
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Whether one speech control works right now on one output delivery, and with which values
+/// (ADR 025). Entries are keyed by id and delivery: a list holds at most one entry per pair,
+/// and a provider whose playback and artifact paths differ states each. Absent available
+/// means unknown, and unknown is never support: a control satisfies a request only with
+/// available true and, for a number, a known range that contains the value. On a voice,
+/// every field present overrides the task's entry with the same id and delivery for that
+/// voice. playback.volume only ever has a 'playback' entry.
+// MARK: - SpeechControlState
+public struct SpeechControlState: Codable, Sendable {
+    /// Whether the control works. Absent means unknown. Never null.
+    public var available: Bool?
+    public var delivery: ControlDelivery
+    public var id: SpeechControlId
+    /// The values a number control accepts, in the shared control's units. On a voice it
+    /// replaces the task's range.
+    public var range: SpeechControlRange?
+    /// Why the control does not work, when available is false.
+    public var reason: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case available = "available"
+        case delivery = "delivery"
+        case id = "id"
+        case range = "range"
+        case reason = "reason"
+    }
+
+    public init(available: Bool?, delivery: ControlDelivery, id: SpeechControlId, range: SpeechControlRange?, reason: String?) {
+        self.available = available
+        self.delivery = delivery
+        self.id = id
+        self.range = range
+        self.reason = reason
+    }
+}
+
+// MARK: SpeechControlState convenience initializers and mutators
+
+public extension SpeechControlState {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechControlState.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        available: Bool?? = nil,
+        delivery: ControlDelivery? = nil,
+        id: SpeechControlId? = nil,
+        range: SpeechControlRange?? = nil,
+        reason: String?? = nil
+    ) -> SpeechControlState {
+        return SpeechControlState(
+            available: available ?? self.available,
+            delivery: delivery ?? self.delivery,
+            id: id ?? self.id,
+            range: range ?? self.range,
+            reason: reason ?? self.reason
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// The output delivery a speech control or control state applies to: 'playback' or
+/// 'artifact'. Text output ('inline') has no speech controls.
+public enum ControlDelivery: String, Codable, Sendable {
+    case artifact = "artifact"
+    case playback = "playback"
+}
+
+/// The values a number control accepts, in the shared control's units. On a voice it
+/// replaces the task's range.
+// MARK: - SpeechControlRange
+public struct SpeechControlRange: Codable, Sendable {
+    /// The value the provider uses when the request names none.
+    public var speechControlRangeDefault: Double?
+    /// Largest accepted value, inclusive.
+    public var max: Double
+    /// Smallest accepted value, inclusive.
+    public var min: Double
+    /// An increment for a settings slider. A hint, not a quantization rule.
+    public var step: Double?
+
+    public enum CodingKeys: String, CodingKey {
+        case speechControlRangeDefault = "default"
+        case max = "max"
+        case min = "min"
+        case step = "step"
+    }
+
+    public init(speechControlRangeDefault: Double?, max: Double, min: Double, step: Double?) {
+        self.speechControlRangeDefault = speechControlRangeDefault
+        self.max = max
+        self.min = min
+        self.step = step
+    }
+}
+
+// MARK: SpeechControlRange convenience initializers and mutators
+
+public extension SpeechControlRange {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechControlRange.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        speechControlRangeDefault: Double?? = nil,
+        max: Double? = nil,
+        min: Double? = nil,
+        step: Double?? = nil
+    ) -> SpeechControlRange {
+        return SpeechControlRange(
+            speechControlRangeDefault: speechControlRangeDefault ?? self.speechControlRangeDefault,
+            max: max ?? self.max,
+            min: min ?? self.min,
+            step: step ?? self.step
         )
     }
 
@@ -2828,6 +3367,11 @@ public enum ProviderReadiness: String, Codable, Sendable {
 /// chooses itself under the same rules.
 // MARK: - ProviderVoice
 public struct ProviderVoice: Codable, Sendable {
+    /// Sparse overrides of the task's controlStates for this voice (ADR 025), matched by id and
+    /// delivery. A pair with no entry inherits the task's state for that pair; available false
+    /// disables the control for this voice on that delivery; a range replaces the task's range
+    /// for that delivery.
+    public var controlStates: [SpeechControlState]?
     public var gender: VoiceGender?
     /// Identifies this voice within its provider, for use as speech.voice.id with
     /// speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
@@ -2848,6 +3392,7 @@ public struct ProviderVoice: Codable, Sendable {
     public var readiness: ProviderReadiness?
 
     public enum CodingKeys: String, CodingKey {
+        case controlStates = "controlStates"
         case gender = "gender"
         case id = "id"
         case locale = "locale"
@@ -2857,7 +3402,8 @@ public struct ProviderVoice: Codable, Sendable {
         case readiness = "readiness"
     }
 
-    public init(gender: VoiceGender?, id: String?, locale: String, locales: [String]?, name: String?, networkRequired: Bool?, readiness: ProviderReadiness?) {
+    public init(controlStates: [SpeechControlState]?, gender: VoiceGender?, id: String?, locale: String, locales: [String]?, name: String?, networkRequired: Bool?, readiness: ProviderReadiness?) {
+        self.controlStates = controlStates
         self.gender = gender
         self.id = id
         self.locale = locale
@@ -2887,6 +3433,7 @@ public extension ProviderVoice {
     }
 
     func with(
+        controlStates: [SpeechControlState]?? = nil,
         gender: VoiceGender?? = nil,
         id: String?? = nil,
         locale: String? = nil,
@@ -2896,6 +3443,7 @@ public extension ProviderVoice {
         readiness: ProviderReadiness?? = nil
     ) -> ProviderVoice {
         return ProviderVoice(
+            controlStates: controlStates ?? self.controlStates,
             gender: gender ?? self.gender,
             id: id ?? self.id,
             locale: locale ?? self.locale,
@@ -3291,6 +3839,10 @@ public struct ProviderTaskCapability: Codable, Sendable {
     /// Cancellation guarantee for this task. It may differ from the provider-level cancel, e.g.
     /// when stopping playback is immediate but a synthesis request cannot be aborted.
     public var cancel: CancelSemantics
+    /// Speech controls the provider implements for this task (ADR 025), one entry per id. Absent
+    /// or empty means none. Whether a control works on this host, and its range, is in the
+    /// dynamic check's controlStates; a declaration alone never satisfies a request.
+    public var controls: [SpeechControlDeclaration]?
     /// Input media kinds the provider accepts for this task.
     public var inputs: [TaskInputKind]
     /// Interaction modes the provider supports for this task.
@@ -3310,6 +3862,7 @@ public struct ProviderTaskCapability: Codable, Sendable {
 
     public enum CodingKeys: String, CodingKey {
         case cancel = "cancel"
+        case controls = "controls"
         case inputs = "inputs"
         case interaction = "interaction"
         case kind = "kind"
@@ -3318,8 +3871,9 @@ public struct ProviderTaskCapability: Codable, Sendable {
         case privacy = "privacy"
     }
 
-    public init(cancel: CancelSemantics, inputs: [TaskInputKind], interaction: ProviderTaskInteraction, kind: String, locales: [String]?, outputs: [ProviderTaskOutput], privacy: ProviderPrivacy?) {
+    public init(cancel: CancelSemantics, controls: [SpeechControlDeclaration]?, inputs: [TaskInputKind], interaction: ProviderTaskInteraction, kind: String, locales: [String]?, outputs: [ProviderTaskOutput], privacy: ProviderPrivacy?) {
         self.cancel = cancel
+        self.controls = controls
         self.inputs = inputs
         self.interaction = interaction
         self.kind = kind
@@ -3349,6 +3903,7 @@ public extension ProviderTaskCapability {
 
     func with(
         cancel: CancelSemantics? = nil,
+        controls: [SpeechControlDeclaration]?? = nil,
         inputs: [TaskInputKind]? = nil,
         interaction: ProviderTaskInteraction? = nil,
         kind: String? = nil,
@@ -3358,6 +3913,7 @@ public extension ProviderTaskCapability {
     ) -> ProviderTaskCapability {
         return ProviderTaskCapability(
             cancel: cancel ?? self.cancel,
+            controls: controls ?? self.controls,
             inputs: inputs ?? self.inputs,
             interaction: interaction ?? self.interaction,
             kind: kind ?? self.kind,
@@ -3374,6 +3930,108 @@ public extension ProviderTaskCapability {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
+}
+
+/// One speech control a provider implements: what kind of value it takes, which part of the
+/// run it affects, how long a value lasts, and the deliveries it applies to. The shared ids
+/// fix kind and phase: speech.speakingRate and speech.pitch are 'number' and 'synthesis',
+/// playback.volume is 'number' and 'playback'. A task lists each id at most once.
+// MARK: - SpeechControlDeclaration
+public struct SpeechControlDeclaration: Codable, Sendable {
+    /// The output deliveries this control applies to. A synthesis control lists each delivery
+    /// whose path applies it; a playback-phase control lists only 'playback'.
+    public var deliveries: [ControlDelivery]
+    public var id: SpeechControlId
+    /// 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+    /// documented here and never satisfying a request.
+    public var lifetime: SpeechControlLifetime
+    /// 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+    /// heard, so it lists only the playback delivery.
+    public var phase: SpeechControlPhase
+    /// The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+    /// 'boolean' are reserved for later controls.
+    public var valueKind: SpeechControlValueKind
+
+    public enum CodingKeys: String, CodingKey {
+        case deliveries = "deliveries"
+        case id = "id"
+        case lifetime = "lifetime"
+        case phase = "phase"
+        case valueKind = "valueKind"
+    }
+
+    public init(deliveries: [ControlDelivery], id: SpeechControlId, lifetime: SpeechControlLifetime, phase: SpeechControlPhase, valueKind: SpeechControlValueKind) {
+        self.deliveries = deliveries
+        self.id = id
+        self.lifetime = lifetime
+        self.phase = phase
+        self.valueKind = valueKind
+    }
+}
+
+// MARK: SpeechControlDeclaration convenience initializers and mutators
+
+public extension SpeechControlDeclaration {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(SpeechControlDeclaration.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        deliveries: [ControlDelivery]? = nil,
+        id: SpeechControlId? = nil,
+        lifetime: SpeechControlLifetime? = nil,
+        phase: SpeechControlPhase? = nil,
+        valueKind: SpeechControlValueKind? = nil
+    ) -> SpeechControlDeclaration {
+        return SpeechControlDeclaration(
+            deliveries: deliveries ?? self.deliveries,
+            id: id ?? self.id,
+            lifetime: lifetime ?? self.lifetime,
+            phase: phase ?? self.phase,
+            valueKind: valueKind ?? self.valueKind
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+/// documented here and never satisfying a request.
+public enum SpeechControlLifetime: String, Codable, Sendable {
+    case providerInstance = "provider_instance"
+    case utterance = "utterance"
+}
+
+/// 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+/// heard, so it lists only the playback delivery.
+public enum SpeechControlPhase: String, Codable, Sendable {
+    case playback = "playback"
+    case synthesis = "synthesis"
+}
+
+/// The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+/// 'boolean' are reserved for later controls.
+public enum SpeechControlValueKind: String, Codable, Sendable {
+    case boolean = "boolean"
+    case choice = "choice"
+    case number = "number"
 }
 
 /// A kind of input medium a task consumes.
@@ -3524,6 +4182,11 @@ public enum ProviderType: String, Codable, Sendable {
 /// text request carries the kind alone.
 // MARK: - RoutePlannerInputTask
 public struct RoutePlannerInputTask: Codable, Sendable {
+    /// The speech controls the request names (ADR 025), in the order speech.speakingRate,
+    /// speech.pitch, playback.volume. A 'required' control rejects a provider that cannot bind a
+    /// voice supporting it for the requested delivery; a 'preferred' one only ranks. Absent or
+    /// empty means none.
+    public var controls: [ControlRequirement]?
     /// The output delivery the request requires. Absent for text, whose delivery is implicitly
     /// inline.
     public var delivery: DeliveryRequirement?
@@ -3544,6 +4207,7 @@ public struct RoutePlannerInputTask: Codable, Sendable {
     public var voice: VoiceRequirement?
 
     public enum CodingKeys: String, CodingKey {
+        case controls = "controls"
         case delivery = "delivery"
         case inputs = "inputs"
         case kind = "kind"
@@ -3551,7 +4215,8 @@ public struct RoutePlannerInputTask: Codable, Sendable {
         case voice = "voice"
     }
 
-    public init(delivery: DeliveryRequirement?, inputs: [TaskInputKind]?, kind: String, locale: LocaleRequirement?, voice: VoiceRequirement?) {
+    public init(controls: [ControlRequirement]?, delivery: DeliveryRequirement?, inputs: [TaskInputKind]?, kind: String, locale: LocaleRequirement?, voice: VoiceRequirement?) {
+        self.controls = controls
         self.delivery = delivery
         self.inputs = inputs
         self.kind = kind
@@ -3579,6 +4244,7 @@ public extension RoutePlannerInputTask {
     }
 
     func with(
+        controls: [ControlRequirement]?? = nil,
         delivery: DeliveryRequirement?? = nil,
         inputs: [TaskInputKind]?? = nil,
         kind: String? = nil,
@@ -3586,11 +4252,71 @@ public extension RoutePlannerInputTask {
         voice: VoiceRequirement?? = nil
     ) -> RoutePlannerInputTask {
         return RoutePlannerInputTask(
+            controls: controls ?? self.controls,
             delivery: delivery ?? self.delivery,
             inputs: inputs ?? self.inputs,
             kind: kind ?? self.kind,
             locale: locale ?? self.locale,
             voice: voice ?? self.voice
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+// MARK: - ControlRequirement
+public struct ControlRequirement: Codable, Sendable {
+    public var id: SpeechControlId
+    public var requirement: RequirementLevel
+    /// The requested value, already checked against the control's domain.
+    public var value: Double
+
+    public enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case requirement = "requirement"
+        case value = "value"
+    }
+
+    public init(id: SpeechControlId, requirement: RequirementLevel, value: Double) {
+        self.id = id
+        self.requirement = requirement
+        self.value = value
+    }
+}
+
+// MARK: ControlRequirement convenience initializers and mutators
+
+public extension ControlRequirement {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ControlRequirement.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        id: SpeechControlId? = nil,
+        requirement: RequirementLevel? = nil,
+        value: Double? = nil
+    ) -> ControlRequirement {
+        return ControlRequirement(
+            id: id ?? self.id,
+            requirement: requirement ?? self.requirement,
+            value: value ?? self.value
         )
     }
 
@@ -3872,6 +4598,11 @@ public extension RoutePlan {
 
 // MARK: - Candidate
 public struct Candidate: Codable, Sendable {
+    /// What this candidate must do with each requested speech control (ADR 025), in request
+    /// order, evaluated on the bound voice (or on the task's control states when the provider
+    /// lists no voices). Every 'required' control has decision 'apply'. Absent when the request
+    /// names no controls.
+    public var controls: [ControlApplicationPlan]?
     public var order: Int
     public var providerId: String
     /// The voice this candidate must use if it is attempted, chosen by the planner from the
@@ -3885,12 +4616,14 @@ public struct Candidate: Codable, Sendable {
     public var voice: ProviderVoice?
 
     public enum CodingKeys: String, CodingKey {
+        case controls = "controls"
         case order = "order"
         case providerId = "providerId"
         case voice = "voice"
     }
 
-    public init(order: Int, providerId: String, voice: ProviderVoice?) {
+    public init(controls: [ControlApplicationPlan]?, order: Int, providerId: String, voice: ProviderVoice?) {
+        self.controls = controls
         self.order = order
         self.providerId = providerId
         self.voice = voice
@@ -3916,11 +4649,13 @@ public extension Candidate {
     }
 
     func with(
+        controls: [ControlApplicationPlan]?? = nil,
         order: Int? = nil,
         providerId: String? = nil,
         voice: ProviderVoice?? = nil
     ) -> Candidate {
         return Candidate(
+            controls: controls ?? self.controls,
             order: order ?? self.order,
             providerId: providerId ?? self.providerId,
             voice: voice ?? self.voice
@@ -3934,6 +4669,94 @@ public extension Candidate {
     func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
         return String(data: try self.jsonData(), encoding: encoding)
     }
+}
+
+// MARK: - ControlApplicationPlan
+public struct ControlApplicationPlan: Codable, Sendable {
+    /// 'apply': the provider must apply the value. 'omit': the provider must leave the control
+    /// at its normal behaviour and report it as not applied with this reason.
+    public var decision: ControlDecision
+    public var id: SpeechControlId
+    public var reason: ControlOmissionReason?
+    public var requirement: RequirementLevel
+    /// The requested value.
+    public var value: Double
+
+    public enum CodingKeys: String, CodingKey {
+        case decision = "decision"
+        case id = "id"
+        case reason = "reason"
+        case requirement = "requirement"
+        case value = "value"
+    }
+
+    public init(decision: ControlDecision, id: SpeechControlId, reason: ControlOmissionReason?, requirement: RequirementLevel, value: Double) {
+        self.decision = decision
+        self.id = id
+        self.reason = reason
+        self.requirement = requirement
+        self.value = value
+    }
+}
+
+// MARK: ControlApplicationPlan convenience initializers and mutators
+
+public extension ControlApplicationPlan {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ControlApplicationPlan.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        decision: ControlDecision? = nil,
+        id: SpeechControlId? = nil,
+        reason: ControlOmissionReason?? = nil,
+        requirement: RequirementLevel? = nil,
+        value: Double? = nil
+    ) -> ControlApplicationPlan {
+        return ControlApplicationPlan(
+            decision: decision ?? self.decision,
+            id: id ?? self.id,
+            reason: reason ?? self.reason,
+            requirement: requirement ?? self.requirement,
+            value: value ?? self.value
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// 'apply': the provider must apply the value. 'omit': the provider must leave the control
+/// at its normal behaviour and report it as not applied with this reason.
+public enum ControlDecision: String, Codable, Sendable {
+    case apply = "apply"
+    case omit = "omit"
+}
+
+/// Why a preferred control is omitted: 'unsupported' (not declared for this delivery, or the
+/// bound voice disables it), 'out_of_range' (outside the known range), 'range_unknown'
+/// (available, but no range is known), 'availability_unknown' (no state says it works).
+public enum ControlOmissionReason: String, Codable, Sendable {
+    case availabilityUnknown = "availability_unknown"
+    case outOfRange = "out_of_range"
+    case rangeUnknown = "range_unknown"
+    case unsupported = "unsupported"
 }
 
 /// Human-readable selection or failure explanation suitable for telemetry/debugging.
@@ -4061,7 +4884,10 @@ public struct Reason: Codable, Sendable {
     /// provider's task capability lacks an input kind, output delivery, media type, locale or
     /// voice the request requires. 'prepare_not_supported' means the task capability declares no
     /// prepare(). 'not_ready' means the provider, task or required voice exists but is not
-    /// prepared yet, so prepare() can make it available.
+    /// prepared yet, so prepare() can make it available. 'speech_control_unsupported' means no
+    /// voice the provider could bind supports a required speech control for the requested
+    /// delivery; 'speech_control_out_of_range' means one supports it, but not the requested
+    /// value (ADR 025).
     public var code: Code
     public var message: String
 

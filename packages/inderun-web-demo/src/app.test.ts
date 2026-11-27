@@ -47,7 +47,7 @@ const SNAPSHOTS: ProviderCapabilitySnapshot[] = [
 
 function provenance(overrides: Partial<ExecutionProvenance>): ExecutionProvenance {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     modelProfile: "simplify",
     locality: "unknown",
     attemptCount: 0,
@@ -60,7 +60,7 @@ function provenance(overrides: Partial<ExecutionProvenance>): ExecutionProvenanc
 
 function taskResult(text: string, prov?: ExecutionProvenance): TaskResult {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     runId: "run_demo",
     output: { type: "text", text },
     finishReason: "stop",
@@ -71,7 +71,7 @@ function taskResult(text: string, prov?: ExecutionProvenance): TaskResult {
 
 function event(sequence: number, type: string, payload: Record<string, unknown>): StreamEvent {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     runId: "run_stream",
     sequence,
     timestamp: sequence,
@@ -81,12 +81,12 @@ function event(sequence: number, type: string, payload: Record<string, unknown>)
 }
 
 function terminal(sequence: number, payload: Record<string, unknown>): StreamEvent {
-  return event(sequence, "terminal", { schemaVersion: "1.0", runId: "run_stream", ...payload });
+  return event(sequence, "terminal", { schemaVersion: "1.1", runId: "run_stream", ...payload });
 }
 
 function streamRunOf(events: StreamEvent[], cancel = vi.fn()): StreamRun {
   return {
-    handle: { schemaVersion: "1.0", runId: "run_stream", startedAt: 0 } as StreamRun["handle"],
+    handle: { schemaVersion: "1.1", runId: "run_stream", startedAt: 0 } as StreamRun["handle"],
     events: (async function* () {
       for (const item of events) yield item;
     })(),
@@ -191,7 +191,7 @@ describe("simplification flow", () => {
       ]
     });
     const stream = vi.fn().mockResolvedValue({
-      handle: { schemaVersion: "1.0", runId: "run_stream", startedAt: 0 },
+      handle: { schemaVersion: "1.1", runId: "run_stream", startedAt: 0 },
       events: (async function* () {
         yield event(0, "content_delta", { text: "You must pay " });
         await gate;
@@ -353,7 +353,7 @@ describe("simplification flow", () => {
     });
     const cancel = vi.fn(() => cancelled());
     const stream = vi.fn().mockResolvedValue({
-      handle: { schemaVersion: "1.0", runId: "run_stream", startedAt: 0 },
+      handle: { schemaVersion: "1.1", runId: "run_stream", startedAt: 0 },
       events: (async function* () {
         yield event(0, "content_delta", { text: "You must pay" });
         await cancelledSignal;
@@ -420,7 +420,7 @@ describe("advanced task API panels", () => {
     await flush();
 
     expect(run).toHaveBeenCalledWith({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_text" },
       prompt: "Test prompt",
       constraints: { privacy: "cloud_required" }

@@ -4,6 +4,7 @@
 //!
 //! - [`model`] — the serializable request/response data types.
 //! - [`planner`] — the deterministic [`plan_route`] algorithm.
+//! - `controls` — speech-control negotiation (ADR 025) the planner consults.
 //! - `ffi` — the C, Android JNI, and wasm boundaries that expose the planner.
 //!
 //! The data model and [`plan_route`] are re-exported at the crate root so the
@@ -18,6 +19,7 @@ compile_error!(
      entry point. Build it with scripts/build-route-core-android.mjs."
 );
 
+mod controls;
 mod ffi;
 mod model;
 mod planner;

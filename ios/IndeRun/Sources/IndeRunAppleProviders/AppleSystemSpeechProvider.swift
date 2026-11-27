@@ -42,6 +42,14 @@ private actor SpeechTurns {
     }
 }
 
+/// What the engine hands one run besides the request: the control plan, the report of the speech
+/// the output will carry, and the commit.
+private struct RunHooks: Sendable {
+    var controls: [ControlApplicationPlan]?
+    var reportSpeech: @Sendable (SpeechOutput) -> Void
+    var commit: @Sendable () -> Bool
+}
+
 /// The identifiers of voices known to be loaded.
 private final class LoadedVoices: @unchecked Sendable {
     private let lock = NSLock()
@@ -80,6 +88,73 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
     /// The engine's default per-artifact limit: past it the writer would refuse the bytes anyway,
     /// so the render stops early instead of buffering them.
     private static let maxRenderedBytes = 16 * 1024 * 1024
+
+    /// Rate and pitch shape the synthesis in both deliveries; volume attenuates playback only.
+    private static let declaredControls = [
+        SpeechControlDeclaration(
+            deliveries: [.playback, .artifact],
+            id: .speechSpeakingRate,
+            lifetime: .utterance,
+            phase: .synthesis,
+            valueKind: .number
+        ),
+        SpeechControlDeclaration(
+            deliveries: [.playback, .artifact],
+            id: .speechPitch,
+            lifetime: .utterance,
+            phase: .synthesis,
+            valueKind: .number
+        ),
+        SpeechControlDeclaration(
+            deliveries: [.playback],
+            id: .playbackVolume,
+            lifetime: .utterance,
+            phase: .playback,
+            valueKind: .number
+        )
+    ]
+
+    /// Source: `AVSpeechUtterance.rate` (the requested value scales `AVSpeechUtteranceDefaultSpeechRate`;
+    /// 0.5 and 2 stay inside the minimum to maximum rate, a unit test checks it), `pitchMultiplier`
+    /// (documented 0.5 to 2) and `volume` (0 to 1). They hold for every installed voice, so they are
+    /// task-level states; device evidence is pending in `docs/verification/system-speech.md`.
+    private static let controlStates = [
+        SpeechControlState(
+            available: true,
+            delivery: .playback,
+            id: .speechSpeakingRate,
+            range: SpeechControlRange(speechControlRangeDefault: 1, max: 2, min: 0.5, step: 0.05),
+            reason: nil
+        ),
+        SpeechControlState(
+            available: true,
+            delivery: .artifact,
+            id: .speechSpeakingRate,
+            range: SpeechControlRange(speechControlRangeDefault: 1, max: 2, min: 0.5, step: 0.05),
+            reason: nil
+        ),
+        SpeechControlState(
+            available: true,
+            delivery: .playback,
+            id: .speechPitch,
+            range: SpeechControlRange(speechControlRangeDefault: 1, max: 2, min: 0.5, step: 0.05),
+            reason: nil
+        ),
+        SpeechControlState(
+            available: true,
+            delivery: .artifact,
+            id: .speechPitch,
+            range: SpeechControlRange(speechControlRangeDefault: 1, max: 2, min: 0.5, step: 0.05),
+            reason: nil
+        ),
+        SpeechControlState(
+            available: true,
+            delivery: .playback,
+            id: .playbackVolume,
+            range: SpeechControlRange(speechControlRangeDefault: 1, max: 1, min: 0, step: 0.05),
+            reason: nil
+        )
+    ]
 
     private let id: String
     private let runtime: any AppleSpeechRuntime
@@ -126,7 +201,8 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
                     outputs: [
                         ProviderTaskOutput(delivery: .playback),
                         ProviderTaskOutput(delivery: .artifact, mediaTypes: [Self.mediaType])
-                    ]
+                    ],
+                    controls: Self.declaredControls
                 )
             ],
             privacy: ProviderPrivacy(dataLeavesDevice: false)
@@ -152,7 +228,12 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
         return ProviderDynamicCapabilities(
             available: true,
             taskCapabilities: [
-                ProviderTaskAvailability(kind: Self.task, voices: listed, readiness: warm.isEmpty ? .cold : nil)
+                ProviderTaskAvailability(
+                    kind: Self.task,
+                    voices: listed,
+                    readiness: warm.isEmpty ? .cold : nil,
+                    controlStates: Self.controlStates
+                )
             ]
         )
     }
@@ -194,7 +275,7 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
             runId: context.runId,
             bound: context.voice,
             artifacts: context.artifacts,
-            commit: context.commit
+            hooks: RunHooks(controls: context.controls, reportSpeech: context.reportSpeech, commit: context.commit)
         )
         return TaskResult(
             runId: context.runId,
@@ -219,7 +300,11 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
                         runId: context.runId,
                         bound: context.voice,
                         artifacts: context.artifacts,
-                        commit: context.commit
+                        hooks: RunHooks(
+                            controls: context.controls,
+                            reportSpeech: context.reportSpeech,
+                            commit: context.commit
+                        )
                     )
                     continuation.yield(.result(output: output, finishReason: .stop))
                     continuation.finish()
@@ -243,7 +328,7 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
         runId: String,
         bound: ProviderVoice?,
         artifacts: any ArtifactSink,
-        commit: @escaping @Sendable () -> Bool
+        hooks: RunHooks
     ) async throws -> TaskOutput {
         guard let speech = request.speech, let delivery = request.delivery else {
             throw createCapabilityMismatch(
@@ -256,10 +341,10 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
         do {
             switch delivery.mode {
             case .playback:
-                return try await play(speech, bound: bound, runId: runId, commit: commit)
+                return try await play(speech, bound: bound, runId: runId, hooks: hooks)
             case .artifact:
                 let voice = try resolveVoice(speech: speech, bound: bound, runId: runId)
-                return try await synthesize(speech.text, voice: voice, artifacts: artifacts)
+                return try await synthesize(speech.text, voice: voice, controls: hooks.controls, artifacts: artifacts)
             case .inline:
                 throw createCapabilityMismatch(
                     message: "Apple system speech cannot deliver speech inline.",
@@ -285,7 +370,7 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
         _ speech: SpeechInput,
         bound: ProviderVoice?,
         runId: String,
-        commit: @Sendable () -> Bool
+        hooks: RunHooks
     ) async throws -> TaskOutput {
         let receivedAt = Date()
         try await turns.acquire()
@@ -293,9 +378,17 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
             let voice = try resolveVoice(speech: speech, bound: bound, runId: runId)
             // Committed only now: a call that waited its turn has made no sound, and may have
             // been cancelled meanwhile.
-            guard commit() else { throw CancellationError() }
+            guard hooks.commit() else { throw CancellationError() }
+            let used = Self.used(voice, controls: hooks.controls)
+            // What the final output will carry is known now, so a stop keeps the records. It
+            // follows the commit and precedes the first suspension.
+            hooks.reportSpeech(used)
             let handoffAt = Date()
-            let spoken = try await runtime.speak(text: speech.text, voice: voice)
+            let spoken = try await runtime.speak(
+                text: speech.text,
+                voice: voice,
+                controls: Self.appliedValues(hooks.controls)
+            )
             loaded.insert(voice.identifier)
             await turns.release()
             // The runtime counts from the handoff; `firstAudioMs` counts from the request, so the
@@ -306,7 +399,7 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
                 : PlaybackTiming(durationMs: spoken.durationMs, firstAudioMs: firstAudioMs, firstChunkMs: nil)
             return TaskOutput(
                 playback: PlaybackOutput(timing: timing),
-                speech: Self.used(voice)
+                speech: used
             )
         } catch {
             await turns.release()
@@ -317,13 +410,17 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
     private func synthesize(
         _ text: String,
         voice: AppleSpeechVoice,
+        controls: [ControlApplicationPlan]?,
         artifacts: any ArtifactSink
     ) async throws -> TaskOutput {
-        let rendered = try await runtime.render(text: text, voice: voice, maxBytes: Self.maxRenderedBytes)
+        // A render has no playback: whatever the plan says about volume, it is never set.
+        var applied = Self.appliedValues(controls)
+        applied.volume = nil
+        let rendered = try await runtime.render(text: text, voice: voice, controls: applied, maxBytes: Self.maxRenderedBytes)
         let writer = artifacts.create(spec: ArtifactSpec(mediaType: Self.mediaType, durationMs: rendered.durationMs))
         do {
             try writer.write(SpeechWAV.encode(samples: rendered.samples, sampleRate: rendered.sampleRate))
-            return TaskOutput(artifact: try writer.finish(), speech: Self.used(voice))
+            return TaskOutput(artifact: try writer.finish(), speech: Self.used(voice, controls: controls))
         } catch {
             writer.abort()
             throw error
@@ -356,11 +453,49 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
         }
     }
 
-    private static func used(_ voice: AppleSpeechVoice) -> SpeechOutput {
+    private static func used(_ voice: AppleSpeechVoice, controls: [ControlApplicationPlan]?) -> SpeechOutput {
         SpeechOutput(
+            controls: controls.map(controlRecords),
             locale: voice.locale,
             voice: SpeechOutputVoice(gender: voice.gender, id: voice.identifier, name: voice.name)
         )
+    }
+
+    /// One record per plan entry, from the plan alone: the platform cannot refuse an assigned value.
+    private static func controlRecords(_ plan: [ControlApplicationPlan]) -> [SpeechControlOutcome] {
+        plan.map { entry in
+            guard entry.decision == .apply else {
+                return SpeechControlOutcome(
+                    effective: nil,
+                    id: entry.id,
+                    method: nil,
+                    reason: entry.reason.flatMap { SpeechControlOutcomeReason(rawValue: $0.rawValue) },
+                    requested: entry.value,
+                    status: .notApplied
+                )
+            }
+            return SpeechControlOutcome(
+                effective: entry.value,
+                id: entry.id,
+                method: entry.id == .playbackVolume ? .playbackAttenuation : .platformSynthesis,
+                reason: nil,
+                requested: entry.value,
+                status: .applied
+            )
+        }
+    }
+
+    /// Only the values the plan applies; an omitted control stays unset so the platform default holds.
+    private static func appliedValues(_ plan: [ControlApplicationPlan]?) -> AppleSpeechControls {
+        var values = AppleSpeechControls()
+        for entry in plan ?? [] where entry.decision == .apply {
+            switch entry.id {
+            case .speechSpeakingRate: values.rate = entry.value
+            case .speechPitch: values.pitch = entry.value
+            case .playbackVolume: values.volume = entry.value
+            }
+        }
+        return values
     }
 
     private static func sameTag(_ lhs: String, _ rhs: String) -> Bool {

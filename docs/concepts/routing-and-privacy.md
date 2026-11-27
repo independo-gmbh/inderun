@@ -80,7 +80,7 @@ const ai = createIndeRunCapacitor({
 });
 
 const result = await ai.run({
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   task: { kind: "text_to_text" },
   prompt: "Rewrite in plain language: Your appointment has been rescheduled.",
   // Tries the device first; the configured cloud target stays eligible.

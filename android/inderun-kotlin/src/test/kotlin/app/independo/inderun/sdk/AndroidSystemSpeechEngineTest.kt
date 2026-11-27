@@ -4,7 +4,13 @@ import app.independo.inderun.contracts.AttemptOutcome
 import app.independo.inderun.contracts.Code
 import app.independo.inderun.contracts.FinishReason
 import app.independo.inderun.contracts.Locality
+import app.independo.inderun.contracts.PlaybackControls
 import app.independo.inderun.contracts.Privacy
+import app.independo.inderun.contracts.RequestedUnitNumber
+import app.independo.inderun.contracts.RequirementLevel
+import app.independo.inderun.contracts.SpeechControlId
+import app.independo.inderun.contracts.SpeechControlOutcomeReason
+import app.independo.inderun.contracts.SpeechControlStatus
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.ProviderRegistry
@@ -33,6 +39,7 @@ class AndroidSystemSpeechEngineTest {
         private val voiceList: List<AndroidSpeechVoice>,
         private val holds: Boolean = false,
         private val failure: Throwable? = null,
+        override val attenuatesPlayback: Boolean = false,
     ) : AndroidSpeechEngine {
         @Volatile var selected: AndroidSpeechVoice? = null
 
@@ -50,6 +57,10 @@ class AndroidSystemSpeechEngineTest {
             selected = voice
             return true
         }
+
+        override suspend fun setSpeechRate(rate: Double) = true
+
+        override suspend fun setPitch(pitch: Double) = true
 
         override suspend fun speak(text: String): Double? {
             spoken += 1
@@ -99,6 +110,43 @@ class AndroidSystemSpeechEngineTest {
         assertEquals(FinishReason.STOP, ending.finishReason)
         assertEquals(500.0, ending.timing?.durationMs)
         assertEquals(Locality.OnDevice, ending.provenance?.locality)
+    }
+
+    @Test
+    fun anEngineThatIgnoresVolumeGetsAPreferredVolumeOmittedAsUnsupported() = runBlocking {
+        val engine = FakeEngine(listOf(local))
+        val volume = PlaybackControls(volume = RequestedUnitNumber(value = 0.5))
+
+        val ending = inderun(engine).speak(SpeakOptions("Hallo", locale = "de-DE", playback = volume), scope).result.await()
+
+        val record = ending.speech!!.controls!!.single()
+        assertEquals(SpeechControlId.PlaybackVolume, record.id)
+        assertEquals(SpeechControlStatus.NotApplied, record.status)
+        assertEquals(SpeechControlOutcomeReason.Unsupported, record.reason)
+    }
+
+    @Test
+    fun anEngineThatAttenuatesGetsThePreferredVolumeApplied() = runBlocking {
+        val engine = FakeEngine(listOf(local), attenuatesPlayback = true)
+        val volume = PlaybackControls(volume = RequestedUnitNumber(value = 0.5))
+
+        val ending = inderun(engine).speak(SpeakOptions("Hallo", locale = "de-DE", playback = volume), scope).result.await()
+
+        assertEquals(SpeechControlStatus.Applied, ending.speech!!.controls!!.single().status)
+    }
+
+    @Test
+    fun anEngineThatIgnoresVolumeIsNeverRoutedARequiredVolume() = runBlocking {
+        val engine = FakeEngine(listOf(local))
+        val volume = PlaybackControls(volume = RequestedUnitNumber(value = 0.5, requirement = RequirementLevel.Required))
+
+        try {
+            inderun(engine).speak(SpeakOptions("Hallo", locale = "de-DE", playback = volume), scope).result.await()
+            fail("expected a routing refusal")
+        } catch (error: IndeRunException) {
+            assertEquals(Code.SpeechControlUnsupported, error.provenance?.routeRejections?.single()?.codes?.single())
+        }
+        assertEquals(0, engine.spoken)
     }
 
     @Test

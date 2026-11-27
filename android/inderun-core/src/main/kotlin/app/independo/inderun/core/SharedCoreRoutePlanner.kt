@@ -2,6 +2,10 @@ package app.independo.inderun.core
 
 import app.independo.inderun.contracts.Candidate
 import app.independo.inderun.contracts.Code
+import app.independo.inderun.contracts.ControlApplicationPlan
+import app.independo.inderun.contracts.ControlDecision
+import app.independo.inderun.contracts.ControlDelivery
+import app.independo.inderun.contracts.ControlOmissionReason
 import app.independo.inderun.contracts.Explanation
 import app.independo.inderun.contracts.FailureCode
 import app.independo.inderun.contracts.InteractionMode
@@ -17,11 +21,15 @@ import app.independo.inderun.contracts.ProviderTaskCapability
 import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.Reason
 import app.independo.inderun.contracts.RejectedProvider
+import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.RoutePlan
 import app.independo.inderun.contracts.RoutePlannerInput
 import app.independo.inderun.contracts.RoutePlannerInputConstraints
 import app.independo.inderun.contracts.RoutePlannerInputPreferences
 import app.independo.inderun.contracts.RoutePlannerInputTask
+import app.independo.inderun.contracts.SpeechControlId
+import app.independo.inderun.contracts.SpeechControlRange
+import app.independo.inderun.contracts.SpeechControlState
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.VoiceGender
 import org.json.JSONArray
@@ -317,6 +325,41 @@ private fun ProviderTaskCapability.toPlannerJson(): JSONObject = JSONObject()
     )
     .put("locales", locales?.let { JSONArray(it) })
     .put("privacy", privacy?.toPlannerJson())
+    .put(
+        "controls",
+        controls?.let { controls ->
+            JSONArray(
+                controls.map { control ->
+                    JSONObject()
+                        .put("id", control.id.rawValue)
+                        .put("valueKind", control.valueKind.rawValue)
+                        .put("phase", control.phase.rawValue)
+                        .put("lifetime", control.lifetime.rawValue)
+                        .put("deliveries", JSONArray(control.deliveries.map { it.rawValue }))
+                },
+            )
+        },
+    )
+
+private fun List<SpeechControlState>.toPlannerJson(): JSONArray = JSONArray(
+    map { state ->
+        JSONObject()
+            .put("id", state.id.rawValue)
+            .put("delivery", state.delivery.rawValue)
+            .put("available", state.available)
+            .put("reason", state.reason)
+            .put(
+                "range",
+                state.range?.let { range ->
+                    JSONObject()
+                        .put("min", range.min)
+                        .put("max", range.max)
+                        .put("default", range.default)
+                        .put("step", range.step)
+                },
+            )
+    },
+)
 
 private fun ProviderDynamicCapabilities.toPlannerJson(): JSONObject = JSONObject()
     .put("available", available)
@@ -335,6 +378,7 @@ private fun ProviderTaskAvailability.toPlannerJson(): JSONObject = JSONObject()
     .put("cancellationAvailable", cancellationAvailable)
     .put("readiness", readiness?.rawValue)
     .put("locales", locales?.let { JSONArray(it) })
+    .put("controlStates", controlStates?.toPlannerJson())
     .put(
         "voices",
         voices?.let { voices ->
@@ -348,6 +392,7 @@ private fun ProviderTaskAvailability.toPlannerJson(): JSONObject = JSONObject()
                         .put("gender", voice.gender?.rawValue)
                         .put("networkRequired", voice.networkRequired)
                         .put("readiness", voice.readiness?.rawValue)
+                        .put("controlStates", voice.controlStates?.toPlannerJson())
                 },
             )
         },
@@ -380,6 +425,19 @@ private fun SharedPlannerTask.toPlannerJson(): JSONObject = JSONObject()
                 .put("providerId", voice.providerId)
                 .put("gender", voice.gender?.rawValue)
                 .put("requirement", voice.requirement.rawValue)
+        },
+    )
+    .put(
+        "controls",
+        controls?.let { controls ->
+            JSONArray(
+                controls.map { control ->
+                    JSONObject()
+                        .put("id", control.id.rawValue)
+                        .put("value", control.value)
+                        .put("requirement", control.requirement.rawValue)
+                },
+            )
         },
     )
 
@@ -415,11 +473,33 @@ private fun JSONArray?.toCandidates(): List<Candidate> {
     return List(length()) { index ->
         val candidate = getJSONObject(index)
         Candidate(
+            controls = candidate.optJSONArray("controls")?.toControlPlans(),
             order = candidate.getLong("order"),
             providerId = candidate.getString("providerId"),
             voice = candidate.optJSONObject("voice")?.toProviderVoice(),
         )
     }
+}
+
+/**
+ * The control application plan of one candidate (ADR 025). Every field is a closed enum the
+ * planner and this build share a schema for; an unknown omission reason is read as absent.
+ */
+private fun JSONArray.toControlPlans(): List<ControlApplicationPlan> = List(length()) { index ->
+    val plan = getJSONObject(index)
+    ControlApplicationPlan(
+        decision = checkNotNull(ControlDecision.fromRawValue(plan.getString("decision"))) {
+            "Unknown control decision '${plan.getString("decision")}'."
+        },
+        id = checkNotNull(SpeechControlId.fromRawValue(plan.getString("id"))) {
+            "Unknown speech control '${plan.getString("id")}'."
+        },
+        reason = plan.optString("reason").takeUnless { it.isEmpty() }?.let(ControlOmissionReason::fromRawValue),
+        requirement = checkNotNull(RequirementLevel.fromRawValue(plan.getString("requirement"))) {
+            "Unknown requirement '${plan.getString("requirement")}'."
+        },
+        value = plan.getDouble("value"),
+    )
 }
 
 /**
@@ -434,7 +514,29 @@ private fun JSONObject.toProviderVoice(): ProviderVoice = ProviderVoice(
     gender = optString("gender").takeUnless { it.isEmpty() }?.let(VoiceGender::fromRawValue),
     networkRequired = if (has("networkRequired")) getBoolean("networkRequired") else null,
     readiness = optString("readiness").takeUnless { it.isEmpty() }?.let(ProviderReadiness::fromRawValue),
+    controlStates = optJSONArray("controlStates")?.toControlStates(),
 )
+
+/** A bound voice's control overrides, as the planner echoes them. An unknown id or delivery is skipped. */
+private fun JSONArray.toControlStates(): List<SpeechControlState> = List(length()) { index -> getJSONObject(index) }
+    .mapNotNull { state ->
+        val id = SpeechControlId.fromRawValue(state.getString("id")) ?: return@mapNotNull null
+        val delivery = ControlDelivery.fromRawValue(state.getString("delivery")) ?: return@mapNotNull null
+        SpeechControlState(
+            available = if (state.has("available")) state.getBoolean("available") else null,
+            delivery = delivery,
+            id = id,
+            range = state.optJSONObject("range")?.let { range ->
+                SpeechControlRange(
+                    default = if (range.has("default")) range.getDouble("default") else null,
+                    max = range.getDouble("max"),
+                    min = range.getDouble("min"),
+                    step = if (range.has("step")) range.getDouble("step") else null,
+                )
+            },
+            reason = state.optString("reason").takeUnless { it.isEmpty() },
+        )
+    }
 
 private fun JSONArray?.toRejectedProviders(): List<SharedPlannerRejectedProvider> {
     if (this == null) return emptyList()

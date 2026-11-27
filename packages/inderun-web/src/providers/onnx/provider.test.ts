@@ -61,7 +61,7 @@ function createProvider(overrides: Partial<OnnxProviderOptions> = {}): OnnxRunti
 
 function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   const request: TaskRequest = {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_text" },
     prompt: "Say hello.",
     constraints: { privacy: "local_required" }
@@ -110,7 +110,7 @@ function createCloudProvider(): ProviderAdapter {
     }),
     capabilities: async () => ({ available: true }),
     run: async (_request, context) => ({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: context.runId,
       output: { type: "text", text: "cloud output" },
       finishReason: "stop",

@@ -72,7 +72,7 @@ class IndeRunTest {
 
         indeRun.run(
             TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -93,7 +93,7 @@ class IndeRunTest {
 
         val result = indeRun.run(
             TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -185,7 +185,7 @@ class IndeRunTest {
     }
 
     private fun profileRequest(modelProfile: String? = null) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = "Hello",
         task = TaskRequestTask(),
         modelProfile = modelProfile,
@@ -366,7 +366,7 @@ class IndeRunTest {
             finishReason = FinishReason.STOP,
             output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello from $id"),
             runId = context.runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
         )
     }
@@ -395,7 +395,7 @@ class IndeRunTest {
             finishReason = FinishReason.STOP,
             output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello from sdk provider"),
             runId = context.runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             telemetry = TaskResultTelemetry(providerUsed = "sdk-provider", totalMs = 0.0),
         )
     }

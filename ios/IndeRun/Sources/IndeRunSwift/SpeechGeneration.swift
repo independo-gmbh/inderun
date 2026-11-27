@@ -14,8 +14,10 @@ import IndeRunContracts
 /// The same policy object as the text API, so a constraint means the same in both.
 public typealias SpeechExecutionOptions = TextExecutionOptions
 
-/// Options for `speak`.
-public struct SpeakOptions: Sendable {
+/// What every speech call takes: the text, its locale, the voice, the synthesis controls and the
+/// execution policy. `SpeakOptions` adds playback-only settings and `GenerateSpeechOptions` the
+/// artifact's, as on the Web and Kotlin SDKs (ADR 025).
+public struct SpeechOptions: Sendable {
     /// The text to speak. Plain text; markup such as SSML is out of scope.
     public var text: String
     /// BCP 47 tag, e.g. `"de-AT"`.
@@ -26,6 +28,9 @@ public struct SpeakOptions: Sendable {
     /// The voice: ``SpeechVoiceInfo/asSpeechVoice(requirement:)`` for an entry of `listVoices()`,
     /// or provider-neutral traits. A required one never relaxes silently.
     public var voice: SpeechVoice?
+    /// Relative speaking rate and pitch (ADR 025). Each is preferred unless marked required; a
+    /// required one is met or the call is refused.
+    public var controls: SharedSynthesisControls?
     /// Model profile to route within, as configured on the engine. `nil` or `"auto"` routes
     /// across every registered target. Never a vendor model or voice id.
     public var model: String?
@@ -41,6 +46,7 @@ public struct SpeakOptions: Sendable {
         locale: String,
         localeMatch: LocaleMatch? = nil,
         voice: SpeechVoice? = nil,
+        controls: SharedSynthesisControls? = nil,
         model: String? = nil,
         execution: SpeechExecutionOptions? = nil,
         authContextRef: String? = nil,
@@ -51,16 +57,12 @@ public struct SpeakOptions: Sendable {
         self.locale = locale
         self.localeMatch = localeMatch
         self.voice = voice
+        self.controls = controls
         self.model = model
         self.execution = execution
         self.authContextRef = authContextRef
         self.telemetry = telemetry
         self.requestId = requestId
-    }
-
-    /// The canonical `TaskRequest` a `speak` call compiles to.
-    public func taskRequest() -> TaskRequest {
-        taskRequest(delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback))
     }
 
     fileprivate func taskRequest(delivery: OutputDeliveryRequest) -> TaskRequest {
@@ -72,21 +74,79 @@ public struct SpeakOptions: Sendable {
             preferences: execution?.taskPreferences,
             telemetry: telemetry,
             authContextRef: authContextRef,
-            speech: SpeechInput(locale: locale, localeMatch: localeMatch, text: text, voice: voice),
+            speech: SpeechInput(controls: controls, locale: locale, localeMatch: localeMatch, text: text, voice: voice),
             delivery: delivery
         )
     }
 }
 
-/// Options for `generateSpeech`.
+/// Options for `speak`: the common ``SpeechOptions`` plus settings that only playback has. The
+/// common fields read and write through, so `options.voice = …` works as on ``SpeechOptions``.
+@dynamicMemberLookup
+public struct SpeakOptions: Sendable {
+    public var speech: SpeechOptions
+    /// Playback volume of this utterance, 0 to 1 (ADR 025). Never the device volume.
+    public var playback: PlaybackControls?
+
+    public subscript<Value>(dynamicMember keyPath: WritableKeyPath<SpeechOptions, Value>) -> Value {
+        get { speech[keyPath: keyPath] }
+        set { speech[keyPath: keyPath] = newValue }
+    }
+
+    public init(_ speech: SpeechOptions, playback: PlaybackControls? = nil) {
+        self.speech = speech
+        self.playback = playback
+    }
+
+    /// The common options spelled out, for the usual call that names only a few of them.
+    public init(
+        _ text: String,
+        locale: String,
+        localeMatch: LocaleMatch? = nil,
+        voice: SpeechVoice? = nil,
+        controls: SharedSynthesisControls? = nil,
+        playback: PlaybackControls? = nil,
+        model: String? = nil,
+        execution: SpeechExecutionOptions? = nil,
+        authContextRef: String? = nil,
+        telemetry: TaskRequestTelemetry? = nil,
+        requestId: String? = nil
+    ) {
+        self.init(
+            SpeechOptions(
+                text,
+                locale: locale,
+                localeMatch: localeMatch,
+                voice: voice,
+                controls: controls,
+                model: model,
+                execution: execution,
+                authContextRef: authContextRef,
+                telemetry: telemetry,
+                requestId: requestId
+            ),
+            playback: playback
+        )
+    }
+
+    /// The canonical `TaskRequest` a `speak` call compiles to.
+    public func taskRequest() -> TaskRequest {
+        speech.taskRequest(
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback, playback: playback)
+        )
+    }
+}
+
+/// Options for `generateSpeech`: the common ``SpeechOptions`` plus the artifact's. There is no
+/// playback volume, because nothing is played.
 public struct GenerateSpeechOptions: Sendable {
-    public var speech: SpeakOptions
+    public var speech: SpeechOptions
     /// Acceptable media types; always a hard requirement. `nil` lets the provider choose.
     public var mediaTypes: [String]?
     /// Opaque application destination, resolved by the host. Never a path or URL.
     public var destinationRef: String?
 
-    public init(_ speech: SpeakOptions, mediaTypes: [String]? = nil, destinationRef: String? = nil) {
+    public init(_ speech: SpeechOptions, mediaTypes: [String]? = nil, destinationRef: String? = nil) {
         self.speech = speech
         self.mediaTypes = mediaTypes
         self.destinationRef = destinationRef
@@ -95,7 +155,12 @@ public struct GenerateSpeechOptions: Sendable {
     /// The canonical `TaskRequest` a `generateSpeech` call compiles to.
     public func taskRequest() -> TaskRequest {
         speech.taskRequest(
-            delivery: OutputDeliveryRequest(destinationRef: destinationRef, mediaTypes: mediaTypes, mode: .artifact)
+            delivery: OutputDeliveryRequest(
+                destinationRef: destinationRef,
+                mediaTypes: mediaTypes,
+                mode: .artifact,
+                playback: nil
+            )
         )
     }
 }
@@ -166,6 +231,30 @@ public enum SpeechVoiceKind: String, Codable, Sendable {
     case model
 }
 
+/// One speech control as a voice offers it on one delivery: the merged state of the task's and the
+/// voice's `controlStates`, reported as declared and never decided. A field the provider has not
+/// reported stays `nil`, and `nil` is not support.
+public struct SpeechVoiceControl: Sendable, Equatable, Codable {
+    public let id: SpeechControlId
+    public let delivery: ControlDelivery
+    public let phase: SpeechControlPhase
+    /// Whether the control works here. `nil` when unknown.
+    public let available: Bool?
+    /// Why the control does not work, when `available` is `false`.
+    public let reason: String?
+    /// The values it accepts. `nil` when unknown, or when the control is unavailable.
+    public let range: SpeechControlRange?
+
+    public static func == (lhs: SpeechVoiceControl, rhs: SpeechVoiceControl) -> Bool {
+        lhs.id == rhs.id && lhs.delivery == rhs.delivery && lhs.phase == rhs.phase
+            && lhs.available == rhs.available && lhs.reason == rhs.reason
+            && lhs.range?.min == rhs.range?.min && lhs.range?.max == rhs.range?.max
+            && lhs.range?.step == rhs.range?.step
+            && lhs.range?.speechControlRangeDefault == rhs.range?.speechControlRangeDefault
+            && (lhs.range == nil) == (rhs.range == nil)
+    }
+}
+
 /// A voice a registered provider offers right now. Pass ``asSpeechVoice(requirement:)`` as
 /// `voice` to speak with it. `id` is opaque and meaningful only on `providerId` on this device:
 /// read it, store it, but never write one by hand.
@@ -188,6 +277,40 @@ public struct SpeechVoiceInfo: Sendable, Equatable, Codable {
     public let networkRequired: Bool?
     /// `.notPrepared` and `.preparing` mean "not yet". `nil` means ready. See `prepare()`.
     public let readiness: ProviderReadiness?
+    /// The per-request controls of this voice, one per declared control and delivery. Present only
+    /// when `listVoices` is called with `includeControls`.
+    public let controls: [SpeechVoiceControl]?
+    /// `false` for a voice of an unavailable provider or task. Present only when `listVoices` is
+    /// called with `includeUnavailable`.
+    public let available: Bool?
+
+    init(
+        providerId: String,
+        kind: SpeechVoiceKind,
+        model: String?,
+        id: String?,
+        name: String?,
+        locale: String,
+        locales: [String]?,
+        gender: VoiceGender?,
+        networkRequired: Bool?,
+        readiness: ProviderReadiness?,
+        controls: [SpeechVoiceControl]? = nil,
+        available: Bool? = nil
+    ) {
+        self.providerId = providerId
+        self.kind = kind
+        self.model = model
+        self.id = id
+        self.name = name
+        self.locale = locale
+        self.locales = locales
+        self.gender = gender
+        self.networkRequired = networkRequired
+        self.readiness = readiness
+        self.controls = controls
+        self.available = available
+    }
 
     /// This voice as a request's `voice`. Left preferred, it falls back to its traits when it is
     /// gone or another provider serves the run; a required one never relaxes silently.
@@ -266,16 +389,29 @@ public extension IndeRunApi {
     }
 
     /// Lists the voices the registered providers offer right now, in registration and provider
-    /// order. A provider that is unavailable contributes none; one that cannot enumerate its
-    /// voices contributes none either, and can still serve a request.
+    /// order. A provider that is unavailable contributes none (unless `includeUnavailable`); one
+    /// that cannot enumerate its voices contributes none either, and can still serve a request. A
+    /// projection of `checkCapabilities()` and nothing more: it never prepares, downloads, loads
+    /// or synthesizes.
     /// - Parameters:
     ///   - locale: Keep only voices that can serve this BCP 47 tag.
     ///   - localeMatch: How `locale` compares, with the same meaning as on a request.
-    func listVoices(locale: String? = nil, localeMatch: LocaleMatch? = nil) async -> [SpeechVoiceInfo] {
+    ///   - includeControls: Add each voice's per-request controls, read from the same snapshot.
+    ///   - includeUnavailable: Also list the voices of unavailable providers and tasks, with what
+    ///     is known of them and `available: false`.
+    func listVoices(
+        locale: String? = nil,
+        localeMatch: LocaleMatch? = nil,
+        includeControls: Bool = false,
+        includeUnavailable: Bool = false
+    ) async -> [SpeechVoiceInfo] {
         await checkCapabilities().flatMap { snapshot -> [SpeechVoiceInfo] in
-            guard snapshot.capabilities.available,
-                  let task = snapshot.capabilities.taskCapabilities?.first(where: { $0.kind == "text_to_speech" }),
-                  task.available != false else { return [] }
+            guard let task = snapshot.capabilities.taskCapabilities?.first(where: { $0.kind == "text_to_speech" })
+            else { return [] }
+            let unavailable = !snapshot.capabilities.available || task.available == false
+            guard !unavailable || includeUnavailable else { return [] }
+            let declarations = snapshot.descriptor.taskCapabilities?
+                .first(where: { $0.kind == "text_to_speech" })?.controls
             return (task.voices ?? [])
                 .filter { voice in locale.map { localeMatches(voice, $0, localeMatch) } ?? true }
                 .map { voice in
@@ -289,9 +425,79 @@ public extension IndeRunApi {
                         locales: voice.locales,
                         gender: voice.gender,
                         networkRequired: voice.networkRequired,
-                        readiness: voice.readiness
+                        readiness: voice.readiness,
+                        controls: includeControls
+                            ? voiceControls(declarations, task.controlStates, voice, unavailable: unavailable)
+                            : nil,
+                        available: unavailable ? false : nil
                     )
                 }
         }
     }
+}
+
+/// The listed controls of one voice: each `utterance` declaration times each delivery it lists, in
+/// declaration order. The merge is the route planner's: the voice's state for `(id, delivery)`
+/// overlays the task's, field by field, and a state for an undeclared delivery is never read. An id
+/// declared twice, a declaration that breaks its id's invariant (`keepsInvariant`), or two states for
+/// one `(id, delivery)` at one level, are contradictory and read `available: false`. Unknown stays
+/// `nil`.
+private func voiceControls(
+    _ declarations: [SpeechControlDeclaration]?,
+    _ taskStates: [SpeechControlState]?,
+    _ voice: ProviderVoice,
+    unavailable: Bool
+) -> [SpeechVoiceControl] {
+    var controls: [SpeechVoiceControl] = []
+    var listed: Set<SpeechControlId> = []
+    for declaration in declarations ?? [] where declaration.lifetime == .utterance {
+        guard listed.insert(declaration.id).inserted else { continue }
+        let contradictory = (declarations ?? []).filter { $0.id == declaration.id }.count > 1
+            || !keepsInvariant(declaration)
+        for delivery in declaration.deliveries {
+            func control(
+                available: Bool? = nil,
+                reason: String? = nil,
+                range: SpeechControlRange? = nil
+            ) -> SpeechVoiceControl {
+                SpeechVoiceControl(
+                    id: declaration.id, delivery: delivery, phase: declaration.phase,
+                    available: available, reason: reason, range: range
+                )
+            }
+            if unavailable {
+                controls.append(control(available: false))
+                continue
+            }
+            let taskMatches = (taskStates ?? []).filter { $0.id == declaration.id && $0.delivery == delivery }
+            let voiceMatches = (voice.controlStates ?? []).filter { $0.id == declaration.id && $0.delivery == delivery }
+            if contradictory || taskMatches.count > 1 || voiceMatches.count > 1 {
+                controls.append(control(available: false, reason: "contradictory declaration"))
+                continue
+            }
+            let task = taskMatches.first
+            let bound = voiceMatches.first
+            controls.append(control(
+                available: bound?.available ?? task?.available,
+                reason: bound?.reason ?? task?.reason,
+                range: bound?.range ?? task?.range
+            ))
+        }
+    }
+    return controls
+}
+
+/// The route planner's declaration invariant (`declaration_keeps_invariant` in the route core), the
+/// schema's `allOf` on a control declaration: rate and pitch are `number` controls of the `synthesis`
+/// phase, volume a `number` control of the `playback` phase, and a `playback`-phase control lists only
+/// the `playback` delivery. A typed declaration can break it without the schema.
+private func keepsInvariant(_ declaration: SpeechControlDeclaration) -> Bool {
+    let phase: SpeechControlPhase
+    switch declaration.id {
+    case .speechSpeakingRate, .speechPitch: phase = .synthesis
+    case .playbackVolume: phase = .playback
+    }
+    return declaration.valueKind == .number
+        && declaration.phase == phase
+        && (phase != .playback || declaration.deliveries.allSatisfy { $0 == .playback })
 }

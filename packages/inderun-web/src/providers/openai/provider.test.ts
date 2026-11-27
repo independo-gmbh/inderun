@@ -105,7 +105,7 @@ function createHost(
 
 function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   const request: TaskRequest = {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_text" },
     prompt: "Say hello.",
     constraints: { privacy: "cloud_required" },

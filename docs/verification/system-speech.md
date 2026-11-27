@@ -355,6 +355,114 @@ Candidates this is meant for, none of which IndeRun ships today:
 Each needs the provider admission decision first; the neural candidates are evaluated in #260. Keep the scenarios and
 the corpus unchanged when comparing, so the numbers stay comparable.
 
+## Speech controls
+
+Device checks for rate, pitch and volume ([ADR 025](../architecture/decisions/025-speech-controls.md)). The declared
+ranges (rate and pitch 0.5 to 2, volume 0 to 1, Web states only on `localService: true` voices) are conservative choices
+made without device evidence. Every item below is **not yet run**; no result is recorded until someone runs it on the
+named platform, and an unrun item never counts as passed. Automated tests prove the values handed to the platform and
+the records reported, not what a person hears.
+
+### How to run
+
+Nothing below is a result. Fill a table cell only after you ran that check on a real device, and put in it the date,
+device model, OS or browser version, the voice id or name, and the result (`passed`, or `failed: <what you saw>`).
+A simulator, an emulator or a desktop browser is not device evidence. Do not edit a cell you did not run.
+
+**Launch the demos.**
+
+- Web: `pnpm install`, then `pnpm build` once (the demo imports the built `@independo/inderun-web` and the WASM route
+  core, so rebuild after any SDK change), then `pnpm --filter @independo/inderun-web-demo dev`. To open it on a
+  phone, `pnpm --filter @independo/inderun-web-demo dev -- --host` and use the printed LAN address. Open the **Speech**
+  panel.
+- Apple: open `ios/SampleApps/IndeRunDemo/IndeRunDemo.xcodeproj` in Xcode, scheme `IndeRunDemo`, pick your iPhone,
+  set a signing team, Run. Open the **Speech** tab.
+- Android: `cd android && ./gradlew :inderun-demo-app:installDebug` with the phone attached (USB debugging on), or
+  `:inderun-demo-app:assembleDebug` and install the APK under
+  `android/inderun-demo-app/build/outputs/apk/debug/`.
+  The first build compiles the Rust route core and needs the NDK (see `android/README.md`). Open the Speech section.
+
+**What the three demos share.** A text box (default "Der Bus kommt in fünf Minuten."), a language choice (`de-AT`,
+`de-DE`, `en-US`), a voice picker (default Automatic), and a "Speech controls" block with one checkbox and slider each
+for Rate, Pitch and Volume plus a "Require rate" checkbox. A control is off until you tick it; an off control sends
+nothing. A control is disabled, with the reason beside it, when the picked voice does not offer it. Each row's note
+reads `Speak: available` or `Generate: available` (or why not, or `outside min-max`). The slider ends are the range
+`listVoices({ includeControls: true })` reported for that voice. Picking a voice or a language resets the sliders. The
+sliders are continuous, so you cannot hit 0.75 or 1.5 exactly: use the nearest value and write the value shown in the
+label (Android, Apple) or readout (Web). **Speak** plays and **Stop** cancels. Android and Apple call the artifact
+action **Synthesize**; Web calls it **Generate audio**. After each action the status line shows the finish reason,
+resolved locale, voice, provider, locality, one entry per control (`speech.speakingRate applied 1.5 (method)` or
+`... not applied: <reason>`) and, for **Speak**, `first word N ms` (`firstAudioMs`). Copy that line into your notes.
+Android and Apple route speech `Local Only`; Web speaks through the browser's `speechSynthesis`.
+
+**Per check** (rows in table order).
+
+1. Rate, `de-AT` or `de-DE`. Pick `de-AT` (if the device has no such voice, the status line names the resolved locale:
+   record that it fell back to `de-DE`). Tick only Rate, set about 0.75, Speak, then about 1.5, then 1.0. Listen: slow,
+   fast, normal. Record the voice and the resolved locale.
+2. Pitch, `de-DE`. Same with only Pitch at about 0.8, 1.25 and 1.0. Listen for lower, higher, normal.
+3. `en-US`. Choose English, then set Rate, Pitch and Volume 0.5 one at a time and all together. Each change must be
+   audible and the status line must list the control as applied.
+4. Volume 0.5. Note the device media volume first, Speak at Volume 1.0 and at 0.5 (same text), listen for the quieter
+   one, and confirm the device volume setting is unchanged afterwards. Volume applies to **Speak** only.
+5. Artifact (Android, Apple). Tick Rate, set about 0.75, press Synthesize, then about 1.5. The status line shows the
+   audio duration (`N ms audio`): slower speech must be longer. The Android and Apple demos only read the file back and
+   do not play it, so the duration and the `applied` records (rate, and pitch if ticked) are your evidence. Web has no
+   artifact (record "not applicable" as the table says). `generateSpeech` has no volume option on any SDK, and a raw
+   request that carries `delivery.playback` on an artifact is refused by validation before anything runs; unit and
+   fixture tests cover that, so there is nothing to hear here.
+6. Ranges. For Rate and Pitch (and Volume on Speak), tick the control, drag the slider fully to the minimum, Speak,
+   then fully to the maximum, Speak. Record the two ends shown, that the control is `applied` at both, and that the
+   platform did not clamp or reject (audible change at each end). The ranges themselves are only visible as the slider
+   ends and the `outside` note; the demos do not print the raw `listVoices` entry. *Gap:* the demos cannot send a value
+   outside the reported range (they never send it), so "the platform refuses just past the end" is not testable.
+7. Required control refused, falls back. *Gap, not drivable from the demos:* the only required control is "Require
+   rate", and the demo sends a rate only when it is inside the voice's reported range, so no request is ever one the
+   platform refuses. Each demo also registers a single speech provider, so there is no first provider to hear stay
+   silent and no fallback provider. The Voices lab (opt-in, neural plus OS voice) has no control sliders. Closest
+   manual method: tick Require rate at the range ends (check 6) and confirm it is applied with no fallback line; the
+   refusal path itself needs a harness that registers a second provider or a voice whose range is wrong, which is
+   outside the demos. Record "not drivable from the demo" with what you did run; do not mark it passed.
+8. Without controls, system rate and pitch. Leave every control unticked. First set the system speech setting away
+   from normal (Android: Settings, Text-to-speech output, speech rate and pitch; Apple: Settings, Accessibility,
+   Spoken Content, Speaking Rate; Web: the browser or OS offers none, so record the browser/OS and what you heard).
+   Speak: it must follow your system setting. Then reset the setting.
+9. No leak between utterances. Speak with Rate about 1.5, then untick Rate and Speak again: the second must not be
+   fast. On Android, with a non-default system rate set (check 8), the second must return to that rate, not to 1.0.
+   Repeat with Pitch.
+10. Cancel mid-speech. Use a longer text, tick Rate (and Pitch), Speak, press Stop after a second. The status line
+    must read `cancelled` and still list the control records. The line also shows `stopped in N ms` on all three.
+11. Latency. Same voice, same text, restart nothing between runs. Speak 5 times with all controls off, then 5 times
+    with Rate (and Pitch) ticked, and note `first word N ms` each time (first run after launch separately, since it
+    loads the voice). Record both medians.
+12. Offline. Use an on-device voice (Android and Apple demos route `Local Only`; on Web pick a voice whose controls are
+    not disabled, since Web states only `localService: true` voices). Turn on airplane mode (Web: keep the page open,
+    then go offline), repeat checks 1 to 3, and compare the audible result and the status records with online.
+13. `prefersAssistiveTechnologySettings` (Apple only). *Gap:* the demo does not show or set this flag, and the status
+    line does not print it. Indirect method: set a non-default Spoken Content rate in Accessibility, tick Rate at 1.0
+    and Speak. If controls are applied correctly the speech is at normal speed, not at your accessibility rate with
+    the control stacked on it. Record it as the indirect result only, not as direct proof of the flag.
+
+**Not drivable from the demos, summary.** Check 7 (forced refusal and fallback), the out-of-range edge of check 6,
+and the direct flag in check 13. Automated tests cover their logic; on a device, record what you ran and leave the rest
+"not drivable from the demo".
+
+| Check | Apple | Android | Web |
+| --- | --- | --- | --- |
+| `de-AT` voice, or its `de-DE` fallback: rate 0.75 and 1.5 are audibly slower and faster than 1 | not yet run | not yet run | not yet run |
+| `de-DE` voice: pitch 0.8 and 1.25 are audibly lower and higher than 1 | not yet run | not yet run | not yet run |
+| English (`en-US`) voice: rate, pitch and volume (0.5) change as requested | not yet run | not yet run | not yet run |
+| Volume 0.5 attenuates the utterance and leaves the device volume unchanged | not yet run | not yet run | not yet run |
+| An artifact (`generateSpeech`) honours rate and pitch (it takes no volume; see How to run, check 5) | not yet run | not yet run | not applicable (no artifact) |
+| `listVoices({ includeControls: true })` ranges match what the platform accepts at both ends | not yet run | not yet run | not yet run |
+| A required control the platform refuses ends before commit and falls back, with no sound from the first provider | not yet run | not yet run | not yet run |
+| Without controls, speech uses the user's own system rate and pitch (Android: Settings, Text-to-speech output, set away from normal) | not yet run | not yet run | not yet run |
+| Repeated utterances: a rate set on one does not leak into the next without controls (Android restores the user's system default, not 1.0) | not yet run | not yet run | not yet run |
+| A utterance cancelled mid-speech keeps the reported control records | not yet run | not yet run | not yet run |
+| Latency: `firstAudioMs` with and without controls on the same voice, same text | not yet run | not yet run | not yet run |
+| Offline: controls on an on-device voice behave the same in airplane mode | not yet run | not yet run | not yet run |
+| `prefersAssistiveTechnologySettings` off when a control is applied (accessibility speech settings not applied on top) | not yet run | not applicable | not applicable |
+
 ## Packaging
 
 Measured 2026-11-03 from local release builds.

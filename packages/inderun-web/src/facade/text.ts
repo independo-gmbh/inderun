@@ -122,7 +122,7 @@ export class TextStreamRetractedError extends Error {
 
 /** The canonical `TaskRequest` a facade call compiles to. */
 export function toTaskRequest(options: TextGenerationOptions): TaskRequest {
-  const request: TaskRequest = { schemaVersion: "1.0", task: { kind: "text_to_text" } };
+  const request: TaskRequest = { schemaVersion: "1.1", task: { kind: "text_to_text" } };
 
   if (options.system !== undefined) {
     const conversation =

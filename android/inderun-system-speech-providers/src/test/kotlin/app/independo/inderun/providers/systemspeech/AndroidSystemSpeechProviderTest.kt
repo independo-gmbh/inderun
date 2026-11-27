@@ -1,13 +1,22 @@
 package app.independo.inderun.providers.systemspeech
 
 import app.independo.inderun.contracts.CancelSemantics
+import app.independo.inderun.contracts.ControlApplicationPlan
+import app.independo.inderun.contracts.ControlDecision
+import app.independo.inderun.contracts.ControlDelivery
+import app.independo.inderun.contracts.ControlOmissionReason
 import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.OutputDeliveryRequest
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.SpeechControlId
+import app.independo.inderun.contracts.SpeechControlMethod
+import app.independo.inderun.contracts.SpeechControlOutcomeReason
+import app.independo.inderun.contracts.SpeechControlStatus
 import app.independo.inderun.contracts.SpeechInput
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskOutputType
@@ -55,6 +64,59 @@ private class FakeSpeechEngine(
     var synthesized = 0
     var closed = false
 
+    /** Every `setSpeechRate` / `setPitch` / reset call in order, with the value it set. */
+    val setterCalls = mutableListOf<Pair<String, Double>>()
+
+    /** The user's own system defaults, which a fresh engine speaks with. Not 1.0, so a reset is visible. */
+    val userRate = 1.25
+    val userPitch = 0.95
+    var rate = userRate
+    var pitch = userPitch
+    var rateFails = false
+    var pitchFails = false
+
+    /** What each `speak` found set: text to (rate, pitch, volume). */
+    val seenAtSpeak = mutableMapOf<String, Triple<Double, Double, Double?>>()
+    val renderedWith = mutableListOf<Pair<Double, Double>>()
+
+    override suspend fun setSpeechRate(rate: Double): Boolean {
+        setterCalls += "rate" to rate
+        if (rateFails && rate != 1.0) return false
+        this.rate = rate
+        return true
+    }
+
+    override suspend fun setPitch(pitch: Double): Boolean {
+        setterCalls += "pitch" to pitch
+        if (pitchFails && pitch != 1.0) return false
+        this.pitch = pitch
+        return true
+    }
+
+    /** How many of the next reset calls the platform refuses, leaving the value as it was. */
+    var rateResetFailures = 0
+    var pitchResetFailures = 0
+
+    override suspend fun resetSpeechRate(): Boolean {
+        setterCalls += "resetRate" to userRate
+        if (rateResetFailures > 0) {
+            rateResetFailures -= 1
+            return false
+        }
+        rate = userRate
+        return true
+    }
+
+    override suspend fun resetPitch(): Boolean {
+        setterCalls += "resetPitch" to userPitch
+        if (pitchResetFailures > 0) {
+            pitchResetFailures -= 1
+            return false
+        }
+        pitch = userPitch
+        return true
+    }
+
     override suspend fun readiness() = readiness
 
     override suspend fun voices() = voiceList
@@ -80,10 +142,23 @@ private class FakeSpeechEngine(
     /** Reports a first word, as an engine with range callbacks does. */
     var firstAudioMs: Double? = 120.0
 
-    override suspend fun speakWithTimings(text: String) = AndroidSpokenAudio(speak(text), firstAudioMs)
+    /** Whether this engine applies the volume it is passed, as the platform engine does. */
+    var attenuates = true
+    var attenuatesReads = 0
+    override val attenuatesPlayback: Boolean
+        get() {
+            attenuatesReads += 1
+            return attenuates
+        }
+
+    override suspend fun speakWithTimings(text: String, volume: Double?): AndroidSpokenAudio {
+        seenAtSpeak[text] = Triple(rate, pitch, volume)
+        return AndroidSpokenAudio(speak(text), firstAudioMs)
+    }
 
     override suspend fun synthesize(text: String, maxBytes: Long): ByteArray {
         synthesized += 1
+        renderedWith += rate to pitch
         return audio
     }
 
@@ -107,7 +182,7 @@ class AndroidSystemSpeechProviderTest {
         privacy: Privacy? = null,
         text: String = "Hallo",
     ) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
         speech = SpeechInput(locale = locale, text = text),
         delivery = OutputDeliveryRequest(mode = delivery),
@@ -132,20 +207,32 @@ class AndroidSystemSpeechProviderTest {
 
     private fun provider(engine: FakeSpeechEngine) = AndroidSystemSpeechProvider(AndroidSystemSpeechProvider.DEFAULT_ID, engine)
 
-    private fun runContext(voice: ProviderVoice? = null, commits: Boolean = true) = RunContext(
+    private fun runContext(voice: ProviderVoice? = null, commits: Boolean = true, controls: List<ControlApplicationPlan>? = null) = RunContext(
         "run_1",
         host(),
         voice = voice,
+        controls = controls,
         commitHandler = { commits },
     )
 
-    private fun streamContext(voice: ProviderVoice? = null, commit: () -> Boolean = { true }) = ProviderStreamContext(
+    private fun streamContext(
+        voice: ProviderVoice? = null,
+        controls: List<ControlApplicationPlan>? = null,
+        reportSpeech: (app.independo.inderun.contracts.SpeechOutput) -> Unit = {},
+        commit: () -> Boolean = { true },
+    ) = ProviderStreamContext(
         runId = "run_1",
         hostServices = host(),
         cancellation = StreamCancellationToken(),
         voice = voice,
+        controls = controls,
+        reportSpeechHandler = reportSpeech,
         commitHandler = commit,
     )
+
+    private fun apply(id: SpeechControlId, value: Double, requirement: RequirementLevel = RequirementLevel.Preferred) = ControlApplicationPlan(ControlDecision.Apply, id, null, requirement, value)
+
+    private fun omit(id: SpeechControlId, value: Double, reason: ControlOmissionReason) = ControlApplicationPlan(ControlDecision.Omit, id, reason, RequirementLevel.Preferred, value)
 
     // --- capabilities ------------------------------------------------------------------------
 
@@ -508,6 +595,383 @@ class AndroidSystemSpeechProviderTest {
         val outcome = async { runCatching { provider(engine).run(request(), runContext(FakeSpeechEngine.LOCAL_LISTED)) } }
 
         assertEquals(IndeRunErrorClass.Internal, (outcome.await().exceptionOrNull() as IndeRunException).errorClass)
+    }
+
+    // --- speech controls ---------------------------------------------------------------------
+
+    @Test
+    fun declaresRatePitchAndPlaybackOnlyVolumeWithTaskStates() = runTest {
+        val speech = provider(FakeSpeechEngine())
+
+        val declared = speech.describe().taskCapabilities!!.single().controls!!
+        assertEquals(
+            listOf(SpeechControlId.SpeechSpeakingRate, SpeechControlId.SpeechPitch, SpeechControlId.PlaybackVolume),
+            declared.map { it.id },
+        )
+        assertEquals(listOf(ControlDelivery.Playback, ControlDelivery.Artifact), declared[0].deliveries)
+        assertEquals(listOf(ControlDelivery.Playback), declared[2].deliveries)
+
+        val states = speech.capabilities(host()).taskCapabilities!!.single().controlStates!!
+        val rate = states.single { it.id == SpeechControlId.SpeechSpeakingRate && it.delivery == ControlDelivery.Artifact }
+        assertEquals(0.5, rate.range!!.min, 0.0)
+        assertEquals(2.0, rate.range!!.max, 0.0)
+        val volume = states.single { it.id == SpeechControlId.PlaybackVolume }
+        assertEquals(ControlDelivery.Playback, volume.delivery)
+        assertEquals(1.0, volume.range!!.max, 0.0)
+        assertEquals(5, states.size)
+    }
+
+    @Test
+    fun aRunWithoutControlsReportsNoRecordsAndKeepsTheUsersSettings() = runTest {
+        val engine = FakeSpeechEngine()
+
+        val output = provider(engine).run(request(), runContext(FakeSpeechEngine.LOCAL_LISTED)).output
+
+        assertNull(output.speech!!.controls)
+        // No setter at all: the user's own system rate and pitch stay in force.
+        assertTrue(engine.setterCalls.isEmpty())
+        assertEquals(Triple(engine.userRate, engine.userPitch, null), engine.seenAtSpeak["Hallo"])
+    }
+
+    @Test
+    fun anOmittedRateIsRestoredToTheUsersDefaultSoItNeverLeaksIntoTheNextQueuedUtterance() = runTest {
+        val engine = FakeSpeechEngine()
+        val speech = provider(engine)
+
+        speech.run(
+            request(text = "eins"),
+            runContext(FakeSpeechEngine.LOCAL_LISTED, controls = listOf(apply(SpeechControlId.SpeechSpeakingRate, 0.8))),
+        )
+        speech.run(request(text = "zwei"), runContext(FakeSpeechEngine.LOCAL_LISTED))
+        speech.run(request(text = "drei"), runContext(FakeSpeechEngine.LOCAL_LISTED))
+
+        assertEquals(0.8, engine.seenAtSpeak["eins"]!!.first, 0.0)
+        assertEquals(engine.userRate, engine.seenAtSpeak["zwei"]!!.first, 0.0)
+        // Restored once; the pitch was never touched.
+        assertEquals(listOf("rate" to 0.8, "resetRate" to engine.userRate), engine.setterCalls)
+        assertEquals(engine.userPitch, engine.seenAtSpeak["drei"]!!.second, 0.0)
+    }
+
+    @Test
+    fun aRunThatEndsBeforeSpeakingStillHasItsRateRestoredNextTime() = runTest {
+        val engine = FakeSpeechEngine()
+        val speech = provider(engine)
+
+        // Set, then the run can no longer commit: nothing plays, the engine keeps 0.8.
+        try {
+            speech.run(
+                request(text = "eins"),
+                runContext(FakeSpeechEngine.LOCAL_LISTED, commits = false, controls = listOf(apply(SpeechControlId.SpeechSpeakingRate, 0.8))),
+            )
+            fail("expected the run to end before commit")
+        } catch (_: CancellationException) {
+        }
+        speech.run(request(text = "zwei"), runContext(FakeSpeechEngine.LOCAL_LISTED))
+
+        assertNull(engine.seenAtSpeak["eins"])
+        assertEquals(engine.userRate, engine.seenAtSpeak["zwei"]!!.first, 0.0)
+        assertEquals("resetRate" to engine.userRate, engine.setterCalls.last())
+    }
+
+    @Test
+    fun aRunThatFailsAfterSettingTheRateStillHasItRestoredNextTime() = runTest {
+        val engine = FakeSpeechEngine().apply { pitchFails = true }
+        val speech = provider(engine)
+
+        // The rate is set, then the required pitch is refused before commit.
+        try {
+            speech.run(
+                request(text = "eins"),
+                runContext(
+                    FakeSpeechEngine.LOCAL_LISTED,
+                    controls = listOf(
+                        apply(SpeechControlId.SpeechSpeakingRate, 0.8),
+                        apply(SpeechControlId.SpeechPitch, 1.4, RequirementLevel.Required),
+                    ),
+                ),
+            )
+            fail("expected a refusal")
+        } catch (error: IndeRunException) {
+            assertEquals("speech_control_unsupported", error.details?.get("code"))
+        }
+        speech.run(request(text = "zwei"), runContext(FakeSpeechEngine.LOCAL_LISTED))
+
+        assertEquals(listOf("zwei"), engine.spoken)
+        assertEquals(Triple(engine.userRate, engine.userPitch, null), engine.seenAtSpeak["zwei"])
+        assertEquals(listOf("resetRate" to engine.userRate, "resetPitch" to engine.userPitch), engine.setterCalls.takeLast(2))
+    }
+
+    @Test
+    fun appliedControlsAreRecordedWithTheirMethodAndOmittedOnesWithThePlansReason() = runTest {
+        val engine = FakeSpeechEngine()
+        val plan = listOf(
+            apply(SpeechControlId.SpeechSpeakingRate, 1.5),
+            omit(SpeechControlId.SpeechPitch, 3.0, ControlOmissionReason.OutOfRange),
+            apply(SpeechControlId.PlaybackVolume, 0.4),
+        )
+
+        val records = provider(engine).run(request(), runContext(FakeSpeechEngine.LOCAL_LISTED, controls = plan)).output.speech!!.controls!!
+
+        assertEquals(listOf(SpeechControlId.SpeechSpeakingRate, SpeechControlId.SpeechPitch, SpeechControlId.PlaybackVolume), records.map { it.id })
+        assertEquals(SpeechControlStatus.Applied, records[0].status)
+        assertEquals(1.5, records[0].effective!!, 0.0)
+        assertEquals(SpeechControlMethod.PlatformSynthesis, records[0].method)
+        assertEquals(SpeechControlStatus.NotApplied, records[1].status)
+        assertEquals(SpeechControlOutcomeReason.OutOfRange, records[1].reason)
+        assertNull(records[1].effective)
+        assertEquals(SpeechControlMethod.PlaybackAttenuation, records[2].method)
+        assertEquals(0.4, records[2].effective!!, 0.0)
+        // The omitted pitch is never set: the user's own pitch stays.
+        assertEquals(Triple(1.5, engine.userPitch, 0.4), engine.seenAtSpeak["Hallo"])
+    }
+
+    @Test
+    fun aRefusedRequiredControlFailsBeforeCommitSoTheEngineCanFallBack() = runTest {
+        val engine = FakeSpeechEngine().apply { rateFails = true }
+        var committed = false
+
+        try {
+            provider(engine).run(
+                request(),
+                RunContext(
+                    "run_1",
+                    host(),
+                    voice = FakeSpeechEngine.LOCAL_LISTED,
+                    controls = listOf(apply(SpeechControlId.SpeechSpeakingRate, 0.8, RequirementLevel.Required)),
+                    commitHandler = {
+                        committed = true
+                        true
+                    },
+                ),
+            )
+            fail("expected a refusal")
+        } catch (error: IndeRunException) {
+            assertEquals(IndeRunErrorClass.CapabilityMismatch, error.errorClass)
+            assertEquals("speech_control_unsupported", error.details?.get("code"))
+        }
+        assertFalse(committed)
+        assertTrue(engine.spoken.isEmpty())
+    }
+
+    @Test
+    fun aRefusedPreferredControlIsRecordedAsProviderRejectedAndRestoredToTheUsersDefault() = runTest {
+        val engine = FakeSpeechEngine().apply { pitchFails = true }
+        val plan = listOf(apply(SpeechControlId.SpeechSpeakingRate, 1.2), apply(SpeechControlId.SpeechPitch, 1.4))
+
+        val records = provider(engine).run(request(), runContext(FakeSpeechEngine.LOCAL_LISTED, controls = plan)).output.speech!!.controls!!
+
+        assertEquals(SpeechControlStatus.Applied, records[0].status)
+        assertEquals(SpeechControlStatus.NotApplied, records[1].status)
+        assertEquals(SpeechControlOutcomeReason.ProviderRejected, records[1].reason)
+        assertNull(records[1].method)
+        assertEquals(engine.userPitch, engine.seenAtSpeak["Hallo"]!!.second, 0.0)
+        assertEquals("resetPitch" to engine.userPitch, engine.setterCalls.last())
+    }
+
+    @Test
+    fun volumeTravelsOnlyWithSpeakAndAnArtifactNeverGetsIt() = runTest {
+        val engine = FakeSpeechEngine()
+        val speech = provider(engine)
+        val plan = listOf(apply(SpeechControlId.SpeechSpeakingRate, 1.3), apply(SpeechControlId.PlaybackVolume, 0.5))
+
+        speech.run(request(text = "eins"), runContext(FakeSpeechEngine.LOCAL_LISTED, controls = plan))
+        val artifact = speech.run(
+            request(delivery = OutputDelivery.Artifact),
+            runContext(FakeSpeechEngine.LOCAL_LISTED, controls = plan),
+        ).output
+
+        assertEquals(0.5, engine.seenAtSpeak["eins"]!!.third!!, 0.0)
+        // The render path has no volume parameter: rate is applied, volume is not applied.
+        assertEquals(listOf(1.3 to engine.userPitch), engine.renderedWith)
+        val records = artifact.speech!!.controls!!
+        assertEquals(SpeechControlStatus.Applied, records[0].status)
+        assertEquals(SpeechControlStatus.NotApplied, records[1].status)
+    }
+
+    @Test
+    fun anEngineThatIgnoresVolumeDeclaresNoVolumeAndNeverClaimsIt() = runTest {
+        val engine = FakeSpeechEngine().apply { attenuates = false }
+        val speech = provider(engine)
+
+        // Neither the declaration nor any state names volume, so the planner omits a preferred
+        // volume as unsupported and never routes a required one here.
+        val declared = speech.describe().taskCapabilities!!.single().controls!!
+        assertEquals(listOf(SpeechControlId.SpeechSpeakingRate, SpeechControlId.SpeechPitch), declared.map { it.id })
+        val states = speech.capabilities(host()).taskCapabilities!!.single().controlStates!!
+        assertTrue(states.none { it.id == SpeechControlId.PlaybackVolume })
+        assertEquals(4, states.size)
+        engine.voiceList = emptyList()
+        assertTrue(speech.capabilities(host()).taskCapabilities!!.single().controlStates!!.none { it.id == SpeechControlId.PlaybackVolume })
+        engine.voiceList = FakeSpeechEngine.GERMAN
+
+        // A stale plan that still applies volume is recorded as not applied, and none is passed on.
+        val records = speech.run(
+            request(),
+            runContext(FakeSpeechEngine.LOCAL_LISTED, controls = listOf(apply(SpeechControlId.PlaybackVolume, 0.5))),
+        ).output.speech!!.controls!!
+        assertEquals(SpeechControlStatus.NotApplied, records.single().status)
+        assertEquals(SpeechControlOutcomeReason.Unsupported, records.single().reason)
+        assertNull(engine.seenAtSpeak["Hallo"]!!.third)
+    }
+
+    private fun committingContext(controls: List<ControlApplicationPlan>? = null, onCommit: () -> Unit) = RunContext(
+        "run_1",
+        host(),
+        voice = FakeSpeechEngine.LOCAL_LISTED,
+        controls = controls,
+        commitHandler = {
+            onCommit()
+            true
+        },
+    )
+
+    @Test
+    fun aRestoreRefusedTwiceRefusesTheRunBeforeCommitAndStaysPendingForTheNextUtterance() = runTest {
+        val engine = FakeSpeechEngine()
+        val speech = provider(engine)
+        speech.run(
+            request(text = "eins"),
+            runContext(FakeSpeechEngine.LOCAL_LISTED, controls = listOf(apply(SpeechControlId.SpeechSpeakingRate, 0.8))),
+        )
+        engine.rateResetFailures = 2
+        var committed = false
+
+        // The engine still speaks at 0.8, so this no-control run must not commit.
+        try {
+            speech.run(request(text = "zwei"), committingContext { committed = true })
+            fail("expected a refusal")
+        } catch (error: IndeRunException) {
+            assertEquals(IndeRunErrorClass.CapabilityMismatch, error.errorClass)
+            assertEquals("speech_settings_not_restored", error.details?.get("code"))
+        }
+        assertFalse(committed)
+        assertEquals(listOf("eins"), engine.spoken)
+        assertEquals(listOf("resetRate" to engine.userRate, "resetRate" to engine.userRate), engine.setterCalls.drop(1))
+
+        // Still marked: the next utterance restores it and speaks with the user's rate.
+        speech.run(request(text = "drei"), runContext(FakeSpeechEngine.LOCAL_LISTED))
+        assertEquals(listOf("eins", "drei"), engine.spoken)
+        assertEquals(engine.userRate, engine.seenAtSpeak["drei"]!!.first, 0.0)
+    }
+
+    @Test
+    fun aRestoreRefusedOnceIsRetriedAndTheRunSpeaks() = runTest {
+        val engine = FakeSpeechEngine()
+        val speech = provider(engine)
+        speech.run(
+            request(text = "eins"),
+            runContext(FakeSpeechEngine.LOCAL_LISTED, controls = listOf(apply(SpeechControlId.SpeechSpeakingRate, 0.8))),
+        )
+        engine.rateResetFailures = 1
+
+        speech.run(request(text = "zwei"), runContext(FakeSpeechEngine.LOCAL_LISTED))
+        speech.run(request(text = "drei"), runContext(FakeSpeechEngine.LOCAL_LISTED))
+
+        assertEquals(listOf("eins", "zwei", "drei"), engine.spoken)
+        assertEquals(engine.userRate, engine.seenAtSpeak["zwei"]!!.first, 0.0)
+        // Two reset calls, then nothing: the retry restored it, so "drei" has nothing to restore.
+        assertEquals(
+            listOf("rate" to 0.8, "resetRate" to engine.userRate, "resetRate" to engine.userRate),
+            engine.setterCalls,
+        )
+    }
+
+    @Test
+    fun aRefusedPreferredSetterWhoseRestoreIsRefusedTwiceRefusesTheRunBeforeCommit() = runTest {
+        val engine = FakeSpeechEngine().apply {
+            pitchFails = true
+            pitchResetFailures = 2
+        }
+        var committed = false
+
+        try {
+            provider(engine).run(
+                request(),
+                committingContext(listOf(apply(SpeechControlId.SpeechPitch, 1.4))) { committed = true },
+            )
+            fail("expected a refusal")
+        } catch (error: IndeRunException) {
+            assertEquals(IndeRunErrorClass.CapabilityMismatch, error.errorClass)
+            assertEquals("speech_settings_not_restored", error.details?.get("code"))
+        }
+        assertFalse(committed)
+        assertTrue(engine.spoken.isEmpty())
+        assertEquals(
+            listOf("pitch" to 1.4, "resetPitch" to engine.userPitch, "resetPitch" to engine.userPitch),
+            engine.setterCalls,
+        )
+    }
+
+    @Test
+    fun aRequiredVolumeTheEngineStoppedAttenuatingSincePlanningIsRefusedBeforeAnySetter() = runTest {
+        val engine = FakeSpeechEngine()
+        val speech = provider(engine)
+        // Planned while the engine attenuated.
+        assertTrue(speech.describe().taskCapabilities!!.single().controls!!.any { it.id == SpeechControlId.PlaybackVolume })
+        assertTrue(speech.capabilities(host()).taskCapabilities!!.single().controlStates!!.any { it.id == SpeechControlId.PlaybackVolume })
+        engine.attenuates = false
+        var committed = false
+        val plan = listOf(
+            apply(SpeechControlId.SpeechSpeakingRate, 0.8),
+            apply(SpeechControlId.PlaybackVolume, 0.5, RequirementLevel.Required),
+        )
+
+        try {
+            speech.run(request(), committingContext(plan) { committed = true })
+            fail("expected a refusal")
+        } catch (error: IndeRunException) {
+            assertEquals(IndeRunErrorClass.CapabilityMismatch, error.errorClass)
+            assertEquals("speech_control_unsupported", error.details?.get("code"))
+        }
+        assertFalse(committed)
+        assertTrue(engine.spoken.isEmpty())
+        assertTrue(engine.setterCalls.isEmpty())
+    }
+
+    @Test
+    fun aPreferredVolumeTheEngineStoppedAttenuatingSincePlanningIsNotAppliedAndNotPassedOn() = runTest {
+        val engine = FakeSpeechEngine()
+        val speech = provider(engine)
+        speech.describe()
+        speech.capabilities(host())
+        engine.attenuates = false
+        engine.attenuatesReads = 0
+
+        val records = speech.run(
+            request(),
+            runContext(FakeSpeechEngine.LOCAL_LISTED, controls = listOf(apply(SpeechControlId.PlaybackVolume, 0.5))),
+        ).output.speech!!.controls!!
+
+        assertEquals(listOf("Hallo"), engine.spoken)
+        assertEquals(SpeechControlStatus.NotApplied, records.single().status)
+        assertEquals(SpeechControlOutcomeReason.Unsupported, records.single().reason)
+        assertNull(engine.seenAtSpeak["Hallo"]!!.third)
+        // One reading per attempt, so the check and the records cannot disagree.
+        assertEquals(1, engine.attenuatesReads)
+    }
+
+    @Test
+    fun theSpeechIsReportedOnceAfterTheCommitAndMatchesTheFinalOutput() = runTest {
+        val engine = FakeSpeechEngine()
+        val events = mutableListOf<String>()
+        val reported = mutableListOf<app.independo.inderun.contracts.SpeechOutput>()
+        val context = streamContext(
+            FakeSpeechEngine.LOCAL_LISTED,
+            controls = listOf(apply(SpeechControlId.SpeechSpeakingRate, 0.9)),
+            reportSpeech = {
+                events += "report"
+                reported += it
+            },
+            commit = {
+                events += "commit"
+                true
+            },
+        )
+
+        val result = provider(engine).stream(request(), context).toList().single() as ProviderStreamEvent.Result
+
+        assertEquals(listOf("commit", "report"), events)
+        assertEquals(result.output.speech, reported.single())
     }
 
     @Test

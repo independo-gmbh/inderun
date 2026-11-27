@@ -2,7 +2,9 @@ package app.independo.inderun.demo
 
 import app.independo.inderun.contracts.ArtifactReadRequest
 import app.independo.inderun.contracts.CancelSemantics
+import app.independo.inderun.contracts.ControlDelivery
 import app.independo.inderun.contracts.FinishReason
+import app.independo.inderun.contracts.IndeRunErrorClass
 import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
@@ -13,15 +15,24 @@ import app.independo.inderun.contracts.ProviderDynamicCapabilities
 import app.independo.inderun.contracts.ProviderSupports
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
+import app.independo.inderun.contracts.RequestedNumber
+import app.independo.inderun.contracts.RequestedUnitNumber
+import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.SharedSynthesisControls
+import app.independo.inderun.contracts.SpeechControlId
+import app.independo.inderun.contracts.SpeechControlPhase
+import app.independo.inderun.contracts.SpeechControlRange
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.TaskRequest
 import app.independo.inderun.contracts.TaskResult
 import app.independo.inderun.core.ArtifactChunk
+import app.independo.inderun.core.IndeRunException
 import app.independo.inderun.core.StreamRun
 import app.independo.inderun.sdk.SpeakOptions
 import app.independo.inderun.sdk.SpeechPlayback
+import app.independo.inderun.sdk.SpeechVoiceControl
 import app.independo.inderun.sdk.SpeechVoiceInfo
 import app.independo.inderun.sdk.generated.IndeRunApi
 import app.independo.inderun.sdk.speak
@@ -256,7 +267,7 @@ class DemoViewModelTest {
                         handle = StreamRunHandle(
                             providerId = "android_mlkit_genai",
                             runId = "run_stream",
-                            schemaVersion = SchemaVersion.V1_0,
+                            schemaVersion = SchemaVersion.V1_1,
                             startedAt = 0.0,
                         ),
                         // Parks after the first delta, the way a real stream waits for
@@ -328,6 +339,93 @@ class DemoViewModelTest {
         assertFalse(viewModel.uiState.value.canStopSpeaking)
     }
 
+    @Test
+    fun speakSendsNoControlsUntilOneIsTurnedOn() = runTest {
+        val runtime = FakeRuntime(
+            speakStart = { throw IndeRunException(IndeRunErrorClass.Internal, "stub") },
+            voices = listOf(voiceWithControls),
+        )
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+
+        viewModel.speak()
+        advanceUntilIdle()
+
+        assertNull(runtime.spoken.single().speech.controls)
+        assertNull(runtime.spoken.single().playback)
+    }
+
+    // Playback accepts all three; the artifact accepts rate only within 0.8-1.2 and has no pitch.
+    private val voiceWithControls = SpeechVoiceInfo(
+        providerId = "p",
+        locale = "de-DE",
+        id = "anna",
+        controls = listOf(
+            control(SpeechControlId.SpeechSpeakingRate, ControlDelivery.Playback, 0.5, 2.0),
+            control(SpeechControlId.SpeechSpeakingRate, ControlDelivery.Artifact, 0.8, 1.2),
+            control(SpeechControlId.SpeechPitch, ControlDelivery.Playback, 0.5, 2.0),
+            SpeechVoiceControl(
+                SpeechControlId.SpeechPitch,
+                ControlDelivery.Artifact,
+                SpeechControlPhase.Synthesis,
+                available = false,
+                reason = "unsupported",
+            ),
+            control(SpeechControlId.PlaybackVolume, ControlDelivery.Playback, 0.0, 1.0),
+        ),
+    )
+
+    private fun control(id: SpeechControlId, delivery: ControlDelivery, min: Double, max: Double) = SpeechVoiceControl(
+        id,
+        delivery,
+        SpeechControlPhase.Synthesis,
+        available = true,
+        range = SpeechControlRange(max = max, min = min),
+    )
+
+    @Test
+    fun speakAndSynthesizeBuildTheirOptionsFromTheChosenControls() = runTest {
+        val runtime = FakeRuntime(
+            speakStart = { throw IndeRunException(IndeRunErrorClass.Internal, "stub") },
+            synthesizeOutcome = "audio/wav",
+            voices = listOf(voiceWithControls),
+        )
+        val viewModel = DemoViewModel(FakeSettingsStore(), runtime, FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+        viewModel.updateSpeechVoice("anna")
+        advanceUntilIdle()
+        viewModel.updateSpeechControl(SpeechControlId.SpeechSpeakingRate, 1.0)
+        viewModel.updateSpeechControl(SpeechControlId.SpeechPitch, 0.8)
+        viewModel.updateSpeechControl(SpeechControlId.PlaybackVolume, 0.4)
+        viewModel.updateRequireRate(true)
+
+        viewModel.speak()
+        advanceUntilIdle()
+        viewModel.synthesizeSpeech()
+        advanceUntilIdle()
+
+        val rate = RequestedNumber(requirement = RequirementLevel.Required, value = 1.0)
+        val expected = SharedSynthesisControls(pitch = RequestedNumber(value = 0.8), speakingRate = rate)
+        assertEquals(expected, runtime.spoken.single().speech.controls)
+        assertEquals(RequestedUnitNumber(value = 0.4), runtime.spoken.single().playback?.volume)
+        // Generate reads the artifact state: rate 1.0 is inside 0.8-1.2, pitch is unavailable there,
+        // and there is never a volume.
+        assertEquals(SharedSynthesisControls(pitch = null, speakingRate = rate), runtime.synthesized.single().speech.controls)
+        assertNull(runtime.synthesized.single().playback)
+    }
+
+    @Test
+    fun aNewVoiceStartsWithEveryControlOff() = runTest {
+        val viewModel = DemoViewModel(FakeSettingsStore(), FakeRuntime(), FakeOnnxDownloader(), mainDispatcherRule.dispatcher)
+        advanceUntilIdle()
+        viewModel.updateSpeechControl(SpeechControlId.SpeechPitch, 0.8)
+        viewModel.updateRequireRate(true)
+
+        viewModel.updateSpeechLocale("en-US")
+
+        assertEquals(SpeechControlChoices(requireRate = true), viewModel.uiState.value.speechControls)
+    }
+
     /** An engine whose one playback holds until cancelled, then ends as a cancelled stream. */
     private class FakeSpeechApi(
         private val onCancel: (String?) -> Unit,
@@ -339,7 +437,7 @@ class DemoViewModelTest {
             handle = StreamRunHandle(
                 providerId = "android_system_speech",
                 runId = "run_speech",
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 startedAt = 0.0,
             ),
             events = flow {
@@ -375,16 +473,27 @@ class DemoViewModelTest {
         private val routeDecision: RouteDecision? = null,
         private val streamStart: () -> DemoStreamStart = { DemoStreamStart.Started(streamRun(emptyList())) },
         private val speakStart: suspend (CoroutineScope) -> SpeechPlayback = { error("not scripted") },
+        private val synthesizeOutcome: String = "not scripted",
+        private val voices: List<SpeechVoiceInfo> = emptyList(),
     ) : DemoRuntime {
+        val spoken = mutableListOf<SpeakOptions>()
+        val synthesized = mutableListOf<SpeakOptions>()
+
         override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = snapshots
 
-        override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = emptyList()
+        override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = voices
 
         override suspend fun prepareSpeech(request: app.independo.inderun.contracts.PrepareRequest, settings: DemoSettings, scope: CoroutineScope) = Unit
 
-        override suspend fun speak(options: SpeakOptions, settings: DemoSettings, scope: CoroutineScope): SpeechPlayback = speakStart(scope)
+        override suspend fun speak(options: SpeakOptions, settings: DemoSettings, scope: CoroutineScope): SpeechPlayback {
+            spoken += options
+            return speakStart(scope)
+        }
 
-        override suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String = error("not scripted")
+        override suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String {
+            synthesized += options
+            return synthesizeOutcome
+        }
 
         override suspend fun run(
             prompt: String,
@@ -406,7 +515,7 @@ class DemoViewModelTest {
             handle = StreamRunHandle(
                 providerId = "android_mlkit_genai",
                 runId = "run_stream",
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 startedAt = 0.0,
             ),
             events = events.asFlow(),
@@ -416,7 +525,7 @@ class DemoViewModelTest {
         fun delta(sequence: Long, text: String) = StreamEvent(
             payload = Payload(text = text),
             runId = "run_stream",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence,
             timestamp = 0.0,
             type = "content_delta",
@@ -431,7 +540,7 @@ class DemoViewModelTest {
                 telemetry = PayloadTelemetry(providerUsed = "android_mlkit_genai", totalMs = 12.0),
             ),
             runId = "run_stream",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence,
             timestamp = 0.0,
             type = "terminal",
@@ -445,7 +554,7 @@ class DemoViewModelTest {
                 runId = "run_stream",
             ),
             runId = "run_stream",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence,
             timestamp = 0.0,
             type = "terminal",

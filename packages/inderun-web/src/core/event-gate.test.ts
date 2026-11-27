@@ -5,7 +5,7 @@ function completedOutcome(text: string) {
   return {
     outcome: "completed" as const,
     runId: "run_1",
-    schemaVersion: "1.0" as const,
+    schemaVersion: "1.1" as const,
     finalText: text
   };
 }
@@ -14,7 +14,7 @@ function cancelledOutcome(partialText: string) {
   return {
     outcome: "cancelled" as const,
     runId: "run_1",
-    schemaVersion: "1.0" as const,
+    schemaVersion: "1.1" as const,
     partialText
   };
 }

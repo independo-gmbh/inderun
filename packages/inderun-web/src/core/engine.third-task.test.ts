@@ -38,7 +38,7 @@ registerTaskProfile({
 });
 
 const request = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   task: { kind: "text_to_image" },
   image: { prompt: "A lift that is out of order" },
   delivery: { mode: "artifact", mediaTypes: ["image/png"] }
@@ -80,7 +80,7 @@ const imageProvider: ProviderAdapter = {
   }),
   capabilities: async () => ({ available: true }),
   run: async (_request, context): Promise<TaskResult> => ({
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     runId: context.runId,
     output: { type: "artifact", artifact: paint(context) },
     finishReason: "stop",

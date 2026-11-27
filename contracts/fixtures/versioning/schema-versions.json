@@ -1,0 +1,91 @@
+{
+  "$comment": "ADR 025 section 5: every run-scoped document accepts exactly schemaVersion '1.1'. For each document, 'payload' is valid as written; replacing its schemaVersion with each 'accepted' value must stay valid and with each 'rejected' value must fail, and removing it ('rejectMissing') must fail too. The Web validators check all of it; Swift decodes every variant through Codable; Kotlin checks SchemaVersion.fromRawValue, because its typed contracts cannot hold another value at all. A StreamEvent's terminal payload carries its own copy of the version, which the variants replace too.",
+  "accepted": ["1.1"],
+  "rejected": ["1.0", "1.2", "2.0", "1", "1.10", ""],
+  "rejectMissing": true,
+  "documents": [
+    {
+      "document": "TaskRequest",
+      "payload": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Hallo",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      }
+    },
+    {
+      "document": "TaskResult",
+      "payload": {
+        "schemaVersion": "1.1",
+        "runId": "run_v",
+        "output": {
+          "type": "playback",
+          "playback": {}
+        },
+        "finishReason": "stop",
+        "telemetry": {
+          "providerUsed": "p",
+          "totalMs": 1
+        }
+      }
+    },
+    {
+      "document": "IndeRunError",
+      "payload": {
+        "schemaVersion": "1.1",
+        "errorClass": "Internal",
+        "message": "failed"
+      }
+    },
+    {
+      "document": "StreamRunHandle",
+      "payload": {
+        "schemaVersion": "1.1",
+        "runId": "run_v",
+        "startedAt": 0
+      }
+    },
+    {
+      "document": "StreamTerminalOutcome",
+      "payload": {
+        "schemaVersion": "1.1",
+        "runId": "run_v",
+        "outcome": "cancelled"
+      }
+    },
+    {
+      "document": "StreamEvent",
+      "payload": {
+        "schemaVersion": "1.1",
+        "runId": "run_v",
+        "sequence": 0,
+        "timestamp": 0,
+        "type": "terminal",
+        "payload": {
+          "schemaVersion": "1.1",
+          "runId": "run_v",
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "document": "ExecutionProvenance",
+      "payload": {
+        "schemaVersion": "1.1",
+        "modelProfile": "auto",
+        "locality": "unknown",
+        "attemptCount": 0,
+        "fallbackOccurred": false,
+        "attempts": [],
+        "routeRejections": []
+      }
+    }
+  ]
+}

@@ -237,7 +237,7 @@ class SpeechBenchmarkTest {
         /** Renders to an artifact once and records what the render took. */
         suspend fun render(engine: IndeRun, utterance: Utterance, step: String) {
             val started = System.nanoTime()
-            val (speech, peak) = measuringPeak { engine.generateSpeech(GenerateSpeechOptions(options(utterance))) }
+            val (speech, peak) = measuringPeak { engine.generateSpeech(GenerateSpeechOptions(options(utterance).speech)) }
             val renderMs = elapsedMs(started)
             engine.disposeArtifact(speech.artifact)
             val audioMs = speech.artifact.durationMs

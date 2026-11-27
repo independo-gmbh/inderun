@@ -9,7 +9,7 @@
   "properties": {
     "schemaVersion": {
       "description": "Contract schema version used to interpret this handle payload.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "runId": {
       "description": "A unique, opaque identifier assigned by the engine for this stream run. Every StreamEvent and the terminal StreamTerminalOutcome for this run carry the same runId, matching the identity convention used by TaskResult.runId and IndeRunError.runId.",

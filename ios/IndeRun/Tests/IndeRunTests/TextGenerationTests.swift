@@ -38,7 +38,7 @@ private final class FakeApi: IndeRunApi, @unchecked Sendable {
         lock.withLock { recordedRequests.append(request) }
         let events = events
         return StreamRun(
-            handle: StreamRunHandle(providerId: "p1", runId: "run_1", schemaVersion: .the10, startedAt: 0),
+            handle: StreamRunHandle(providerId: "p1", runId: "run_1", schemaVersion: .the11, startedAt: 0),
             events: source ?? AsyncThrowingStream { continuation in
                 events.forEach { continuation.yield($0) }
                 continuation.finish()
@@ -205,7 +205,7 @@ final class TextGenerationTests: XCTestCase {
         StreamEvent(
             payload: payload,
             runId: "run_1",
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             sequence: sequence,
             timestamp: 0,
             type: type
@@ -227,7 +227,7 @@ final class TextGenerationTests: XCTestCase {
             providerId: "p1",
             reportedModel: nil,
             routeRejections: [],
-            schemaVersion: .the10
+            schemaVersion: .the11
         )
     }
 

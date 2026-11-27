@@ -19,6 +19,12 @@ export interface SystemSpeechUtterance {
   locale: string;
   /** Absent lets the browser choose for `locale`. */
   voice?: SystemSpeechVoice;
+  /** Absent leaves the browser default. `SpeechSynthesisUtterance.rate`, relative pace. */
+  rate?: number;
+  /** Absent leaves the browser default. `SpeechSynthesisUtterance.pitch`. */
+  pitch?: number;
+  /** Absent leaves the browser default. `SpeechSynthesisUtterance.volume`, 0 to 1. */
+  volume?: number;
 }
 
 /** Why a runtime could not finish an utterance. */

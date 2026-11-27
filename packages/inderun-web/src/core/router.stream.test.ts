@@ -69,7 +69,7 @@ function createProvider(id: string, opts: FakeProviderOptions): ProviderAdapter 
     },
     async run(request: TaskRequest): Promise<TaskResult> {
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: request.requestId ?? "run-1",
         output: { type: "text", text: "unused" },
         finishReason: "stop",
@@ -89,7 +89,7 @@ function createProvider(id: string, opts: FakeProviderOptions): ProviderAdapter 
 }
 
 const request: TaskRequest = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   task: { kind: "text_to_text" },
   prompt: "test prompt"
 };

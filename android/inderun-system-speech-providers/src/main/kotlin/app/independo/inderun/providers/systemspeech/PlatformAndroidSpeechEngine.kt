@@ -2,6 +2,7 @@ package app.independo.inderun.providers.systemspeech
 
 import android.content.Context
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
@@ -163,11 +164,33 @@ internal class PlatformAndroidSpeechEngine(context: Context) : AndroidSpeechEngi
         return tts.setLanguage(Locale.forLanguageTag(locale)) >= TextToSpeech.LANG_AVAILABLE
     }
 
+    override suspend fun setSpeechRate(rate: Double): Boolean = readyEngine()?.setSpeechRate(rate.toFloat()) == TextToSpeech.SUCCESS
+
+    override suspend fun setPitch(pitch: Double): Boolean = readyEngine()?.setPitch(pitch.toFloat()) == TextToSpeech.SUCCESS
+
+    // `TextToSpeech` keeps a set rate or pitch for the life of the binding and has no call to unset
+    // it, so undoing one means setting the user's own default, stored in hundredths. An unreadable
+    // setting counts as the platform's normal 1.0.
+    override suspend fun resetSpeechRate(): Boolean = setSpeechRate(userDefault(Settings.Secure.TTS_DEFAULT_RATE))
+
+    override suspend fun resetPitch(): Boolean = setPitch(userDefault(Settings.Secure.TTS_DEFAULT_PITCH))
+
+    private fun userDefault(setting: String): Double = runCatching {
+        Settings.Secure.getInt(appContext.contentResolver, setting, NORMAL_HUNDREDTHS)
+    }.getOrDefault(NORMAL_HUNDREDTHS) / 100.0
+
     override suspend fun speak(text: String): Double? = speakWithTimings(text).durationMs
 
-    override suspend fun speakWithTimings(text: String): AndroidSpokenAudio {
+    override val attenuatesPlayback: Boolean
+        get() = true
+
+    override suspend fun speakWithTimings(text: String, volume: Double?): AndroidSpokenAudio {
         val current = bind()
-        return awaitUtterance(current) { id -> current.tts.speak(text, TextToSpeech.QUEUE_ADD, Bundle(), id) }
+        // Volume travels only here: `synthesizeToFile` renders silently and never gets it.
+        val params = Bundle().apply {
+            if (volume != null) putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume.toFloat())
+        }
+        return awaitUtterance(current) { id -> current.tts.speak(text, TextToSpeech.QUEUE_ADD, params, id) }
     }
 
     override suspend fun synthesize(text: String, maxBytes: Long): ByteArray {
@@ -236,5 +259,6 @@ internal class PlatformAndroidSpeechEngine(context: Context) : AndroidSpeechEngi
         const val INIT_TIMEOUT_MS = 5_000L
         const val START_TIMEOUT_MS = 15_000L
         const val RETRY_BACKOFF_NANOS = 30_000_000_000L
+        const val NORMAL_HUNDREDTHS = 100
     }
 }

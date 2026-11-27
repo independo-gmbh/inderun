@@ -18,6 +18,10 @@ export interface BrowserSpeechVoice {
 export interface BrowserSpeechUtterance {
   lang: string;
   voice: BrowserSpeechVoice | null;
+  /** Set only when a control applies, so the browser default holds otherwise. */
+  rate?: number;
+  pitch?: number;
+  volume?: number;
   onstart: (() => void) | null;
   /** Optional, so a runtime without word boundaries still fits; the first one marks speech. */
   onboundary?: (() => void) | null;
@@ -199,6 +203,9 @@ export function createBrowserSpeechRuntime(
         const utterance = createUtterance(input.text);
         utterance.lang = input.locale;
         utterance.voice = voice ?? null;
+        if (input.rate !== undefined) utterance.rate = input.rate;
+        if (input.pitch !== undefined) utterance.pitch = input.pitch;
+        if (input.volume !== undefined) utterance.volume = input.volume;
 
         let settled = false;
         let startedAt: number | undefined;

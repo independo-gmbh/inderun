@@ -530,6 +530,1688 @@
           "readiness": "not_prepared"
         }
       ]
+    },
+    {
+      "id": "controls_by_delivery_with_voice_override",
+      "snapshots": [
+        {
+          "providerId": "sys",
+          "descriptor": {
+            "id": "sys",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "playback.volume",
+                    "valueKind": "number",
+                    "phase": "playback",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "plain",
+                    "name": "Plain",
+                    "locale": "de-DE"
+                  },
+                  {
+                    "id": "fast",
+                    "name": "Fast",
+                    "locale": "de-DE",
+                    "controlStates": [
+                      {
+                        "id": "speech.speakingRate",
+                        "delivery": "playback",
+                        "range": {
+                          "min": 1,
+                          "max": 3
+                        }
+                      },
+                      {
+                        "id": "speech.pitch",
+                        "delivery": "artifact",
+                        "available": false,
+                        "reason": "voice has no pitch path"
+                      }
+                    ]
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "artifact",
+                    "available": true,
+                    "range": {
+                      "min": 0.25,
+                      "max": 4
+                    }
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "delivery": "playback",
+                    "available": true
+                  },
+                  {
+                    "id": "playback.volume",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0,
+                      "max": 1
+                    }
+                  },
+                  {
+                    "id": "playback.volume",
+                    "delivery": "artifact",
+                    "available": true,
+                    "range": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "includeControls": true
+      },
+      "expected": [
+        {
+          "providerId": "sys",
+          "kind": "platform",
+          "id": "plain",
+          "name": "Plain",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.speakingRate",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 0.5,
+                "max": 2
+              }
+            },
+            {
+              "id": "speech.speakingRate",
+              "delivery": "artifact",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 0.25,
+                "max": 4
+              }
+            },
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": true
+            },
+            {
+              "id": "speech.pitch",
+              "delivery": "artifact",
+              "phase": "synthesis"
+            },
+            {
+              "id": "playback.volume",
+              "delivery": "playback",
+              "phase": "playback",
+              "available": true,
+              "range": {
+                "min": 0,
+                "max": 1
+              }
+            }
+          ]
+        },
+        {
+          "providerId": "sys",
+          "kind": "platform",
+          "id": "fast",
+          "name": "Fast",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.speakingRate",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 1,
+                "max": 3
+              }
+            },
+            {
+              "id": "speech.speakingRate",
+              "delivery": "artifact",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 0.25,
+                "max": 4
+              }
+            },
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": true
+            },
+            {
+              "id": "speech.pitch",
+              "delivery": "artifact",
+              "phase": "synthesis",
+              "available": false,
+              "reason": "voice has no pitch path"
+            },
+            {
+              "id": "playback.volume",
+              "delivery": "playback",
+              "phase": "playback",
+              "available": true,
+              "range": {
+                "min": 0,
+                "max": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "controls_unknown_state_stays_unknown",
+      "snapshots": [
+        {
+          "providerId": "sys",
+          "descriptor": {
+            "id": "sys",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "v",
+                    "name": "V",
+                    "locale": "de-DE"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.pitch",
+                    "delivery": "playback",
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "includeControls": true
+      },
+      "expected": [
+        {
+          "providerId": "sys",
+          "kind": "platform",
+          "id": "v",
+          "name": "V",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.speakingRate",
+              "delivery": "playback",
+              "phase": "synthesis"
+            },
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "range": {
+                "min": 0.5,
+                "max": 2
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "controls_contradictory_declaration",
+      "snapshots": [
+        {
+          "providerId": "sys",
+          "descriptor": {
+            "id": "sys",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  },
+                  {
+                    "id": "playback.volume",
+                    "valueKind": "number",
+                    "phase": "playback",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "v",
+                    "name": "V",
+                    "locale": "de-DE",
+                    "controlStates": [
+                      {
+                        "id": "playback.volume",
+                        "delivery": "playback",
+                        "available": true
+                      },
+                      {
+                        "id": "playback.volume",
+                        "delivery": "playback",
+                        "available": true
+                      }
+                    ]
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "artifact",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "playback.volume",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0,
+                      "max": 1
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "includeControls": true
+      },
+      "expected": [
+        {
+          "providerId": "sys",
+          "kind": "platform",
+          "id": "v",
+          "name": "V",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.speakingRate",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": false,
+              "reason": "contradictory declaration"
+            },
+            {
+              "id": "speech.speakingRate",
+              "delivery": "artifact",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 0.5,
+                "max": 2
+              }
+            },
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": false,
+              "reason": "contradictory declaration"
+            },
+            {
+              "id": "playback.volume",
+              "delivery": "playback",
+              "phase": "playback",
+              "available": false,
+              "reason": "contradictory declaration"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "controls_provider_instance_not_listed",
+      "snapshots": [
+        {
+          "providerId": "sys",
+          "descriptor": {
+            "id": "sys",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "provider_instance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "v",
+                    "name": "V",
+                    "locale": "de-DE"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "includeControls": true
+      },
+      "expected": [
+        {
+          "providerId": "sys",
+          "kind": "platform",
+          "id": "v",
+          "name": "V",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 0.5,
+                "max": 2
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "include_unavailable_disables_controls",
+      "snapshots": [
+        {
+          "providerId": "off_provider",
+          "descriptor": {
+            "id": "off_provider",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "playback.volume",
+                    "valueKind": "number",
+                    "phase": "playback",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": false,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "a",
+                    "name": "A",
+                    "locale": "de-DE",
+                    "readiness": "not_prepared"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "off_task",
+          "descriptor": {
+            "id": "off_task",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "b",
+                    "name": "B",
+                    "locale": "de-DE",
+                    "readiness": "preparing"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.pitch",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ],
+                "available": false
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "on",
+          "descriptor": {
+            "id": "on",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "c",
+                    "name": "C",
+                    "locale": "de-DE"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "includeControls": true,
+        "includeUnavailable": true
+      },
+      "expected": [
+        {
+          "providerId": "off_provider",
+          "kind": "platform",
+          "id": "a",
+          "name": "A",
+          "locale": "de-DE",
+          "readiness": "not_prepared",
+          "available": false,
+          "controls": [
+            {
+              "id": "speech.speakingRate",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": false
+            },
+            {
+              "id": "speech.speakingRate",
+              "delivery": "artifact",
+              "phase": "synthesis",
+              "available": false
+            },
+            {
+              "id": "playback.volume",
+              "delivery": "playback",
+              "phase": "playback",
+              "available": false
+            }
+          ]
+        },
+        {
+          "providerId": "off_task",
+          "kind": "platform",
+          "id": "b",
+          "name": "B",
+          "locale": "de-DE",
+          "readiness": "preparing",
+          "available": false,
+          "controls": [
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": false
+            }
+          ]
+        },
+        {
+          "providerId": "on",
+          "kind": "platform",
+          "id": "c",
+          "name": "C",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.speakingRate",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 0.5,
+                "max": 2
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default_listing_unchanged_with_controls_declared",
+      "snapshots": [
+        {
+          "providerId": "off_provider",
+          "descriptor": {
+            "id": "off_provider",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "playback.volume",
+                    "valueKind": "number",
+                    "phase": "playback",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": false,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "a",
+                    "name": "A",
+                    "locale": "de-DE"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "on",
+          "descriptor": {
+            "id": "on",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "playback.volume",
+                    "valueKind": "number",
+                    "phase": "playback",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "c",
+                    "name": "C",
+                    "locale": "de-DE",
+                    "controlStates": [
+                      {
+                        "id": "speech.speakingRate",
+                        "delivery": "playback",
+                        "range": {
+                          "min": 1,
+                          "max": 3
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "expected": [
+        {
+          "providerId": "on",
+          "kind": "platform",
+          "id": "c",
+          "name": "C",
+          "locale": "de-DE"
+        }
+      ]
+    },
+    {
+      "id": "controls_declaration_breaks_invariant",
+      "snapshots": [
+        {
+          "providerId": "sys",
+          "descriptor": {
+            "id": "sys",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.speakingRate",
+                    "valueKind": "choice",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  },
+                  {
+                    "id": "playback.volume",
+                    "valueKind": "number",
+                    "phase": "playback",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback",
+                      "artifact"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "v",
+                    "name": "V",
+                    "locale": "de-DE"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "speech.speakingRate",
+                    "delivery": "artifact",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "speech.pitch",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  },
+                  {
+                    "id": "playback.volume",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0,
+                      "max": 1
+                    }
+                  },
+                  {
+                    "id": "playback.volume",
+                    "delivery": "artifact",
+                    "available": true,
+                    "range": {
+                      "min": 0,
+                      "max": 1
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "pitch_phase",
+          "descriptor": {
+            "id": "pitch_phase",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "speech.pitch",
+                    "valueKind": "number",
+                    "phase": "playback",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": true,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "p",
+                    "name": "P",
+                    "locale": "de-DE"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "speech.pitch",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0.5,
+                      "max": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "providerId": "off",
+          "descriptor": {
+            "id": "off",
+            "type": "local",
+            "transport": "system_service",
+            "supports": {
+              "run": true,
+              "streaming": false,
+              "realtime": false,
+              "tools": false,
+              "reasoningEvents": false,
+              "structuredOutput": false,
+              "multimodal": false
+            },
+            "cancel": "hard",
+            "tasks": [
+              "text_to_speech"
+            ],
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "inputs": [
+                  "text"
+                ],
+                "interaction": {
+                  "run": true,
+                  "stream": false
+                },
+                "cancel": "hard",
+                "outputs": [
+                  {
+                    "delivery": "playback"
+                  }
+                ],
+                "locales": [
+                  "de-DE"
+                ],
+                "controls": [
+                  {
+                    "id": "playback.volume",
+                    "valueKind": "number",
+                    "phase": "synthesis",
+                    "lifetime": "utterance",
+                    "deliveries": [
+                      "playback"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "privacy": {
+              "dataLeavesDevice": false
+            }
+          },
+          "capabilities": {
+            "available": false,
+            "taskCapabilities": [
+              {
+                "kind": "text_to_speech",
+                "voices": [
+                  {
+                    "id": "w",
+                    "name": "W",
+                    "locale": "de-DE"
+                  }
+                ],
+                "controlStates": [
+                  {
+                    "id": "playback.volume",
+                    "delivery": "playback",
+                    "available": true,
+                    "range": {
+                      "min": 0,
+                      "max": 1
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "includeControls": true,
+        "includeUnavailable": true
+      },
+      "expected": [
+        {
+          "providerId": "sys",
+          "kind": "platform",
+          "id": "v",
+          "name": "V",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.speakingRate",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": false,
+              "reason": "contradictory declaration"
+            },
+            {
+              "id": "speech.speakingRate",
+              "delivery": "artifact",
+              "phase": "synthesis",
+              "available": false,
+              "reason": "contradictory declaration"
+            },
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": true,
+              "range": {
+                "min": 0.5,
+                "max": 2
+              }
+            },
+            {
+              "id": "playback.volume",
+              "delivery": "playback",
+              "phase": "playback",
+              "available": false,
+              "reason": "contradictory declaration"
+            },
+            {
+              "id": "playback.volume",
+              "delivery": "artifact",
+              "phase": "playback",
+              "available": false,
+              "reason": "contradictory declaration"
+            }
+          ]
+        },
+        {
+          "providerId": "pitch_phase",
+          "kind": "platform",
+          "id": "p",
+          "name": "P",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "speech.pitch",
+              "delivery": "playback",
+              "phase": "playback",
+              "available": false,
+              "reason": "contradictory declaration"
+            }
+          ]
+        },
+        {
+          "providerId": "off",
+          "kind": "platform",
+          "id": "w",
+          "name": "W",
+          "locale": "de-DE",
+          "controls": [
+            {
+              "id": "playback.volume",
+              "delivery": "playback",
+              "phase": "synthesis",
+              "available": false
+            }
+          ],
+          "available": false
+        }
+      ]
     }
   ]
 }

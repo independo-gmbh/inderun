@@ -145,6 +145,7 @@ internal data class DemoUiState(
     val isSpeaking: Boolean = false,
     val canStopSpeaking: Boolean = false,
     val speechOutcome: String? = null,
+    val speechControls: SpeechControlChoices = SpeechControlChoices(),
     val voicesLabEnabled: Boolean = false,
 ) {
     val selectedSpeechVoice: SpeechVoiceInfo?

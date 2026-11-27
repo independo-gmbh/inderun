@@ -16,7 +16,7 @@ import type { OutputDeliveryRequest, SpeechInput } from "./generated/task-reques
 // Convenience aliases derived from the generated schema types, so consumers can
 // name individual fields without reaching into the generated index signatures.
 
-/** Contract schema version (e.g. `"1.0"`) carried by every task request. */
+/** Contract schema version (currently `"1.1"`, ADR 025) carried by every task request. */
 export type SchemaVersion = TaskRequest["schemaVersion"];
 /** Supported task kinds (`"text_to_text"`, `"text_to_speech"`). */
 export type TaskKind = TaskRequest["task"]["kind"];

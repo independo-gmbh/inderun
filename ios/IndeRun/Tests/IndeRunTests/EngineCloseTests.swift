@@ -213,7 +213,7 @@ final class EngineCloseTests: XCTestCase {
         await assertEngineClosed { try await engine.prepare() }
         await assertEngineClosed { try await engine.readArtifact(request: ArtifactReadRequest(artifactId: "x", maxBytes: nil, offset: nil)) }
         await assertEngineClosed { try await engine.speak(SpeakOptions("Hallo", locale: "de-AT")) }
-        await assertEngineClosed { try await engine.generateSpeech(GenerateSpeechOptions(SpeakOptions("Hallo", locale: "de-AT"))) }
+        await assertEngineClosed { try await engine.generateSpeech(GenerateSpeechOptions(SpeechOptions("Hallo", locale: "de-AT"))) }
         // checkCapabilities cannot throw on Swift; a closed engine reports no providers.
         let snapshots = await engine.checkCapabilities()
         XCTAssertTrue(snapshots.isEmpty)
@@ -286,8 +286,8 @@ final class EngineCloseTests: XCTestCase {
         let (world, _) = try neuralWorld(fallback: false)
         let result = try await world.engine.run(request: TaskRequest(
             task: TaskDescriptor(kind: .textToSpeech),
-            speech: SpeechInput(locale: "de-DE", localeMatch: nil, text: "Hallo", voice: nil),
-            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact)
+            speech: SpeechInput(controls: nil, locale: "de-DE", localeMatch: nil, text: "Hallo", voice: nil),
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact, playback: nil)
         ))
         let artifactId = try XCTUnwrap(result.output.artifact?.id)
         XCTAssertNotNil(world.engine.artifacts.bytes(artifactId: artifactId))

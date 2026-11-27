@@ -41,7 +41,7 @@ class EventGate(private val runId: String) {
         StreamEvent(
             payload = payload,
             runId = runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence++,
             timestamp = timestamp,
             type = type,
@@ -61,7 +61,7 @@ class EventGate(private val runId: String) {
         StreamEvent(
             payload = outcome.toPayload(),
             runId = runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence++,
             timestamp = timestamp,
             type = "terminal",
@@ -135,7 +135,7 @@ fun completedOutcome(
     output = output,
     provenance = provenance,
     runId = runId,
-    schemaVersion = SchemaVersion.V1_0,
+    schemaVersion = SchemaVersion.V1_1,
     telemetry = telemetry,
     usage = usage,
 )
@@ -153,7 +153,7 @@ fun errorOutcome(
     outcome = Outcome.Error,
     provenance = provenance,
     runId = runId,
-    schemaVersion = SchemaVersion.V1_0,
+    schemaVersion = SchemaVersion.V1_1,
     error = error,
     partialText = partialText,
 )
@@ -174,7 +174,7 @@ fun cancelledOutcome(
     output = output,
     provenance = provenance,
     runId = runId,
-    schemaVersion = SchemaVersion.V1_0,
+    schemaVersion = SchemaVersion.V1_1,
     partialText = partialText,
     reason = reason,
 )

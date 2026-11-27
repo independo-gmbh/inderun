@@ -1,3 +1,7 @@
+use crate::controls::{
+    ControlCapability, ControlSupport, control_support, declaration_keeps_invariant,
+    requested_controls,
+};
 use crate::*;
 
 /// Test provider builder. Defaults mirror a shipped Mode-1 provider: `run: true`,
@@ -90,6 +94,7 @@ fn text_task() -> Task {
         delivery: None,
         locale: None,
         voice: None,
+        controls: None,
     }
 }
 
@@ -685,4 +690,710 @@ fn matches_the_shared_planner_conformance_vectors() {
         let plan = serde_json::to_value(plan_route(input)).expect("plan serializes");
         assert_eq!(plan, case["expected"], "case '{id}'");
     }
+}
+
+/// The comparison above parses both sides with the same `serde_json`, so a lossy
+/// float parse would round input and expectation alike and still pass. Pin the
+/// exact bits of the `controls_float_round_trip` value through the JSON text the
+/// FFI entry points read and write: without `float_roundtrip` the planner hands
+/// back 1.14 and every engine's exact plan check refuses the run.
+#[test]
+fn control_values_round_trip_through_the_planner_bit_for_bit() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/fixtures/routing/planner-conformance.json"
+    ))
+    .expect("conformance fixture parses");
+    let case = fixture["cases"]
+        .as_array()
+        .expect("cases array")
+        .iter()
+        .find(|case| case["id"] == "controls_float_round_trip")
+        .expect("controls_float_round_trip case");
+    let input_json = serde_json::to_string(&case["input"]).expect("input serializes");
+    assert!(input_json.contains("1.1400000000000001"));
+
+    let input: RoutePlannerInput = serde_json::from_str(&input_json).expect("input parses");
+    let requested = input.task.controls.as_ref().expect("controls")[0].value;
+    assert_eq!(requested.to_bits(), 1.140_000_000_000_000_1_f64.to_bits());
+
+    let plan_json = serde_json::to_string(&plan_route(input)).expect("plan serializes");
+    assert!(
+        plan_json.contains("\"value\":1.1400000000000001"),
+        "plan rounded the control value: {plan_json}"
+    );
+}
+
+// Speech-control negotiation (ADR 025): the effective-state merge and the
+// rejection reasons, below the planner. The conformance vectors cover the
+// planner wiring end to end.
+
+fn control_declaration(
+    id: SpeechControlId,
+    deliveries: &[ControlDelivery],
+    lifetime: SpeechControlLifetime,
+) -> SpeechControlDeclaration {
+    let phase = if id == SpeechControlId::PlaybackVolume {
+        SpeechControlPhase::Playback
+    } else {
+        SpeechControlPhase::Synthesis
+    };
+    SpeechControlDeclaration {
+        deliveries: deliveries.to_vec(),
+        id,
+        lifetime,
+        phase,
+        value_kind: SpeechControlValueKind::Number,
+    }
+}
+
+fn rate_declaration(deliveries: &[ControlDelivery]) -> SpeechControlDeclaration {
+    control_declaration(
+        SpeechControlId::SpeechSpeakingRate,
+        deliveries,
+        SpeechControlLifetime::Utterance,
+    )
+}
+
+fn rate_state(
+    delivery: ControlDelivery,
+    available: Option<bool>,
+    range: Option<(f64, f64)>,
+) -> SpeechControlState {
+    SpeechControlState {
+        available,
+        delivery,
+        id: SpeechControlId::SpeechSpeakingRate,
+        range: range.map(|(min, max)| SpeechControlRange {
+            speech_control_range_default: None,
+            max,
+            min,
+            step: None,
+        }),
+        reason: None,
+    }
+}
+
+fn voice_with_states(id: &str, states: Vec<SpeechControlState>) -> ProviderVoice {
+    ProviderVoice {
+        control_states: Some(states),
+        gender: None,
+        id: Some(id.to_string()),
+        locale: "de-DE".to_string(),
+        locales: None,
+        name: None,
+        network_required: None,
+        readiness: None,
+    }
+}
+
+fn rate_support(
+    declarations: &[SpeechControlDeclaration],
+    states: &[SpeechControlState],
+    voice: Option<&ProviderVoice>,
+    delivery: ControlDelivery,
+) -> ControlSupport {
+    control_support(
+        ControlCapability {
+            declarations,
+            states,
+        },
+        voice,
+        &SpeechControlId::SpeechSpeakingRate,
+        &delivery,
+    )
+}
+
+const PLAYBACK: ControlDelivery = ControlDelivery::Playback;
+const ARTIFACT: ControlDelivery = ControlDelivery::Artifact;
+
+#[test]
+fn control_support_reads_the_task_state_without_a_voice() {
+    let declarations = [rate_declaration(&[PLAYBACK])];
+    let states = [rate_state(PLAYBACK, Some(true), Some((0.5, 2.0)))];
+    let support = rate_support(&declarations, &states, None, PLAYBACK);
+    assert_eq!(support, ControlSupport::Supported { min: 0.5, max: 2.0 });
+    assert!(
+        support.admits(0.5) && support.admits(2.0),
+        "range is inclusive"
+    );
+    assert!(!support.admits(2.01) && !support.admits(0.49));
+}
+
+#[test]
+fn control_support_overlays_the_voice_field_by_field() {
+    let declarations = [rate_declaration(&[PLAYBACK])];
+    let states = [rate_state(PLAYBACK, Some(true), Some((0.5, 2.0)))];
+
+    // A voice range alone replaces the task range and inherits availability.
+    let narrower = voice_with_states("narrow", vec![rate_state(PLAYBACK, None, Some((0.8, 1.2)))]);
+    assert_eq!(
+        rate_support(&declarations, &states, Some(&narrower), PLAYBACK),
+        ControlSupport::Supported { min: 0.8, max: 1.2 }
+    );
+
+    // An explicit available: false disables the control for that voice.
+    let disabled = voice_with_states("off", vec![rate_state(PLAYBACK, Some(false), None)]);
+    assert_eq!(
+        rate_support(&declarations, &states, Some(&disabled), PLAYBACK),
+        ControlSupport::Unsupported
+    );
+
+    // A voice without an entry for the pair inherits the task state.
+    let silent = voice_with_states("silent", Vec::new());
+    assert_eq!(
+        rate_support(&declarations, &states, Some(&silent), PLAYBACK),
+        ControlSupport::Supported { min: 0.5, max: 2.0 }
+    );
+
+    // A voice can supply what the task leaves unknown.
+    let task_unknown = [rate_state(PLAYBACK, None, None)];
+    let knows = voice_with_states(
+        "knows",
+        vec![rate_state(PLAYBACK, Some(true), Some((0.5, 1.5)))],
+    );
+    assert_eq!(
+        rate_support(&declarations, &task_unknown, Some(&knows), PLAYBACK),
+        ControlSupport::Supported { min: 0.5, max: 1.5 }
+    );
+}
+
+#[test]
+fn control_support_never_inherits_across_deliveries() {
+    let declarations = [rate_declaration(&[PLAYBACK, ARTIFACT])];
+    let states = [rate_state(PLAYBACK, Some(true), Some((0.5, 2.0)))];
+    let voice = voice_with_states(
+        "v",
+        vec![rate_state(PLAYBACK, Some(true), Some((0.5, 3.0)))],
+    );
+    assert_eq!(
+        rate_support(&declarations, &states, Some(&voice), ARTIFACT),
+        ControlSupport::AvailabilityUnknown
+    );
+}
+
+#[test]
+fn control_support_treats_unknown_as_unsupported_for_application() {
+    let declarations = [rate_declaration(&[PLAYBACK])];
+
+    let unknown = rate_support(&declarations, &[], None, PLAYBACK);
+    assert_eq!(unknown, ControlSupport::AvailabilityUnknown);
+    assert!(!unknown.admits(1.0));
+    assert_eq!(
+        unknown.omission(1.0),
+        Some(ControlOmissionReason::AvailabilityUnknown)
+    );
+
+    let no_range = [rate_state(PLAYBACK, Some(true), None)];
+    let range_unknown = rate_support(&declarations, &no_range, None, PLAYBACK);
+    assert_eq!(range_unknown, ControlSupport::RangeUnknown);
+    assert_eq!(
+        range_unknown.omission(1.0),
+        Some(ControlOmissionReason::RangeUnknown)
+    );
+
+    let supported = ControlSupport::Supported { min: 0.5, max: 2.0 };
+    assert_eq!(supported.omission(1.0), None);
+    assert_eq!(
+        supported.omission(3.0),
+        Some(ControlOmissionReason::OutOfRange)
+    );
+    assert_eq!(
+        ControlSupport::Unsupported.omission(1.0),
+        Some(ControlOmissionReason::Unsupported)
+    );
+}
+
+#[test]
+fn control_support_requires_one_utterance_declaration_for_the_delivery() {
+    let states = [
+        rate_state(PLAYBACK, Some(true), Some((0.5, 2.0))),
+        rate_state(ARTIFACT, Some(true), Some((0.5, 2.0))),
+    ];
+
+    // Not declared at all.
+    assert_eq!(
+        rate_support(&[], &states, None, PLAYBACK),
+        ControlSupport::Unsupported
+    );
+    // Declared, but not for this delivery: its state is ignored.
+    assert_eq!(
+        rate_support(&[rate_declaration(&[PLAYBACK])], &states, None, ARTIFACT),
+        ControlSupport::Unsupported
+    );
+    // A provider-instance setting never satisfies a request.
+    let instance = control_declaration(
+        SpeechControlId::SpeechSpeakingRate,
+        &[PLAYBACK],
+        SpeechControlLifetime::ProviderInstance,
+    );
+    assert_eq!(
+        rate_support(&[instance], &states, None, PLAYBACK),
+        ControlSupport::Unsupported
+    );
+    // Declared twice, even identically.
+    let twice = [rate_declaration(&[PLAYBACK]), rate_declaration(&[PLAYBACK])];
+    assert_eq!(
+        rate_support(&twice, &states, None, PLAYBACK),
+        ControlSupport::Unsupported
+    );
+}
+
+#[test]
+fn control_support_refuses_a_declaration_that_breaks_its_id_invariant() {
+    let declared = |id: SpeechControlId,
+                    value_kind: SpeechControlValueKind,
+                    phase: SpeechControlPhase,
+                    deliveries: &[ControlDelivery]| SpeechControlDeclaration {
+        deliveries: deliveries.to_vec(),
+        id,
+        lifetime: SpeechControlLifetime::Utterance,
+        phase,
+        value_kind,
+    };
+    let support = |declaration: SpeechControlDeclaration, delivery: ControlDelivery| {
+        let id = declaration.id.clone();
+        let states = [SpeechControlState {
+            id: id.clone(),
+            ..rate_state(delivery.clone(), Some(true), Some((0.0, 2.0)))
+        }];
+        control_support(
+            ControlCapability {
+                declarations: &[declaration],
+                states: &states,
+            },
+            None,
+            &id,
+            &delivery,
+        )
+    };
+    let supported = ControlSupport::Supported { min: 0.0, max: 2.0 };
+    use SpeechControlId::*;
+    use SpeechControlPhase::{Playback as PlaybackPhase, Synthesis};
+    use SpeechControlValueKind::{Boolean, Choice, Number};
+
+    // The shapes the schema allows.
+    for (id, phase) in [
+        (SpeechSpeakingRate, Synthesis),
+        (SpeechPitch, Synthesis),
+        (PlaybackVolume, PlaybackPhase),
+    ] {
+        let declaration = declared(id, Number, phase, &[PLAYBACK]);
+        assert!(declaration_keeps_invariant(&declaration));
+        assert_eq!(support(declaration, PLAYBACK), supported);
+    }
+    let rate_both = declared(SpeechSpeakingRate, Number, Synthesis, &[PLAYBACK, ARTIFACT]);
+    assert!(declaration_keeps_invariant(&rate_both));
+    assert_eq!(support(rate_both, ARTIFACT), supported);
+
+    // Representable through serde, refused for every delivery it lists.
+    for (declaration, delivery) in [
+        (
+            declared(SpeechSpeakingRate, Choice, Synthesis, &[PLAYBACK]),
+            PLAYBACK,
+        ),
+        (
+            declared(SpeechPitch, Boolean, Synthesis, &[PLAYBACK]),
+            PLAYBACK,
+        ),
+        (
+            declared(SpeechSpeakingRate, Number, PlaybackPhase, &[PLAYBACK]),
+            PLAYBACK,
+        ),
+        (
+            declared(SpeechPitch, Number, PlaybackPhase, &[PLAYBACK]),
+            PLAYBACK,
+        ),
+        (
+            declared(PlaybackVolume, Number, Synthesis, &[PLAYBACK]),
+            PLAYBACK,
+        ),
+        (
+            declared(PlaybackVolume, Choice, PlaybackPhase, &[PLAYBACK]),
+            PLAYBACK,
+        ),
+        (
+            declared(PlaybackVolume, Number, PlaybackPhase, &[PLAYBACK, ARTIFACT]),
+            PLAYBACK,
+        ),
+        (
+            declared(PlaybackVolume, Number, PlaybackPhase, &[PLAYBACK, ARTIFACT]),
+            ARTIFACT,
+        ),
+        (
+            declared(PlaybackVolume, Number, PlaybackPhase, &[ARTIFACT]),
+            ARTIFACT,
+        ),
+    ] {
+        assert!(
+            !declaration_keeps_invariant(&declaration),
+            "{declaration:?} breaks its invariant"
+        );
+        assert_eq!(support(declaration, delivery), ControlSupport::Unsupported);
+    }
+}
+
+#[test]
+fn control_support_refuses_duplicate_states_at_either_level() {
+    let declarations = [rate_declaration(&[PLAYBACK, ARTIFACT])];
+    let state = || rate_state(PLAYBACK, Some(true), Some((0.5, 2.0)));
+
+    assert_eq!(
+        rate_support(&declarations, &[state(), state()], None, PLAYBACK),
+        ControlSupport::Unsupported
+    );
+    let voice = voice_with_states("v", vec![state(), state()]);
+    assert_eq!(
+        rate_support(&declarations, &[state()], Some(&voice), PLAYBACK),
+        ControlSupport::Unsupported
+    );
+    // A duplicate for one delivery leaves the other delivery alone.
+    let artifact = [
+        state(),
+        state(),
+        rate_state(ARTIFACT, Some(true), Some((0.8, 1.2))),
+    ];
+    assert_eq!(
+        rate_support(&declarations, &artifact, None, ARTIFACT),
+        ControlSupport::Supported { min: 0.8, max: 1.2 }
+    );
+}
+
+fn speech_input(
+    mode: Option<OutputDelivery>,
+    interaction_mode: Option<InteractionMode>,
+    controls: Option<Vec<ControlRequirement>>,
+) -> RoutePlannerInput {
+    RoutePlannerInput {
+        constraints: default_constraints(),
+        interaction_mode,
+        model_profile: None,
+        preferences: default_preferences(),
+        providers: Vec::new(),
+        task: Task {
+            controls,
+            delivery: mode.map(|mode| DeliveryRequirement {
+                media_types: None,
+                mode,
+            }),
+            inputs: Some(vec![TaskInputKind::Text]),
+            kind: "text_to_speech".to_string(),
+            locale: None,
+            voice: None,
+        },
+    }
+}
+
+fn rate_request(value: f64, requirement: RequirementLevel) -> ControlRequirement {
+    ControlRequirement {
+        id: SpeechControlId::SpeechSpeakingRate,
+        requirement,
+        value,
+    }
+}
+
+fn pitch_request(value: f64, requirement: RequirementLevel) -> ControlRequirement {
+    ControlRequirement {
+        id: SpeechControlId::SpeechPitch,
+        requirement,
+        value,
+    }
+}
+
+#[test]
+fn requested_controls_ignores_requests_with_nothing_to_negotiate() {
+    let controls = || Some(vec![rate_request(1.2, RequirementLevel::Required)]);
+    let playback = Some(OutputDelivery::Playback);
+
+    assert!(requested_controls(&speech_input(playback.clone(), None, controls())).is_some());
+    assert!(requested_controls(&speech_input(playback.clone(), None, None)).is_none());
+    assert!(requested_controls(&speech_input(playback.clone(), None, Some(Vec::new()))).is_none());
+    assert!(
+        requested_controls(&speech_input(
+            playback,
+            Some(InteractionMode::Prepare),
+            controls()
+        ))
+        .is_none()
+    );
+    assert!(
+        requested_controls(&speech_input(
+            Some(OutputDelivery::Inline),
+            None,
+            controls()
+        ))
+        .is_none()
+    );
+    assert!(requested_controls(&speech_input(None, None, controls())).is_none());
+}
+
+fn rate_and_pitch_capability() -> (Vec<SpeechControlDeclaration>, Vec<SpeechControlState>) {
+    let pitch = |range| SpeechControlState {
+        available: Some(true),
+        delivery: PLAYBACK,
+        id: SpeechControlId::SpeechPitch,
+        range: Some(SpeechControlRange {
+            speech_control_range_default: None,
+            max: range,
+            min: 0.5,
+            step: None,
+        }),
+        reason: None,
+    };
+    (
+        vec![
+            rate_declaration(&[PLAYBACK]),
+            control_declaration(
+                SpeechControlId::SpeechPitch,
+                &[PLAYBACK],
+                SpeechControlLifetime::Utterance,
+            ),
+        ],
+        vec![
+            rate_state(PLAYBACK, Some(true), Some((0.5, 2.0))),
+            pitch(2.0),
+        ],
+    )
+}
+
+fn pitch_disabled() -> SpeechControlState {
+    SpeechControlState {
+        available: Some(false),
+        delivery: PLAYBACK,
+        id: SpeechControlId::SpeechPitch,
+        range: None,
+        reason: None,
+    }
+}
+
+fn reason_codes(reasons: &[Reason]) -> Vec<Code> {
+    reasons.iter().map(|reason| reason.code.clone()).collect()
+}
+
+#[test]
+fn rejection_reasons_pick_out_of_range_only_when_some_voice_supports_the_control() {
+    let (declarations, states) = rate_and_pitch_capability();
+    let capability = ControlCapability {
+        declarations: &declarations,
+        states: &states,
+    };
+    let input = speech_input(
+        Some(OutputDelivery::Playback),
+        None,
+        Some(vec![
+            rate_request(3.0, RequirementLevel::Required),
+            pitch_request(1.1, RequirementLevel::Required),
+        ]),
+    );
+    let requested = requested_controls(&input).expect("controls requested");
+
+    // One voice supports rate with another range, the other disables it.
+    let narrow = voice_with_states("narrow", Vec::new());
+    let off = voice_with_states("off", vec![rate_state(PLAYBACK, Some(false), None)]);
+    let reasons = requested.rejection_reasons("p", capability, Some(&[&narrow, &off]));
+    assert_eq!(reason_codes(&reasons), vec![Code::SpeechControlOutOfRange]);
+    assert_eq!(
+        reasons[0].message,
+        "Provider 'p': speech.speakingRate 3 is outside every voice's range for playback."
+    );
+
+    // Only the disabled voice is bindable: unsupported.
+    let reasons = requested.rejection_reasons("p", capability, Some(&[&off]));
+    assert_eq!(reason_codes(&reasons), vec![Code::SpeechControlUnsupported]);
+    assert_eq!(
+        reasons[0].message,
+        "Provider 'p': no voice supports required speech.speakingRate for playback."
+    );
+
+    // Without a voice list the task state decides, with its own wording.
+    let reasons = requested.rejection_reasons("p", capability, None);
+    assert_eq!(reason_codes(&reasons), vec![Code::SpeechControlOutOfRange]);
+    assert_eq!(
+        reasons[0].message,
+        "Provider 'p': speech.speakingRate 3 is outside the supported range for playback."
+    );
+}
+
+#[test]
+fn rejection_reasons_report_each_failing_control_in_request_order() {
+    let declarations = vec![];
+    let capability = ControlCapability {
+        declarations: &declarations,
+        states: &[],
+    };
+    let input = speech_input(
+        Some(OutputDelivery::Playback),
+        None,
+        Some(vec![
+            rate_request(1.2, RequirementLevel::Required),
+            pitch_request(1.1, RequirementLevel::Preferred),
+        ]),
+    );
+    let requested = requested_controls(&input).expect("controls requested");
+    let voice = voice_with_states("v", Vec::new());
+
+    // A preferred control never produces a reason.
+    let reasons = requested.rejection_reasons("p", capability, Some(&[&voice]));
+    assert_eq!(reason_codes(&reasons), vec![Code::SpeechControlUnsupported]);
+    let reasons = requested.rejection_reasons("p", capability, None);
+    assert_eq!(
+        reasons[0].message,
+        "Provider 'p': required speech.speakingRate is not supported for playback."
+    );
+    // No bindable voice at all: nothing supports the control.
+    let reasons = requested.rejection_reasons("p", capability, Some(&[]));
+    assert_eq!(reason_codes(&reasons), vec![Code::SpeechControlUnsupported]);
+}
+
+#[test]
+fn rejection_reasons_name_the_combination_when_each_control_is_met_alone() {
+    let (declarations, states) = rate_and_pitch_capability();
+    let capability = ControlCapability {
+        declarations: &declarations,
+        states: &states,
+    };
+    let input = speech_input(
+        Some(OutputDelivery::Playback),
+        None,
+        Some(vec![
+            rate_request(1.2, RequirementLevel::Required),
+            pitch_request(1.1, RequirementLevel::Required),
+        ]),
+    );
+    let requested = requested_controls(&input).expect("controls requested");
+    let rate_only = voice_with_states("rate-only", vec![pitch_disabled()]);
+    let pitch_only = voice_with_states("pitch-only", vec![rate_state(PLAYBACK, Some(false), None)]);
+
+    let reasons = requested.rejection_reasons("p", capability, Some(&[&rate_only, &pitch_only]));
+    assert_eq!(reason_codes(&reasons), vec![Code::SpeechControlUnsupported]);
+    assert_eq!(
+        reasons[0].message,
+        "Provider 'p': no single voice supports every required speech control for playback."
+    );
+
+    // One voice that meets both clears the provider.
+    let both = voice_with_states("both", Vec::new());
+    assert!(
+        requested
+            .rejection_reasons("p", capability, Some(&[&rate_only, &pitch_only, &both]))
+            .is_empty()
+    );
+}
+
+/// A speech provider with one voice and a supported rate, for planner-level
+/// control checks.
+fn rate_speech_provider() -> Provider {
+    let mut provider = local_builder("speech_local", true).build();
+    provider.descriptor.tasks = vec!["text_to_speech".to_string()];
+    provider.descriptor.task_capabilities = Some(vec![ProviderTaskCapability {
+        cancel: CancelSemantics::Hard,
+        controls: Some(vec![rate_declaration(&[PLAYBACK])]),
+        inputs: vec![TaskInputKind::Text],
+        interaction: ProviderTaskInteraction {
+            prepare: Some(true),
+            run: true,
+            stream: false,
+        },
+        kind: "text_to_speech".to_string(),
+        locales: None,
+        outputs: vec![ProviderTaskOutput {
+            delivery: OutputDelivery::Playback,
+            media_types: None,
+        }],
+        privacy: None,
+    }]);
+    provider.capabilities.task_capabilities = Some(vec![ProviderTaskAvailability {
+        available: None,
+        cancellation_available: None,
+        control_states: Some(vec![rate_state(PLAYBACK, Some(true), Some((0.5, 2.0)))]),
+        kind: "text_to_speech".to_string(),
+        locales: None,
+        readiness: None,
+        reason: None,
+        streaming_available: None,
+        streaming_unavailable_reason: None,
+        voices: Some(vec![voice_with_states("v", Vec::new())]),
+    }]);
+    provider
+}
+
+#[test]
+fn planner_binds_a_control_plan_only_when_there_is_something_to_negotiate() {
+    let controls = || Some(vec![rate_request(1.2, RequirementLevel::Required)]);
+    let plan_for = |mode, interaction_mode, controls| {
+        let mut input = speech_input(mode, interaction_mode, controls);
+        input.providers = vec![rate_speech_provider()];
+        plan_route(input)
+    };
+
+    let negotiated = plan_for(Some(OutputDelivery::Playback), None, controls());
+    let candidate = &negotiated.candidates[0];
+    assert_eq!(
+        candidate.controls,
+        Some(vec![ControlApplicationPlan {
+            decision: ControlDecision::Apply,
+            id: SpeechControlId::SpeechSpeakingRate,
+            reason: None,
+            requirement: RequirementLevel::Required,
+            value: 1.2,
+        }])
+    );
+    assert_eq!(
+        candidate
+            .voice
+            .as_ref()
+            .and_then(|voice| voice.id.as_deref()),
+        Some("v")
+    );
+
+    // Without controls nothing is bound, as before controls existed.
+    let plain = plan_for(Some(OutputDelivery::Playback), None, None);
+    assert_eq!(plain.candidates[0].controls, None);
+    assert_eq!(plain.candidates[0].voice, None);
+
+    // Prepare carries no controls; the plan binds none.
+    let prepare = plan_for(
+        Some(OutputDelivery::Playback),
+        Some(InteractionMode::Prepare),
+        controls(),
+    );
+    assert_eq!(
+        prepare.selected_provider_id.as_deref(),
+        Some("speech_local")
+    );
+    assert_eq!(prepare.candidates[0].controls, None);
+}
+
+#[test]
+fn rejection_reasons_never_reject_for_preferred_controls_alone() {
+    let (declarations, states) = rate_and_pitch_capability();
+    let capability = ControlCapability {
+        declarations: &declarations,
+        states: &states,
+    };
+    let input = speech_input(
+        Some(OutputDelivery::Playback),
+        None,
+        Some(vec![
+            rate_request(3.0, RequirementLevel::Preferred),
+            pitch_request(1.1, RequirementLevel::Preferred),
+        ]),
+    );
+    let requested = requested_controls(&input).expect("controls requested");
+    let off = voice_with_states("off", vec![rate_state(PLAYBACK, Some(false), None)]);
+
+    assert!(
+        requested
+            .rejection_reasons("p", capability, Some(&[]))
+            .is_empty()
+    );
+    assert!(
+        requested
+            .rejection_reasons("p", capability, Some(&[&off]))
+            .is_empty()
+    );
+    assert!(
+        requested
+            .rejection_reasons("p", capability, None)
+            .is_empty()
+    );
 }

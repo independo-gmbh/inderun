@@ -212,8 +212,78 @@
         "privacy": {
           "description": "Data-egress posture for this task when it differs from the provider-level privacy, e.g. a provider whose speech synthesis uses a network service. Absent inherits descriptor.privacy.",
           "$ref": "#/properties/privacy"
+        },
+        "controls": {
+          "description": "Speech controls the provider implements for this task (ADR 025), one entry per id. Absent or empty means none. Whether a control works on this host, and its range, is in the dynamic check's controlStates; a declaration alone never satisfies a request.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/speechControlDeclaration"
+          }
         }
       }
+    },
+    "speechControlDeclaration": {
+      "title": "SpeechControlDeclaration",
+      "description": "One speech control a provider implements: what kind of value it takes, which part of the run it affects, how long a value lasts, and the deliveries it applies to. The shared ids fix kind and phase: speech.speakingRate and speech.pitch are 'number' and 'synthesis', playback.volume is 'number' and 'playback'. A task lists each id at most once.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "valueKind", "phase", "lifetime", "deliveries"],
+      "allOf": [
+        {
+          "if": { "properties": { "id": { "const": "playback.volume" } }, "required": ["id"] },
+          "then": { "properties": { "phase": { "const": "playback" }, "valueKind": { "const": "number" } } }
+        },
+        {
+          "if": {
+            "properties": { "id": { "enum": ["speech.speakingRate", "speech.pitch"] } },
+            "required": ["id"]
+          },
+          "then": { "properties": { "phase": { "const": "synthesis" }, "valueKind": { "const": "number" } } }
+        },
+        {
+          "if": { "properties": { "phase": { "const": "playback" } }, "required": ["phase"] },
+          "then": { "properties": { "deliveries": { "type": "array", "items": { "const": "playback" } } } }
+        }
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/speechControlId"
+        },
+        "valueKind": {
+          "title": "SpeechControlValueKind",
+          "description": "The kind of value the control takes. Every shared control is a 'number'; 'choice' and 'boolean' are reserved for later controls.",
+          "enum": ["number", "choice", "boolean"]
+        },
+        "phase": {
+          "title": "SpeechControlPhase",
+          "description": "'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is heard, so it lists only the playback delivery.",
+          "enum": ["synthesis", "playback"]
+        },
+        "lifetime": {
+          "title": "SpeechControlLifetime",
+          "description": "'utterance': set per request. 'provider_instance': fixed when the provider was built, documented here and never satisfying a request.",
+          "enum": ["utterance", "provider_instance"]
+        },
+        "deliveries": {
+          "description": "The output deliveries this control applies to. A synthesis control lists each delivery whose path applies it; a playback-phase control lists only 'playback'.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/controlDelivery"
+          }
+        }
+      }
+    },
+    "controlDelivery": {
+      "title": "ControlDelivery",
+      "description": "The output delivery a speech control or control state applies to: 'playback' or 'artifact'. Text output ('inline') has no speech controls.",
+      "enum": ["playback", "artifact"]
+    },
+    "speechControlId": {
+      "title": "SpeechControlId",
+      "description": "A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal), 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.",
+      "enum": ["speech.speakingRate", "speech.pitch", "playback.volume"]
     },
     "taskOutput": {
       "title": "ProviderTaskOutput",

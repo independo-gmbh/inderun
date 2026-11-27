@@ -126,7 +126,7 @@ class OpenAIProviderTest {
         )
         val result = provider.run(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Say hello.",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
@@ -169,7 +169,7 @@ class OpenAIProviderTest {
 
         provider.run(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 messages = listOf(
                     Message(MessageRole.SYSTEM, "Be concise."),
                     Message(MessageRole.USER, "Say hello."),
@@ -202,7 +202,7 @@ class OpenAIProviderTest {
         try {
             provider.run(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(),
                     constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
@@ -246,7 +246,7 @@ class OpenAIProviderTest {
             val outcome = runCatching {
                 provider.run(
                     request = TaskRequest(
-                        schemaVersion = SchemaVersion.V1_0,
+                        schemaVersion = SchemaVersion.V1_1,
                         prompt = "Hello",
                         task = TaskRequestTask(),
                         constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),
@@ -306,7 +306,7 @@ class OpenAIProviderTest {
         try {
             provider.run(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(),
                     constraints = TaskRequestConstraints(privacy = Privacy.CloudRequired),

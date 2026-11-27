@@ -57,7 +57,14 @@ package enum TaskProfiles {
             return issues
         },
         plannerTask: { _ in
-            RoutePlannerInputTask(delivery: nil, inputs: [.text], kind: TaskKind.textToText.rawValue, locale: nil, voice: nil)
+            RoutePlannerInputTask(
+                controls: nil,
+                delivery: nil,
+                inputs: [.text],
+                kind: TaskKind.textToText.rawValue,
+                locale: nil,
+                voice: nil
+            )
         },
         delivery: { _ in .inline }
     )
@@ -91,6 +98,7 @@ package enum TaskProfiles {
             // Validation runs before projection and requires both; a request routed
             // without it projects only what it carries rather than trapping.
             RoutePlannerInputTask(
+                controls: controlRequirements(request),
                 delivery: request.delivery.map { DeliveryRequirement(mediaTypes: $0.mediaTypes, mode: $0.mode) },
                 inputs: [.text],
                 kind: TaskKind.textToSpeech.rawValue,
@@ -125,7 +133,20 @@ package enum TaskProfiles {
            voice.gender == nil, voice.id == nil {
             issues.append("speech.voice must name an id or a gender when speech.voice.requirement is 'required'.")
         }
+        if let rate = speech.controls?.speakingRate, !(rate.value.isFinite && rate.value > 0) {
+            issues.append("speech.controls.speakingRate.value must be a finite number greater than 0.")
+        }
+        if let pitch = speech.controls?.pitch, !(pitch.value.isFinite && pitch.value > 0) {
+            issues.append("speech.controls.pitch.value must be a finite number greater than 0.")
+        }
         return issues
+    }
+
+    /// The request's speech controls in the planner's fixed order, or `nil` when it names
+    /// none, so a request without controls projects as before.
+    private static func controlRequirements(_ request: TaskRequest) -> [ControlRequirement]? {
+        let controls = requestedControls(request)
+        return controls.isEmpty ? nil : controls
     }
 
     private static func deliveryIssues(_ delivery: OutputDeliveryRequest) -> [String] {
@@ -139,6 +160,14 @@ package enum TaskProfiles {
             }
             if destinationRef.isEmpty {
                 issues.append("delivery.destinationRef must be non-empty.")
+            }
+        }
+        if let playback = delivery.playback {
+            if delivery.mode != .playback {
+                issues.append("delivery.playback is only valid with 'playback' delivery.")
+            }
+            if let volume = playback.volume, !(volume.value.isFinite && volume.value >= 0 && volume.value <= 1) {
+                issues.append("delivery.playback.volume.value must be a finite number from 0 to 1.")
             }
         }
         if let mediaTypes = delivery.mediaTypes {
@@ -177,6 +206,199 @@ package func recheckBoundVoice(
         providerId: providerId,
         details: ["code": JSONAny("privacy_recheck_failed")]
     )
+}
+
+/// The speech controls the request names, in the planner's fixed order (rate, pitch, volume),
+/// with the requirement defaulted to `preferred`. Empty for a request that names none. Every
+/// control check below compares against this list, so all of them read the request the way the
+/// planner does.
+package func requestedControls(_ request: TaskRequest) -> [ControlRequirement] {
+    var controls: [ControlRequirement] = []
+    if let rate = request.speech?.controls?.speakingRate {
+        controls.append(
+            ControlRequirement(id: .speechSpeakingRate, requirement: rate.requirement ?? .preferred, value: rate.value)
+        )
+    }
+    if let pitch = request.speech?.controls?.pitch {
+        controls.append(
+            ControlRequirement(id: .speechPitch, requirement: pitch.requirement ?? .preferred, value: pitch.value)
+        )
+    }
+    if let volume = request.delivery?.playback?.volume {
+        controls.append(
+            ControlRequirement(id: .playbackVolume, requirement: volume.requirement ?? .preferred, value: volume.value)
+        )
+    }
+    return controls
+}
+
+/// Checks, after planning and before the first attempt, the control application plan of every
+/// candidate the engine will attempt, fallbacks included, against the request (ADR 025 section 3).
+/// The planner boundary carries no version, so a route core built without plans would return
+/// candidates with none, and a required control would silently vanish: a missing plan is not an
+/// empty request.
+///
+/// It takes the route selection's chain, not the plan's candidates: a selected provider the plan
+/// lists no candidate for is still attempted, with no plan, and must be checked like any other.
+///
+/// - Returns: `Internal` with `details.code: control_plan_mismatch` for the first candidate whose
+///   plan does not match, or `nil` when every plan does. No attempt may follow a mismatch.
+package func checkControlPlans(request: TaskRequest, candidates: [RouteCandidate]) -> IndeRunException? {
+    let requested = requestedControls(request)
+    guard let mismatched = candidates.first(where: { !controlPlanMatches(requested, plan: $0.controls) }) else {
+        return nil
+    }
+    let providerId = mismatched.provider.describe().id
+    return createInternal(
+        message: "The route plan for provider '\(providerId)' does not match the request's speech controls.",
+        details: ["code": JSONAny("control_plan_mismatch")]
+    )
+}
+
+/// Whether `plan` is consistent with `requested`: one entry per requested control, in request
+/// order, with the request's id, value and requirement, and `apply` for every required one. An
+/// `omit` entry carries its reason and an `apply` entry none.
+/// Absent and empty plans are the same, so they match only a request without controls, and any
+/// entry on a request without controls is a mismatch.
+package func controlPlanMatches(_ requested: [ControlRequirement], plan: [ControlApplicationPlan]?) -> Bool {
+    let entries = plan ?? []
+    guard entries.count == requested.count else { return false }
+    return zip(requested, entries).allSatisfy { control, entry in
+        entry.id == control.id
+            && entry.value == control.value
+            && entry.requirement == control.requirement
+            // An omission carries its reason (the outcome record's reason); an application none.
+            && (entry.reason == nil) == (entry.decision == .apply)
+            && (control.requirement != .requirementLevelRequired || entry.decision == .apply)
+    }
+}
+
+/// How the run a provider's control records belong to ended.
+package enum ControlOutcomeEnding: Sendable {
+    case completed
+    case cancelled
+}
+
+/// The method an applied control must report: volume attenuates playback, rate and pitch are
+/// synthesized (ADR 025 section 4).
+package func controlMethodFor(_ id: SpeechControlId) -> SpeechControlMethod {
+    id == .playbackVolume ? .playbackAttenuation : .platformSynthesis
+}
+
+/// Validates the control records a provider reported and completes them (ADR 025 section 4).
+/// The result has one record per requested control, in request order: the provider's record where
+/// it reported one, otherwise `not_applied` with `not_reported`. Application is never inferred
+/// from the request.
+///
+/// Refused, for any ending: a duplicate record, a record for a control the request did not name,
+/// a `requested` value that is not the request's, an `applied` record whose method does not match
+/// the control's phase (a missing method included), a `not_applied` record without a reason.
+/// Refused only for a `completed` ending: a required control without an `applied` record. A
+/// `cancelled` ending keeps what was reported, because a stop is an ending, not a failure.
+/// (An unknown status or reason cannot occur: the contract enums are closed and decode refuses
+/// them.)
+///
+/// - Throws: `Internal` with `details.code: output_mismatch`.
+package func completeControlOutcomes(
+    request: TaskRequest,
+    reported: [SpeechControlOutcome]?,
+    ending: ControlOutcomeEnding,
+    providerId: String
+) throws -> [SpeechControlOutcome] {
+    func mismatch(_ problem: String) -> IndeRunException {
+        createInternal(
+            message: "Provider '\(providerId)' reported speech control records \(problem).",
+            providerId: providerId,
+            details: ["code": JSONAny("output_mismatch")]
+        )
+    }
+    let requested = requestedControls(request)
+    var records: [SpeechControlId: SpeechControlOutcome] = [:]
+    for record in reported ?? [] {
+        guard let control = requested.first(where: { $0.id == record.id }) else {
+            throw mismatch("for '\(record.id.rawValue)', which the request did not name")
+        }
+        if records[record.id] != nil { throw mismatch("with '\(record.id.rawValue)' twice") }
+        if record.requested != control.value {
+            throw mismatch("with '\(record.id.rawValue)' requested at \(record.requested), not \(control.value)")
+        }
+        switch record.status {
+        case .applied:
+            if record.method != controlMethodFor(control.id) {
+                throw mismatch("with '\(record.id.rawValue)' applied by '\(record.method?.rawValue ?? "no method")'")
+            }
+        case .notApplied:
+            if record.reason == nil {
+                throw mismatch("with '\(record.id.rawValue)' not applied for no known reason")
+            }
+        }
+        records[record.id] = record
+    }
+    if ending == .completed,
+       let unmet = requested.first(where: {
+           $0.requirement == .requirementLevelRequired && records[$0.id]?.status != .applied
+       }) {
+        throw mismatch("without required '\(unmet.id.rawValue)' applied")
+    }
+    return requested.map { control in
+        records[control.id] ?? SpeechControlOutcome(
+            effective: nil, id: control.id, method: nil, reason: .notReported, requested: control.value,
+            status: .notApplied
+        )
+    }
+}
+
+/// Completes the control records of a completed run's output (see ``completeControlOutcomes``).
+/// A request without controls leaves the output as it is, and refuses one that carries records.
+/// Records live only in the output's `speech` section, so an output without one has none. For a
+/// request whose controls are all preferred it passes unchanged, with no section and no records,
+/// because the engine never invents the locale a section states; with a required control it is
+/// refused, since nothing says it was applied.
+///
+/// - Throws: `Internal` with `details.code: output_mismatch`.
+package func completeOutputControls(request: TaskRequest, output: TaskOutput, providerId: String) throws -> TaskOutput {
+    let reported = output.speech?.controls
+    let requested = requestedControls(request)
+    if requested.isEmpty {
+        _ = try completeControlOutcomes(request: request, reported: reported, ending: .completed, providerId: providerId)
+        return output
+    }
+    guard var speech = output.speech else {
+        if requested.allSatisfy({ $0.requirement != .requirementLevelRequired }) { return output }
+        throw createInternal(
+            message: "Provider '\(providerId)' reported no speech outcome for a request with a required speech control.",
+            providerId: providerId,
+            details: ["code": JSONAny("output_mismatch")]
+        )
+    }
+    speech.controls = try completeControlOutcomes(
+        request: request, reported: reported, ending: .completed, providerId: providerId
+    )
+    var completed = output
+    completed.speech = speech
+    return completed
+}
+
+/// The speech section of a cancelled terminal outcome, from what the attempt reported through
+/// `RunContext.reportSpeech` before the stop: the reported records are kept and every other
+/// requested control becomes `not_applied` / `not_reported`. A report that breaks the record
+/// rules cannot fail a cancelled run, so none of its records is trusted: every requested control
+/// is then `not_reported`. Without a report there is no section, since nothing says which locale
+/// was spoken.
+package func cancelledSpeechOutcome(
+    request: TaskRequest,
+    reported: SpeechOutput?,
+    providerId: String
+) -> SpeechOutput? {
+    guard var speech = reported else { return nil }
+    let kept = try? completeControlOutcomes(
+        request: request, reported: speech.controls, ending: .cancelled, providerId: providerId
+    )
+    let controls = kept
+        ?? (try? completeControlOutcomes(request: request, reported: nil, ending: .cancelled, providerId: providerId))
+        ?? []
+    speech.controls = controls.isEmpty ? nil : controls
+    return speech
 }
 
 /// Checks a provider's output against the delivery the request asked for: inline text for

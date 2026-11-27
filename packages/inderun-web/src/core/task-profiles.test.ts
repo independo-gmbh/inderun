@@ -59,7 +59,7 @@ const supports: ProviderDescriptor["supports"] = {
 };
 
 const speechRequest: TaskRequest = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   task: { kind: "text_to_speech" },
   speech: { text: "Hallo", locale: "de-AT", voice: { gender: "female" } },
   delivery: { mode: "playback" },
@@ -98,7 +98,7 @@ function speechProvider(
     run: async (request, context): Promise<TaskResult> => {
       contexts.push(context);
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: request.requestId ?? context.runId,
         output: { type: "playback", playback: {} },
         finishReason: "stop",

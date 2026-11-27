@@ -127,7 +127,7 @@ class PrepareTest {
 
     private val text = TaskRequest(
         prompt = "Hi",
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(kind = TaskKind.TEXT_TO_TEXT),
     )
 
@@ -307,7 +307,7 @@ class PrepareTest {
             runCatching {
                 inderun.run(
                     TaskRequest(
-                        schemaVersion = SchemaVersion.V1_0,
+                        schemaVersion = SchemaVersion.V1_1,
                         speech = SpeechInput(locale = "de-DE", text = "Hallo"),
                         delivery = OutputDeliveryRequest(mode = OutputDelivery.Playback),
                         task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),

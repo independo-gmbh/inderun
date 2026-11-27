@@ -31,7 +31,7 @@ export class EventGate {
     }
     return {
       runId: this.runId,
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       sequence: this.sequence++,
       timestamp: event.timestamp,
       type: event.type,
@@ -53,7 +53,7 @@ export class EventGate {
     this.terminalOutcome = outcome;
     return {
       runId: this.runId,
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       sequence: this.sequence++,
       timestamp,
       type: "terminal",

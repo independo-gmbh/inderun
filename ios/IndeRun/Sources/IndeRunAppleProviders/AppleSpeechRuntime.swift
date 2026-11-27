@@ -31,6 +31,21 @@ struct SpokenAudio: Sendable, Equatable {
     var firstAudioMs: Double?
 }
 
+/// The control values the plan applies to one utterance, in the shared controls' units (ADR 025).
+/// `nil` leaves the platform's own behaviour. Volume is playback only: a render ignores it.
+struct AppleSpeechControls: Sendable, Equatable {
+    /// Relative speaking rate; 1 is the voice's normal rate.
+    var rate: Double?
+    /// Relative baseline pitch; 1 is the voice's normal pitch.
+    var pitch: Double?
+    /// Attenuation of this utterance only, 0 to 1; never the device volume.
+    var volume: Double?
+
+    static let none = AppleSpeechControls()
+
+    var isEmpty: Bool { rate == nil && pitch == nil && volume == nil }
+}
+
 /// Internal seam around `AVSpeechSynthesizer`.
 ///
 /// The production implementation drives the real synthesizer; tests inject a scripted runtime so
@@ -52,13 +67,20 @@ protocol AppleSpeechRuntime: Sendable {
     /// utterance starts sooner. Cancelling the calling task stops it.
     func warm(voice: AppleSpeechVoice) async throws
 
-    /// Speaks `text` and returns once it has finished, with its timings when known.
-    /// Cancelling the calling task stops the audio immediately and throws `CancellationError`.
-    func speak(text: String, voice: AppleSpeechVoice) async throws -> SpokenAudio
-
-    /// Renders `text` silently. Cancelling the calling task stops rendering and throws
+    /// Speaks `text` with the applied `controls` and returns once it has finished, with its
+    /// timings when known. Cancelling the calling task stops the audio immediately and throws
     /// `CancellationError`.
-    func render(text: String, voice: AppleSpeechVoice, maxBytes: Int) async throws -> RenderedSpeech
+    func speak(text: String, voice: AppleSpeechVoice, controls: AppleSpeechControls) async throws -> SpokenAudio
+
+    /// Renders `text` silently with the applied rate and pitch of `controls`; its volume is never
+    /// used, because nothing is played. Cancelling the calling task stops rendering and throws
+    /// `CancellationError`.
+    func render(
+        text: String,
+        voice: AppleSpeechVoice,
+        controls: AppleSpeechControls,
+        maxBytes: Int
+    ) async throws -> RenderedSpeech
 }
 
 /// The one synthesizer playback uses, created at the first utterance. A new synthesizer loads its
@@ -214,8 +236,11 @@ struct SystemAppleSpeechRuntime: AppleSpeechRuntime {
         return voice.voiceTraits.contains(.isNoveltyVoice)
     }
 
-    func speak(text: String, voice: AppleSpeechVoice) async throws -> SpokenAudio {
-        let session = PlaybackSession(utterance: utterance(text: text, voice: voice), synthesizer: playback.shared())
+    func speak(text: String, voice: AppleSpeechVoice, controls: AppleSpeechControls) async throws -> SpokenAudio {
+        let session = PlaybackSession(
+            utterance: utterance(text: text, voice: voice, controls: controls, playsAudio: true),
+            synthesizer: playback.shared()
+        )
         playback.keep(session)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { session.start($0) }
@@ -224,9 +249,14 @@ struct SystemAppleSpeechRuntime: AppleSpeechRuntime {
         }
     }
 
-    func render(text: String, voice: AppleSpeechVoice, maxBytes: Int) async throws -> RenderedSpeech {
+    func render(
+        text: String,
+        voice: AppleSpeechVoice,
+        controls: AppleSpeechControls,
+        maxBytes: Int
+    ) async throws -> RenderedSpeech {
         let session = RenderSession(
-            utterance: utterance(text: text, voice: voice),
+            utterance: utterance(text: text, voice: voice, controls: controls, playsAudio: false),
             maxBytes: maxBytes,
             synthesizer: AVSpeechSynthesizer()
         )
@@ -237,9 +267,26 @@ struct SystemAppleSpeechRuntime: AppleSpeechRuntime {
         }
     }
 
-    private func utterance(text: String, voice: AppleSpeechVoice) -> AVSpeechUtterance {
+    /// Values are assigned as the plan gave them, never clamped: the declared ranges keep them
+    /// inside what the platform accepts (`AVSpeechUtteranceMinimumSpeechRate...MaximumSpeechRate`
+    /// for the rate, 0.5 to 2 for the pitch multiplier, 0 to 1 for the volume). The volume is set
+    /// only on audible playback.
+    private func utterance(
+        text: String,
+        voice: AppleSpeechVoice,
+        controls: AppleSpeechControls = .none,
+        playsAudio: Bool = false
+    ) -> AVSpeechUtterance {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(identifier: voice.identifier)
+        if !controls.isEmpty {
+            // Pins the documented default (false), so the requested values are not replaced by
+            // the user's assistive-technology speech settings (VoiceOver rate and the like).
+            utterance.prefersAssistiveTechnologySettings = false
+        }
+        if let rate = controls.rate { utterance.rate = Float(Double(AVSpeechUtteranceDefaultSpeechRate) * rate) }
+        if let pitch = controls.pitch { utterance.pitchMultiplier = Float(pitch) }
+        if playsAudio, let volume = controls.volume { utterance.volume = Float(volume) }
         return utterance
     }
 }

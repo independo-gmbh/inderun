@@ -57,7 +57,7 @@ export type ExecutionProvenance = {
     /**
      * Contract schema version used to interpret this provenance record.
      */
-    schemaVersion: "1.0";
+    schemaVersion: "1.1";
     [property: string]: unknown;
 }
 
@@ -106,4 +106,4 @@ export type ExecutionProvenanceRouteRejection = {
     [property: string]: unknown;
 }
 
-export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available" | "prepare_not_supported" | "not_ready";
+export type Code = "task_not_supported" | "run_not_supported" | "streaming_not_supported" | "streaming_unavailable" | "privacy_constraint" | "cloud_constraint" | "offline" | "capability_unavailable" | "not_in_model_profile" | "input_not_supported" | "output_delivery_not_supported" | "output_format_not_supported" | "locale_not_supported" | "voice_not_available" | "prepare_not_supported" | "not_ready" | "speech_control_unsupported" | "speech_control_out_of_range";

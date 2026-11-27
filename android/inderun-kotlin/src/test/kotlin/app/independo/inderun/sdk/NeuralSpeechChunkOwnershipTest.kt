@@ -66,7 +66,7 @@ class NeuralSpeechChunkOwnershipTest {
         val provider = NeuralSpeechProvider(pkg, ScratchBufferRuntime())
         val audio = FixtureAudioOutputService()
         val request = TaskRequest(
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
             speech = SpeechInput(locale = "de-AT", text = "Hallo Welt."),
             delivery = OutputDeliveryRequest(mode = OutputDelivery.Playback),

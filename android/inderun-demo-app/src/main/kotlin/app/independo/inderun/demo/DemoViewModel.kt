@@ -3,12 +3,14 @@ package app.independo.inderun.demo
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import app.independo.inderun.contracts.ControlDelivery
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.Payload
 import app.independo.inderun.contracts.PrepareRequest
 import app.independo.inderun.contracts.PrepareVoice
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
+import app.independo.inderun.contracts.SpeechControlId
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.core.IndeRunException
@@ -209,12 +211,30 @@ internal class DemoViewModel(
     }
 
     fun updateSpeechLocale(locale: String) {
-        _uiState.update { it.copy(speechLocale = locale, speechVoiceId = null, speechOutcome = null) }
+        _uiState.update { it.copy(speechLocale = locale, speechVoiceId = null, speechOutcome = null, speechControls = it.speechControls.forNewVoice()) }
         refreshSpeechVoices()
     }
 
+    /** Turns one control on at [value], or off with null. Held in view-model state, not stored. */
+    fun updateSpeechControl(id: SpeechControlId, value: Double?) {
+        _uiState.update {
+            val choices = it.speechControls
+            it.copy(
+                speechControls = when (id) {
+                    SpeechControlId.SpeechSpeakingRate -> choices.copy(rate = value)
+                    SpeechControlId.SpeechPitch -> choices.copy(pitch = value)
+                    SpeechControlId.PlaybackVolume -> choices.copy(volume = value)
+                },
+            )
+        }
+    }
+
+    fun updateRequireRate(required: Boolean) {
+        _uiState.update { it.copy(speechControls = it.speechControls.copy(requireRate = required)) }
+    }
+
     fun updateSpeechVoice(id: String?) {
-        _uiState.update { it.copy(speechVoiceId = id, speechOutcome = null) }
+        _uiState.update { it.copy(speechVoiceId = id, speechOutcome = null, speechControls = it.speechControls.forNewVoice()) }
         prepareSelectedVoice()
     }
 
@@ -272,6 +292,8 @@ internal class DemoViewModel(
                     state.speechText,
                     locale = state.speechLocale,
                     voice = state.selectedSpeechVoice?.asSpeechVoice(),
+                    controls = state.speechControls.synthesisControls(state.selectedSpeechVoice, ControlDelivery.Playback),
+                    playback = state.speechControls.playbackControls(state.selectedSpeechVoice),
                     execution = SpeechExecutionOptions(privacy = Privacy.LocalRequired),
                 )
                 val playback = runtime.speak(options, state.toSettings(), viewModelScope)
@@ -292,7 +314,7 @@ internal class DemoViewModel(
                         ending.speech?.voice?.name ?: "unknown voice",
                         "${provenance?.providerId}",
                         "${provenance?.locality?.rawValue}",
-                    ) + timings
+                    ) + listOfNotNull(ending.speech?.controls.describeControls()) + timings
                     ).joinToString(" · ")
             } catch (error: IndeRunException) {
                 "failed: ${error.errorClass.rawValue}: ${error.message}"
@@ -315,6 +337,8 @@ internal class DemoViewModel(
                     state.speechText,
                     locale = state.speechLocale,
                     voice = state.selectedSpeechVoice?.asSpeechVoice(),
+                    // Rate and pitch only: an artifact is not played, so it has no volume.
+                    controls = state.speechControls.synthesisControls(state.selectedSpeechVoice, ControlDelivery.Artifact),
                     // The same posture as speak: a retrievable artifact must not leave the device either.
                     execution = SpeechExecutionOptions(privacy = Privacy.LocalRequired),
                 )

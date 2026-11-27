@@ -7,10 +7,14 @@ import app.independo.inderun.contracts.Message
 import app.independo.inderun.contracts.MessageRole
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.OutputDeliveryRequest
+import app.independo.inderun.contracts.PlaybackControls
 import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.RequestedNumber
+import app.independo.inderun.contracts.RequestedUnitNumber
 import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.SharedSynthesisControls
 import app.independo.inderun.contracts.SpeechInput
 import app.independo.inderun.contracts.SpeechVoice
 import app.independo.inderun.contracts.TaskKind
@@ -38,6 +42,34 @@ import java.io.File
  */
 @RunWith(RobolectricTestRunner::class)
 class TaskContractFixtureTest {
+    /**
+     * ADR 025: what a hand-written parser would lose is caught on the raw JSON first. Every
+     * `invalidPayloads` entry is refused there, and every current request passes it.
+     */
+    @Test
+    fun `raw validation refuses invalid payloads and passes current requests`() {
+        var refused = 0
+        val files = fixturesDir().listFiles { file -> file.name.endsWith(".json") }.orEmpty().sortedBy { it.name }
+        for (file in files) {
+            val fixture = JSONObject(file.readText(Charsets.UTF_8))
+            val payloads = fixture.optJSONArray("invalidPayloads") ?: JSONArray()
+            for (index in 0 until payloads.length()) {
+                val entry = payloads.getJSONObject(index)
+                assertTrue(entry.getString("id"), rawTaskRequestIssues(entry.getJSONObject("request")).isNotEmpty())
+                refused++
+            }
+            if (fixture.getString("status") != "current") continue
+            val cases = fixture.getJSONArray("cases")
+            for (index in 0 until cases.length()) {
+                val case = cases.getJSONObject(index)
+                assertEquals(case.getString("id"), emptyList<String>(), rawTaskRequestIssues(case.getJSONObject("request")))
+            }
+        }
+        assertTrue("No invalidPayloads were found", refused > 0)
+        val booleanValue = JSONObject("""{"schemaVersion":"1.1","speech":{"controls":{"pitch":{"value":true}}}}""")
+        assertTrue("a boolean is not a number", rawTaskRequestIssues(booleanValue).isNotEmpty())
+    }
+
     @Test
     fun `current fixtures project onto their planner task`() {
         val files = fixturesDir().listFiles { file -> file.name.endsWith(".json") }.orEmpty().sortedBy { it.name }
@@ -131,7 +163,7 @@ class TaskContractFixtureTest {
     @Test
     fun `text_to_text validation forbids the speech payload`() {
         val profile = taskProfileFor(TaskKind.TEXT_TO_TEXT)!!
-        val request = TaskRequest(schemaVersion = SchemaVersion.V1_0, prompt = "Hi", task = TaskRequestTask())
+        val request = TaskRequest(schemaVersion = SchemaVersion.V1_1, prompt = "Hi", task = TaskRequestTask())
 
         assertEquals(emptyList<String>(), profile.validate(request))
         assertEquals(
@@ -143,7 +175,7 @@ class TaskContractFixtureTest {
     }
 
     private fun speechRequest(privacy: Privacy? = null) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(TaskKind.TEXT_TO_SPEECH),
         speech = SpeechInput(text = "Hallo", locale = "de-AT"),
         delivery = OutputDeliveryRequest(mode = OutputDelivery.Playback),
@@ -180,6 +212,12 @@ class TaskContractFixtureTest {
                         requirement = voice.optStringOrNull("requirement")?.let { RequirementLevel.fromRawValue(it)!! },
                     )
                 },
+                controls = speech.optJSONObject("controls")?.let { controls ->
+                    SharedSynthesisControls(
+                        speakingRate = controls.optJSONObject("speakingRate")?.let { parseRequestedNumber(it) },
+                        pitch = controls.optJSONObject("pitch")?.let { parseRequestedNumber(it) },
+                    )
+                },
             )
         },
         delivery = json.optJSONObject("delivery")?.let { delivery ->
@@ -187,6 +225,16 @@ class TaskContractFixtureTest {
                 mode = OutputDelivery.fromRawValue(delivery.getString("mode"))!!,
                 mediaTypes = delivery.optJSONArray("mediaTypes")?.let { types -> List(types.length()) { types.getString(it) } },
                 destinationRef = delivery.optStringOrNull("destinationRef"),
+                playback = delivery.optJSONObject("playback")?.let { playback ->
+                    PlaybackControls(
+                        volume = playback.optJSONObject("volume")?.let { volume ->
+                            RequestedUnitNumber(
+                                value = volume.getDouble("value"),
+                                requirement = volume.optStringOrNull("requirement")?.let { RequirementLevel.fromRawValue(it)!! },
+                            )
+                        },
+                    )
+                },
             )
         },
         constraints = json.optJSONObject("constraints")?.let { constraints ->
@@ -195,6 +243,11 @@ class TaskContractFixtureTest {
                 cloud = constraints.optStringOrNull("cloud")?.let { Cloud.fromRawValue(it)!! },
             )
         },
+    )
+
+    private fun parseRequestedNumber(json: JSONObject): RequestedNumber = RequestedNumber(
+        value = json.getDouble("value"),
+        requirement = json.optStringOrNull("requirement")?.let { RequirementLevel.fromRawValue(it)!! },
     )
 
     private fun JSONObject.optStringOrNull(name: String): String? = if (has(name)) getString(name) else null

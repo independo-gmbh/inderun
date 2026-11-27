@@ -64,7 +64,7 @@ class SharedCoreRoutePlannerTest {
         val json = JSONObject(
             buildSharedPlannerInput(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                 ),
@@ -129,7 +129,7 @@ class SharedCoreRoutePlannerTest {
         val plan = SharedCoreRoutePlanner.planRoute(
             buildSharedPlannerInput(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                     constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -180,7 +180,7 @@ class SharedCoreRoutePlannerTest {
             finishReason = FinishReason.STOP,
             output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = context.runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             telemetry = TaskResultTelemetry(providerUsed = descriptor.id, totalMs = 0.0),
         )
     }

@@ -325,7 +325,7 @@ export class NeuralSpeechWebProvider implements PreparableProviderAdapter {
       });
     }
     return {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: context.runId,
       output,
       finishReason: "stop",

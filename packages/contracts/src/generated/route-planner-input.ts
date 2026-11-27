@@ -182,6 +182,12 @@ export type ProviderTaskAvailability = {
      */
     cancellationAvailable?: boolean;
     /**
+     * The live state of each declared speech control for this task (ADR 025), at most one entry
+     * per id and delivery. A voice's own controlStates override these for that voice. A control
+     * and delivery with no entry are in the unknown state.
+     */
+    controlStates?: SpeechControlState[];
+    /**
      * The task kind this entry describes.
      */
     kind: string;
@@ -217,6 +223,71 @@ export type ProviderTaskAvailability = {
 }
 
 /**
+ * Whether one speech control works right now on one output delivery, and with which values
+ * (ADR 025). Entries are keyed by id and delivery: a list holds at most one entry per pair,
+ * and a provider whose playback and artifact paths differ states each. Absent available
+ * means unknown, and unknown is never support: a control satisfies a request only with
+ * available true and, for a number, a known range that contains the value. On a voice,
+ * every field present overrides the task's entry with the same id and delivery for that
+ * voice. playback.volume only ever has a 'playback' entry.
+ */
+export type SpeechControlState = {
+    /**
+     * Whether the control works. Absent means unknown. Never null.
+     */
+    available?: boolean;
+    delivery:   ControlDelivery;
+    id:         SpeechControlId;
+    /**
+     * The values a number control accepts, in the shared control's units. On a voice it
+     * replaces the task's range.
+     */
+    range?: SpeechControlRange;
+    /**
+     * Why the control does not work, when available is false.
+     */
+    reason?: string;
+    [property: string]: unknown;
+}
+
+/**
+ * The output delivery a speech control or control state applies to: 'playback' or
+ * 'artifact'. Text output ('inline') has no speech controls.
+ */
+export type ControlDelivery = "playback" | "artifact";
+
+/**
+ * A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal),
+ * 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of
+ * one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.
+ */
+export type SpeechControlId = "speech.speakingRate" | "speech.pitch" | "playback.volume";
+
+/**
+ * The values a number control accepts, in the shared control's units. On a voice it
+ * replaces the task's range.
+ */
+export type SpeechControlRange = {
+    /**
+     * The value the provider uses when the request names none.
+     */
+    default?: number;
+    /**
+     * Largest accepted value, inclusive.
+     */
+    max: number;
+    /**
+     * Smallest accepted value, inclusive.
+     */
+    min: number;
+    /**
+     * An increment for a settings slider. A hint, not a quantization rule.
+     */
+    step?: number;
+    [property: string]: unknown;
+}
+
+/**
  * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
  * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
  * even when the provider-level available is false.
@@ -234,7 +305,14 @@ export type ProviderReadiness = "ready" | "cold" | "not_prepared" | "preparing";
  * that lets someone choose it.
  */
 export type ProviderVoice = {
-    gender?: VoiceGender;
+    /**
+     * Sparse overrides of the task's controlStates for this voice (ADR 025), matched by id and
+     * delivery. A pair with no entry inherits the task's state for that pair; available false
+     * disables the control for this voice on that delivery; a range replaces the task's range
+     * for that delivery.
+     */
+    controlStates?: SpeechControlState[];
+    gender?:        VoiceGender;
     /**
      * Identifies this voice within its provider, for use as speech.voice.id with
      * speech.voice.providerId. Opaque: stable on this device while the voice stays installed,
@@ -452,6 +530,12 @@ export type ProviderTaskCapability = {
      */
     cancel: CancelSemantics;
     /**
+     * Speech controls the provider implements for this task (ADR 025), one entry per id. Absent
+     * or empty means none. Whether a control works on this host, and its range, is in the
+     * dynamic check's controlStates; a declaration alone never satisfies a request.
+     */
+    controls?: SpeechControlDeclaration[];
+    /**
      * Input media kinds the provider accepts for this task.
      */
     inputs: [TaskInputKind, ...TaskInputKind[]];
@@ -481,6 +565,55 @@ export type ProviderTaskCapability = {
     privacy?: ProviderPrivacy;
     [property: string]: unknown;
 }
+
+/**
+ * One speech control a provider implements: what kind of value it takes, which part of the
+ * run it affects, how long a value lasts, and the deliveries it applies to. The shared ids
+ * fix kind and phase: speech.speakingRate and speech.pitch are 'number' and 'synthesis',
+ * playback.volume is 'number' and 'playback'. A task lists each id at most once.
+ */
+export type SpeechControlDeclaration = {
+    /**
+     * The output deliveries this control applies to. A synthesis control lists each delivery
+     * whose path applies it; a playback-phase control lists only 'playback'.
+     */
+    deliveries: [ControlDelivery, ...ControlDelivery[]];
+    id:         SpeechControlId;
+    /**
+     * 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+     * documented here and never satisfying a request.
+     */
+    lifetime: SpeechControlLifetime;
+    /**
+     * 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+     * heard, so it lists only the playback delivery.
+     */
+    phase: SpeechControlPhase;
+    /**
+     * The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+     * 'boolean' are reserved for later controls.
+     */
+    valueKind: SpeechControlValueKind;
+    [property: string]: unknown;
+}
+
+/**
+ * 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+ * documented here and never satisfying a request.
+ */
+export type SpeechControlLifetime = "utterance" | "provider_instance";
+
+/**
+ * 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+ * heard, so it lists only the playback delivery.
+ */
+export type SpeechControlPhase = "synthesis" | "playback";
+
+/**
+ * The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+ * 'boolean' are reserved for later controls.
+ */
+export type SpeechControlValueKind = "number" | "choice" | "boolean";
 
 /**
  * A kind of input medium a task consumes.
@@ -545,6 +678,13 @@ export type ProviderType = "local" | "edge" | "cloud";
  */
 export type Task = {
     /**
+     * The speech controls the request names (ADR 025), in the order speech.speakingRate,
+     * speech.pitch, playback.volume. A 'required' control rejects a provider that cannot bind a
+     * voice supporting it for the requested delivery; a 'preferred' one only ranks. Absent or
+     * empty means none.
+     */
+    controls?: ControlRequirement[];
+    /**
      * The output delivery the request requires. Absent for text, whose delivery is implicitly
      * inline.
      */
@@ -574,6 +714,21 @@ export type Task = {
     voice?: VoiceRequirement;
     [property: string]: unknown;
 }
+
+export type ControlRequirement = {
+    id:          SpeechControlId;
+    requirement: RequirementLevel;
+    /**
+     * The requested value, already checked against the control's domain.
+     */
+    value: number;
+    [property: string]: unknown;
+}
+
+/**
+ * 'required' takes part in routing; 'preferred' does not.
+ */
+export type RequirementLevel = "required" | "preferred";
 
 /**
  * The output delivery the request requires. Absent for text, whose delivery is implicitly
@@ -636,8 +791,3 @@ export type VoiceRequirement = {
     requirement: RequirementLevel;
     [property: string]: unknown;
 }
-
-/**
- * 'required' takes part in routing; 'preferred' does not.
- */
-export type RequirementLevel = "required" | "preferred";

@@ -156,10 +156,19 @@ final class DemoViewModel: ObservableObject {
     /// The selected BCP 47 tag. Nil until `refreshSpeechLocales` has found one, and whenever the
     /// device has none.
     @Published var speechLocale: String? {
-        didSet { speechVoiceId = nil }
+        didSet {
+            speechVoiceId = nil
+            if oldValue != speechLocale { speechControls = speechControls.forNewVoice() }
+        }
     }
     /// The selected voice of `speechLocale`. Nil lets routing choose.
-    @Published var speechVoiceId: String?
+    @Published var speechVoiceId: String? {
+        didSet {
+            if oldValue != speechVoiceId { speechControls = speechControls.forNewVoice() }
+        }
+    }
+    /// The speech controls the person turned on (rate, pitch, volume, "require rate").
+    @Published var speechControls = SpeechControlChoices()
     @Published private var speechVoices: [SpeechVoiceInfo] = []
     @Published private(set) var speechLocalesState: SpeechLocalesState = .loading
     @Published private(set) var isSpeaking = false
@@ -180,6 +189,11 @@ final class DemoViewModel: ObservableObject {
     private var stopTappedAt: Date?
     var canStopSpeaking: Bool { playback != nil }
     var canSpeak: Bool { !isSpeaking && !speechText.isEmpty && speechLocale != nil }
+
+    /// The selected voice, with its controls. Nil under Automatic.
+    var selectedSpeechVoice: SpeechVoiceInfo? {
+        speechVoiceId.flatMap { id in speechVoices.first { $0.id == id } }
+    }
 
     /// Every voice of the selected locale. Names repeat, so a repeated one gets a number.
     var speechVoiceOptions: [SpeechVoiceOption] {
@@ -404,6 +418,8 @@ final class DemoViewModel: ObservableObject {
                 speechText,
                 locale: selectedLocale,
                 voice: speechVoices.first { $0.id == speechVoiceId }?.asSpeechVoice(),
+                controls: speechControls.synthesisControls(voice: selectedSpeechVoice, delivery: .playback),
+                playback: speechControls.playbackControls(voice: selectedSpeechVoice),
                 execution: SpeechExecutionOptions(privacy: .localRequired)
             ))
             playback = handle
@@ -418,7 +434,8 @@ final class DemoViewModel: ObservableObject {
                 ending.timing?.firstAudioMs.map { "first word \(Int($0)) ms" },
                 stopTappedAt.map { "stopped in \(Int(Date().timeIntervalSince($0) * 1000)) ms" },
             ].compactMap { $0 }
-            speechOutcome = (["\(ending.finishReason?.rawValue ?? "unknown")", locale, voice, target, locality] + timings)
+            let controls = [describeSpeechControls(ending.speech?.controls)].compactMap { $0 }
+            speechOutcome = (["\(ending.finishReason?.rawValue ?? "unknown")", locale, voice, target, locality] + controls + timings)
                 .joined(separator: " · ")
         } catch {
             speechOutcome = "failed: \(error.localizedDescription)"
@@ -435,10 +452,12 @@ final class DemoViewModel: ObservableObject {
         do {
             let inderun = try makeIndeRun()
             let started = Date()
-            let speech = try await inderun.generateSpeech(GenerateSpeechOptions(SpeakOptions(
+            let speech = try await inderun.generateSpeech(GenerateSpeechOptions(SpeechOptions(
                 speechText,
                 locale: selectedLocale,
                 voice: speechVoices.first { $0.id == speechVoiceId }?.asSpeechVoice(),
+                // Rate and pitch only: an artifact is not played, so it has no volume.
+                controls: speechControls.synthesisControls(voice: selectedSpeechVoice, delivery: .artifact),
                 execution: SpeechExecutionOptions(privacy: .localRequired)
             )))
             let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
@@ -448,10 +467,11 @@ final class DemoViewModel: ObservableObject {
             await inderun.disposeArtifact(artifact: speech.artifact)
             let header = String(decoding: first.bytes, as: UTF8.self)
             let duration = speech.artifact.durationMs.map { "\(Int($0)) ms audio" } ?? "unknown duration"
-            speechOutcome = [
+            let parts = [
                 speech.artifact.mediaType, header, "\(first.totalBytes) bytes", duration,
                 "rendered in \(elapsedMs) ms", speech.provenance?.locality.rawValue ?? "unknown",
-            ].joined(separator: " · ")
+            ] + [describeSpeechControls(speech.speech?.controls)].compactMap { $0 }
+            speechOutcome = parts.joined(separator: " · ")
         } catch {
             speechOutcome = "failed: \(error.localizedDescription)"
         }
@@ -462,7 +482,7 @@ final class DemoViewModel: ObservableObject {
     /// current list during a refresh, so returning to the screen does not flash a loading state.
     func refreshSpeechLocales() async {
         do {
-            let voices = try await makeIndeRun().listVoices()
+            let voices = try await makeIndeRun().listVoices(includeControls: true)
             // The screen went away mid-check and reloads when it is back: a list read while
             // cancelled says nothing reliable about the device, so it must not replace this one.
             guard !Task.isCancelled else { return }

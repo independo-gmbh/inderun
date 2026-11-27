@@ -16,7 +16,7 @@ class IndeRunException(
     /** How the failed execution played out: attempts, rejections, the provider committed to. */
     val provenance: ExecutionProvenance? = null,
 ) : Exception(message) {
-    val schemaVersion: SchemaVersion = SchemaVersion.V1_0
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_1
 
     fun toContractError(): IndeRunError = IndeRunError(
         errorClass = errorClass,

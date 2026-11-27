@@ -103,7 +103,7 @@ data class TextGenerationOptions(
             seed != null
 
         return TaskRequest(
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             task = TaskRequestTask(),
             prompt = prompt.takeIf { system == null && messages == null },
             messages = system?.let { listOf(Message(role = MessageRole.SYSTEM, content = it)) + conversation.orEmpty() }

@@ -1,3 +1,4 @@
+import IndeRunContracts
 import SwiftUI
 
 struct SpeechScreen: View {
@@ -11,6 +12,7 @@ struct SpeechScreen: View {
                     introSection
                     textSection
                     languageSection
+                    controlsSection
                     actionSection
                     voicesLabSection
                     if let outcome = viewModel.speechOutcome {
@@ -77,6 +79,50 @@ struct SpeechScreen: View {
                 .pickerStyle(.menu)
                 .buttonStyle(.bordered)
             }
+        }
+    }
+
+    /// One row per control: a toggle turns it on, a slider sets it. A control the selected voice does
+    /// not offer is disabled and says why; nothing is sent for a row that is off.
+    private var controlsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Speech controls")
+                .font(.headline)
+            controlRow("Rate", id: .speechSpeakingRate, value: $viewModel.speechControls.rate, generates: true)
+            controlRow("Pitch", id: .speechPitch, value: $viewModel.speechControls.pitch, generates: true)
+            controlRow("Volume", id: .playbackVolume, value: $viewModel.speechControls.volume, generates: false)
+            Toggle("Require rate", isOn: $viewModel.speechControls.requireRate)
+        }
+    }
+
+    private func controlRow(
+        _ label: String,
+        id: SpeechControlId,
+        value: Binding<Double?>,
+        generates: Bool
+    ) -> some View {
+        let voice = viewModel.selectedSpeechVoice
+        let speak = voice.controlSlider(id, delivery: .playback)
+        let generate = generates ? voice.controlSlider(id, delivery: .artifact) : nil
+        let slider = (speak.usable || generate == nil) ? speak : (generate ?? speak)
+        let chosen = value.wrappedValue
+        let note = ["Speak: \(voice.deliveryNote(id, delivery: .playback, value: chosen))"]
+            + (generates ? ["Generate: \(voice.deliveryNote(id, delivery: .artifact, value: chosen))"] : [])
+        return VStack(alignment: .leading, spacing: 4) {
+            Toggle(label + (value.wrappedValue.map { String(format: " %.2f", $0) } ?? ""), isOn: Binding(
+                get: { value.wrappedValue != nil },
+                set: { value.wrappedValue = $0 ? slider.initial : nil }
+            ))
+            .disabled(!slider.usable)
+            if let current = value.wrappedValue, slider.usable {
+                Slider(
+                    value: Binding(get: { current }, set: { value.wrappedValue = $0 }),
+                    in: slider.min...slider.max
+                )
+            }
+            Text(note.joined(separator: " · "))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 

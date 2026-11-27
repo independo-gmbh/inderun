@@ -1,0 +1,573 @@
+{
+  "$comment": "ADR 025 section 4: the engine validates and completes the control records a provider reports, before the output leaves the engine. 'reported' is what the provider put in output.speech.controls, or null when its output has no speech section at all; 'expected' is either the records the caller receives, in request order, or a failure with errorClass Internal and details.code 'output_mismatch' (the provider broke the contract after commit, so there is no fallback). A required control on a completed run must be applied, so an output without a speech section fails only when a control is required; for preferred-only controls it passes unchanged ('expected' then lists no controls: no section, no records); on a cancelled run, missing records become not_applied / not_reported. Scenario catalog: each SDK registers one handler per case id (Stage 2 of #311).",
+  "cases": [
+    {
+      "id": "complete_records",
+      "description": "One record per requested control, required applied, preferred pitch not applied with a reason.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": [
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.85,
+          "status": "applied",
+          "effective": 0.85,
+          "method": "platform_synthesis"
+        },
+        {
+          "id": "speech.pitch",
+          "requested": 1.05,
+          "status": "not_applied",
+          "reason": "unsupported"
+        },
+        {
+          "id": "playback.volume",
+          "requested": 0.7,
+          "status": "applied",
+          "effective": 0.7,
+          "method": "playback_attenuation"
+        }
+      ],
+      "expected": {
+        "failed": false,
+        "controls": [
+          {
+            "id": "speech.speakingRate",
+            "requested": 0.85,
+            "status": "applied",
+            "effective": 0.85,
+            "method": "platform_synthesis"
+          },
+          {
+            "id": "speech.pitch",
+            "requested": 1.05,
+            "status": "not_applied",
+            "reason": "unsupported"
+          },
+          {
+            "id": "playback.volume",
+            "requested": 0.7,
+            "status": "applied",
+            "effective": 0.7,
+            "method": "playback_attenuation"
+          }
+        ]
+      }
+    },
+    {
+      "id": "preferred_record_missing",
+      "description": "The provider reports nothing for preferred pitch: the engine records it as not applied, never as applied.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": [
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.85,
+          "status": "applied",
+          "effective": 0.85,
+          "method": "platform_synthesis"
+        },
+        {
+          "id": "playback.volume",
+          "requested": 0.7,
+          "status": "applied",
+          "effective": 0.7,
+          "method": "playback_attenuation"
+        }
+      ],
+      "expected": {
+        "failed": false,
+        "controls": [
+          {
+            "id": "speech.speakingRate",
+            "requested": 0.85,
+            "status": "applied",
+            "effective": 0.85,
+            "method": "platform_synthesis"
+          },
+          {
+            "id": "speech.pitch",
+            "requested": 1.05,
+            "status": "not_applied",
+            "reason": "not_reported"
+          },
+          {
+            "id": "playback.volume",
+            "requested": 0.7,
+            "status": "applied",
+            "effective": 0.7,
+            "method": "playback_attenuation"
+          }
+        ]
+      }
+    },
+    {
+      "id": "required_record_missing",
+      "description": "Nothing reported for the required rate: application is never inferred from the request, so the run fails.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": [
+        {
+          "id": "speech.pitch",
+          "requested": 1.05,
+          "status": "not_applied",
+          "reason": "unsupported"
+        },
+        {
+          "id": "playback.volume",
+          "requested": 0.7,
+          "status": "applied",
+          "effective": 0.7,
+          "method": "playback_attenuation"
+        }
+      ],
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
+      }
+    },
+    {
+      "id": "required_not_applied",
+      "description": "A success that reports a required control as not applied is refused.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": [
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.85,
+          "status": "not_applied",
+          "reason": "provider_rejected"
+        },
+        {
+          "id": "speech.pitch",
+          "requested": 1.05,
+          "status": "not_applied",
+          "reason": "unsupported"
+        },
+        {
+          "id": "playback.volume",
+          "requested": 0.7,
+          "status": "applied",
+          "effective": 0.7,
+          "method": "playback_attenuation"
+        }
+      ],
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
+      }
+    },
+    {
+      "id": "duplicate_record",
+      "description": "Two records for one control.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": [
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.85,
+          "status": "applied",
+          "effective": 0.85,
+          "method": "platform_synthesis"
+        },
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.85,
+          "status": "applied",
+          "effective": 0.85,
+          "method": "platform_synthesis"
+        },
+        {
+          "id": "speech.pitch",
+          "requested": 1.05,
+          "status": "not_applied",
+          "reason": "unsupported"
+        },
+        {
+          "id": "playback.volume",
+          "requested": 0.7,
+          "status": "applied",
+          "effective": 0.7,
+          "method": "playback_attenuation"
+        }
+      ],
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
+      }
+    },
+    {
+      "id": "unrequested_record",
+      "description": "A record for a control the request did not name.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "reported": [
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.85,
+          "status": "applied",
+          "effective": 0.85,
+          "method": "platform_synthesis"
+        },
+        {
+          "id": "speech.pitch",
+          "requested": 1.0,
+          "status": "applied",
+          "effective": 1.0,
+          "method": "platform_synthesis"
+        }
+      ],
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
+      }
+    },
+    {
+      "id": "requested_value_differs",
+      "description": "A record whose requested value is not the request's.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "reported": [
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.9,
+          "status": "applied",
+          "effective": 0.9,
+          "method": "platform_synthesis"
+        }
+      ],
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
+      }
+    },
+    {
+      "id": "volume_reported_as_synthesis",
+      "description": "Volume is applied by attenuating playback, never by synthesis.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": [
+        {
+          "id": "playback.volume",
+          "requested": 0.7,
+          "status": "applied",
+          "effective": 0.7,
+          "method": "platform_synthesis"
+        }
+      ],
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
+      }
+    },
+    {
+      "id": "cancelled_keeps_known_records",
+      "description": "A cancelled playback keeps what was reported before the stop; the cancelled ending is not a failure, and unreported controls become not_reported.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "cancelled": true,
+      "reported": [
+        {
+          "id": "speech.speakingRate",
+          "requested": 0.85,
+          "status": "applied",
+          "effective": 0.85,
+          "method": "platform_synthesis"
+        }
+      ],
+      "expected": {
+        "failed": false,
+        "controls": [
+          {
+            "id": "speech.speakingRate",
+            "requested": 0.85,
+            "status": "applied",
+            "effective": 0.85,
+            "method": "platform_synthesis"
+          },
+          {
+            "id": "speech.pitch",
+            "requested": 1.05,
+            "status": "not_applied",
+            "reason": "not_reported"
+          },
+          {
+            "id": "playback.volume",
+            "requested": 0.7,
+            "status": "not_applied",
+            "reason": "not_reported"
+          }
+        ]
+      }
+    },
+    {
+      "id": "preferred_only_no_speech_section",
+      "description": "Every control is preferred and the provider returns no speech section. The output passes unchanged: no section and no records, because the engine never invents the locale a section would state.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback",
+          "playback": {
+            "volume": {
+              "value": 0.7
+            }
+          }
+        }
+      },
+      "reported": null,
+      "expected": {
+        "failed": false
+      }
+    },
+    {
+      "id": "required_no_speech_section",
+      "description": "A required control and no speech section: nothing states the required control was applied, so the completed run fails.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "reported": null,
+      "expected": {
+        "failed": true,
+        "errorClass": "Internal",
+        "detailsCode": "output_mismatch"
+      }
+    }
+  ]
+}

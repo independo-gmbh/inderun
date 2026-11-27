@@ -19,6 +19,7 @@ import app.independo.inderun.contracts.PrepareRequest
 import app.independo.inderun.contracts.ProviderCapabilitySnapshot
 import app.independo.inderun.contracts.RoutePlan
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.SpeechOutput
 import app.independo.inderun.contracts.StreamEvent
 import app.independo.inderun.contracts.StreamRunHandle
 import app.independo.inderun.contracts.StreamTerminalOutcome
@@ -52,7 +53,10 @@ import app.independo.inderun.core.StreamRun
 import app.independo.inderun.core.StreamingProviderAdapter
 import app.independo.inderun.core.TelemetryService
 import app.independo.inderun.core.cancelledOutcome
+import app.independo.inderun.core.cancelledSpeechOutcome
+import app.independo.inderun.core.checkControlPlans
 import app.independo.inderun.core.checkOutput
+import app.independo.inderun.core.completeOutputControls
 import app.independo.inderun.core.completedOutcome
 import app.independo.inderun.core.contentPayload
 import app.independo.inderun.core.createCapabilityMismatch
@@ -158,6 +162,8 @@ class IndeRun(
             val providers = listOf(routeSelection.provider) + routeSelection.fallbackProviders
             val attemptedProviderIds = mutableListOf<String>()
             provenance.routed(routeSelection.routePlan)
+            // A plan that does not match the request's controls stops the run before any attempt.
+            checkControlPlans(request, routeSelection.candidates)?.let { throw it }
             val delivery = taskProfileFor(request.task.kind)!!.delivery(request)
             // commit() refuses once the calling coroutine is no longer active.
             val caller = currentCoroutineContext()[Job]
@@ -184,6 +190,7 @@ class IndeRun(
             for ((index, provider) in providers.withIndex()) {
                 val providerId = provider.describe().id
                 val voice = routeSelection.candidates.getOrNull(index)?.voice
+                val controls = routeSelection.candidates.getOrNull(index)?.controls
                 attemptedProviderIds += providerId
                 // Closed when the attempt ends, so a commit() from a provider callback that fires
                 // after the run moved on is refused.
@@ -203,12 +210,15 @@ class IndeRun(
                     // other pre-commit provider failure.
                     recheckBoundVoice(request, providerId, voice)?.let { throw it }
 
+                    // Mode 1 has no cancel path, so the context's reportSpeech has no reader here:
+                    // the result's own speech output carries the records.
                     val result = provider.run(
                         request = request,
                         context = RunContext(
                             runId = runId,
                             hostServices = hostServices,
                             voice = voice,
+                            controls = controls,
                             artifacts = attemptArtifacts,
                             commitHandler = commit,
                         ),
@@ -406,7 +416,8 @@ class IndeRun(
             output.copy(artifact = stored)
         } ?: output
         checkOutput(request, delivery, resolved, providerId)?.let { throw it }
-        return checkNotNull(resolved)
+        // Last: validate and complete the speech control records (ADR 025 section 4).
+        return completeOutputControls(request, checkNotNull(resolved), providerId)
     }
 
     /**
@@ -530,7 +541,12 @@ class IndeRun(
                 hostServices,
                 InteractionMode.Stream,
                 plannerModelProfile(request),
-            )
+            ).also { selection ->
+                preRunProvenance.routed(selection.routePlan)
+                // A plan that does not match the request's controls stops the run before any
+                // attempt, so it surfaces like a routing failure: a thrown error, never a started run.
+                checkControlPlans(request, selection.candidates)?.let { throw it }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -608,7 +624,7 @@ class IndeRun(
             handle = StreamRunHandle(
                 providerId = first.describe().id,
                 runId = runId,
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 startedAt = startedAtEpochMs,
             ),
             events = events,
@@ -655,7 +671,7 @@ class IndeRun(
             }.buffer(EventOutlet.CAPACITY),
         )
         return StreamRun(
-            handle = StreamRunHandle(runId = runId, schemaVersion = SchemaVersion.V1_0, startedAt = now()),
+            handle = StreamRunHandle(runId = runId, schemaVersion = SchemaVersion.V1_1, startedAt = now()),
             events = events,
         ) { reason -> cancellation.cancel(reason) }
     }
@@ -725,7 +741,7 @@ class IndeRun(
                     output = TaskOutput(type = TaskOutputType.PREPARED, preparation = items),
                     provenance = provenance,
                     runId = runId,
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                 )
             }
         }
@@ -760,9 +776,14 @@ class IndeRun(
             committed: Boolean,
             attempted: List<String>,
             delivered: TaskOutput? = null,
+            reportedSpeech: SpeechOutput? = null,
         ) {
             val providerId = provider?.describe()?.id
             providerId?.let { provenance.attempted(it, AttemptOutcome.Cancelled, committed = committed) }
+            // Committed playback keeps the control records reported before the stop (ADR 025
+            // section 4).
+            val speech = providerId?.takeIf { committed && delivery == OutputDelivery.Playback }
+                ?.let { cancelledSpeechOutcome(request, reportedSpeech, it) }
             val terminal = gate.terminate(
                 cancelledOutcome(
                     runId = runId,
@@ -773,7 +794,7 @@ class IndeRun(
                     provenance = provenance.build(provider?.describe()),
                     // Committed playback may have been heard.
                     output = delivered ?: if (committed && delivery == OutputDelivery.Playback) {
-                        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput())
+                        TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput(), speech = speech)
                     } else {
                         null
                     },
@@ -879,6 +900,12 @@ class IndeRun(
             }
 
             val commit = { markCommitted { cancellation.isCancelled || gate.isTerminated } }
+            // What the provider reported before a stop; a report after it, or from an attempt the
+            // run has left, is a late callback and is dropped. Checked and stored under the
+            // latch's own lock, so a report cannot slip in between the check and the store.
+            val reportSpeech = { speech: SpeechOutput ->
+                latch.report(speech) { cancellation.isCancelled || gate.isTerminated }
+            }
             val attemptArtifacts = artifacts.attempt(commit)
             // The artifact the completed terminal carries; every other one this attempt wrote is
             // released when the attempt ends, however it ends.
@@ -906,8 +933,10 @@ class IndeRun(
                     hostServices = hostServices,
                     cancellation = cancellation,
                     voice = candidate.voice,
+                    controls = candidate.controls,
                     artifacts = attemptArtifacts,
                     commitHandler = commit,
+                    reportSpeechHandler = reportSpeech,
                 )
 
                 val providerEvents = Channel<ProviderStreamEvent>(Channel.BUFFERED)
@@ -1032,7 +1061,7 @@ class IndeRun(
 
                 if (cancellation.isCancelled) {
                     attemptArtifacts.release()
-                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList(), reportedSpeech = latch.reportedSpeech)
                     return
                 }
 
@@ -1048,14 +1077,14 @@ class IndeRun(
                 // propagates.
                 if (cancellation.isCancelled && currentCoroutineContext().isActive) {
                     attemptArtifacts.release()
-                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList(), reportedSpeech = latch.reportedSpeech)
                     return
                 }
                 throw error
             } catch (error: Throwable) {
                 if (cancellation.isCancelled) {
                     attemptArtifacts.release()
-                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList())
+                    emitCancelled(partialText, provider, latch.isCommitted, attemptedProviderIds.toList(), reportedSpeech = latch.reportedSpeech)
                     return
                 }
 
@@ -1138,8 +1167,8 @@ class IndeRun(
     private fun validateRequest(request: TaskRequest, runId: String) {
         val validationIssues = mutableListOf<String>()
 
-        if (request.schemaVersion != SchemaVersion.V1_0) {
-            validationIssues += "schemaVersion must be '1.0'"
+        if (request.schemaVersion != SchemaVersion.V1_1) {
+            validationIssues += "schemaVersion must be '1.1'"
         }
         if (request.requestId != null && request.requestId!!.isBlank()) {
             validationIssues += "requestId must be non-empty when provided."
@@ -1285,5 +1314,23 @@ private class CommitLatch {
     fun close(): Boolean = synchronized(this) {
         closed = true
         committed
+    }
+
+    private var reported: SpeechOutput? = null
+
+    /** The last speech outcome the attempt reported through `reportSpeech` (ADR 025 section 4). */
+    val reportedSpeech: SpeechOutput?
+        get() = synchronized(this) { reported }
+
+    /**
+     * Keeps [speech] as the attempt's latest report unless the attempt has ended or [refused] says
+     * the run can no longer take one. The check and the store happen under one lock, so a report
+     * that races the attempt's end is either kept before it or dropped.
+     */
+    fun report(speech: SpeechOutput, refused: () -> Boolean) {
+        synchronized(this) {
+            if (closed || refused()) return
+            reported = speech
+        }
     }
 }

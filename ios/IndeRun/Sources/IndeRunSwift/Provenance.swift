@@ -78,7 +78,7 @@ struct ProvenanceRecorder {
             providerId: descriptor?.id,
             reportedModel: descriptor == nil ? nil : reportedModel,
             routeRejections: routeRejections,
-            schemaVersion: .the10
+            schemaVersion: .the11
         )
     }
 

@@ -40,6 +40,8 @@ final class SpeechGenerationTests: XCTestCase {
                 value = bool
             } else if let number = try? container.decode(Int.self) {
                 value = number
+            } else if let number = try? container.decode(Double.self) {
+                value = number
             } else if let string = try? container.decode(String.self) {
                 value = string
             } else if let array = try? container.decode([AnyJSON].self) {
@@ -95,7 +97,7 @@ final class SpeechGenerationTests: XCTestCase {
             .appendingPathComponent("contracts/fixtures/\(path)")
     }
 
-    private func speakOptions(from raw: [String: Any]) throws -> SpeakOptions {
+    private func speechOptions(from raw: [String: Any]) throws -> SpeechOptions {
         let voice = (raw["voice"] as? [String: Any]).map { voice in
             SpeechVoice(
                 gender: (voice["gender"] as? String).flatMap(VoiceGender.init(rawValue:)),
@@ -112,16 +114,44 @@ final class SpeechGenerationTests: XCTestCase {
                 optimizeFor: (execution["optimizeFor"] as? String).flatMap(OptimizeFor.init(rawValue:))
             )
         }
-        return SpeakOptions(
+        let controls = (raw["controls"] as? [String: Any]).map { controls in
+            SharedSynthesisControls(
+                pitch: requestedNumber(controls["pitch"]),
+                speakingRate: requestedNumber(controls["speakingRate"])
+            )
+        }
+        return SpeechOptions(
             try XCTUnwrap(raw["text"] as? String),
             locale: try XCTUnwrap(raw["locale"] as? String),
             localeMatch: (raw["localeMatch"] as? String).flatMap(LocaleMatch.init(rawValue:)),
             voice: voice,
+            controls: controls,
             model: raw["model"] as? String,
             execution: execution,
             authContextRef: raw["authContextRef"] as? String,
             requestId: raw["requestId"] as? String
         )
+    }
+
+    private func playbackControls(from raw: [String: Any]) -> PlaybackControls? {
+        (raw["playback"] as? [String: Any]).map { playback in
+            let volume = (playback["volume"] as? [String: Any]).map { volume in
+                RequestedUnitNumber(
+                    requirement: (volume["requirement"] as? String).flatMap(RequirementLevel.init(rawValue:)),
+                    value: (volume["value"] as? NSNumber)?.doubleValue ?? .nan
+                )
+            }
+            return PlaybackControls(volume: volume)
+        }
+    }
+
+    private func requestedNumber(_ raw: Any?) -> RequestedNumber? {
+        (raw as? [String: Any]).map { number in
+            RequestedNumber(
+                requirement: (number["requirement"] as? String).flatMap(RequirementLevel.init(rawValue:)),
+                value: (number["value"] as? NSNumber)?.doubleValue ?? .nan
+            )
+        }
     }
 
     func testMatchesTheSharedFacadeVectors() throws {
@@ -132,11 +162,11 @@ final class SpeechGenerationTests: XCTestCase {
         XCTAssertFalse(fixture.cases.isEmpty)
         for vector in fixture.cases {
             let raw = vector.options.mapValues(\.value)
-            let speak = try speakOptions(from: raw)
+            let speech = try speechOptions(from: raw)
             let request = vector.call == "speak"
-                ? speak.taskRequest()
+                ? SpeakOptions(speech, playback: playbackControls(from: raw)).taskRequest()
                 : GenerateSpeechOptions(
-                    speak,
+                    speech,
                     mediaTypes: raw["mediaTypes"] as? [String],
                     destinationRef: raw["destinationRef"] as? String
                 ).taskRequest()
@@ -155,7 +185,9 @@ final class SpeechGenerationTests: XCTestCase {
             let raw = vector.options?.mapValues(\.value) ?? [:]
             let voices = await ScriptedApi(snapshots: vector.snapshots).listVoices(
                 locale: raw["locale"] as? String,
-                localeMatch: (raw["localeMatch"] as? String).flatMap(LocaleMatch.init(rawValue:))
+                localeMatch: (raw["localeMatch"] as? String).flatMap(LocaleMatch.init(rawValue:)),
+                includeControls: raw["includeControls"] as? Bool ?? false,
+                includeUnavailable: raw["includeUnavailable"] as? Bool ?? false
             )
             let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(voices)) as? NSArray
             XCTAssertEqual(encoded, vector.expected.value as? NSArray, vector.id)
@@ -230,7 +262,7 @@ final class SpeechGenerationTests: XCTestCase {
     func testSpeakResolvesWithWhatPlayedAndTheProvenance() async throws {
         let output = TaskOutput(
             playback: PlaybackOutput(timing: PlaybackTiming(durationMs: 1200, firstAudioMs: 150, firstChunkMs: 95)),
-            speech: SpeechOutput(locale: "de-DE", voice: nil)
+            speech: SpeechOutput(controls: nil, locale: "de-DE", voice: nil)
         )
         let inderun = try engine(script: [.commit, .init(.result(output: output, finishReason: .stop, reportedModel: nil))])
 
@@ -255,7 +287,7 @@ final class SpeechGenerationTests: XCTestCase {
             providerId: "tts",
             reportedModel: nil,
             routeRejections: [],
-            schemaVersion: .the10
+            schemaVersion: .the11
         )
         let outcome = StreamTerminalOutcome(
             finalText: nil,
@@ -266,7 +298,7 @@ final class SpeechGenerationTests: XCTestCase {
             ),
             provenance: provenance,
             runId: "r2",
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             telemetry: nil,
             usage: nil,
             error: nil,
@@ -276,13 +308,13 @@ final class SpeechGenerationTests: XCTestCase {
         let terminal = StreamEvent(
             payload: Payload(terminalOutcome: outcome),
             runId: "r2",
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             sequence: 0,
             timestamp: 0,
             type: "terminal"
         )
         let run = StreamRun(
-            handle: StreamRunHandle(providerId: "tts", runId: "r2", schemaVersion: .the10, startedAt: 0),
+            handle: StreamRunHandle(providerId: "tts", runId: "r2", schemaVersion: .the11, startedAt: 0),
             events: AsyncThrowingStream { continuation in
                 continuation.yield(terminal)
                 continuation.finish()
@@ -345,12 +377,12 @@ final class SpeechGenerationTests: XCTestCase {
         )
         let result = TaskResult(
             runId: "run_1",
-            output: TaskOutput(artifact: artifact, speech: SpeechOutput(locale: "de-DE", voice: nil)),
+            output: TaskOutput(artifact: artifact, speech: SpeechOutput(controls: nil, locale: "de-DE", voice: nil)),
             finishReason: .stop,
             telemetry: TelemetryInfo(providerUsed: "tts", totalMs: 1)
         )
 
-        let speech = try await ScriptedApi(result: result).generateSpeech(GenerateSpeechOptions(options))
+        let speech = try await ScriptedApi(result: result).generateSpeech(GenerateSpeechOptions(options.speech))
 
         XCTAssertEqual(speech.artifact.id, "art_1")
         XCTAssertEqual(speech.speech?.locale, "de-DE")
@@ -367,7 +399,7 @@ final class SpeechGenerationTests: XCTestCase {
         )
 
         do {
-            _ = try await ScriptedApi(result: result).generateSpeech(GenerateSpeechOptions(options))
+            _ = try await ScriptedApi(result: result).generateSpeech(GenerateSpeechOptions(options.speech))
             XCTFail("expected a failure")
         } catch let error as IndeRunException {
             XCTAssertEqual(error.errorClass, .Internal)

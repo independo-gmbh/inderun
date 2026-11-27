@@ -13,7 +13,7 @@ extension JSONNull: @unchecked Sendable {}
 
 public extension TaskRequest {
     init(
-        schemaVersion: String = "1.0",
+        schemaVersion: SchemaVersion = .the11,
         requestId: String? = nil,
         task: TaskDescriptor = TaskDescriptor(kind: .textToText),
         prompt: String? = nil,
@@ -37,7 +37,7 @@ public extension TaskRequest {
             preferences: preferences,
             prompt: prompt,
             requestId: requestId,
-            schemaVersion: SchemaVersion(rawValue: schemaVersion) ?? .the10,
+            schemaVersion: schemaVersion,
             speech: speech,
             task: task,
             telemetry: telemetry
@@ -82,7 +82,7 @@ public extension TaskOutput {
 
 public extension TaskResult {
     init(
-        schemaVersion: String = "1.0",
+        schemaVersion: SchemaVersion = .the11,
         runId: String,
         output: TaskOutput,
         finishReason: FinishReason,
@@ -95,7 +95,7 @@ public extension TaskResult {
             output: output,
             provenance: provenance,
             runId: runId,
-            schemaVersion: SchemaVersion(rawValue: schemaVersion) ?? .the10,
+            schemaVersion: schemaVersion,
             telemetry: telemetry,
             usage: usage
         )
@@ -120,7 +120,7 @@ public extension TaskResultTelemetry {
 
 public extension IndeRunError {
     init(
-        schemaVersion: String = "1.0",
+        schemaVersion: SchemaVersion = .the11,
         errorClass: IndeRunErrorClass,
         message: String,
         runId: String? = nil,
@@ -139,7 +139,7 @@ public extension IndeRunError {
             retryable: retryable,
             retryAfterMs: retryAfterMs,
             runId: runId,
-            schemaVersion: SchemaVersion(rawValue: schemaVersion) ?? .the10
+            schemaVersion: schemaVersion
         )
     }
 }
@@ -285,10 +285,12 @@ public extension ProviderTaskCapability {
         cancel: CancelSemantics,
         outputs: [ProviderTaskOutput],
         locales: [String]? = nil,
-        privacy: ProviderPrivacy? = nil
+        privacy: ProviderPrivacy? = nil,
+        controls: [SpeechControlDeclaration]? = nil
     ) {
         self.init(
             cancel: cancel,
+            controls: controls,
             inputs: inputs,
             interaction: interaction,
             kind: kind,
@@ -317,11 +319,13 @@ public extension ProviderTaskAvailability {
         cancellationAvailable: Bool? = nil,
         locales: [String]? = nil,
         voices: [ProviderVoice]? = nil,
-        readiness: ProviderReadiness? = nil
+        readiness: ProviderReadiness? = nil,
+        controlStates: [SpeechControlState]? = nil
     ) {
         self.init(
             available: available,
             cancellationAvailable: cancellationAvailable,
+            controlStates: controlStates,
             kind: kind,
             locales: locales,
             readiness: readiness,
@@ -341,9 +345,11 @@ public extension ProviderVoice {
         id: String? = nil,
         name: String? = nil,
         readiness: ProviderReadiness? = nil,
-        locales: [String]? = nil
+        locales: [String]? = nil,
+        controlStates: [SpeechControlState]? = nil
     ) {
         self.init(
+            controlStates: controlStates,
             gender: gender,
             id: id,
             locale: locale,

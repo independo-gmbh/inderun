@@ -306,11 +306,11 @@ final class ArtifactLifecycleConformanceTests: XCTestCase {
     // MARK: Helpers
 
     private static let request = makeSpeechRequest(
-        delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact)
+        delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact, playback: nil)
     )
 
     private static let destinationRequest = makeSpeechRequest(
-        delivery: OutputDeliveryRequest(destinationRef: "dest_greeting", mediaTypes: ["audio/wav"], mode: .artifact)
+        delivery: OutputDeliveryRequest(destinationRef: "dest_greeting", mediaTypes: ["audio/wav"], mode: .artifact, playback: nil)
     )
 
     private func engine(

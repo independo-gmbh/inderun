@@ -8,7 +8,7 @@ import { ProviderRegistry } from "./registry.js";
 
 type Readiness = "ready" | "cold" | "not_prepared" | "preparing";
 
-const text: TaskRequest = { schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt: "Hi" };
+const text: TaskRequest = { schemaVersion: "1.1", task: { kind: "text_to_text" }, prompt: "Hi" };
 
 function fakeProvider(id: string, initial: Readiness, work: () => Promise<void> = async () => {}) {
   let readiness = initial;
@@ -50,7 +50,7 @@ function fakeProvider(id: string, initial: Readiness, work: () => Promise<void> 
     run: async (_request, context) => {
       calls.run += 1;
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: context.runId,
         output: { type: "text", text: "ok" },
         finishReason: "stop",

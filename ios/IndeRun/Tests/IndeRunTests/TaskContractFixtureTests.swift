@@ -27,6 +27,27 @@ final class TaskContractFixtureTests: XCTestCase {
         XCTAssertGreaterThan(checked, 0)
     }
 
+    /// ADR 025: what `Codable` would lose is caught on the raw JSON first. Every `invalidPayloads`
+    /// entry is refused there, and every current request passes it.
+    func testRawValidationRefusesInvalidPayloadsAndPassesCurrentRequests() throws {
+        var refused = 0
+        for file in try fixtureFiles() {
+            let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+            for entry in root["invalidPayloads"] as? [[String: Any]] ?? [] {
+                let id = try XCTUnwrap(entry["id"] as? String)
+                XCTAssertFalse(RawTaskRequestValidation.issues(try XCTUnwrap(entry["request"], id)).isEmpty, id)
+                refused += 1
+            }
+        }
+        XCTAssertGreaterThan(refused, 0)
+        for (id, entry) in try loadCurrentCases() {
+            XCTAssertEqual(RawTaskRequestValidation.issues(try XCTUnwrap(entry["request"], id)), [], id)
+        }
+        XCTAssertFalse(RawTaskRequestValidation.issues(["schemaVersion": "1.1", "speech": ["controls": [
+            "pitch": ["value": true],
+        ]]]).isEmpty, "a boolean is not a number")
+    }
+
     func testCurrentRequestsRoundTripThroughTaskRequest() throws {
         let cases = try loadCurrentCases()
         XCTAssertFalse(cases.isEmpty)

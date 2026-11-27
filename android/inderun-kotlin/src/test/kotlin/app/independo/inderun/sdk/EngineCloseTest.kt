@@ -119,7 +119,7 @@ class EngineCloseTest {
             entered.complete(Unit)
             release.await()
             return TaskResult(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 runId = context.runId,
                 output = TaskOutput(type = TaskOutputType.TEXT, text = "ok"),
                 finishReason = FinishReason.STOP,
@@ -343,7 +343,7 @@ class EngineCloseTest {
         assertEngineClosed { engine.prepare(PrepareRequest()) }
         assertEngineClosed { engine.readArtifact(ArtifactReadRequest(artifactId = "x")) }
         assertEngineClosed { engine.speak(SpeakOptions("Hallo", "de-AT"), this) }
-        assertEngineClosed { engine.generateSpeech(GenerateSpeechOptions(SpeakOptions("Hallo", "de-AT"))) }
+        assertEngineClosed { engine.generateSpeech(GenerateSpeechOptions(SpeechOptions("Hallo", "de-AT"))) }
         // checkCapabilities cannot throw on Swift, so every SDK reports no providers once closed.
         assertTrue(engine.checkCapabilities().isEmpty())
         // disposeArtifact is a no-op that does not throw.
@@ -427,7 +427,7 @@ class EngineCloseTest {
     @Test
     fun closeDisposesEngineOwnedArtifacts() = test {
         val world = NeuralWorld()
-        val generated = world.engine.generateSpeech(GenerateSpeechOptions(SpeakOptions("Hallo", "de-DE", model = PROFILE)))
+        val generated = world.engine.generateSpeech(GenerateSpeechOptions(SpeechOptions("Hallo", "de-DE", model = PROFILE)))
         val artifactId = generated.artifact.id
         assertNotNull(world.engine.readArtifact(ArtifactReadRequest(artifactId = artifactId)))
 
