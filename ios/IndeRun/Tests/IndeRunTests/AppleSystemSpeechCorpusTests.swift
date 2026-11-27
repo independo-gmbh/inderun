@@ -92,7 +92,7 @@ final class AppleSystemSpeechCorpusTests: XCTestCase {
             let started = Date()
             let speech: GeneratedSpeech
             do {
-                speech = try await inderun.generateSpeech(GenerateSpeechOptions(local(utterance), mediaTypes: ["audio/wav"]))
+                speech = try await inderun.generateSpeech(GenerateSpeechOptions(local(utterance).speech, mediaTypes: ["audio/wav"]))
             } catch let error as IndeRunException where error.errorClass == .CapabilityMismatch {
                 skipped.append(utterance.id)
                 continue
@@ -141,7 +141,7 @@ final class AppleSystemSpeechCorpusTests: XCTestCase {
                     if call == "speak" {
                         _ = try await inderun.speak(local(utterance))
                     } else {
-                        _ = try await inderun.generateSpeech(GenerateSpeechOptions(local(utterance)))
+                        _ = try await inderun.generateSpeech(GenerateSpeechOptions(local(utterance).speech))
                     }
                     XCTFail("\(utterance.id): \(call) should have been refused")
                 } catch let error as IndeRunException {
@@ -164,7 +164,7 @@ final class AppleSystemSpeechCorpusTests: XCTestCase {
             var artifacts: [MediaArtifact] = []
             do {
                 for _ in 0..<corpus.scenarios.repeat.count {
-                    artifacts.append(try await inderun.generateSpeech(GenerateSpeechOptions(local(utterance))).artifact)
+                    artifacts.append(try await inderun.generateSpeech(GenerateSpeechOptions(local(utterance).speech)).artifact)
                 }
             } catch let error as IndeRunException where error.errorClass == .CapabilityMismatch {
                 continue

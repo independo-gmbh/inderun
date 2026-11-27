@@ -358,6 +358,7 @@ public final class AppleSystemSpeechProvider: StreamingProviderAdapter, Preparab
 
     private static func used(_ voice: AppleSpeechVoice) -> SpeechOutput {
         SpeechOutput(
+            controls: nil,
             locale: voice.locale,
             voice: SpeechOutputVoice(gender: voice.gender, id: voice.identifier, name: voice.name)
         )

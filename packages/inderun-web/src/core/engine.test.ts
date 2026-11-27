@@ -39,7 +39,7 @@ function createMockLocalProvider(id: string, available = true): ProviderAdapter 
     },
     async run(req: TaskRequest): Promise<TaskResult> {
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: req.requestId || "run-123",
         output: {
           type: "text",
@@ -80,7 +80,7 @@ function createMockCloudProvider(id: string, available = true): ProviderAdapter 
     },
     async run(req: TaskRequest): Promise<TaskResult> {
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: req.requestId || "run-123",
         output: {
           type: "text",
@@ -226,7 +226,7 @@ function createAuthenticatedMockCloudProvider(id: string): ProviderAdapter {
 
       const body = JSON.parse(response.body) as { outputText: string };
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: ctx.runId,
         output: {
           type: "text",
@@ -244,7 +244,7 @@ function createAuthenticatedMockCloudProvider(id: string): ProviderAdapter {
 
 function createRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_text" },
     prompt: "test prompt",
     constraints: { privacy: "local_required" },
@@ -310,7 +310,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
 
       // Prompt is missing and task format is invalid
       const invalidRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "invalid_task" },
         constraints: { privacy: "cloud_required" }
       } as unknown as TaskRequest;
@@ -336,7 +336,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const invalidRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "Hello",
         constraints: { privacy: "cloud_required" },
@@ -358,7 +358,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "local_required" }
@@ -388,7 +388,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, createMockHostServices(true));
 
       const result = await engine.run({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "local_required" }
@@ -405,7 +405,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "local_required" },
@@ -421,7 +421,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "local_required" }
@@ -449,7 +449,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "local_required" }
@@ -487,7 +487,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "cloud_required" }
@@ -507,7 +507,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "cloud_required" }
@@ -532,7 +532,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "cloud_required" }
@@ -559,7 +559,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "cloud_required" }
@@ -595,7 +595,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "cloud_required" },
@@ -628,7 +628,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "cloud_required" }
@@ -655,7 +655,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host);
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         constraints: { privacy: "cloud_required" },
@@ -690,7 +690,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host, { telemetryService: telemetry });
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "hello telemetry",
         constraints: { privacy: "local_required" },
@@ -728,7 +728,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host, { telemetryService: telemetry });
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "hello telemetry fail",
         constraints: { privacy: "cloud_required" },
@@ -784,7 +784,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host, { telemetryService: telemetry });
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "hello provider fail",
         constraints: { privacy: "local_required" },
@@ -826,7 +826,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const engine = new IndeRun(registry, host, { telemetryService: throwingTelemetry });
 
       const req: TaskRequest = {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "hello telemetry throw",
         constraints: { privacy: "local_required" }
@@ -892,7 +892,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
 
   describe("model profiles", () => {
     const request: TaskRequest = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_text" },
       prompt: "Hello"
     };
@@ -981,7 +981,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
 
   describe("execution provenance", () => {
     const request: TaskRequest = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_text" },
       prompt: "Hello"
     };
@@ -1014,7 +1014,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
       const result = await engine.run(request);
 
       expect(result.provenance).toEqual({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         modelProfile: "auto",
         providerId: "local-a",
         locality: "on_device",
@@ -1080,7 +1080,7 @@ describe("IndeRun Engine Core Skeleton Tests", () => {
         .catch((caught: unknown) => caught as IndeRunException);
 
       expect(error.provenance).toEqual({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         modelProfile: "auto",
         locality: "unknown",
         attemptCount: 0,

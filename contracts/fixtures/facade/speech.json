@@ -7,7 +7,7 @@
       "call": "speak",
       "options": { "text": "Der Bus kommt.", "locale": "de-AT" },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": { "text": "Der Bus kommt.", "locale": "de-AT" },
         "delivery": { "mode": "playback" }
@@ -19,7 +19,7 @@
       "call": "speak",
       "options": { "text": "Hallo", "locale": "de-DE", "model": "auto" },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": { "text": "Hallo", "locale": "de-DE" },
         "delivery": { "mode": "playback" }
@@ -36,7 +36,7 @@
         "voice": { "gender": "female", "requirement": "required" }
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": {
           "text": "Servus",
@@ -53,7 +53,7 @@
       "call": "speak",
       "options": { "text": "Hello", "locale": "en-GB", "voice": { "gender": "male" } },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": { "text": "Hello", "locale": "en-GB", "voice": { "gender": "male" } },
         "delivery": { "mode": "playback" }
@@ -75,7 +75,7 @@
         }
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": {
           "text": "Hallo",
@@ -103,7 +103,7 @@
         }
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": {
           "text": "Hallo",
@@ -129,7 +129,7 @@
         "requestId": "req_speech_1"
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": { "text": "Der Bus kommt.", "locale": "de-AT" },
         "delivery": { "mode": "playback" },
@@ -145,7 +145,7 @@
       "call": "generateSpeech",
       "options": { "text": "Hallo", "locale": "de-DE" },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": { "text": "Hallo", "locale": "de-DE" },
         "delivery": { "mode": "artifact" }
@@ -164,7 +164,7 @@
         "execution": { "cloud": "forbidden" }
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_speech" },
         "speech": { "text": "Hello", "locale": "en-US" },
         "delivery": {
@@ -174,6 +174,54 @@
         },
         "constraints": { "cloud": "forbidden" },
         "authContextRef": "slot_1"
+      }
+    },
+    {
+      "id": "speak_controls_and_volume",
+      "description": "ADR 025: synthesis controls go to speech.controls, the playback volume to delivery.playback.",
+      "call": "speak",
+      "options": {
+        "text": "Guten Morgen!",
+        "locale": "de-AT",
+        "controls": {
+          "speakingRate": { "value": 0.85, "requirement": "required" },
+          "pitch": { "value": 1.05 }
+        },
+        "playback": { "volume": { "value": 0.7 } }
+      },
+      "expected": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": { "value": 0.85, "requirement": "required" },
+            "pitch": { "value": 1.05 }
+          }
+        },
+        "delivery": { "mode": "playback", "playback": { "volume": { "value": 0.7 } } }
+      }
+    },
+    {
+      "id": "generate_with_controls",
+      "description": "ADR 025: an artifact takes the synthesis controls; it has no playback volume option.",
+      "call": "generateSpeech",
+      "options": {
+        "text": "Guten Morgen!",
+        "locale": "de-AT",
+        "controls": { "speakingRate": { "value": 0.9 } },
+        "mediaTypes": ["audio/wav"]
+      },
+      "expected": {
+        "schemaVersion": "1.1",
+        "task": { "kind": "text_to_speech" },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": { "speakingRate": { "value": 0.9 } }
+        },
+        "delivery": { "mode": "artifact", "mediaTypes": ["audio/wav"] }
       }
     }
   ]

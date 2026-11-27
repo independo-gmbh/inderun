@@ -67,7 +67,7 @@ export class ProvenanceRecorder {
    */
   build(attributedTo?: ProviderDescriptor, reportedModel?: string): ExecutionProvenance {
     return {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       modelProfile: this.modelProfile,
       ...(attributedTo !== undefined ? { providerId: attributedTo.id } : {}),
       locality:

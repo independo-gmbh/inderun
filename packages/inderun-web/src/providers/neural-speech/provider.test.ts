@@ -76,7 +76,7 @@ function createProvider(
 
 function speechRequest(overrides: Partial<TaskRequest> = {}): TaskRequest {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_speech" },
     speech: { text: "Hallo Welt.", locale: "de-AT" },
     delivery: { mode: "playback" },
@@ -383,7 +383,7 @@ describe("NeuralSpeechWebProvider", () => {
     );
     const text = await rejection(
       provider.run(
-        { schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt: "Hello" },
+        { schemaVersion: "1.1", task: { kind: "text_to_text" }, prompt: "Hello" },
         context
       )
     );

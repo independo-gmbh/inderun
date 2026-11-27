@@ -395,8 +395,8 @@ private func speak(_ world: World, _ spoken: String = text) async throws -> Spee
 private func speechRequest(voice: ProviderVoice? = nil) -> TaskRequest {
     TaskRequest(
         task: TaskDescriptor(kind: .textToSpeech),
-        speech: SpeechInput(locale: locale, localeMatch: nil, text: text, voice: nil),
-        delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback)
+        speech: SpeechInput(controls: nil, locale: locale, localeMatch: nil, text: text, voice: nil),
+        delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback, playback: nil)
     )
 }
 
@@ -574,7 +574,7 @@ private func artifactIsWavOfTheSamples(_ entry: CatalogCase, _ package: ModelPac
     var observation = Observation(world)
     do {
         let generated = try await bounded(ms: entry.timeoutMs, "generateSpeech") {
-            try await engine.generateSpeech(GenerateSpeechOptions(SpeakOptions(text, locale: locale, model: profile)))
+            try await engine.generateSpeech(GenerateSpeechOptions(SpeechOptions(text, locale: locale, model: profile)))
         }
         observation.outcome = "completed"
         observation.commitCount = neuralCommits(world, generated.provenance)
@@ -597,7 +597,7 @@ private func artifactOverCapFailsBeforeCommit(_ entry: CatalogCase, _ package: M
     var observation = Observation(world)
     do {
         _ = try await bounded(ms: entry.timeoutMs, "generateSpeech") {
-            try await engine.generateSpeech(GenerateSpeechOptions(SpeakOptions(spoken, locale: locale, model: profile)))
+            try await engine.generateSpeech(GenerateSpeechOptions(SpeechOptions(spoken, locale: locale, model: profile)))
         }
         observation.outcome = "completed"
     } catch let error as IndeRunException {

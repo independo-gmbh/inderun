@@ -15,6 +15,7 @@ import app.independo.inderun.contracts.Locality
 import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.OptimizeFor
 import app.independo.inderun.contracts.OutputDelivery
+import app.independo.inderun.contracts.PlaybackControls
 import app.independo.inderun.contracts.PlaybackOutput
 import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.Privacy
@@ -31,8 +32,11 @@ import app.independo.inderun.contracts.ProviderTaskOutput
 import app.independo.inderun.contracts.ProviderTransport
 import app.independo.inderun.contracts.ProviderType
 import app.independo.inderun.contracts.ProviderVoice
+import app.independo.inderun.contracts.RequestedNumber
+import app.independo.inderun.contracts.RequestedUnitNumber
 import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.SharedSynthesisControls
 import app.independo.inderun.contracts.SpeechOutput
 import app.independo.inderun.contracts.SpeechVoice
 import app.independo.inderun.contracts.StreamEvent
@@ -88,7 +92,7 @@ private class ScriptedApi(
         error("not scripted")
     } else {
         StreamRun(
-            handle = StreamRunHandle(providerId = "tts", runId = events.last().runId, schemaVersion = SchemaVersion.V1_0, startedAt = 0.0),
+            handle = StreamRunHandle(providerId = "tts", runId = events.last().runId, schemaVersion = SchemaVersion.V1_1, startedAt = 0.0),
             events = flowOf(*events.toTypedArray()),
         ) {}
     }
@@ -123,7 +127,23 @@ class SpeechGenerationTest {
 
     private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
 
-    private fun speakOptionsFrom(json: JSONObject) = SpeakOptions(
+    private fun requestedNumberFrom(json: JSONObject) = RequestedNumber(
+        value = json.getDouble("value"),
+        requirement = json.stringOrNull("requirement")?.let(RequirementLevel::fromRawValue),
+    )
+
+    private fun playbackFrom(json: JSONObject) = json.optJSONObject("playback")?.let { playback ->
+        PlaybackControls(
+            volume = playback.optJSONObject("volume")?.let { volume ->
+                RequestedUnitNumber(
+                    value = volume.getDouble("value"),
+                    requirement = volume.stringOrNull("requirement")?.let(RequirementLevel::fromRawValue),
+                )
+            },
+        )
+    }
+
+    private fun speechOptionsFrom(json: JSONObject) = SpeechOptions(
         text = json.getString("text"),
         locale = json.getString("locale"),
         localeMatch = json.stringOrNull("localeMatch")?.let(LocaleMatch::fromRawValue),
@@ -142,6 +162,12 @@ class SpeechGenerationTest {
                 cloud = execution.stringOrNull("cloud")?.let(Cloud::fromRawValue),
                 timeoutMs = if (execution.has("timeoutMs")) execution.getLong("timeoutMs") else null,
                 optimizeFor = execution.stringOrNull("optimizeFor")?.let(OptimizeFor::fromRawValue),
+            )
+        },
+        controls = json.optJSONObject("controls")?.let { controls ->
+            SharedSynthesisControls(
+                speakingRate = controls.optJSONObject("speakingRate")?.let(::requestedNumberFrom),
+                pitch = controls.optJSONObject("pitch")?.let(::requestedNumberFrom),
             )
         },
         authContextRef = json.stringOrNull("authContextRef"),
@@ -168,6 +194,15 @@ class SpeechGenerationTest {
                         },
                     )
                 }
+                speech?.controls?.let { controls ->
+                    put(
+                        "controls",
+                        buildMap {
+                            controls.speakingRate?.let { put("speakingRate", it.toJsonValue()) }
+                            controls.pitch?.let { put("pitch", it.toJsonValue()) }
+                        },
+                    )
+                }
             },
         )
         put(
@@ -176,6 +211,22 @@ class SpeechGenerationTest {
                 delivery?.mode?.let { put("mode", it.rawValue) }
                 delivery?.mediaTypes?.let { put("mediaTypes", it) }
                 delivery?.destinationRef?.let { put("destinationRef", it) }
+                delivery?.playback?.let { playback ->
+                    put(
+                        "playback",
+                        buildMap {
+                            playback.volume?.let { volume ->
+                                put(
+                                    "volume",
+                                    buildMap {
+                                        put("value", volume.value)
+                                        volume.requirement?.let { put("requirement", it.rawValue) }
+                                    },
+                                )
+                            }
+                        },
+                    )
+                }
             },
         )
         modelProfile?.let { put("modelProfile", it) }
@@ -194,6 +245,11 @@ class SpeechGenerationTest {
         requestId?.let { put("requestId", it) }
     }
 
+    private fun RequestedNumber.toJsonValue(): Map<String, Any?> = buildMap {
+        put("value", value)
+        requirement?.let { put("requirement", it.rawValue) }
+    }
+
     private fun Any?.normalized(): Any? = when (this) {
         is JSONObject -> keys().asSequence().associateWith { get(it).normalized() }
         is JSONArray -> (0 until length()).map { get(it).normalized() }
@@ -209,12 +265,12 @@ class SpeechGenerationTest {
         assertTrue(cases.isNotEmpty())
         for (vector in cases) {
             val raw = vector.getJSONObject("options")
-            val speak = speakOptionsFrom(raw)
+            val speech = speechOptionsFrom(raw)
             val request = if (vector.getString("call") == "speak") {
-                speak.toTaskRequest()
+                SpeakOptions(speech, playback = playbackFrom(raw)).toTaskRequest()
             } else {
                 GenerateSpeechOptions(
-                    speak,
+                    speech,
                     mediaTypes = raw.optJSONArray("mediaTypes")?.strings(),
                     destinationRef = raw.stringOrNull("destinationRef"),
                 ).toTaskRequest()
@@ -327,7 +383,7 @@ class SpeechGenerationTest {
                 ),
             ).toPayload(),
             runId = "r2",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = 0,
             timestamp = 0.0,
             type = "terminal",
@@ -385,7 +441,7 @@ class SpeechGenerationTest {
         finishReason = FinishReason.STOP,
         output = output,
         runId = "run_1",
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         telemetry = TaskResultTelemetry(providerUsed = "tts", totalMs = 1.0),
     )
 
@@ -400,7 +456,7 @@ class SpeechGenerationTest {
         )
         val output = TaskOutput(type = TaskOutputType.ARTIFACT, artifact = artifact, speech = SpeechOutput(locale = "de-DE"))
 
-        val speech = ScriptedApi(result = taskResult(output)).generateSpeech(GenerateSpeechOptions(options))
+        val speech = ScriptedApi(result = taskResult(output)).generateSpeech(GenerateSpeechOptions(options.speech))
 
         assertEquals(artifact, speech.artifact)
         assertEquals("de-DE", speech.speech?.locale)
@@ -414,7 +470,7 @@ class SpeechGenerationTest {
         val api = ScriptedApi(result = taskResult(TaskOutput(type = TaskOutputType.TEXT, text = "not audio")))
 
         try {
-            api.generateSpeech(GenerateSpeechOptions(options))
+            api.generateSpeech(GenerateSpeechOptions(options.speech))
             fail("expected a failure")
         } catch (error: IndeRunException) {
             assertEquals(IndeRunErrorClass.Internal, error.errorClass)

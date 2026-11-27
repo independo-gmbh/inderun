@@ -256,7 +256,7 @@ class DemoViewModelTest {
                         handle = StreamRunHandle(
                             providerId = "android_mlkit_genai",
                             runId = "run_stream",
-                            schemaVersion = SchemaVersion.V1_0,
+                            schemaVersion = SchemaVersion.V1_1,
                             startedAt = 0.0,
                         ),
                         // Parks after the first delta, the way a real stream waits for
@@ -339,7 +339,7 @@ class DemoViewModelTest {
             handle = StreamRunHandle(
                 providerId = "android_system_speech",
                 runId = "run_speech",
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 startedAt = 0.0,
             ),
             events = flow {
@@ -406,7 +406,7 @@ class DemoViewModelTest {
             handle = StreamRunHandle(
                 providerId = "android_mlkit_genai",
                 runId = "run_stream",
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 startedAt = 0.0,
             ),
             events = events.asFlow(),
@@ -416,7 +416,7 @@ class DemoViewModelTest {
         fun delta(sequence: Long, text: String) = StreamEvent(
             payload = Payload(text = text),
             runId = "run_stream",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence,
             timestamp = 0.0,
             type = "content_delta",
@@ -431,7 +431,7 @@ class DemoViewModelTest {
                 telemetry = PayloadTelemetry(providerUsed = "android_mlkit_genai", totalMs = 12.0),
             ),
             runId = "run_stream",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence,
             timestamp = 0.0,
             type = "terminal",
@@ -445,7 +445,7 @@ class DemoViewModelTest {
                 runId = "run_stream",
             ),
             runId = "run_stream",
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             sequence = sequence,
             timestamp = 0.0,
             type = "terminal",

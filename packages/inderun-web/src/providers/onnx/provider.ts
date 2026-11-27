@@ -324,7 +324,7 @@ export class OnnxRuntimeWebProvider implements PreparableProviderAdapter {
     }
 
     const result: TaskResult = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: context.runId,
       output: {
         type: "text",

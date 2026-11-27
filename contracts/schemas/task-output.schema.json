@@ -122,6 +122,53 @@
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             }
           }
+        },
+        "controls": {
+          "description": "One record per speech control the request named, and none for others (ADR 025). Application is reported, never inferred from the request. A successful run never reports a required control as not applied.",
+          "type": "array",
+          "items": {
+            "title": "SpeechControlOutcome",
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "requested", "status"],
+            "if": { "properties": { "status": { "const": "not_applied" } } },
+            "then": { "required": ["reason"] },
+            "properties": {
+              "id": {
+                "$ref": "provider-descriptor.schema.json#/$defs/speechControlId"
+              },
+              "requested": {
+                "description": "The value the request named.",
+                "type": "number"
+              },
+              "effective": {
+                "description": "The value the platform accepted, in the shared control's units. Absent when unknown. An accepted setting, not an acoustic measurement.",
+                "type": "number"
+              },
+              "status": {
+                "title": "SpeechControlStatus",
+                "description": "'applied': the provider set the value through the platform's documented path. 'not_applied': it did not; see reason.",
+                "enum": ["applied", "not_applied"]
+              },
+              "method": {
+                "title": "SpeechControlMethod",
+                "description": "How an applied control took effect: 'platform_synthesis' (the platform synthesized with it) or 'playback_attenuation' (this utterance's playback was attenuated).",
+                "enum": ["platform_synthesis", "playback_attenuation"]
+              },
+              "reason": {
+                "title": "SpeechControlOutcomeReason",
+                "description": "Why a control was not applied: a route-plan omission reason ('unsupported', 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the platform refused the value at run time), or 'not_reported' (the provider reported nothing, so the engine records it as not applied).",
+                "enum": [
+                  "unsupported",
+                  "out_of_range",
+                  "range_unknown",
+                  "availability_unknown",
+                  "provider_rejected",
+                  "not_reported"
+                ]
+              }
+            }
+          }
         }
       }
     }

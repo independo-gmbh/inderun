@@ -146,7 +146,7 @@ class AndroidSystemSpeechCorpusTest {
         for (utterance in utterances.filter { it.expect == "speak" }) {
             val started = System.nanoTime()
             val speech = try {
-                engine.generateSpeech(GenerateSpeechOptions(local(utterance), mediaTypes = listOf("audio/wav")))
+                engine.generateSpeech(GenerateSpeechOptions(local(utterance).speech, mediaTypes = listOf("audio/wav")))
             } catch (error: IndeRunException) {
                 if (!error.isMissingVoice()) throw error
                 skipped += utterance.id
@@ -194,7 +194,7 @@ class AndroidSystemSpeechCorpusTest {
                     if (call == "speak") {
                         engine.speak(local(utterance), scope).result.await()
                     } else {
-                        engine.generateSpeech(GenerateSpeechOptions(local(utterance)))
+                        engine.generateSpeech(GenerateSpeechOptions(local(utterance).speech))
                     }
                     fail("${utterance.id}: $call should have been refused")
                 } catch (error: IndeRunException) {
@@ -218,7 +218,7 @@ class AndroidSystemSpeechCorpusTest {
             val utterance = utterance(ids.getString(index))
             val artifacts = try {
                 List(repeat.getInt("count")) {
-                    engine.generateSpeech(GenerateSpeechOptions(local(utterance))).artifact
+                    engine.generateSpeech(GenerateSpeechOptions(local(utterance).speech)).artifact
                 }
             } catch (error: IndeRunException) {
                 if (!error.isMissingVoice()) throw error

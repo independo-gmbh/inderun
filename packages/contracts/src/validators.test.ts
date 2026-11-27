@@ -35,7 +35,7 @@ describe("TaskRequest validation", () => {
   it("accepts a minimal text-to-text prompt request", () => {
     expect(
       validateTaskRequest({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "Summarize this.",
         constraints: { cloud: "allowed", privacy: "cloud_allowed" }
@@ -46,7 +46,7 @@ describe("TaskRequest validation", () => {
   it("accepts a fuller message request with forward-compatible fields", () => {
     expect(
       validateTaskRequest({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         requestId: "req_123",
         task: { kind: "text_to_text", futureTaskHint: "ignored" },
         messages: [{ role: "user", content: "Hello" }],
@@ -78,7 +78,7 @@ describe("TaskRequest validation", () => {
   it("rejects contradictory routing constraints", () => {
     expect(
       getTaskRequestValidationIssues({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "Hello",
         constraints: { privacy: "local_required", cloud: "required" }
@@ -89,7 +89,7 @@ describe("TaskRequest validation", () => {
   it("rejects requests without prompt or messages", () => {
     expect(
       getTaskRequestValidationIssues({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         constraints: { cloud: "allowed", privacy: "cloud_allowed" }
       }).some((issue) => issue.keyword === "anyOf")
@@ -99,7 +99,7 @@ describe("TaskRequest validation", () => {
   it("rejects inline secret-like fields even when unknown fields are allowed", () => {
     expect(
       getTaskRequestValidationIssues({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "Hello",
         constraints: { cloud: "allowed", privacy: "cloud_allowed" },
@@ -110,7 +110,7 @@ describe("TaskRequest validation", () => {
 
   it("rejects common inline secret key variants", () => {
     const issues = getTaskRequestValidationIssues({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_text" },
       prompt: "Hello",
       constraints: { cloud: "allowed", privacy: "cloud_allowed" },
@@ -127,7 +127,7 @@ describe("TaskRequest validation", () => {
   it("does not reject token count fields as inline secrets", () => {
     expect(
       validateTaskRequest({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "Hello",
         constraints: { cloud: "allowed", privacy: "cloud_allowed" },
@@ -139,7 +139,7 @@ describe("TaskRequest validation", () => {
 
 describe("TaskRequest per-task requirements (ADR 016)", () => {
   const speech = {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_speech" },
     speech: { text: "Hallo", locale: "de-AT" },
     delivery: { mode: "playback" }
@@ -151,7 +151,7 @@ describe("TaskRequest per-task requirements (ADR 016)", () => {
 
   it("requires speech and delivery for text_to_speech", () => {
     const issues = getTaskRequestValidationIssues({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_speech" }
     });
     expect(issues.filter((issue) => issue.keyword === "required").map((i) => i.message)).toEqual(
@@ -176,7 +176,7 @@ describe("TaskRequest per-task requirements (ADR 016)", () => {
   ])("forbids %s on a text_to_text request", (_name, extra) => {
     expect(
       validateTaskRequest({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "Hello",
         ...extra
@@ -225,7 +225,7 @@ describe("TaskRequest per-task requirements (ADR 016)", () => {
 
   it("rejects an unknown task kind at /task/kind", () => {
     const issues = getTaskRequestValidationIssues({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_video" },
       prompt: "A cat"
     });
@@ -277,7 +277,7 @@ describe("TaskResult validation", () => {
   it("accepts a text result with required telemetry", () => {
     expect(
       validateTaskResult({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         output: { type: "text", text: "Done" },
         finishReason: "stop",
@@ -292,7 +292,7 @@ describe("IndeRunError validation", () => {
   it("accepts a normalized milestone error", () => {
     expect(
       validateIndeRunError({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         errorClass: "Offline",
         message: "Network unavailable",
         retryable: true
@@ -303,7 +303,7 @@ describe("IndeRunError validation", () => {
   it("rejects unsupported error classes", () => {
     expect(
       getIndeRunErrorValidationIssues({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         errorClass: "ProviderExploded",
         message: "Nope"
       }).some((issue) => issue.path === "/errorClass")
@@ -563,7 +563,7 @@ describe("StreamRunHandle validation", () => {
   it("accepts a minimal handle", () => {
     expect(
       validateStreamRunHandle({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         startedAt: 1000
       })
@@ -573,7 +573,7 @@ describe("StreamRunHandle validation", () => {
   it("accepts a handle with a resolved providerId", () => {
     expect(
       validateStreamRunHandle({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         startedAt: 1000,
         providerId: "openai_compatible_cloud"
@@ -584,7 +584,7 @@ describe("StreamRunHandle validation", () => {
   it("rejects a handle missing runId", () => {
     expect(
       getStreamRunHandleValidationIssues({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         startedAt: 1000
       }).some((issue) => issue.path === "/" && issue.keyword === "required")
     ).toBe(true);
@@ -595,7 +595,7 @@ describe("StreamEvent validation", () => {
   it("accepts a minimal content_delta event", () => {
     expect(
       validateStreamEvent({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 0,
         timestamp: 1000,
@@ -608,7 +608,7 @@ describe("StreamEvent validation", () => {
   it("accepts a content_snapshot event", () => {
     expect(
       validateStreamEvent({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 1,
         timestamp: 1001,
@@ -621,7 +621,7 @@ describe("StreamEvent validation", () => {
   it("accepts a lifecycle event", () => {
     expect(
       validateStreamEvent({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 0,
         timestamp: 999,
@@ -634,13 +634,13 @@ describe("StreamEvent validation", () => {
   it("accepts a terminal event with a completed outcome", () => {
     expect(
       validateStreamEvent({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 2,
         timestamp: 1002,
         type: "terminal",
         payload: {
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           runId: "run_123",
           outcome: "completed",
           finalText: "Hello",
@@ -653,13 +653,13 @@ describe("StreamEvent validation", () => {
   it("accepts a terminal event whose completed payload carries finishReason", () => {
     expect(
       validateStreamEvent({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 2,
         timestamp: 1002,
         type: "terminal",
         payload: {
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           runId: "run_123",
           outcome: "completed",
           finalText: "Hello",
@@ -673,7 +673,7 @@ describe("StreamEvent validation", () => {
   it("accepts an event with an unrecognized type (forward-compatible)", () => {
     expect(
       validateStreamEvent({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 3,
         timestamp: 1003,
@@ -696,7 +696,7 @@ describe("StreamEvent validation", () => {
   it("rejects a content_delta event missing the required payload.text field", () => {
     expect(
       getStreamEventValidationIssues({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 0,
         timestamp: 1000,
@@ -711,7 +711,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("accepts a completed outcome", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "completed",
         finalText: "Hello",
@@ -724,7 +724,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("accepts a completed outcome carrying finishReason", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "completed",
         finalText: "Hello",
@@ -737,7 +737,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("rejects a completed outcome with an unknown finishReason", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "completed",
         finalText: "Hello",
@@ -750,11 +750,11 @@ describe("StreamTerminalOutcome validation", () => {
   it("accepts an error outcome", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "error",
         error: {
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           errorClass: "Timeout",
           message: "Provider timed out"
         }
@@ -765,7 +765,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("accepts a cancelled outcome", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "cancelled",
         partialText: "Hel",
@@ -777,7 +777,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("accepts a cancelled outcome with empty partialText", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "cancelled",
         partialText: ""
@@ -788,7 +788,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("rejects a completed outcome missing both finalText and output", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "completed",
         telemetry: { providerUsed: "openai", totalMs: 42 }
@@ -799,7 +799,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("rejects an error outcome missing the required error field", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "error"
       })
@@ -810,7 +810,7 @@ describe("StreamTerminalOutcome validation", () => {
     // An artifact run cancelled before handoff produced nothing to report.
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "cancelled"
       })
@@ -837,11 +837,11 @@ describe("StreamTerminalOutcome validation", () => {
   ])(
     "accepts a %s outcome that carries a non-text output in both terminal copies",
     (outcome, payload) => {
-      const terminal = { schemaVersion: "1.0", runId: "run_123", outcome, ...payload };
+      const terminal = { schemaVersion: "1.1", runId: "run_123", outcome, ...payload };
       expect(getStreamTerminalOutcomeValidationIssues(terminal)).toEqual([]);
       expect(
         getStreamEventValidationIssues({
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           runId: "run_123",
           sequence: 3,
           timestamp: 1,
@@ -854,7 +854,7 @@ describe("StreamTerminalOutcome validation", () => {
 
   it("rejects a terminal output whose type lacks its payload in both copies", () => {
     const terminal = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: "run_123",
       outcome: "completed",
       output: { type: "playback" }
@@ -862,7 +862,7 @@ describe("StreamTerminalOutcome validation", () => {
     expect(validateStreamTerminalOutcome(terminal)).toBe(false);
     expect(
       validateStreamEvent({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         sequence: 0,
         timestamp: 1,
@@ -875,11 +875,11 @@ describe("StreamTerminalOutcome validation", () => {
   it("accepts the partialText an error outcome carries after commit", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "error",
         partialText: "Hel",
-        error: { schemaVersion: "1.0", errorClass: "Unavailable", message: "Provider failed" }
+        error: { schemaVersion: "1.1", errorClass: "Unavailable", message: "Provider failed" }
       })
     ).toBe(true);
   });
@@ -887,7 +887,7 @@ describe("StreamTerminalOutcome validation", () => {
   it("rejects an unrecognized outcome value", () => {
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "partial_success",
         finalText: "Hello"
@@ -897,7 +897,7 @@ describe("StreamTerminalOutcome validation", () => {
 
   it("keeps the error branch structurally identical to IndeRunError (cross-check)", () => {
     const errorFixture = {
-      schemaVersion: "1.0" as const,
+      schemaVersion: "1.1" as const,
       errorClass: "RateLimited" as const,
       message: "Too many requests",
       retryable: true,
@@ -907,7 +907,7 @@ describe("StreamTerminalOutcome validation", () => {
     expect(validateIndeRunError(errorFixture)).toBe(true);
     expect(
       validateStreamTerminalOutcome({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "error",
         error: errorFixture
@@ -918,7 +918,7 @@ describe("StreamTerminalOutcome validation", () => {
 
 describe("ExecutionProvenance validation", () => {
   const provenance = {
-    schemaVersion: "1.0" as const,
+    schemaVersion: "1.1" as const,
     modelProfile: "auto",
     providerId: "openai:gpt-5.2",
     locality: "cloud" as const,
@@ -946,7 +946,7 @@ describe("ExecutionProvenance validation", () => {
   it("accepts the unknown-locality record of a run that reached no provider", () => {
     expect(
       validateExecutionProvenance({
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         modelProfile: "smart",
         locality: "unknown",
         attemptCount: 0,
@@ -969,7 +969,7 @@ describe("ExecutionProvenance validation", () => {
   it("is the same shape on every payload that carries it", () => {
     const invalid = { ...provenance, locality: "local" };
     const result = (value: object) => ({
-      schemaVersion: "1.0" as const,
+      schemaVersion: "1.1" as const,
       runId: "run_123",
       output: { type: "text" as const, text: "Hi" },
       finishReason: "stop" as const,
@@ -977,28 +977,28 @@ describe("ExecutionProvenance validation", () => {
       provenance: value
     });
     const error = (value: object) => ({
-      schemaVersion: "1.0" as const,
+      schemaVersion: "1.1" as const,
       errorClass: "Unavailable" as const,
       message: "All eligible providers failed.",
       provenance: value
     });
     const outcomes = (value: object) => [
       {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "completed",
         finalText: "Hi",
         provenance: value
       },
       {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "error",
         error: error(value),
         provenance: value
       },
       {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: "run_123",
         outcome: "cancelled",
         partialText: "",
@@ -1006,7 +1006,7 @@ describe("ExecutionProvenance validation", () => {
       }
     ];
     const terminalEvent = (payload: object) => ({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: "run_123",
       sequence: 0,
       timestamp: 1,

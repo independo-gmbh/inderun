@@ -392,7 +392,7 @@ final class AppleSystemSpeechProviderTests: XCTestCase {
         let runtime = ScriptedSpeechRuntime()
         let inderun = try engine(runtime)
 
-        let speech = try await inderun.generateSpeech(GenerateSpeechOptions(hallo, mediaTypes: ["audio/wav"]))
+        let speech = try await inderun.generateSpeech(GenerateSpeechOptions(hallo.speech, mediaTypes: ["audio/wav"]))
         let chunk = try await inderun.readArtifact(
             request: ArtifactReadRequest(artifactId: speech.artifact.id, maxBytes: nil, offset: nil)
         )
@@ -411,7 +411,7 @@ final class AppleSystemSpeechProviderTests: XCTestCase {
         let inderun = try engine(runtime)
 
         do {
-            _ = try await inderun.generateSpeech(GenerateSpeechOptions(hallo, mediaTypes: ["audio/mpeg"]))
+            _ = try await inderun.generateSpeech(GenerateSpeechOptions(hallo.speech, mediaTypes: ["audio/mpeg"]))
             XCTFail("expected a routing refusal")
         } catch let error as IndeRunException {
             XCTAssertEqual(error.errorClass, .CapabilityMismatch)

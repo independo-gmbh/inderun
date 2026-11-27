@@ -1,5 +1,6 @@
 package app.independo.inderun.core
 
+import app.independo.inderun.contracts.ControlRequirement
 import app.independo.inderun.contracts.DeliveryRequirement
 import app.independo.inderun.contracts.LocaleMatch
 import app.independo.inderun.contracts.LocaleRequirement
@@ -8,6 +9,7 @@ import app.independo.inderun.contracts.Privacy
 import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.RoutePlannerInputTask
+import app.independo.inderun.contracts.SpeechControlId
 import app.independo.inderun.contracts.TaskInputKind
 import app.independo.inderun.contracts.TaskKind
 import app.independo.inderun.contracts.TaskOutput
@@ -88,6 +90,16 @@ private object TextToSpeechProfile : TaskProfile {
             if (speech.voice?.requirement == RequirementLevel.Required && speech.voice?.gender == null && speech.voice?.id == null) {
                 add("speech.voice with requirement 'required' must name an id or a gender.")
             }
+            speech.controls?.speakingRate?.let { rate ->
+                if (!(rate.value.isFinite() && rate.value > 0)) {
+                    add("speech.controls.speakingRate.value must be a finite number greater than 0.")
+                }
+            }
+            speech.controls?.pitch?.let { pitch ->
+                if (!(pitch.value.isFinite() && pitch.value > 0)) {
+                    add("speech.controls.pitch.value must be a finite number greater than 0.")
+                }
+            }
         }
 
         val delivery = request.delivery
@@ -103,6 +115,16 @@ private object TextToSpeechProfile : TaskProfile {
                 }
                 if (destinationRef.isEmpty()) {
                     add("delivery.destinationRef must be non-empty.")
+                }
+            }
+            delivery.playback?.let { playback ->
+                if (delivery.mode != OutputDelivery.Playback) {
+                    add("delivery.playback is only allowed with delivery.mode 'playback'.")
+                }
+                playback.volume?.let { volume ->
+                    if (!(volume.value.isFinite() && volume.value >= 0 && volume.value <= 1)) {
+                        add("delivery.playback.volume.value must be a finite number from 0 to 1.")
+                    }
                 }
             }
             val mediaTypes = delivery.mediaTypes
@@ -137,7 +159,26 @@ private object TextToSpeechProfile : TaskProfile {
                     requirement = voice.requirement ?: RequirementLevel.Preferred,
                 )
             },
+            controls = controlRequirements(request),
         )
+    }
+
+    /**
+     * The request's speech controls in the planner's fixed order (rate, pitch, volume), or null
+     * when it names none, so a request without controls projects exactly as before (ADR 025).
+     */
+    private fun controlRequirements(request: TaskRequest): List<ControlRequirement>? {
+        val named = listOf(
+            SpeechControlId.SpeechSpeakingRate to request.speech?.controls?.speakingRate?.let { it.value to it.requirement },
+            SpeechControlId.SpeechPitch to request.speech?.controls?.pitch?.let { it.value to it.requirement },
+            SpeechControlId.PlaybackVolume to request.delivery?.playback?.volume?.let { it.value to it.requirement },
+        )
+        val controls = named.mapNotNull { (id, control) ->
+            control?.let { (value, requirement) ->
+                ControlRequirement(id = id, value = value, requirement = requirement ?: RequirementLevel.Preferred)
+            }
+        }
+        return controls.ifEmpty { null }
     }
 
     override fun delivery(request: TaskRequest): OutputDelivery = checkNotNull(request.delivery) { "text_to_speech request without delivery" }.mode

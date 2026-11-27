@@ -7,14 +7,14 @@
       "id": "prompt_run",
       "description": "A single-turn prompt resolved with inline text.",
       "request": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "prompt": "Explain this sign in plain language.",
         "modelProfile": "auto",
         "constraints": { "privacy": "local_preferred" }
       },
       "result": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "runId": "run_text_1",
         "output": { "type": "text", "text": "This sign means the lift is out of order." },
         "finishReason": "stop",
@@ -26,7 +26,7 @@
       "id": "messages_stream",
       "description": "A conversation streamed to completion; the terminal outcome carries finalText.",
       "request": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "messages": [
           { "role": "system", "content": "Use plain language." },
@@ -34,7 +34,7 @@
         ]
       },
       "terminal": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "runId": "run_text_2",
         "outcome": "completed",
         "finalText": "It means the lift is out of order.",

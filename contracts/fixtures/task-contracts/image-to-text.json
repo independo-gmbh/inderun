@@ -7,13 +7,13 @@
       "id": "describe_image",
       "description": "An image plus an instruction, answered with inline text.",
       "request": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "image_to_text" },
         "image": { "mediaType": "image/jpeg", "ref": "placeholder-input-reference" },
         "prompt": "Describe what is on this sign."
       },
       "result": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "runId": "run_image_1",
         "output": { "type": "text", "text": "A sign saying the lift is out of order." },
         "finishReason": "stop",

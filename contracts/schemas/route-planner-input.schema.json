@@ -91,6 +91,28 @@
               "enum": ["required", "preferred"]
             }
           }
+        },
+        "controls": {
+          "description": "The speech controls the request names (ADR 025), in the order speech.speakingRate, speech.pitch, playback.volume. A 'required' control rejects a provider that cannot bind a voice supporting it for the requested delivery; a 'preferred' one only ranks. Absent or empty means none.",
+          "type": "array",
+          "items": {
+            "title": "ControlRequirement",
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "value", "requirement"],
+            "properties": {
+              "id": {
+                "$ref": "provider-descriptor.schema.json#/$defs/speechControlId"
+              },
+              "value": {
+                "description": "The requested value, already checked against the control's domain.",
+                "type": "number"
+              },
+              "requirement": {
+                "$ref": "#/properties/task/properties/voice/properties/requirement"
+              }
+            }
+          }
         }
       }
     },

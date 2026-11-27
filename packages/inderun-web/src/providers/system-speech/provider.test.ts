@@ -356,7 +356,7 @@ describe("speech through the engine", () => {
   it("completes through run() too", async () => {
     const fake = fakeRuntime();
     const request: TaskRequest = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_speech" },
       speech: { text: "Hallo", locale: "de-DE" },
       delivery: { mode: "playback" }
@@ -429,7 +429,7 @@ describe("speech through the engine", () => {
     };
     const provider = new SystemSpeechWebProvider({ runtime: fake.runtime });
     const request: TaskRequest = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       task: { kind: "text_to_speech" },
       speech: { text: "Hallo", locale: "de-DE" },
       delivery: { mode: "playback" }

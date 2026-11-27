@@ -116,7 +116,7 @@ extension StreamTerminalOutcome {
             output: output,
             provenance: provenance,
             runId: runId,
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             telemetry: telemetry,
             usage: usage.map {
                 StreamTerminalOutcomeUsage(
@@ -146,7 +146,7 @@ extension StreamTerminalOutcome {
             output: nil,
             provenance: provenance,
             runId: runId,
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             telemetry: nil,
             usage: nil,
             error: StreamTerminalOutcomeError(
@@ -181,7 +181,7 @@ extension StreamTerminalOutcome {
             output: output,
             provenance: provenance,
             runId: runId,
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             telemetry: nil,
             usage: nil,
             error: nil,

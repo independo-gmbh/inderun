@@ -57,7 +57,14 @@ package enum TaskProfiles {
             return issues
         },
         plannerTask: { _ in
-            RoutePlannerInputTask(delivery: nil, inputs: [.text], kind: TaskKind.textToText.rawValue, locale: nil, voice: nil)
+            RoutePlannerInputTask(
+                controls: nil,
+                delivery: nil,
+                inputs: [.text],
+                kind: TaskKind.textToText.rawValue,
+                locale: nil,
+                voice: nil
+            )
         },
         delivery: { _ in .inline }
     )
@@ -91,6 +98,7 @@ package enum TaskProfiles {
             // Validation runs before projection and requires both; a request routed
             // without it projects only what it carries rather than trapping.
             RoutePlannerInputTask(
+                controls: controlRequirements(request),
                 delivery: request.delivery.map { DeliveryRequirement(mediaTypes: $0.mediaTypes, mode: $0.mode) },
                 inputs: [.text],
                 kind: TaskKind.textToSpeech.rawValue,
@@ -125,7 +133,35 @@ package enum TaskProfiles {
            voice.gender == nil, voice.id == nil {
             issues.append("speech.voice must name an id or a gender when speech.voice.requirement is 'required'.")
         }
+        if let rate = speech.controls?.speakingRate, !(rate.value.isFinite && rate.value > 0) {
+            issues.append("speech.controls.speakingRate.value must be a finite number greater than 0.")
+        }
+        if let pitch = speech.controls?.pitch, !(pitch.value.isFinite && pitch.value > 0) {
+            issues.append("speech.controls.pitch.value must be a finite number greater than 0.")
+        }
         return issues
+    }
+
+    /// The request's speech controls in the planner's fixed order (rate, pitch, volume),
+    /// or `nil` when it names none, so a request without controls projects as before.
+    private static func controlRequirements(_ request: TaskRequest) -> [ControlRequirement]? {
+        var controls: [ControlRequirement] = []
+        if let rate = request.speech?.controls?.speakingRate {
+            controls.append(
+                ControlRequirement(id: .speechSpeakingRate, requirement: rate.requirement ?? .preferred, value: rate.value)
+            )
+        }
+        if let pitch = request.speech?.controls?.pitch {
+            controls.append(
+                ControlRequirement(id: .speechPitch, requirement: pitch.requirement ?? .preferred, value: pitch.value)
+            )
+        }
+        if let volume = request.delivery?.playback?.volume {
+            controls.append(
+                ControlRequirement(id: .playbackVolume, requirement: volume.requirement ?? .preferred, value: volume.value)
+            )
+        }
+        return controls.isEmpty ? nil : controls
     }
 
     private static func deliveryIssues(_ delivery: OutputDeliveryRequest) -> [String] {
@@ -139,6 +175,14 @@ package enum TaskProfiles {
             }
             if destinationRef.isEmpty {
                 issues.append("delivery.destinationRef must be non-empty.")
+            }
+        }
+        if let playback = delivery.playback {
+            if delivery.mode != .playback {
+                issues.append("delivery.playback is only valid with 'playback' delivery.")
+            }
+            if let volume = playback.volume, !(volume.value.isFinite && volume.value >= 0 && volume.value <= 1) {
+                issues.append("delivery.playback.volume.value must be a finite number from 0 to 1.")
             }
         }
         if let mediaTypes = delivery.mediaTypes {

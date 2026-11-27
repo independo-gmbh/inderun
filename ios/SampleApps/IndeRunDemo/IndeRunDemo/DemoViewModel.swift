@@ -435,7 +435,7 @@ final class DemoViewModel: ObservableObject {
         do {
             let inderun = try makeIndeRun()
             let started = Date()
-            let speech = try await inderun.generateSpeech(GenerateSpeechOptions(SpeakOptions(
+            let speech = try await inderun.generateSpeech(GenerateSpeechOptions(SpeechOptions(
                 speechText,
                 locale: selectedLocale,
                 voice: speechVoices.first { $0.id == speechVoiceId }?.asSpeechVoice(),

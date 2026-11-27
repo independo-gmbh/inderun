@@ -76,7 +76,7 @@ describe("utterance corpus", () => {
     (_id, utterance) => {
       for (const mode of ["playback", "artifact"] as const) {
         const request = {
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           task: { kind: "text_to_speech" },
           speech: { text: utterance.text, locale: utterance.locale },
           delivery: { mode }

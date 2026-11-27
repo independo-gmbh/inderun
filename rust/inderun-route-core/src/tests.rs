@@ -90,6 +90,7 @@ fn text_task() -> Task {
         delivery: None,
         locale: None,
         voice: None,
+        controls: None,
     }
 }
 

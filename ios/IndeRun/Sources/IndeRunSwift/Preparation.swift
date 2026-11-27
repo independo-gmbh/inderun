@@ -177,6 +177,7 @@ actor Preparer {
 
     private func plannerTask(_ kind: String, _ request: PrepareRequest) -> RoutePlannerInputTask {
         RoutePlannerInputTask(
+            controls: nil,
             delivery: nil,
             inputs: [.text],
             kind: kind,

@@ -379,7 +379,7 @@ class NeuralSpeechLifecycleConformanceTest {
         "artifact_is_wav_of_the_samples" to { timeoutMs ->
             val world = NeuralWorld(modelPackage)
             val generated = bounded(timeoutMs, "generateSpeech") {
-                world.engine.generateSpeech(GenerateSpeechOptions(SpeakOptions(TEXT, LOCALE, model = PROFILE)))
+                world.engine.generateSpeech(GenerateSpeechOptions(SpeechOptions(TEXT, LOCALE, model = PROFILE)))
             }
             NeuralObservation(
                 world,
@@ -395,7 +395,7 @@ class NeuralSpeechLifecycleConformanceTest {
             assertEquals(7, text.length)
             try {
                 bounded(timeoutMs, "generateSpeech") {
-                    world.engine.generateSpeech(GenerateSpeechOptions(SpeakOptions(text, LOCALE, model = PROFILE)))
+                    world.engine.generateSpeech(GenerateSpeechOptions(SpeechOptions(text, LOCALE, model = PROFILE)))
                 }
                 NeuralObservation(world, outcome = "completed")
             } catch (error: IndeRunException) {
@@ -467,7 +467,7 @@ class NeuralSpeechLifecycleConformanceTest {
     }
 
     private fun speechRequest() = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
         speech = SpeechInput(text = TEXT, locale = LOCALE),
         delivery = OutputDeliveryRequest(mode = OutputDelivery.Playback),

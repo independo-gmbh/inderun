@@ -91,6 +91,56 @@
           "items": {
             "$ref": "#/$defs/voice"
           }
+        },
+        "controlStates": {
+          "description": "The live state of each declared speech control for this task (ADR 025), at most one entry per id and delivery. A voice's own controlStates override these for that voice. A control and delivery with no entry are in the unknown state.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/controlState"
+          }
+        }
+      }
+    },
+    "controlState": {
+      "title": "SpeechControlState",
+      "description": "Whether one speech control works right now on one output delivery, and with which values (ADR 025). Entries are keyed by id and delivery: a list holds at most one entry per pair, and a provider whose playback and artifact paths differ states each. Absent available means unknown, and unknown is never support: a control satisfies a request only with available true and, for a number, a known range that contains the value. On a voice, every field present overrides the task's entry with the same id and delivery for that voice. playback.volume only ever has a 'playback' entry.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "delivery"],
+      "if": { "properties": { "id": { "const": "playback.volume" } }, "required": ["id"] },
+      "then": { "properties": { "delivery": { "const": "playback" } } },
+      "properties": {
+        "id": {
+          "$ref": "provider-descriptor.schema.json#/$defs/speechControlId"
+        },
+        "delivery": {
+          "$ref": "provider-descriptor.schema.json#/$defs/controlDelivery"
+        },
+        "available": {
+          "description": "Whether the control works. Absent means unknown. Never null.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why the control does not work, when available is false.",
+          "type": "string",
+          "minLength": 1
+        },
+        "range": {
+          "title": "SpeechControlRange",
+          "description": "The values a number control accepts, in the shared control's units. On a voice it replaces the task's range.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "description": "Smallest accepted value, inclusive.", "type": "number" },
+            "max": { "description": "Largest accepted value, inclusive.", "type": "number" },
+            "default": { "description": "The value the provider uses when the request names none.", "type": "number" },
+            "step": {
+              "description": "An increment for a settings slider. A hint, not a quantization rule.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         }
       }
     },
@@ -131,6 +181,13 @@
         "readiness": {
           "description": "How ready the voice is to speak. Absent means 'ready'.",
           "$ref": "#/$defs/readiness"
+        },
+        "controlStates": {
+          "description": "Sparse overrides of the task's controlStates for this voice (ADR 025), matched by id and delivery. A pair with no entry inherits the task's state for that pair; available false disables the control for this voice on that delivery; a range replaces the task's range for that delivery.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/controlState"
+          }
         }
       }
     },

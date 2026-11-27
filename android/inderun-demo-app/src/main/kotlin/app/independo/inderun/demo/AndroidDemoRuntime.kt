@@ -82,7 +82,7 @@ internal class AndroidDemoRuntime(
     override suspend fun synthesizeSpeech(options: SpeakOptions, settings: DemoSettings): String {
         val inderun = makeIndeRun(settings)
         val started = System.nanoTime()
-        val speech = inderun.generateSpeech(GenerateSpeechOptions(options))
+        val speech = inderun.generateSpeech(GenerateSpeechOptions(options.speech))
         val renderedMs = (System.nanoTime() - started) / 1_000_000
         val first = inderun.readArtifact(ArtifactReadRequest(artifactId = speech.artifact.id))
         val header = first.bytes.copyOf(4).decodeToString()
@@ -168,7 +168,7 @@ internal class AndroidDemoRuntime(
     override fun lastRouteDecision(): RouteDecision? = telemetryService.lastRouteDecision()
 
     private fun makeRequest(prompt: String, privacy: PrivacyPreference) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = prompt,
         task = TaskRequestTask(),
         // SystemAndroidOnnxGenAiRuntime recomputes the full sequence on every decode step (no

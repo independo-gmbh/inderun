@@ -6,7 +6,7 @@
       "description": "An unrecognized event type, with and without a payload, does not interrupt the text view or change the result.",
       "events": [
         {
-          "schemaVersion": "1.0",
+          "schemaVersion": "1.1",
           "runId": "run_fc_1",
           "sequence": 0,
           "timestamp": 1,
@@ -14,7 +14,7 @@
           "payload": { "text": "Hel" }
         },
         {
-          "schemaVersion": "1.0",
+          "schemaVersion": "1.1",
           "runId": "run_fc_1",
           "sequence": 1,
           "timestamp": 2,
@@ -22,14 +22,14 @@
           "payload": { "spokenCharacters": 3 }
         },
         {
-          "schemaVersion": "1.0",
+          "schemaVersion": "1.1",
           "runId": "run_fc_1",
           "sequence": 2,
           "timestamp": 3,
           "type": "future_marker"
         },
         {
-          "schemaVersion": "1.0",
+          "schemaVersion": "1.1",
           "runId": "run_fc_1",
           "sequence": 3,
           "timestamp": 4,
@@ -37,13 +37,13 @@
           "payload": { "text": "lo" }
         },
         {
-          "schemaVersion": "1.0",
+          "schemaVersion": "1.1",
           "runId": "run_fc_1",
           "sequence": 4,
           "timestamp": 5,
           "type": "terminal",
           "payload": {
-            "schemaVersion": "1.0",
+            "schemaVersion": "1.1",
             "runId": "run_fc_1",
             "outcome": "completed",
             "finalText": "Hello"

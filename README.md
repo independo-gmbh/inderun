@@ -44,7 +44,7 @@ const ai = createIndeRunCapacitor();
 
 try {
   const result = await ai.run({
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_text" },
     prompt: "Rewrite in plain language: Your appointment has been rescheduled.",
     constraints: { privacy: "local_required" }

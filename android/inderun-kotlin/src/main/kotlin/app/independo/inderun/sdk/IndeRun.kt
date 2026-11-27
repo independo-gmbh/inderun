@@ -608,7 +608,7 @@ class IndeRun(
             handle = StreamRunHandle(
                 providerId = first.describe().id,
                 runId = runId,
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 startedAt = startedAtEpochMs,
             ),
             events = events,
@@ -655,7 +655,7 @@ class IndeRun(
             }.buffer(EventOutlet.CAPACITY),
         )
         return StreamRun(
-            handle = StreamRunHandle(runId = runId, schemaVersion = SchemaVersion.V1_0, startedAt = now()),
+            handle = StreamRunHandle(runId = runId, schemaVersion = SchemaVersion.V1_1, startedAt = now()),
             events = events,
         ) { reason -> cancellation.cancel(reason) }
     }
@@ -725,7 +725,7 @@ class IndeRun(
                     output = TaskOutput(type = TaskOutputType.PREPARED, preparation = items),
                     provenance = provenance,
                     runId = runId,
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                 )
             }
         }
@@ -1138,8 +1138,8 @@ class IndeRun(
     private fun validateRequest(request: TaskRequest, runId: String) {
         val validationIssues = mutableListOf<String>()
 
-        if (request.schemaVersion != SchemaVersion.V1_0) {
-            validationIssues += "schemaVersion must be '1.0'"
+        if (request.schemaVersion != SchemaVersion.V1_1) {
+            validationIssues += "schemaVersion must be '1.1'"
         }
         if (request.requestId != null && request.requestId!!.isBlank()) {
             validationIssues += "requestId must be non-empty when provided."

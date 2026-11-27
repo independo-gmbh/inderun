@@ -32,7 +32,7 @@ public final class EventGate: @unchecked Sendable {
         return StreamEvent(
             payload: payload,
             runId: runId,
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             sequence: next,
             timestamp: timestamp,
             type: type
@@ -56,7 +56,7 @@ public final class EventGate: @unchecked Sendable {
         return StreamEvent(
             payload: Payload(terminalOutcome: outcome),
             runId: runId,
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             sequence: next,
             timestamp: timestamp,
             type: "terminal"

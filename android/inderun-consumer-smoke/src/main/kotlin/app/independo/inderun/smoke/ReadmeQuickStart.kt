@@ -42,7 +42,7 @@ object ReadmeQuickStart {
 
     /** The advanced API's equivalent request. */
     fun request(): TaskRequest = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = "Translate 'Hello' to Spanish",
         task = TaskRequestTask(),
         constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),

@@ -23,7 +23,7 @@ export type StreamRunHandle = {
     /**
      * Contract schema version used to interpret this handle payload.
      */
-    schemaVersion: "1.0";
+    schemaVersion: "1.1";
     /**
      * Wall-clock time the stream run was opened, in Unix epoch milliseconds.
      */

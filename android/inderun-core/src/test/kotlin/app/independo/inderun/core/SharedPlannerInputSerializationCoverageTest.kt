@@ -2,6 +2,8 @@ package app.independo.inderun.core
 
 import app.independo.inderun.contracts.CancelSemantics
 import app.independo.inderun.contracts.Cloud
+import app.independo.inderun.contracts.ControlDelivery
+import app.independo.inderun.contracts.ControlRequirement
 import app.independo.inderun.contracts.DeliveryRequirement
 import app.independo.inderun.contracts.InteractionMode
 import app.independo.inderun.contracts.LocaleMatch
@@ -28,6 +30,13 @@ import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.RoutePlannerInputConstraints
 import app.independo.inderun.contracts.RoutePlannerInputPreferences
 import app.independo.inderun.contracts.RoutePlannerInputTask
+import app.independo.inderun.contracts.SpeechControlDeclaration
+import app.independo.inderun.contracts.SpeechControlId
+import app.independo.inderun.contracts.SpeechControlLifetime
+import app.independo.inderun.contracts.SpeechControlPhase
+import app.independo.inderun.contracts.SpeechControlRange
+import app.independo.inderun.contracts.SpeechControlState
+import app.independo.inderun.contracts.SpeechControlValueKind
 import app.independo.inderun.contracts.StreamingStyle
 import app.independo.inderun.contracts.TaskInputKind
 import app.independo.inderun.contracts.VoiceGender
@@ -84,6 +93,9 @@ class SharedPlannerInputSerializationCoverageTest {
                 providerId = "provider",
                 requirement = RequirementLevel.Required,
             ),
+            controls = listOf(
+                ControlRequirement(id = SpeechControlId.SpeechSpeakingRate, value = 0.9, requirement = RequirementLevel.Required),
+            ),
         ),
         interactionMode = InteractionMode.Stream,
         constraints = RoutePlannerInputConstraints(
@@ -123,6 +135,15 @@ class SharedPlannerInputSerializationCoverageTest {
                             ),
                             locales = listOf("de-DE"),
                             privacy = ProviderPrivacy(dataLeavesDevice = false, regions = listOf("eu")),
+                            controls = listOf(
+                                SpeechControlDeclaration(
+                                    id = SpeechControlId.SpeechSpeakingRate,
+                                    valueKind = SpeechControlValueKind.Number,
+                                    phase = SpeechControlPhase.Synthesis,
+                                    lifetime = SpeechControlLifetime.Utterance,
+                                    deliveries = listOf(ControlDelivery.Artifact),
+                                ),
+                            ),
                         ),
                     ),
                     limits = ProviderLimits(
@@ -149,14 +170,32 @@ class SharedPlannerInputSerializationCoverageTest {
                             streamingUnavailableReason = "task streaming reason",
                             cancellationAvailable = false,
                             locales = listOf("de-DE"),
+                            controlStates = listOf(fullControlState()),
                             voices = listOf(
-                                ProviderVoice(id = "anna", name = "Anna", locale = "de-DE", locales = listOf("de-DE", "en-US"), gender = VoiceGender.Female, networkRequired = false, readiness = ProviderReadiness.Cold),
+                                ProviderVoice(
+                                    id = "anna",
+                                    name = "Anna",
+                                    locale = "de-DE",
+                                    locales = listOf("de-DE", "en-US"),
+                                    gender = VoiceGender.Female,
+                                    networkRequired = false,
+                                    readiness = ProviderReadiness.Cold,
+                                    controlStates = listOf(fullControlState()),
+                                ),
                             ),
                         ),
                     ),
                 ),
             ),
         ),
+    )
+
+    private fun fullControlState(): SpeechControlState = SpeechControlState(
+        id = SpeechControlId.SpeechSpeakingRate,
+        delivery = ControlDelivery.Artifact,
+        available = false,
+        reason = "control reason",
+        range = SpeechControlRange(min = 0.5, max = 2.0, default = 1.0, step = 0.1),
     )
 
     private fun collectSchemaPaths(

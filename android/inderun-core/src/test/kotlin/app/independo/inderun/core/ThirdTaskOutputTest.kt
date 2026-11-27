@@ -28,7 +28,7 @@ import org.junit.Test
 class ThirdTaskOutputTest {
     private val request =
         TaskRequest(
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
             speech = SpeechInput(locale = "de-AT", text = "Hallo"),
             delivery = OutputDeliveryRequest(mode = OutputDelivery.Artifact, mediaTypes = listOf("image/png")),

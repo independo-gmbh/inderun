@@ -121,7 +121,7 @@ class ArtifactLifecycleConformanceTest {
 // --- the scripted provider ---------------------------------------------------
 
 private val artifactRequest = TaskRequest(
-    schemaVersion = SchemaVersion.V1_0,
+    schemaVersion = SchemaVersion.V1_1,
     task = TaskRequestTask(TaskKind.TEXT_TO_SPEECH),
     speech = SpeechInput(text = "Hallo", locale = "de-AT"),
     delivery = OutputDeliveryRequest(mode = OutputDelivery.Artifact, mediaTypes = listOf("audio/wav")),
@@ -197,7 +197,7 @@ private class ArtifactFake(
     override suspend fun capabilities(host: HostServices) = ProviderDynamicCapabilities(available = true)
 
     override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         runId = context.runId,
         output = checkNotNull(play(context.artifacts, null)),
         finishReason = FinishReason.STOP,

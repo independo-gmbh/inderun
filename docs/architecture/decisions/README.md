@@ -22,6 +22,7 @@ New ADRs continue the numbering here.
 | [022](./022-core-ai-runtime.md)                    | Apple Core AI speech runtime           | Accepted |
 | [023](./023-german-text-frontend.md)               | German text frontend                   | Accepted |
 | [024](./024-documentation-architecture.md)         | Documentation architecture             | Accepted |
+| [025](./025-speech-controls.md)                    | Speech controls and schema version 1.1 | Accepted |
 
 ## Template
 

@@ -130,7 +130,7 @@ export class Router {
     // The planner reads the task from `task`; this request only carries the envelope defaults.
     const planInput = buildSharedPlannerInput(
       {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: " ",
         ...(privacy !== undefined ? { constraints: { privacy } } : {})

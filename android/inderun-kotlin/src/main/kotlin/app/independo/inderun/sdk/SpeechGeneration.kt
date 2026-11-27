@@ -7,11 +7,13 @@ import app.independo.inderun.contracts.MediaArtifact
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.OutputDelivery
 import app.independo.inderun.contracts.OutputDeliveryRequest
+import app.independo.inderun.contracts.PlaybackControls
 import app.independo.inderun.contracts.PlaybackTiming
 import app.independo.inderun.contracts.ProviderReadiness
 import app.independo.inderun.contracts.ProviderVoice
 import app.independo.inderun.contracts.RequirementLevel
 import app.independo.inderun.contracts.SchemaVersion
+import app.independo.inderun.contracts.SharedSynthesisControls
 import app.independo.inderun.contracts.SpeechInput
 import app.independo.inderun.contracts.SpeechOutput
 import app.independo.inderun.contracts.SpeechVoice
@@ -46,7 +48,9 @@ import kotlinx.coroutines.launch
 typealias SpeechExecutionOptions = TextExecutionOptions
 
 /**
- * Options for [speak].
+ * What every speech call takes: the text, its locale, the voice, the synthesis controls and the
+ * execution policy. [SpeakOptions] adds playback-only settings and [GenerateSpeechOptions] the
+ * artifact's, as on the Web and Swift SDKs (ADR 025).
  *
  * @property text The text to speak. Plain text; markup such as SSML is out of scope.
  * @property locale BCP 47 tag, e.g. `"de-AT"`.
@@ -54,29 +58,29 @@ typealias SpeechExecutionOptions = TextExecutionOptions
  *   region, so `de-AT` may be served by `de-DE`. [LocaleMatch.Exact] requires the whole tag.
  * @property voice The voice: [SpeechVoiceInfo.asSpeechVoice] for an entry of [listVoices], or
  *   provider-neutral traits. A required one never relaxes silently.
+ * @property controls Relative speaking rate and pitch (ADR 025). Each is preferred unless marked
+ *   required; a required one is met or the call is refused.
  * @property model Model profile to route within, as configured on the engine. Null or `"auto"`
  *   routes across every registered target. Never a vendor model or voice id.
  * @property authContextRef Secure-storage slot for provider credentials. Never a raw secret.
  * @property requestId Fixes the run id, for correlation.
  */
-data class SpeakOptions(
+data class SpeechOptions(
     val text: String,
     val locale: String,
     val localeMatch: LocaleMatch? = null,
     val voice: SpeechVoice? = null,
+    val controls: SharedSynthesisControls? = null,
     val model: String? = null,
     val execution: SpeechExecutionOptions? = null,
     val authContextRef: String? = null,
     val telemetry: TaskRequestTelemetry? = null,
     val requestId: String? = null,
 ) {
-    /** The canonical [TaskRequest] a [speak] call compiles to. */
-    fun toTaskRequest(): TaskRequest = toTaskRequest(OutputDeliveryRequest(mode = OutputDelivery.Playback))
-
     internal fun toTaskRequest(delivery: OutputDeliveryRequest): TaskRequest = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
-        speech = SpeechInput(locale = locale, localeMatch = localeMatch, text = text, voice = voice),
+        speech = SpeechInput(controls = controls, locale = locale, localeMatch = localeMatch, text = text, voice = voice),
         delivery = delivery,
         modelProfile = model.takeUnless { it == ModelProfiles.AUTO },
         constraints = execution?.taskConstraints(),
@@ -88,7 +92,64 @@ data class SpeakOptions(
 }
 
 /**
- * Options for [generateSpeech].
+ * Options for [speak]: the common [SpeechOptions] plus settings that only playback has. The common
+ * fields read through, so `options.voice` works as on [SpeechOptions].
+ *
+ * @property playback Playback volume of this utterance, 0 to 1 (ADR 025). Never the device volume.
+ */
+data class SpeakOptions(
+    val speech: SpeechOptions,
+    val playback: PlaybackControls? = null,
+) {
+    /** The common options spelled out, for the usual call that names only a few of them. */
+    constructor(
+        text: String,
+        locale: String,
+        localeMatch: LocaleMatch? = null,
+        voice: SpeechVoice? = null,
+        controls: SharedSynthesisControls? = null,
+        playback: PlaybackControls? = null,
+        model: String? = null,
+        execution: SpeechExecutionOptions? = null,
+        authContextRef: String? = null,
+        telemetry: TaskRequestTelemetry? = null,
+        requestId: String? = null,
+    ) : this(
+        SpeechOptions(
+            text = text,
+            locale = locale,
+            localeMatch = localeMatch,
+            voice = voice,
+            controls = controls,
+            model = model,
+            execution = execution,
+            authContextRef = authContextRef,
+            telemetry = telemetry,
+            requestId = requestId,
+        ),
+        playback,
+    )
+
+    val text: String get() = speech.text
+    val locale: String get() = speech.locale
+    val localeMatch: LocaleMatch? get() = speech.localeMatch
+    val voice: SpeechVoice? get() = speech.voice
+    val controls: SharedSynthesisControls? get() = speech.controls
+    val model: String? get() = speech.model
+    val execution: SpeechExecutionOptions? get() = speech.execution
+    val authContextRef: String? get() = speech.authContextRef
+    val telemetry: TaskRequestTelemetry? get() = speech.telemetry
+    val requestId: String? get() = speech.requestId
+
+    /** The canonical [TaskRequest] a [speak] call compiles to. */
+    fun toTaskRequest(): TaskRequest = speech.toTaskRequest(
+        OutputDeliveryRequest(mode = OutputDelivery.Playback, playback = playback),
+    )
+}
+
+/**
+ * Options for [generateSpeech]: the common [SpeechOptions] plus the artifact's. There is no
+ * playback volume, because nothing is played.
  *
  * @property mediaTypes Acceptable media types; always a hard requirement. Null lets the provider
  *   choose.
@@ -96,7 +157,7 @@ data class SpeakOptions(
  *   URL.
  */
 data class GenerateSpeechOptions(
-    val speech: SpeakOptions,
+    val speech: SpeechOptions,
     val mediaTypes: List<String>? = null,
     val destinationRef: String? = null,
 ) {

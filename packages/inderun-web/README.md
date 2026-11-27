@@ -152,7 +152,7 @@ const inderun = createIndeRunWeb({
   }
 });
 
-await inderun.run({ schemaVersion: "1.0", task: { kind: "text_to_text" }, prompt, modelProfile: "smart" });
+await inderun.run({ schemaVersion: "1.1", task: { kind: "text_to_text" }, prompt, modelProfile: "smart" });
 ```
 
 A request that names no profile routes within the built-in `auto` profile: every registered target. A named profile is
@@ -173,7 +173,7 @@ For the full event sequence, use the advanced API. `stream()` returns the run ha
 
 ```ts
 const { handle, events, cancel } = await inderun.stream({
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   task: { kind: "text_to_text" },
   prompt: "Write a one-sentence summary of IndeRun."
 });

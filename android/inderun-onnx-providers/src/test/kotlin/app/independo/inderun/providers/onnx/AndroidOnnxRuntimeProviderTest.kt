@@ -303,7 +303,7 @@ class AndroidOnnxRuntimeProviderTest {
     )
 
     private fun taskRequest(prompt: String): TaskRequest = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = prompt,
         task = TaskRequestTask(),
         constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),

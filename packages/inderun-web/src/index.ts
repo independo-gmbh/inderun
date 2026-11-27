@@ -44,7 +44,10 @@ export {
   type GenerateSpeechOptions,
   type ListVoicesOptions,
   type SpeakOptions,
+  type SpeechControls,
   type SpeechExecutionOptions,
+  type SpeechOptions,
+  type SpeechPlaybackControls,
   type SpeechPlayback,
   type SpokenSpeech,
   type SpeechVoiceInfo

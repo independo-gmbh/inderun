@@ -66,7 +66,8 @@ data class TaskRequest(
     val requestId: String? = null,
 
     /**
-     * Contract schema version used to interpret the request payload.
+     * Contract schema version used to interpret the request payload. Only '1.1' is accepted
+     * (ADR 025).
      */
     val schemaVersion: SchemaVersion,
 
@@ -164,6 +165,14 @@ data class OutputDeliveryRequest(
     val mediaTypes: List<String>? = null,
 
     val mode: OutputDelivery,
+
+    /**
+     * Only valid with 'playback' delivery: settings that shape how this utterance is heard,
+     * never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0
+     * (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are
+     * rejected.
+     */
+    val playback: PlaybackControls? = null,
 )
 
 /**
@@ -179,6 +188,43 @@ enum class OutputDelivery(val rawValue: String) {
 
     companion object {
         fun fromRawValue(value: String): OutputDelivery? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Only valid with 'playback' delivery: settings that shape how this utterance is heard,
+ * never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0
+ * (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are
+ * rejected.
+ */
+data class PlaybackControls(
+    val volume: RequestedUnitNumber? = null,
+)
+
+/**
+ * A requested numeric setting between 0 and 1, and how strictly it applies.
+ */
+data class RequestedUnitNumber(
+    val requirement: RequirementLevel? = null,
+
+    /**
+     * The requested value: finite, from 0 to 1.
+     */
+    val value: Double,
+)
+
+/**
+ * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
+ *
+ * 'required' takes part in routing; 'preferred' does not.
+ */
+enum class RequirementLevel(val rawValue: String) {
+    Preferred("preferred"),
+    Required("required"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): RequirementLevel? = entries.firstOrNull { it.rawValue == value }
     }
 }
 
@@ -268,7 +314,7 @@ enum class OptimizeFor(val rawValue: String) {
 }
 
 enum class SchemaVersion(val rawValue: String) {
-    V1_0("1.0"),
+    V1_1("1.1"),
     ;
 
     companion object {
@@ -281,6 +327,16 @@ enum class SchemaVersion(val rawValue: String) {
  * kind.
  */
 data class SpeechInput(
+    /**
+     * Relative synthesis settings shared across providers (ADR 025). speakingRate: relative
+     * pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or
+     * a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not
+     * hertz. Each is a preference by default; a 'required' one takes part in routing and is
+     * never ignored. An absent control means the provider's normal behaviour. Support and
+     * per-voice ranges are checked by routing, not here. Unknown controls are rejected.
+     */
+    val controls: SharedSynthesisControls? = null,
+
     /**
      * BCP 47 tag of the language to speak, e.g. 'de-AT'.
      */
@@ -303,6 +359,32 @@ data class SpeechInput(
      * fail; a 'required' one takes part in routing and is never relaxed silently.
      */
     val voice: SpeechVoice? = null,
+)
+
+/**
+ * Relative synthesis settings shared across providers (ADR 025). speakingRate: relative
+ * pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or
+ * a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not
+ * hertz. Each is a preference by default; a 'required' one takes part in routing and is
+ * never ignored. An absent control means the provider's normal behaviour. Support and
+ * per-voice ranges are checked by routing, not here. Unknown controls are rejected.
+ */
+data class SharedSynthesisControls(
+    val pitch: RequestedNumber? = null,
+    val speakingRate: RequestedNumber? = null,
+)
+
+/**
+ * A requested numeric setting and how strictly it applies. 'preferred' (default) may be
+ * omitted and reported when unsupported; 'required' is met or the run is refused.
+ */
+data class RequestedNumber(
+    val requirement: RequirementLevel? = null,
+
+    /**
+     * The requested value: finite and greater than 0.
+     */
+    val value: Double,
 )
 
 /**
@@ -362,21 +444,6 @@ enum class VoiceGender(val rawValue: String) {
 
     companion object {
         fun fromRawValue(value: String): VoiceGender? = entries.firstOrNull { it.rawValue == value }
-    }
-}
-
-/**
- * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
- *
- * 'required' takes part in routing; 'preferred' does not.
- */
-enum class RequirementLevel(val rawValue: String) {
-    Preferred("preferred"),
-    Required("required"),
-    ;
-
-    companion object {
-        fun fromRawValue(value: String): RequirementLevel? = entries.firstOrNull { it.rawValue == value }
     }
 }
 
@@ -748,6 +815,13 @@ enum class PreparationStatus(val rawValue: String) {
  */
 data class SpeechOutput(
     /**
+     * One record per speech control the request named, and none for others (ADR 025).
+     * Application is reported, never inferred from the request. A successful run never reports
+     * a required control as not applied.
+     */
+    val controls: List<SpeechControlOutcome>? = null,
+
+    /**
      * BCP 47 tag of the locale that was spoken.
      */
     val locale: String,
@@ -757,6 +831,105 @@ data class SpeechOutput(
      */
     val voice: SpeechOutputVoice? = null,
 )
+
+data class SpeechControlOutcome(
+    /**
+     * The value the platform accepted, in the shared control's units. Absent when unknown. An
+     * accepted setting, not an acoustic measurement.
+     */
+    val effective: Double? = null,
+
+    val id: SpeechControlId,
+
+    /**
+     * How an applied control took effect: 'platform_synthesis' (the platform synthesized with
+     * it) or 'playback_attenuation' (this utterance's playback was attenuated).
+     */
+    val method: SpeechControlMethod? = null,
+
+    /**
+     * Why a control was not applied: a route-plan omission reason ('unsupported',
+     * 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the
+     * platform refused the value at run time), or 'not_reported' (the provider reported
+     * nothing, so the engine records it as not applied).
+     */
+    val reason: SpeechControlOutcomeReason? = null,
+
+    /**
+     * The value the request named.
+     */
+    val requested: Double,
+
+    /**
+     * 'applied': the provider set the value through the platform's documented path.
+     * 'not_applied': it did not; see reason.
+     */
+    val status: SpeechControlStatus,
+)
+
+/**
+ * A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal),
+ * 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of
+ * one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.
+ */
+enum class SpeechControlId(val rawValue: String) {
+    PlaybackVolume("playback.volume"),
+    SpeechPitch("speech.pitch"),
+    SpeechSpeakingRate("speech.speakingRate"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechControlId? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * How an applied control took effect: 'platform_synthesis' (the platform synthesized with
+ * it) or 'playback_attenuation' (this utterance's playback was attenuated).
+ */
+enum class SpeechControlMethod(val rawValue: String) {
+    PlatformSynthesis("platform_synthesis"),
+    PlaybackAttenuation("playback_attenuation"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechControlMethod? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Why a control was not applied: a route-plan omission reason ('unsupported',
+ * 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the
+ * platform refused the value at run time), or 'not_reported' (the provider reported
+ * nothing, so the engine records it as not applied).
+ */
+enum class SpeechControlOutcomeReason(val rawValue: String) {
+    AvailabilityUnknown("availability_unknown"),
+    NotReported("not_reported"),
+    OutOfRange("out_of_range"),
+    ProviderRejected("provider_rejected"),
+    RangeUnknown("range_unknown"),
+    Unsupported("unsupported"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechControlOutcomeReason? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * 'applied': the provider set the value through the platform's documented path.
+ * 'not_applied': it did not; see reason.
+ */
+enum class SpeechControlStatus(val rawValue: String) {
+    Applied("applied"),
+    NotApplied("not_applied"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechControlStatus? = entries.firstOrNull { it.rawValue == value }
+    }
+}
 
 /**
  * The voice that spoke, as the catalog lists it.
@@ -861,7 +1034,7 @@ data class ExecutionProvenance(
     /**
      * Contract schema version used to interpret this provenance record.
      */
-    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_1,
 )
 
 data class ExecutionProvenanceAttempt(
@@ -968,7 +1141,10 @@ data class ExecutionProvenanceRouteRejection(
  * provider's task capability lacks an input kind, output delivery, media type, locale or
  * voice the request requires. 'prepare_not_supported' means the task capability declares no
  * prepare(). 'not_ready' means the provider, task or required voice exists but is not
- * prepared yet, so prepare() can make it available.
+ * prepared yet, so prepare() can make it available. 'speech_control_unsupported' means no
+ * voice the provider could bind supports a required speech control for the requested
+ * delivery; 'speech_control_out_of_range' means one supports it, but not the requested
+ * value (ADR 025).
  */
 enum class Code(val rawValue: String) {
     CapabilityUnavailable("capability_unavailable"),
@@ -983,6 +1159,8 @@ enum class Code(val rawValue: String) {
     PrepareNotSupported("prepare_not_supported"),
     PrivacyConstraint("privacy_constraint"),
     RunNotSupported("run_not_supported"),
+    SpeechControlOutOfRange("speech_control_out_of_range"),
+    SpeechControlUnsupported("speech_control_unsupported"),
     StreamingNotSupported("streaming_not_supported"),
     StreamingUnavailable("streaming_unavailable"),
     TaskNotSupported("task_not_supported"),
@@ -1100,7 +1278,7 @@ data class IndeRunError(
     /**
      * Contract schema version used to interpret the error payload.
      */
-    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_1,
 )
 
 /**
@@ -1408,6 +1586,13 @@ data class ProviderTaskAvailability(
     val cancellationAvailable: Boolean? = null,
 
     /**
+     * The live state of each declared speech control for this task (ADR 025), at most one entry
+     * per id and delivery. A voice's own controlStates override these for that voice. A control
+     * and delivery with no entry are in the unknown state.
+     */
+    val controlStates: List<SpeechControlState>? = null,
+
+    /**
      * The task kind this entry describes.
      */
     val kind: String,
@@ -1448,6 +1633,76 @@ data class ProviderTaskAvailability(
 )
 
 /**
+ * Whether one speech control works right now on one output delivery, and with which values
+ * (ADR 025). Entries are keyed by id and delivery: a list holds at most one entry per pair,
+ * and a provider whose playback and artifact paths differ states each. Absent available
+ * means unknown, and unknown is never support: a control satisfies a request only with
+ * available true and, for a number, a known range that contains the value. On a voice,
+ * every field present overrides the task's entry with the same id and delivery for that
+ * voice. playback.volume only ever has a 'playback' entry.
+ */
+data class SpeechControlState(
+    /**
+     * Whether the control works. Absent means unknown. Never null.
+     */
+    val available: Boolean? = null,
+
+    val delivery: ControlDelivery,
+    val id: SpeechControlId,
+
+    /**
+     * The values a number control accepts, in the shared control's units. On a voice it
+     * replaces the task's range.
+     */
+    val range: SpeechControlRange? = null,
+
+    /**
+     * Why the control does not work, when available is false.
+     */
+    val reason: String? = null,
+)
+
+/**
+ * The output delivery a speech control or control state applies to: 'playback' or
+ * 'artifact'. Text output ('inline') has no speech controls.
+ */
+enum class ControlDelivery(val rawValue: String) {
+    Artifact("artifact"),
+    Playback("playback"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ControlDelivery? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * The values a number control accepts, in the shared control's units. On a voice it
+ * replaces the task's range.
+ */
+data class SpeechControlRange(
+    /**
+     * The value the provider uses when the request names none.
+     */
+    val default: Double? = null,
+
+    /**
+     * Largest accepted value, inclusive.
+     */
+    val max: Double,
+
+    /**
+     * Smallest accepted value, inclusive.
+     */
+    val min: Double,
+
+    /**
+     * An increment for a settings slider. A hint, not a quantization rule.
+     */
+    val step: Double? = null,
+)
+
+/**
  * How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
  * or 'preparing' means 'not yet' rather than 'not on this device'; this entry then decides
  * even when the provider-level available is false.
@@ -1484,6 +1739,14 @@ enum class ProviderReadiness(val rawValue: String) {
  * chooses itself under the same rules.
  */
 data class ProviderVoice(
+    /**
+     * Sparse overrides of the task's controlStates for this voice (ADR 025), matched by id and
+     * delivery. A pair with no entry inherits the task's state for that pair; available false
+     * disables the control for this voice on that delivery; a range replaces the task's range
+     * for that delivery.
+     */
+    val controlStates: List<SpeechControlState>? = null,
+
     val gender: VoiceGender? = null,
 
     /**
@@ -1737,6 +2000,13 @@ data class ProviderTaskCapability(
     val cancel: CancelSemantics,
 
     /**
+     * Speech controls the provider implements for this task (ADR 025), one entry per id. Absent
+     * or empty means none. Whether a control works on this host, and its range, is in the
+     * dynamic check's controlStates; a declaration alone never satisfies a request.
+     */
+    val controls: List<SpeechControlDeclaration>? = null,
+
+    /**
      * Input media kinds the provider accepts for this task.
      */
     val inputs: List<TaskInputKind>,
@@ -1770,6 +2040,83 @@ data class ProviderTaskCapability(
      */
     val privacy: ProviderPrivacy? = null,
 )
+
+/**
+ * One speech control a provider implements: what kind of value it takes, which part of the
+ * run it affects, how long a value lasts, and the deliveries it applies to. The shared ids
+ * fix kind and phase: speech.speakingRate and speech.pitch are 'number' and 'synthesis',
+ * playback.volume is 'number' and 'playback'. A task lists each id at most once.
+ */
+data class SpeechControlDeclaration(
+    /**
+     * The output deliveries this control applies to. A synthesis control lists each delivery
+     * whose path applies it; a playback-phase control lists only 'playback'.
+     */
+    val deliveries: List<ControlDelivery>,
+
+    val id: SpeechControlId,
+
+    /**
+     * 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+     * documented here and never satisfying a request.
+     */
+    val lifetime: SpeechControlLifetime,
+
+    /**
+     * 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+     * heard, so it lists only the playback delivery.
+     */
+    val phase: SpeechControlPhase,
+
+    /**
+     * The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+     * 'boolean' are reserved for later controls.
+     */
+    val valueKind: SpeechControlValueKind,
+)
+
+/**
+ * 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+ * documented here and never satisfying a request.
+ */
+enum class SpeechControlLifetime(val rawValue: String) {
+    ProviderInstance("provider_instance"),
+    Utterance("utterance"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechControlLifetime? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+ * heard, so it lists only the playback delivery.
+ */
+enum class SpeechControlPhase(val rawValue: String) {
+    Playback("playback"),
+    Synthesis("synthesis"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechControlPhase? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+ * 'boolean' are reserved for later controls.
+ */
+enum class SpeechControlValueKind(val rawValue: String) {
+    Choice("choice"),
+    Number("number"),
+    SpeechControlValueKindBoolean("boolean"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): SpeechControlValueKind? = entries.firstOrNull { it.rawValue == value }
+    }
+}
 
 /**
  * A kind of input medium a task consumes.
@@ -1857,6 +2204,14 @@ enum class ProviderType(val rawValue: String) {
  */
 data class RoutePlannerInputTask(
     /**
+     * The speech controls the request names (ADR 025), in the order speech.speakingRate,
+     * speech.pitch, playback.volume. A 'required' control rejects a provider that cannot bind a
+     * voice supporting it for the requested delivery; a 'preferred' one only ranks. Absent or
+     * empty means none.
+     */
+    val controls: List<ControlRequirement>? = null,
+
+    /**
      * The output delivery the request requires. Absent for text, whose delivery is implicitly
      * inline.
      */
@@ -1888,6 +2243,16 @@ data class RoutePlannerInputTask(
      * the provider that can bind it ahead of others.
      */
     val voice: VoiceRequirement? = null,
+)
+
+data class ControlRequirement(
+    val id: SpeechControlId,
+    val requirement: RequirementLevel,
+
+    /**
+     * The requested value, already checked against the control's domain.
+     */
+    val value: Double,
 )
 
 /**
@@ -1984,6 +2349,14 @@ data class RoutePlan(
 )
 
 data class Candidate(
+    /**
+     * What this candidate must do with each requested speech control (ADR 025), in request
+     * order, evaluated on the bound voice (or on the task's control states when the provider
+     * lists no voices). Every 'required' control has decision 'apply'. Absent when the request
+     * names no controls.
+     */
+    val controls: List<ControlApplicationPlan>? = null,
+
     val order: Long,
     val providerId: String,
 
@@ -1999,6 +2372,54 @@ data class Candidate(
      */
     val voice: ProviderVoice? = null,
 )
+
+data class ControlApplicationPlan(
+    /**
+     * 'apply': the provider must apply the value. 'omit': the provider must leave the control
+     * at its normal behaviour and report it as not applied with this reason.
+     */
+    val decision: ControlDecision,
+
+    val id: SpeechControlId,
+    val reason: ControlOmissionReason? = null,
+    val requirement: RequirementLevel,
+
+    /**
+     * The requested value.
+     */
+    val value: Double,
+)
+
+/**
+ * 'apply': the provider must apply the value. 'omit': the provider must leave the control
+ * at its normal behaviour and report it as not applied with this reason.
+ */
+enum class ControlDecision(val rawValue: String) {
+    Apply("apply"),
+    Omit("omit"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ControlDecision? = entries.firstOrNull { it.rawValue == value }
+    }
+}
+
+/**
+ * Why a preferred control is omitted: 'unsupported' (not declared for this delivery, or the
+ * bound voice disables it), 'out_of_range' (outside the known range), 'range_unknown'
+ * (available, but no range is known), 'availability_unknown' (no state says it works).
+ */
+enum class ControlOmissionReason(val rawValue: String) {
+    AvailabilityUnknown("availability_unknown"),
+    OutOfRange("out_of_range"),
+    RangeUnknown("range_unknown"),
+    Unsupported("unsupported"),
+    ;
+
+    companion object {
+        fun fromRawValue(value: String): ControlOmissionReason? = entries.firstOrNull { it.rawValue == value }
+    }
+}
 
 /**
  * Human-readable selection or failure explanation suitable for telemetry/debugging.
@@ -2038,7 +2459,10 @@ data class Reason(
      * provider's task capability lacks an input kind, output delivery, media type, locale or
      * voice the request requires. 'prepare_not_supported' means the task capability declares no
      * prepare(). 'not_ready' means the provider, task or required voice exists but is not
-     * prepared yet, so prepare() can make it available.
+     * prepared yet, so prepare() can make it available. 'speech_control_unsupported' means no
+     * voice the provider could bind supports a required speech control for the requested
+     * delivery; 'speech_control_out_of_range' means one supports it, but not the requested
+     * value (ADR 025).
      */
     val code: Code,
 
@@ -2597,7 +3021,7 @@ data class PayloadError(
     val providerId: String? = null,
     val retryable: Boolean? = null,
     val retryAfterMs: Long? = null,
-    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_1,
 )
 
 enum class Outcome(val rawValue: String) {
@@ -2806,7 +3230,7 @@ data class StreamTerminalOutcomeError(
     /**
      * Contract schema version used to interpret the error payload.
      */
-    val schemaVersion: SchemaVersion = SchemaVersion.V1_0,
+    val schemaVersion: SchemaVersion = SchemaVersion.V1_1,
 )
 
 /**

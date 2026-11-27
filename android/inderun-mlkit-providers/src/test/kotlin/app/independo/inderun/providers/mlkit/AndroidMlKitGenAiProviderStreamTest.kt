@@ -119,7 +119,7 @@ class AndroidMlKitGenAiProviderStreamTest {
     fun normalizesMessagesIntoASinglePromptAndForwardsGenerationOptions() = runTest {
         val runtime = ScriptedMlKitGenAiRuntime(outputs = listOf(AndroidMlKitGenAiOutput("ok")))
         val request = TaskRequest(
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             messages = listOf(
                 Message(MessageRole.SYSTEM, "Be concise"),
                 Message(MessageRole.USER, "Hello"),
@@ -465,7 +465,7 @@ class AndroidMlKitGenAiProviderStreamTest {
     )
 
     private fun request(): TaskRequest = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = "Hello",
         task = TaskRequestTask(),
         constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),

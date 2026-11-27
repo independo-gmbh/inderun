@@ -37,8 +37,8 @@
   ],
   "properties": {
     "schemaVersion": {
-      "description": "Contract schema version used to interpret the request payload.",
-      "const": "1.0"
+      "description": "Contract schema version used to interpret the request payload. Only '1.1' is accepted (ADR 025).",
+      "const": "1.1"
     },
     "requestId": {
       "description": "Optional identifier for tracking or correlating this specific execution attempt.",
@@ -135,6 +135,20 @@
               "enum": ["required", "preferred"]
             }
           }
+        },
+        "controls": {
+          "title": "SharedSynthesisControls",
+          "description": "Relative synthesis settings shared across providers (ADR 025). speakingRate: relative pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not hertz. Each is a preference by default; a 'required' one takes part in routing and is never ignored. An absent control means the provider's normal behaviour. Support and per-voice ranges are checked by routing, not here. Unknown controls are rejected.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "speakingRate": {
+              "$ref": "#/$defs/positiveRequestedNumber"
+            },
+            "pitch": {
+              "$ref": "#/$defs/positiveRequestedNumber"
+            }
+          }
         }
       }
     },
@@ -144,8 +158,16 @@
       "type": "object",
       "additionalProperties": true,
       "required": ["mode"],
-      "if": { "properties": { "mode": { "const": "artifact" } } },
-      "else": { "not": { "anyOf": [{ "required": ["mediaTypes"] }, { "required": ["destinationRef"] }] } },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "artifact" } } },
+          "else": { "not": { "anyOf": [{ "required": ["mediaTypes"] }, { "required": ["destinationRef"] }] } }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "playback" } } },
+          "else": { "not": { "required": ["playback"] } }
+        }
+      ],
       "properties": {
         "mode": {
           "$ref": "provider-descriptor.schema.json#/$defs/outputDelivery"
@@ -164,6 +186,17 @@
           "description": "Only valid with 'artifact' delivery: an opaque reference to an application destination the engine writes the finished artifact to, resolved by the host's artifact-destination service (ADR 017) -- never a raw path or URL, like authContextRef for credentials. The result's artifact is then application-owned and the engine keeps no copy. A host without the service refuses the request before routing.",
           "type": "string",
           "minLength": 1
+        },
+        "playback": {
+          "title": "PlaybackControls",
+          "description": "Only valid with 'playback' delivery: settings that shape how this utterance is heard, never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0 (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are rejected.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "volume": {
+              "$ref": "#/$defs/unitRequestedNumber"
+            }
+          }
         }
       }
     },
@@ -264,6 +297,43 @@
       "description": "A unique identifier used to retrieve credentials from a secure local storage. Raw sensitive keys (API keys, etc.) should NEVER be placed directly in the request payload.",
       "type": "string",
       "minLength": 1
+    }
+  },
+  "$defs": {
+    "positiveRequestedNumber": {
+      "title": "RequestedNumber",
+      "description": "A requested numeric setting and how strictly it applies. 'preferred' (default) may be omitted and reported when unsupported; 'required' is met or the run is refused.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "description": "The requested value: finite and greater than 0.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "requirement": {
+          "$ref": "#/properties/speech/properties/voice/properties/requirement"
+        }
+      }
+    },
+    "unitRequestedNumber": {
+      "title": "RequestedUnitNumber",
+      "description": "A requested numeric setting between 0 and 1, and how strictly it applies.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "description": "The requested value: finite, from 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "requirement": {
+          "$ref": "#/properties/speech/properties/voice/properties/requirement"
+        }
+      }
     }
   }
 }

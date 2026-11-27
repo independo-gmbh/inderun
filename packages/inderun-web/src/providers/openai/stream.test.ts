@@ -90,7 +90,7 @@ function createHost(streamingHttpClient?: HttpStreamingClientService): HostServi
 }
 
 const request: TaskRequest = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   task: { kind: "text_to_text" },
   prompt: "Hello",
   authContextRef: "openai_default"

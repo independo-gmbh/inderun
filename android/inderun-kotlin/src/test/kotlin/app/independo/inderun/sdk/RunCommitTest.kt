@@ -213,7 +213,7 @@ class RunCommitTest {
         override suspend fun run(request: TaskRequest, context: RunContext): TaskResult {
             calls += id
             return TaskResult(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 runId = context.runId,
                 output = behaviour(context),
                 finishReason = FinishReason.STOP,

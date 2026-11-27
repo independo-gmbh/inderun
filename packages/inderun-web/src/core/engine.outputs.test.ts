@@ -47,7 +47,7 @@ function speechProvider(id: string, behaviour: Behaviour, calls: string[]): Prov
     run: async (request: TaskRequest, context: RunContext): Promise<TaskResult> => {
       calls.push(id);
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: context.runId,
         output: await behaviour(context),
         finishReason: "stop",

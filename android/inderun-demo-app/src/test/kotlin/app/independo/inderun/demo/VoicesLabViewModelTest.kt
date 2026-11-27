@@ -238,7 +238,7 @@ class VoicesLabViewModelTest {
         object : IndeRunApi {
             override suspend fun prepare(request: PrepareRequest): StreamRun = error("not scripted")
             override suspend fun stream(request: TaskRequest): StreamRun = StreamRun(
-                handle = StreamRunHandle(providerId = providerId, runId = "run_x", schemaVersion = SchemaVersion.V1_0, startedAt = 0.0),
+                handle = StreamRunHandle(providerId = providerId, runId = "run_x", schemaVersion = SchemaVersion.V1_1, startedAt = 0.0),
                 events = flowOf(
                     StreamEvent(
                         payload = Payload(
@@ -256,7 +256,7 @@ class VoicesLabViewModelTest {
                             runId = "run_x",
                         ),
                         runId = "run_x",
-                        schemaVersion = SchemaVersion.V1_0,
+                        schemaVersion = SchemaVersion.V1_1,
                         sequence = 0,
                         timestamp = 0.0,
                         type = "terminal",

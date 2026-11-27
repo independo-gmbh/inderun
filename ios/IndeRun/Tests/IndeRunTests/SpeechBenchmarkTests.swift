@@ -266,7 +266,7 @@ final class SpeechBenchmarkTests: XCTestCase {
         func render(_ engine: IndeRun, _ utterance: Corpus.Utterance, step: String) async throws {
             let started = Date()
             let (speech, peak) = try await measuringPeak {
-                try await engine.generateSpeech(GenerateSpeechOptions(options(utterance)))
+                try await engine.generateSpeech(GenerateSpeechOptions(options(utterance).speech))
             }
             let renderMs = Date().timeIntervalSince(started) * 1000
             await engine.disposeArtifact(artifact: speech.artifact)

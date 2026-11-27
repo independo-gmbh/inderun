@@ -170,7 +170,7 @@ type StreamState =
 
 function taskRequest(prompt: string, privacy: Privacy): TaskRequest {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_text" },
     prompt,
     constraints: { privacy }

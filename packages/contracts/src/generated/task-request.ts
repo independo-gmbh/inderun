@@ -55,9 +55,10 @@ export type TaskRequest = {
      */
     requestId?: string;
     /**
-     * Contract schema version used to interpret the request payload.
+     * Contract schema version used to interpret the request payload. Only '1.1' is accepted
+     * (ADR 025).
      */
-    schemaVersion: "1.0";
+    schemaVersion: "1.1";
     /**
      * The text_to_speech payload. Required for text_to_speech and forbidden for every other
      * kind.
@@ -127,6 +128,13 @@ export type OutputDeliveryRequest = {
      */
     mediaTypes?: [string, ...string[]];
     mode:        OutputDelivery;
+    /**
+     * Only valid with 'playback' delivery: settings that shape how this utterance is heard,
+     * never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0
+     * (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are
+     * rejected.
+     */
+    playback?: PlaybackControls;
     [property: string]: unknown;
 }
 
@@ -136,6 +144,32 @@ export type OutputDeliveryRequest = {
  * 'artifact' as retrievable media.
  */
 export type OutputDelivery = "inline" | "playback" | "artifact";
+
+/**
+ * Only valid with 'playback' delivery: settings that shape how this utterance is heard,
+ * never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0
+ * (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are
+ * rejected.
+ */
+export type PlaybackControls = {
+    volume?: RequestedUnitNumber;
+}
+
+/**
+ * A requested numeric setting between 0 and 1, and how strictly it applies.
+ */
+export type RequestedUnitNumber = {
+    requirement?: RequirementLevel;
+    /**
+     * The requested value: finite, from 0 to 1.
+     */
+    value: number;
+}
+
+/**
+ * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
+ */
+export type RequirementLevel = "required" | "preferred";
 
 /**
  * Optional configuration for fine-tuning how the AI model generates its response.
@@ -207,6 +241,15 @@ export type OptimizeFor = "privacy" | "latency" | "cost" | "balanced";
  */
 export type SpeechInput = {
     /**
+     * Relative synthesis settings shared across providers (ADR 025). speakingRate: relative
+     * pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or
+     * a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not
+     * hertz. Each is a preference by default; a 'required' one takes part in routing and is
+     * never ignored. An absent control means the provider's normal behaviour. Support and
+     * per-voice ranges are checked by routing, not here. Unknown controls are rejected.
+     */
+    controls?: SharedSynthesisControls;
+    /**
      * BCP 47 tag of the language to speak, e.g. 'de-AT'.
      */
     locale: string;
@@ -226,6 +269,31 @@ export type SpeechInput = {
      */
     voice?: SpeechVoice;
     [property: string]: unknown;
+}
+
+/**
+ * Relative synthesis settings shared across providers (ADR 025). speakingRate: relative
+ * pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or
+ * a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not
+ * hertz. Each is a preference by default; a 'required' one takes part in routing and is
+ * never ignored. An absent control means the provider's normal behaviour. Support and
+ * per-voice ranges are checked by routing, not here. Unknown controls are rejected.
+ */
+export type SharedSynthesisControls = {
+    pitch?:        RequestedNumber;
+    speakingRate?: RequestedNumber;
+}
+
+/**
+ * A requested numeric setting and how strictly it applies. 'preferred' (default) may be
+ * omitted and reported when unsupported; 'required' is met or the run is refused.
+ */
+export type RequestedNumber = {
+    requirement?: RequirementLevel;
+    /**
+     * The requested value: finite and greater than 0.
+     */
+    value: number;
 }
 
 /**
@@ -263,11 +331,6 @@ export type SpeechVoice = {
  * Perceived gender of a voice, as the platform reports it.
  */
 export type VoiceGender = "female" | "male" | "neutral";
-
-/**
- * 'preferred' (default) or 'required'. A required voice must name an id or a trait.
- */
-export type RequirementLevel = "required" | "preferred";
 
 /**
  * A descriptor specifying the type of work to be performed. The kind selects which payload

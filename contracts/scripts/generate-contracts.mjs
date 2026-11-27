@@ -419,15 +419,15 @@ function normalizeKotlinContractsSource(source, wireValues) {
 
   output = output.replace(
     /val schemaVersion: SchemaVersion,\n(\s*\/\*\*\n\s*\* Task descriptor used by routing and provider capability matching\.\n\s*\*\/\n\s*val task: TaskRequestTask),/m,
-    `val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n$1 = TaskRequestTask(),`
+    `val schemaVersion: SchemaVersion = SchemaVersion.V1_1,\n$1 = TaskRequestTask(),`
   );
   output = output.replace(
     /val schemaVersion: SchemaVersion,\n(\s*\/\*\*\n\s*\* Required minimal telemetry summary attached to every result\.\n\s*\*\/\n\s*val telemetry: TaskResultTelemetry),/m,
-    `val schemaVersion: SchemaVersion = SchemaVersion.V1_0,\n$1,`
+    `val schemaVersion: SchemaVersion = SchemaVersion.V1_1,\n$1,`
   );
   output = output.replace(
     /val schemaVersion: SchemaVersion\n\)/g,
-    "val schemaVersion: SchemaVersion = SchemaVersion.V1_0\n)"
+    "val schemaVersion: SchemaVersion = SchemaVersion.V1_1\n)"
   );
 
   output = rewriteKotlinEnums(output, wireValues);

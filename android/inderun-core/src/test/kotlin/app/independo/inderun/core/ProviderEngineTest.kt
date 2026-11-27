@@ -60,7 +60,7 @@ class ProviderEngineTest {
 
         val selection = Router(registry).selectRoute(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -96,7 +96,7 @@ class ProviderEngineTest {
 
         val selection = Router.withPlanner(registry, planner).selectRoute(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -125,7 +125,7 @@ class ProviderEngineTest {
 
         val selection = Router(registry).selectRoute(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -159,7 +159,7 @@ class ProviderEngineTest {
 
         val selection = Router(registry).selectRoute(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                 preferences = TaskRequestPreferences(optimizeFor = OptimizeFor.Latency),
@@ -187,7 +187,7 @@ class ProviderEngineTest {
         try {
             Router.withPlanner(registry, planner).selectRoute(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                 ),
@@ -210,7 +210,7 @@ class ProviderEngineTest {
         try {
             Router(registry).selectRoute(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(TaskKind.TEXT_TO_TEXT),
                     constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -280,7 +280,7 @@ class ProviderEngineTest {
             finishReason = FinishReason.STOP,
             output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = context.runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
         )
     }

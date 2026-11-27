@@ -41,7 +41,7 @@ describe("toTaskRequest (shared facade vectors)", () => {
 });
 
 const provenance: ExecutionProvenance = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   modelProfile: "auto",
   providerId: "p1",
   locality: "on_device",
@@ -72,7 +72,7 @@ function fakeApi(script: { result?: TaskResult; events?: StreamEvent[] }): IndeR
       requests.push(request);
       const events = script.events ?? [];
       return {
-        handle: { schemaVersion: "1.0", runId: "run_1", startedAt: 0, providerId: "p1" },
+        handle: { schemaVersion: "1.1", runId: "run_1", startedAt: 0, providerId: "p1" },
         events: (async function* () {
           yield* events;
         })(),
@@ -92,7 +92,7 @@ function fakeApi(script: { result?: TaskResult; events?: StreamEvent[] }): IndeR
 let sequence = 0;
 function event(type: string, payload: unknown): StreamEvent {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     runId: "run_1",
     sequence: sequence++,
     timestamp: 0,
@@ -102,7 +102,7 @@ function event(type: string, payload: unknown): StreamEvent {
 }
 
 function terminal(outcome: Omit<StreamTerminalOutcome, "schemaVersion" | "runId">): StreamEvent {
-  return event("terminal", { schemaVersion: "1.0", runId: "run_1", ...outcome });
+  return event("terminal", { schemaVersion: "1.1", runId: "run_1", ...outcome });
 }
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -114,7 +114,7 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 describe("generateText", () => {
   it("runs the canonical request and summarizes the result", async () => {
     const taskResult: TaskResult = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: "run_1",
       output: { type: "text", text: "Hello" },
       finishReason: "stop",
@@ -226,7 +226,7 @@ describe("streamText", () => {
           terminal({
             outcome: "error",
             partialText: "partial",
-            error: { schemaVersion: "1.0", errorClass: "RateLimited", message: "Slow down" },
+            error: { schemaVersion: "1.1", errorClass: "RateLimited", message: "Slow down" },
             provenance: failed
           })
         ]
@@ -277,7 +277,7 @@ describe("streamText", () => {
       ...fakeApi({}),
       async stream(): Promise<StreamRun> {
         return {
-          handle: { schemaVersion: "1.0", runId: "run_1", startedAt: 0, providerId: "p1" },
+          handle: { schemaVersion: "1.1", runId: "run_1", startedAt: 0, providerId: "p1" },
           events: { [Symbol.asyncIterator]: () => openSource },
           cancel: () => undefined
         };
@@ -325,7 +325,7 @@ function localProvider(id: string): ProviderAdapter {
     }),
     capabilities: async () => ({ available: true }),
     run: async (request, context) => ({
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: context.runId,
       output: { type: "text", text: `Echo: ${request.prompt}` },
       finishReason: "stop",

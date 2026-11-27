@@ -6,7 +6,7 @@
       "description": "A bare prompt becomes the canonical prompt; nothing else is set.",
       "options": { "prompt": "Explain this simply." },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "prompt": "Explain this simply."
       }
@@ -22,7 +22,7 @@
         ]
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "messages": [
           { "role": "user", "content": "Hi" },
@@ -36,7 +36,7 @@
       "description": "A system instruction turns a prompt into a two-message conversation.",
       "options": { "system": "Use plain language.", "prompt": "Explain routing." },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "messages": [
           { "role": "system", "content": "Use plain language." },
@@ -52,7 +52,7 @@
         "messages": [{ "role": "user", "content": "Hi" }]
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "messages": [
           { "role": "system", "content": "Be brief." },
@@ -65,7 +65,7 @@
       "description": "The built-in auto profile is the canonical default, so it is not written out.",
       "options": { "prompt": "Hi", "model": "auto" },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "prompt": "Hi"
       }
@@ -75,7 +75,7 @@
       "description": "Any other model names a model profile.",
       "options": { "prompt": "Hi", "model": "smart" },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "prompt": "Hi",
         "modelProfile": "smart"
@@ -93,7 +93,7 @@
         "seed": 7
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "prompt": "Hi",
         "generation": {
@@ -118,7 +118,7 @@
         }
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "prompt": "Hi",
         "constraints": { "privacy": "local_preferred", "cloud": "allowed", "timeoutMs": 5000 },
@@ -135,7 +135,7 @@
         "requestId": "req-42"
       },
       "expected": {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "task": { "kind": "text_to_text" },
         "prompt": "Hi",
         "authContextRef": "openai_primary",

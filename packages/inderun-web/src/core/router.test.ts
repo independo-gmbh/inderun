@@ -54,7 +54,7 @@ function createProvider(id: string, type: "local" | "cloud"): ProviderAdapter {
     },
     async run(request: TaskRequest): Promise<TaskResult> {
       return {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         runId: request.requestId ?? "run-1",
         output: { type: "text", text: "unused" },
         finishReason: "stop",
@@ -79,7 +79,7 @@ describe("Router provider ordering", () => {
   it("prefers the local provider when optimizing for privacy", async () => {
     const selection = await new Router(registry).selectRoute(
       {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         preferences: { optimizeFor: "privacy" }
@@ -94,7 +94,7 @@ describe("Router provider ordering", () => {
   it("prefers the cloud provider when optimizing for latency", async () => {
     const selection = await new Router(registry).selectRoute(
       {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt",
         preferences: { optimizeFor: "latency" }
@@ -120,7 +120,7 @@ describe("Router when the shared planner is unavailable", () => {
 
     const promise = new Router(registry, planner).selectRoute(
       {
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         task: { kind: "text_to_text" },
         prompt: "test prompt"
       },

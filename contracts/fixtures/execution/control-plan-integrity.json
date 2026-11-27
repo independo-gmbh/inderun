@@ -1,0 +1,426 @@
+{
+  "$comment": "ADR 025 section 3: a control application plan that does not match the request prevents execution. The planner boundary is unversioned, and a route core or binding built without the plan would otherwise turn a required control into 'no controls'. Each case gives the request and the 'controls' of the planned candidate (null means the key is absent); 'fallbackCandidateControls', when present, is a second candidate's. The engine checks every candidate after planning and before any attempt: each requested control exactly once, in request order, with the requested id, value and requirement, every required one with decision 'apply'; no entry for a control the request did not name. A mismatch fails the run with errorClass Internal and details.code 'control_plan_mismatch' and no attempt. Scenario catalog: each SDK registers one handler per case id (Stage 2 of #311).",
+  "cases": [
+    {
+      "id": "consistent_plan",
+      "description": "Every requested control has exactly one entry, in request order, with the requested value; every required one is 'apply'. The run proceeds.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            },
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "required",
+          "decision": "apply"
+        },
+        {
+          "id": "speech.pitch",
+          "value": 1.05,
+          "requirement": "preferred",
+          "decision": "omit",
+          "reason": "unsupported"
+        }
+      ],
+      "expected": {
+        "refused": false
+      }
+    },
+    {
+      "id": "no_controls_no_plan",
+      "description": "A request without controls and a candidate without a plan: unchanged behaviour.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": null,
+      "expected": {
+        "refused": false
+      }
+    },
+    {
+      "id": "required_plan_missing",
+      "description": "The candidate carries no plan although the request requires a rate, e.g. from a route core built before ADR 025. A missing plan is never read as 'no controls'.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": null,
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "required_plan_empty",
+      "description": "An empty plan is as missing as an absent one.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "required_plan_omitted",
+      "description": "A required control planned as 'omit' contradicts routing, which must have rejected the candidate instead.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "required",
+          "decision": "omit",
+          "reason": "unsupported"
+        }
+      ],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "plan_value_differs",
+      "description": "The plan applies a value the request did not ask for.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 1.2,
+          "requirement": "required",
+          "decision": "apply"
+        }
+      ],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "plan_requirement_differs",
+      "description": "The plan downgrades a required control to preferred.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "preferred",
+          "decision": "apply"
+        }
+      ],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "preferred_plan_missing",
+      "description": "A preferred control without an entry: the plan is inconsistent with the request, so it is refused too rather than guessed.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "pitch": {
+              "value": 1.05
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": null,
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "plan_for_unrequested_control",
+      "description": "The plan names a control the request did not.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "required",
+          "decision": "apply"
+        },
+        {
+          "id": "speech.pitch",
+          "value": 1.0,
+          "requirement": "preferred",
+          "decision": "apply"
+        }
+      ],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "plan_without_request",
+      "description": "A plan on a request without controls.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT"
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.pitch",
+          "value": 1.0,
+          "requirement": "preferred",
+          "decision": "apply"
+        }
+      ],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "duplicate_plan_entry",
+      "description": "One control planned twice.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "required",
+          "decision": "apply"
+        },
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "required",
+          "decision": "apply"
+        }
+      ],
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    },
+    {
+      "id": "fallback_candidate_inconsistent",
+      "description": "The primary candidate's plan is fine but a fallback candidate's is not. Plans are checked for every candidate before the first attempt, so no audio can start on a plan that a later fallback could not honour.",
+      "request": {
+        "schemaVersion": "1.1",
+        "task": {
+          "kind": "text_to_speech"
+        },
+        "speech": {
+          "text": "Guten Morgen!",
+          "locale": "de-AT",
+          "controls": {
+            "speakingRate": {
+              "value": 0.85,
+              "requirement": "required"
+            }
+          }
+        },
+        "delivery": {
+          "mode": "playback"
+        }
+      },
+      "candidateControls": [
+        {
+          "id": "speech.speakingRate",
+          "value": 0.85,
+          "requirement": "required",
+          "decision": "apply"
+        }
+      ],
+      "fallbackCandidateControls": null,
+      "expected": {
+        "refused": true,
+        "errorClass": "Internal",
+        "detailsCode": "control_plan_mismatch",
+        "attemptCount": 0
+      }
+    }
+  ]
+}

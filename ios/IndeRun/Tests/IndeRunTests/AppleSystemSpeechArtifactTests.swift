@@ -18,8 +18,8 @@ final class AppleSystemSpeechArtifactTests: XCTestCase {
         )
         let request = TaskRequest(
             task: TaskDescriptor(kind: .textToSpeech),
-            speech: SpeechInput(locale: "en-US", localeMatch: .language, text: "Your appointment is at 3 pm.", voice: nil),
-            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact)
+            speech: SpeechInput(controls: nil, locale: "en-US", localeMatch: .language, text: "Your appointment is at 3 pm.", voice: nil),
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: ["audio/wav"], mode: .artifact, playback: nil)
         )
 
         let result: TaskResult

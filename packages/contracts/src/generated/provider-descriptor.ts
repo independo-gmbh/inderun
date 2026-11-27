@@ -174,6 +174,12 @@ export type ProviderTaskCapability = {
      */
     cancel: CancelSemantics;
     /**
+     * Speech controls the provider implements for this task (ADR 025), one entry per id. Absent
+     * or empty means none. Whether a control works on this host, and its range, is in the
+     * dynamic check's controlStates; a declaration alone never satisfies a request.
+     */
+    controls?: SpeechControlDeclaration[];
+    /**
      * Input media kinds the provider accepts for this task.
      */
     inputs: [TaskInputKind, ...TaskInputKind[]];
@@ -203,6 +209,68 @@ export type ProviderTaskCapability = {
     privacy?: TaskCapabilityPrivacy;
     [property: string]: unknown;
 }
+
+/**
+ * One speech control a provider implements: what kind of value it takes, which part of the
+ * run it affects, how long a value lasts, and the deliveries it applies to. The shared ids
+ * fix kind and phase: speech.speakingRate and speech.pitch are 'number' and 'synthesis',
+ * playback.volume is 'number' and 'playback'. A task lists each id at most once.
+ */
+export type SpeechControlDeclaration = {
+    /**
+     * The output deliveries this control applies to. A synthesis control lists each delivery
+     * whose path applies it; a playback-phase control lists only 'playback'.
+     */
+    deliveries: [ControlDelivery, ...ControlDelivery[]];
+    id:         SpeechControlId;
+    /**
+     * 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+     * documented here and never satisfying a request.
+     */
+    lifetime: SpeechControlLifetime;
+    /**
+     * 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+     * heard, so it lists only the playback delivery.
+     */
+    phase: SpeechControlPhase;
+    /**
+     * The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+     * 'boolean' are reserved for later controls.
+     */
+    valueKind: SpeechControlValueKind;
+    [property: string]: unknown;
+}
+
+/**
+ * The output delivery a speech control or control state applies to: 'playback' or
+ * 'artifact'. Text output ('inline') has no speech controls.
+ */
+export type ControlDelivery = "playback" | "artifact";
+
+/**
+ * A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal),
+ * 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of
+ * one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.
+ */
+export type SpeechControlId = "speech.speakingRate" | "speech.pitch" | "playback.volume";
+
+/**
+ * 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+ * documented here and never satisfying a request.
+ */
+export type SpeechControlLifetime = "utterance" | "provider_instance";
+
+/**
+ * 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+ * heard, so it lists only the playback delivery.
+ */
+export type SpeechControlPhase = "synthesis" | "playback";
+
+/**
+ * The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+ * 'boolean' are reserved for later controls.
+ */
+export type SpeechControlValueKind = "number" | "choice" | "boolean";
 
 /**
  * A kind of input medium a task consumes.

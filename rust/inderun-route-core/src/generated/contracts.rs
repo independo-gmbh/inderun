@@ -195,6 +195,12 @@ pub struct ProviderTaskAvailability {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancellation_available: Option<bool>,
 
+    /// The live state of each declared speech control for this task (ADR 025), at most one entry
+    /// per id and delivery. A voice's own controlStates override these for that voice. A control
+    /// and delivery with no entry are in the unknown state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control_states: Option<Vec<SpeechControlState>>,
+
     /// The task kind this entry describes.
     pub kind: String,
 
@@ -225,6 +231,78 @@ pub struct ProviderTaskAvailability {
     /// provider cannot enumerate them; a request that requires a voice then never routes to it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voices: Option<Vec<ProviderVoice>>,
+}
+
+/// Whether one speech control works right now on one output delivery, and with which values
+/// (ADR 025). Entries are keyed by id and delivery: a list holds at most one entry per pair,
+/// and a provider whose playback and artifact paths differ states each. Absent available
+/// means unknown, and unknown is never support: a control satisfies a request only with
+/// available true and, for a number, a known range that contains the value. On a voice,
+/// every field present overrides the task's entry with the same id and delivery for that
+/// voice. playback.volume only ever has a 'playback' entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpeechControlState {
+    /// Whether the control works. Absent means unknown. Never null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available: Option<bool>,
+
+    pub delivery: ControlDelivery,
+
+    pub id: SpeechControlId,
+
+    /// The values a number control accepts, in the shared control's units. On a voice it
+    /// replaces the task's range.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<SpeechControlRange>,
+
+    /// Why the control does not work, when available is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// The output delivery a speech control or control state applies to: 'playback' or
+/// 'artifact'. Text output ('inline') has no speech controls.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlDelivery {
+    Artifact,
+
+    Playback,
+}
+
+/// A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal),
+/// 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of
+/// one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SpeechControlId {
+    #[serde(rename = "playback.volume")]
+    PlaybackVolume,
+
+    #[serde(rename = "speech.pitch")]
+    SpeechPitch,
+
+    #[serde(rename = "speech.speakingRate")]
+    SpeechSpeakingRate,
+}
+
+/// The values a number control accepts, in the shared control's units. On a voice it
+/// replaces the task's range.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpeechControlRange {
+    /// The value the provider uses when the request names none.
+    #[serde(rename = "default")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speech_control_range_default: Option<f64>,
+
+    /// Largest accepted value, inclusive.
+    pub max: f64,
+
+    /// Smallest accepted value, inclusive.
+    pub min: f64,
+
+    /// An increment for a settings slider. A hint, not a quantization rule.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
 }
 
 /// How ready the task is to run. Absent means 'ready'. With available false, 'not_prepared'
@@ -263,6 +341,13 @@ pub enum ProviderReadiness {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderVoice {
+    /// Sparse overrides of the task's controlStates for this voice (ADR 025), matched by id and
+    /// delivery. A pair with no entry inherits the task's state for that pair; available false
+    /// disables the control for this voice on that delivery; a range replaces the task's range
+    /// for that delivery.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control_states: Option<Vec<SpeechControlState>>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gender: Option<VoiceGender>,
 
@@ -486,6 +571,12 @@ pub struct ProviderTaskCapability {
     /// when stopping playback is immediate but a synthesis request cannot be aborted.
     pub cancel: CancelSemantics,
 
+    /// Speech controls the provider implements for this task (ADR 025), one entry per id. Absent
+    /// or empty means none. Whether a control works on this host, and its range, is in the
+    /// dynamic check's controlStates; a declaration alone never satisfies a request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controls: Option<Vec<SpeechControlDeclaration>>,
+
     /// Input media kinds the provider accepts for this task.
     pub inputs: Vec<TaskInputKind>,
 
@@ -509,6 +600,65 @@ pub struct ProviderTaskCapability {
     /// descriptor.privacy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privacy: Option<ProviderPrivacy>,
+}
+
+/// One speech control a provider implements: what kind of value it takes, which part of the
+/// run it affects, how long a value lasts, and the deliveries it applies to. The shared ids
+/// fix kind and phase: speech.speakingRate and speech.pitch are 'number' and 'synthesis',
+/// playback.volume is 'number' and 'playback'. A task lists each id at most once.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechControlDeclaration {
+    /// The output deliveries this control applies to. A synthesis control lists each delivery
+    /// whose path applies it; a playback-phase control lists only 'playback'.
+    pub deliveries: Vec<ControlDelivery>,
+
+    pub id: SpeechControlId,
+
+    /// 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+    /// documented here and never satisfying a request.
+    pub lifetime: SpeechControlLifetime,
+
+    /// 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+    /// heard, so it lists only the playback delivery.
+    pub phase: SpeechControlPhase,
+
+    /// The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+    /// 'boolean' are reserved for later controls.
+    pub value_kind: SpeechControlValueKind,
+}
+
+/// 'utterance': set per request. 'provider_instance': fixed when the provider was built,
+/// documented here and never satisfying a request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeechControlLifetime {
+    #[serde(rename = "provider_instance")]
+    ProviderInstance,
+
+    Utterance,
+}
+
+/// 'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is
+/// heard, so it lists only the playback delivery.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeechControlPhase {
+    Playback,
+
+    Synthesis,
+}
+
+/// The kind of value the control takes. Every shared control is a 'number'; 'choice' and
+/// 'boolean' are reserved for later controls.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeechControlValueKind {
+    Boolean,
+
+    Choice,
+
+    Number,
 }
 
 /// A kind of input medium a task consumes.
@@ -585,6 +735,13 @@ pub enum ProviderTransport {
 /// text request carries the kind alone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
+    /// The speech controls the request names (ADR 025), in the order speech.speakingRate,
+    /// speech.pitch, playback.volume. A 'required' control rejects a provider that cannot bind a
+    /// voice supporting it for the requested delivery; a 'preferred' one only ranks. Absent or
+    /// empty means none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controls: Option<Vec<ControlRequirement>>,
+
     /// The output delivery the request requires. Absent for text, whose delivery is implicitly
     /// inline.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -611,6 +768,25 @@ pub struct Task {
     /// the provider that can bind it ahead of others.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<VoiceRequirement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ControlRequirement {
+    pub id: SpeechControlId,
+
+    pub requirement: RequirementLevel,
+
+    /// The requested value, already checked against the control's domain.
+    pub value: f64,
+}
+
+/// 'required' takes part in routing; 'preferred' does not.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequirementLevel {
+    Preferred,
+
+    Required,
 }
 
 /// The output delivery the request requires. Absent for text, whose delivery is implicitly
@@ -673,15 +849,6 @@ pub struct VoiceRequirement {
     pub requirement: RequirementLevel,
 }
 
-/// 'required' takes part in routing; 'preferred' does not.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RequirementLevel {
-    Preferred,
-
-    Required,
-}
-
 /// Deterministic shared-core Mode-1 route planning result.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -710,6 +877,13 @@ pub struct RoutePlan {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Candidate {
+    /// What this candidate must do with each requested speech control (ADR 025), in request
+    /// order, evaluated on the bound voice (or on the task's control states when the provider
+    /// lists no voices). Every 'required' control has decision 'apply'. Absent when the request
+    /// names no controls.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controls: Option<Vec<ControlApplicationPlan>>,
+
     pub order: i64,
 
     pub provider_id: String,
@@ -724,6 +898,51 @@ pub struct Candidate {
     /// chooses itself under the same rules.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice: Option<ProviderVoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ControlApplicationPlan {
+    /// 'apply': the provider must apply the value. 'omit': the provider must leave the control
+    /// at its normal behaviour and report it as not applied with this reason.
+    pub decision: ControlDecision,
+
+    pub id: SpeechControlId,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ControlOmissionReason>,
+
+    pub requirement: RequirementLevel,
+
+    /// The requested value.
+    pub value: f64,
+}
+
+/// 'apply': the provider must apply the value. 'omit': the provider must leave the control
+/// at its normal behaviour and report it as not applied with this reason.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlDecision {
+    Apply,
+
+    Omit,
+}
+
+/// Why a preferred control is omitted: 'unsupported' (not declared for this delivery, or the
+/// bound voice disables it), 'out_of_range' (outside the known range), 'range_unknown'
+/// (available, but no range is known), 'availability_unknown' (no state says it works).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlOmissionReason {
+    #[serde(rename = "availability_unknown")]
+    AvailabilityUnknown,
+
+    #[serde(rename = "out_of_range")]
+    OutOfRange,
+
+    #[serde(rename = "range_unknown")]
+    RangeUnknown,
+
+    Unsupported,
 }
 
 /// Human-readable selection or failure explanation suitable for telemetry/debugging.
@@ -767,7 +986,10 @@ pub struct Reason {
     /// provider's task capability lacks an input kind, output delivery, media type, locale or
     /// voice the request requires. 'prepare_not_supported' means the task capability declares no
     /// prepare(). 'not_ready' means the provider, task or required voice exists but is not
-    /// prepared yet, so prepare() can make it available.
+    /// prepared yet, so prepare() can make it available. 'speech_control_unsupported' means no
+    /// voice the provider could bind supports a required speech control for the requested
+    /// delivery; 'speech_control_out_of_range' means one supports it, but not the requested
+    /// value (ADR 025).
     pub code: Code,
 
     pub message: String,
@@ -782,7 +1004,10 @@ pub struct Reason {
 /// provider's task capability lacks an input kind, output delivery, media type, locale or
 /// voice the request requires. 'prepare_not_supported' means the task capability declares no
 /// prepare(). 'not_ready' means the provider, task or required voice exists but is not
-/// prepared yet, so prepare() can make it available.
+/// prepared yet, so prepare() can make it available. 'speech_control_unsupported' means no
+/// voice the provider could bind supports a required speech control for the requested
+/// delivery; 'speech_control_out_of_range' means one supports it, but not the requested
+/// value (ADR 025).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
@@ -820,6 +1045,12 @@ pub enum Code {
 
     #[serde(rename = "run_not_supported")]
     RunNotSupported,
+
+    #[serde(rename = "speech_control_out_of_range")]
+    SpeechControlOutOfRange,
+
+    #[serde(rename = "speech_control_unsupported")]
+    SpeechControlUnsupported,
 
     #[serde(rename = "streaming_not_supported")]
     StreamingNotSupported,

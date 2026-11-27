@@ -17,7 +17,7 @@
   "properties": {
     "schemaVersion": {
       "description": "Contract schema version used to interpret this provenance record.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "modelProfile": {
       "description": "The model profile the request routed within; 'auto' when the request named none.",
@@ -120,8 +120,10 @@
                 "output_format_not_supported",
                 "locale_not_supported",
                 "voice_not_available",
-              "prepare_not_supported",
-              "not_ready"
+                "prepare_not_supported",
+                "not_ready",
+                "speech_control_unsupported",
+                "speech_control_out_of_range"
               ]
             }
           }

@@ -828,8 +828,8 @@ private func speechRequest(
     TaskRequest(
         task: TaskDescriptor(kind: .textToSpeech),
         constraints: timeoutMs.map { TaskRequestConstraints(timeoutMs: $0) },
-        speech: SpeechInput(locale: locale, localeMatch: nil, text: text, voice: nil),
-        delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: mode)
+        speech: SpeechInput(controls: nil, locale: locale, localeMatch: nil, text: text, voice: nil),
+        delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: mode, playback: nil)
     )
 }
 

@@ -283,7 +283,7 @@ class AndroidOnnxRuntimeProvider internal constructor(
 
         return TaskResult(
             runId = context.runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             output = TaskOutput(type = TaskOutputType.TEXT, text = output.text),
             finishReason = output.finishReason ?: FinishReason.STOP,
             usage = output.usage,

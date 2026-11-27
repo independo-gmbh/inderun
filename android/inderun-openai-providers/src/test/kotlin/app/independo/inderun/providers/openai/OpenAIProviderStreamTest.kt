@@ -77,7 +77,7 @@ class OpenAIProviderStreamTest {
     )
 
     private fun request() = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = "Hello",
         task = TaskRequestTask(),
         authContextRef = "openai_default",

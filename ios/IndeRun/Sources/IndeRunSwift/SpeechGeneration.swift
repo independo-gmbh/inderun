@@ -14,8 +14,10 @@ import IndeRunContracts
 /// The same policy object as the text API, so a constraint means the same in both.
 public typealias SpeechExecutionOptions = TextExecutionOptions
 
-/// Options for `speak`.
-public struct SpeakOptions: Sendable {
+/// What every speech call takes: the text, its locale, the voice, the synthesis controls and the
+/// execution policy. `SpeakOptions` adds playback-only settings and `GenerateSpeechOptions` the
+/// artifact's, as on the Web and Kotlin SDKs (ADR 025).
+public struct SpeechOptions: Sendable {
     /// The text to speak. Plain text; markup such as SSML is out of scope.
     public var text: String
     /// BCP 47 tag, e.g. `"de-AT"`.
@@ -26,6 +28,9 @@ public struct SpeakOptions: Sendable {
     /// The voice: ``SpeechVoiceInfo/asSpeechVoice(requirement:)`` for an entry of `listVoices()`,
     /// or provider-neutral traits. A required one never relaxes silently.
     public var voice: SpeechVoice?
+    /// Relative speaking rate and pitch (ADR 025). Each is preferred unless marked required; a
+    /// required one is met or the call is refused.
+    public var controls: SharedSynthesisControls?
     /// Model profile to route within, as configured on the engine. `nil` or `"auto"` routes
     /// across every registered target. Never a vendor model or voice id.
     public var model: String?
@@ -41,6 +46,7 @@ public struct SpeakOptions: Sendable {
         locale: String,
         localeMatch: LocaleMatch? = nil,
         voice: SpeechVoice? = nil,
+        controls: SharedSynthesisControls? = nil,
         model: String? = nil,
         execution: SpeechExecutionOptions? = nil,
         authContextRef: String? = nil,
@@ -51,16 +57,12 @@ public struct SpeakOptions: Sendable {
         self.locale = locale
         self.localeMatch = localeMatch
         self.voice = voice
+        self.controls = controls
         self.model = model
         self.execution = execution
         self.authContextRef = authContextRef
         self.telemetry = telemetry
         self.requestId = requestId
-    }
-
-    /// The canonical `TaskRequest` a `speak` call compiles to.
-    public func taskRequest() -> TaskRequest {
-        taskRequest(delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback))
     }
 
     fileprivate func taskRequest(delivery: OutputDeliveryRequest) -> TaskRequest {
@@ -72,21 +74,79 @@ public struct SpeakOptions: Sendable {
             preferences: execution?.taskPreferences,
             telemetry: telemetry,
             authContextRef: authContextRef,
-            speech: SpeechInput(locale: locale, localeMatch: localeMatch, text: text, voice: voice),
+            speech: SpeechInput(controls: controls, locale: locale, localeMatch: localeMatch, text: text, voice: voice),
             delivery: delivery
         )
     }
 }
 
-/// Options for `generateSpeech`.
+/// Options for `speak`: the common ``SpeechOptions`` plus settings that only playback has. The
+/// common fields read and write through, so `options.voice = …` works as on ``SpeechOptions``.
+@dynamicMemberLookup
+public struct SpeakOptions: Sendable {
+    public var speech: SpeechOptions
+    /// Playback volume of this utterance, 0 to 1 (ADR 025). Never the device volume.
+    public var playback: PlaybackControls?
+
+    public subscript<Value>(dynamicMember keyPath: WritableKeyPath<SpeechOptions, Value>) -> Value {
+        get { speech[keyPath: keyPath] }
+        set { speech[keyPath: keyPath] = newValue }
+    }
+
+    public init(_ speech: SpeechOptions, playback: PlaybackControls? = nil) {
+        self.speech = speech
+        self.playback = playback
+    }
+
+    /// The common options spelled out, for the usual call that names only a few of them.
+    public init(
+        _ text: String,
+        locale: String,
+        localeMatch: LocaleMatch? = nil,
+        voice: SpeechVoice? = nil,
+        controls: SharedSynthesisControls? = nil,
+        playback: PlaybackControls? = nil,
+        model: String? = nil,
+        execution: SpeechExecutionOptions? = nil,
+        authContextRef: String? = nil,
+        telemetry: TaskRequestTelemetry? = nil,
+        requestId: String? = nil
+    ) {
+        self.init(
+            SpeechOptions(
+                text,
+                locale: locale,
+                localeMatch: localeMatch,
+                voice: voice,
+                controls: controls,
+                model: model,
+                execution: execution,
+                authContextRef: authContextRef,
+                telemetry: telemetry,
+                requestId: requestId
+            ),
+            playback: playback
+        )
+    }
+
+    /// The canonical `TaskRequest` a `speak` call compiles to.
+    public func taskRequest() -> TaskRequest {
+        speech.taskRequest(
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: nil, mode: .playback, playback: playback)
+        )
+    }
+}
+
+/// Options for `generateSpeech`: the common ``SpeechOptions`` plus the artifact's. There is no
+/// playback volume, because nothing is played.
 public struct GenerateSpeechOptions: Sendable {
-    public var speech: SpeakOptions
+    public var speech: SpeechOptions
     /// Acceptable media types; always a hard requirement. `nil` lets the provider choose.
     public var mediaTypes: [String]?
     /// Opaque application destination, resolved by the host. Never a path or URL.
     public var destinationRef: String?
 
-    public init(_ speech: SpeakOptions, mediaTypes: [String]? = nil, destinationRef: String? = nil) {
+    public init(_ speech: SpeechOptions, mediaTypes: [String]? = nil, destinationRef: String? = nil) {
         self.speech = speech
         self.mediaTypes = mediaTypes
         self.destinationRef = destinationRef
@@ -95,7 +155,12 @@ public struct GenerateSpeechOptions: Sendable {
     /// The canonical `TaskRequest` a `generateSpeech` call compiles to.
     public func taskRequest() -> TaskRequest {
         speech.taskRequest(
-            delivery: OutputDeliveryRequest(destinationRef: destinationRef, mediaTypes: mediaTypes, mode: .artifact)
+            delivery: OutputDeliveryRequest(
+                destinationRef: destinationRef,
+                mediaTypes: mediaTypes,
+                mode: .artifact,
+                playback: nil
+            )
         )
     }
 }

@@ -68,6 +68,8 @@ pub fn plan_route(input: RoutePlannerInput) -> RoutePlan {
         if reasons.is_empty() {
             candidates.push(Candidate {
                 provider_id: provider.descriptor.id.clone(),
+                // Speech controls are planned in a later change (ADR 025); until then none are bound.
+                controls: None,
                 order: candidates.len() as i64,
                 voice: select_voice(provider, &input).cloned(),
             });

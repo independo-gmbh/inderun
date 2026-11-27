@@ -87,7 +87,7 @@ const catalog = JSON.parse(
 ) as { cases: CatalogCase[] };
 
 const request: TaskRequest = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   task: { kind: "text_to_speech" },
   speech: { text: "Hallo", locale: "de-AT" },
   delivery: { mode: "artifact", mediaTypes: ["audio/wav"] },
@@ -162,7 +162,7 @@ class ArtifactFake implements ProviderAdapter {
   async run(_request: TaskRequest, context: RunContext): Promise<TaskResult> {
     const output = await this.play(context);
     return {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: context.runId,
       output: output!,
       finishReason: "stop",

@@ -348,7 +348,7 @@ export class OpenAIResponsesProvider implements ProviderAdapter {
     }
 
     const result: TaskResult = {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       runId: context.runId,
       output: {
         type: "text",

@@ -109,8 +109,8 @@ export const taskRequestSchema = {
   ],
   "properties": {
     "schemaVersion": {
-      "description": "Contract schema version used to interpret the request payload.",
-      "const": "1.0"
+      "description": "Contract schema version used to interpret the request payload. Only '1.1' is accepted (ADR 025).",
+      "const": "1.1"
     },
     "requestId": {
       "description": "Optional identifier for tracking or correlating this specific execution attempt.",
@@ -254,6 +254,20 @@ export const taskRequestSchema = {
               ]
             }
           }
+        },
+        "controls": {
+          "title": "SharedSynthesisControls",
+          "description": "Relative synthesis settings shared across providers (ADR 025). speakingRate: relative pace, 1.0 is the bound voice's normal rate and 0.5 half as fast; not words per minute or a measured duration. pitch: relative baseline pitch, 1.0 is the voice's normal pitch; not hertz. Each is a preference by default; a 'required' one takes part in routing and is never ignored. An absent control means the provider's normal behaviour. Support and per-voice ranges are checked by routing, not here. Unknown controls are rejected.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "speakingRate": {
+              "$ref": "#/$defs/positiveRequestedNumber"
+            },
+            "pitch": {
+              "$ref": "#/$defs/positiveRequestedNumber"
+            }
+          }
         }
       }
     },
@@ -265,29 +279,49 @@ export const taskRequestSchema = {
       "required": [
         "mode"
       ],
-      "if": {
-        "properties": {
-          "mode": {
-            "const": "artifact"
-          }
-        }
-      },
-      "else": {
-        "not": {
-          "anyOf": [
-            {
-              "required": [
-                "mediaTypes"
-              ]
-            },
-            {
-              "required": [
-                "destinationRef"
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "artifact"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "mediaTypes"
+                  ]
+                },
+                {
+                  "required": [
+                    "destinationRef"
+                  ]
+                }
               ]
             }
-          ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "playback"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "playback"
+              ]
+            }
+          }
         }
-      },
+      ],
       "properties": {
         "mode": {
           "$ref": "provider-descriptor.schema.json#/$defs/outputDelivery"
@@ -306,6 +340,17 @@ export const taskRequestSchema = {
           "description": "Only valid with 'artifact' delivery: an opaque reference to an application destination the engine writes the finished artifact to, resolved by the host's artifact-destination service (ADR 017) -- never a raw path or URL, like authContextRef for credentials. The result's artifact is then application-owned and the engine keeps no copy. A host without the service refuses the request before routing.",
           "type": "string",
           "minLength": 1
+        },
+        "playback": {
+          "title": "PlaybackControls",
+          "description": "Only valid with 'playback' delivery: settings that shape how this utterance is heard, never the audio itself (ADR 025). volume: attenuation of this utterance only, from 0 (silent) to 1 (unattenuated); never the device or master volume. Unknown controls are rejected.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "volume": {
+              "$ref": "#/$defs/unitRequestedNumber"
+            }
+          }
         }
       }
     },
@@ -425,6 +470,47 @@ export const taskRequestSchema = {
       "type": "string",
       "minLength": 1
     }
+  },
+  "$defs": {
+    "positiveRequestedNumber": {
+      "title": "RequestedNumber",
+      "description": "A requested numeric setting and how strictly it applies. 'preferred' (default) may be omitted and reported when unsupported; 'required' is met or the run is refused.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "description": "The requested value: finite and greater than 0.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "requirement": {
+          "$ref": "#/properties/speech/properties/voice/properties/requirement"
+        }
+      }
+    },
+    "unitRequestedNumber": {
+      "title": "RequestedUnitNumber",
+      "description": "A requested numeric setting between 0 and 1, and how strictly it applies.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "description": "The requested value: finite, from 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "requirement": {
+          "$ref": "#/properties/speech/properties/voice/properties/requirement"
+        }
+      }
+    }
   }
 } as const;
 
@@ -445,7 +531,7 @@ export const taskResultSchema = {
   "properties": {
     "schemaVersion": {
       "description": "Contract schema version used to interpret the result payload.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "runId": {
       "description": "A unique, opaque identifier assigned by the engine for this specific execution attempt.",
@@ -547,7 +633,7 @@ export const inderunErrorSchema = {
   "properties": {
     "schemaVersion": {
       "description": "Contract schema version used to interpret the error payload.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "errorClass": {
       "description": "Normalized error taxonomy, shared with TaskResult.telemetry.errorClass: CapabilityMismatch (request needs something no eligible provider supports), Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider throttled the request), Timeout (provider exceeded its execution budget), Internal (unexpected engine-side failure).",
@@ -845,6 +931,32 @@ export const routePlannerInputSchema = {
               ]
             }
           }
+        },
+        "controls": {
+          "description": "The speech controls the request names (ADR 025), in the order speech.speakingRate, speech.pitch, playback.volume. A 'required' control rejects a provider that cannot bind a voice supporting it for the requested delivery; a 'preferred' one only ranks. Absent or empty means none.",
+          "type": "array",
+          "items": {
+            "title": "ControlRequirement",
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "value",
+              "requirement"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "provider-descriptor.schema.json#/$defs/speechControlId"
+              },
+              "value": {
+                "description": "The requested value, already checked against the control's domain.",
+                "type": "number"
+              },
+              "requirement": {
+                "$ref": "#/properties/task/properties/voice/properties/requirement"
+              }
+            }
+          }
         }
       }
     },
@@ -996,6 +1108,44 @@ export const routePlanSchema = {
             "type": "integer",
             "minimum": 0
           },
+          "controls": {
+            "description": "What this candidate must do with each requested speech control (ADR 025), in request order, evaluated on the bound voice (or on the task's control states when the provider lists no voices). Every 'required' control has decision 'apply'. Absent when the request names no controls.",
+            "type": "array",
+            "items": {
+              "title": "ControlApplicationPlan",
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "id",
+                "value",
+                "requirement",
+                "decision"
+              ],
+              "properties": {
+                "id": {
+                  "$ref": "provider-descriptor.schema.json#/$defs/speechControlId"
+                },
+                "value": {
+                  "description": "The requested value.",
+                  "type": "number"
+                },
+                "requirement": {
+                  "$ref": "route-planner-input.schema.json#/properties/task/properties/voice/properties/requirement"
+                },
+                "decision": {
+                  "title": "ControlDecision",
+                  "description": "'apply': the provider must apply the value. 'omit': the provider must leave the control at its normal behaviour and report it as not applied with this reason.",
+                  "enum": [
+                    "apply",
+                    "omit"
+                  ]
+                },
+                "reason": {
+                  "$ref": "#/$defs/controlOmissionReason"
+                }
+              }
+            }
+          },
           "voice": {
             "description": "The voice this candidate must use if it is attempted, chosen by the planner from the provider's dynamic voice inventory. It is the best voice that satisfies the request's locale, required voice traits and privacy — under local-required privacy always one that keeps data on the device — ranked by preferred id, then preferred gender, then exact locale region, then on-device before network. The adapter must use the voice with this id, or one with exactly these traits when the voice has no id. Absent when the request names no locale or voice, or the provider does not list its voices; the adapter then chooses itself under the same rules.",
             "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voice"
@@ -1029,7 +1179,7 @@ export const routePlanSchema = {
               ],
               "properties": {
                 "code": {
-                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider. 'input_not_supported', 'output_delivery_not_supported', 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the provider's task capability lacks an input kind, output delivery, media type, locale or voice the request requires. 'prepare_not_supported' means the task capability declares no prepare(). 'not_ready' means the provider, task or required voice exists but is not prepared yet, so prepare() can make it available.",
+                  "description": "Normalized rejection reason. 'streaming_not_supported' means the descriptor does not statically declare Mode-2 streaming; 'streaming_unavailable' means it declares streaming but the dynamic capability snapshot reports it cannot stream in the current host environment. 'not_in_model_profile' means the request named a model profile that does not list this provider. 'input_not_supported', 'output_delivery_not_supported', 'output_format_not_supported', 'locale_not_supported' and 'voice_not_available' mean the provider's task capability lacks an input kind, output delivery, media type, locale or voice the request requires. 'prepare_not_supported' means the task capability declares no prepare(). 'not_ready' means the provider, task or required voice exists but is not prepared yet, so prepare() can make it available. 'speech_control_unsupported' means no voice the provider could bind supports a required speech control for the requested delivery; 'speech_control_out_of_range' means one supports it, but not the requested value (ADR 025).",
                   "enum": [
                     "task_not_supported",
                     "run_not_supported",
@@ -1046,7 +1196,9 @@ export const routePlanSchema = {
                     "locale_not_supported",
                     "voice_not_available",
                     "prepare_not_supported",
-                    "not_ready"
+                    "not_ready",
+                    "speech_control_unsupported",
+                    "speech_control_out_of_range"
                   ]
                 },
                 "message": {
@@ -1084,6 +1236,18 @@ export const routePlanSchema = {
           "minLength": 1
         }
       }
+    }
+  },
+  "$defs": {
+    "controlOmissionReason": {
+      "title": "ControlOmissionReason",
+      "description": "Why a preferred control is omitted: 'unsupported' (not declared for this delivery, or the bound voice disables it), 'out_of_range' (outside the known range), 'range_unknown' (available, but no range is known), 'availability_unknown' (no state says it works).",
+      "enum": [
+        "unsupported",
+        "out_of_range",
+        "range_unknown",
+        "availability_unknown"
+      ]
     }
   }
 } as const;
@@ -1443,7 +1607,7 @@ export const streamRunSchema = {
   "properties": {
     "schemaVersion": {
       "description": "Contract schema version used to interpret this handle payload.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "runId": {
       "description": "A unique, opaque identifier assigned by the engine for this stream run. Every StreamEvent and the terminal StreamTerminalOutcome for this run carry the same runId, matching the identity convention used by TaskResult.runId and IndeRunError.runId.",
@@ -1483,7 +1647,7 @@ export const streamEventSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this event payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
@@ -1533,7 +1697,7 @@ export const streamEventSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this event payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
@@ -1583,7 +1747,7 @@ export const streamEventSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this event payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
@@ -1636,7 +1800,7 @@ export const streamEventSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this event payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
@@ -1678,7 +1842,7 @@ export const streamEventSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this event payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
@@ -1741,7 +1905,7 @@ export const streamEventSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this event payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
@@ -1787,7 +1951,7 @@ export const streamEventSchema = {
               ],
               "properties": {
                 "schemaVersion": {
-                  "const": "1.0"
+                  "const": "1.1"
                 },
                 "runId": {
                   "type": "string",
@@ -1863,7 +2027,7 @@ export const streamEventSchema = {
               ],
               "properties": {
                 "schemaVersion": {
-                  "const": "1.0"
+                  "const": "1.1"
                 },
                 "runId": {
                   "type": "string",
@@ -1885,7 +2049,7 @@ export const streamEventSchema = {
                   ],
                   "properties": {
                     "schemaVersion": {
-                      "const": "1.0"
+                      "const": "1.1"
                     },
                     "errorClass": {
                       "enum": [
@@ -1939,7 +2103,7 @@ export const streamEventSchema = {
               ],
               "properties": {
                 "schemaVersion": {
-                  "const": "1.0"
+                  "const": "1.1"
                 },
                 "runId": {
                   "type": "string",
@@ -1980,7 +2144,7 @@ export const streamEventSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this event payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "Opaque run identifier this event belongs to, matching StreamRunHandle.runId.",
@@ -2050,7 +2214,7 @@ export const streamTerminalOutcomeSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this outcome payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
@@ -2139,7 +2303,7 @@ export const streamTerminalOutcomeSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this outcome payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
@@ -2162,7 +2326,7 @@ export const streamTerminalOutcomeSchema = {
           "properties": {
             "schemaVersion": {
               "description": "Contract schema version used to interpret the error payload.",
-              "const": "1.0"
+              "const": "1.1"
             },
             "errorClass": {
               "description": "Normalized error taxonomy, identical to IndeRunError.errorClass: CapabilityMismatch (request needs something no eligible provider supports), Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider throttled the request), Timeout (provider exceeded its execution budget), Internal (unexpected engine-side failure).",
@@ -2227,7 +2391,7 @@ export const streamTerminalOutcomeSchema = {
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this outcome payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
@@ -2538,8 +2702,155 @@ export const providerDescriptorSchema = {
         "privacy": {
           "description": "Data-egress posture for this task when it differs from the provider-level privacy, e.g. a provider whose speech synthesis uses a network service. Absent inherits descriptor.privacy.",
           "$ref": "#/properties/privacy"
+        },
+        "controls": {
+          "description": "Speech controls the provider implements for this task (ADR 025), one entry per id. Absent or empty means none. Whether a control works on this host, and its range, is in the dynamic check's controlStates; a declaration alone never satisfies a request.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/speechControlDeclaration"
+          }
         }
       }
+    },
+    "speechControlDeclaration": {
+      "title": "SpeechControlDeclaration",
+      "description": "One speech control a provider implements: what kind of value it takes, which part of the run it affects, how long a value lasts, and the deliveries it applies to. The shared ids fix kind and phase: speech.speakingRate and speech.pitch are 'number' and 'synthesis', playback.volume is 'number' and 'playback'. A task lists each id at most once.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "valueKind",
+        "phase",
+        "lifetime",
+        "deliveries"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "playback.volume"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "const": "playback"
+              },
+              "valueKind": {
+                "const": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "speech.speakingRate",
+                  "speech.pitch"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "const": "synthesis"
+              },
+              "valueKind": {
+                "const": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "playback"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "deliveries": {
+                "type": "array",
+                "items": {
+                  "const": "playback"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/speechControlId"
+        },
+        "valueKind": {
+          "title": "SpeechControlValueKind",
+          "description": "The kind of value the control takes. Every shared control is a 'number'; 'choice' and 'boolean' are reserved for later controls.",
+          "enum": [
+            "number",
+            "choice",
+            "boolean"
+          ]
+        },
+        "phase": {
+          "title": "SpeechControlPhase",
+          "description": "'synthesis': shapes the audio itself. 'playback': shapes only how a playback run is heard, so it lists only the playback delivery.",
+          "enum": [
+            "synthesis",
+            "playback"
+          ]
+        },
+        "lifetime": {
+          "title": "SpeechControlLifetime",
+          "description": "'utterance': set per request. 'provider_instance': fixed when the provider was built, documented here and never satisfying a request.",
+          "enum": [
+            "utterance",
+            "provider_instance"
+          ]
+        },
+        "deliveries": {
+          "description": "The output deliveries this control applies to. A synthesis control lists each delivery whose path applies it; a playback-phase control lists only 'playback'.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/controlDelivery"
+          }
+        }
+      }
+    },
+    "controlDelivery": {
+      "title": "ControlDelivery",
+      "description": "The output delivery a speech control or control state applies to: 'playback' or 'artifact'. Text output ('inline') has no speech controls.",
+      "enum": [
+        "playback",
+        "artifact"
+      ]
+    },
+    "speechControlId": {
+      "title": "SpeechControlId",
+      "description": "A shared speech control (ADR 025): 'speech.speakingRate' (relative pace, 1.0 normal), 'speech.pitch' (relative baseline pitch, 1.0 normal), 'playback.volume' (attenuation of one utterance, 0 to 1). Closed: a provider-owned control is a later, namespaced addition.",
+      "enum": [
+        "speech.speakingRate",
+        "speech.pitch",
+        "playback.volume"
+      ]
     },
     "taskOutput": {
       "title": "ProviderTaskOutput",
@@ -2681,6 +2992,86 @@ export const providerDynamicCapabilitiesSchema = {
           "items": {
             "$ref": "#/$defs/voice"
           }
+        },
+        "controlStates": {
+          "description": "The live state of each declared speech control for this task (ADR 025), at most one entry per id and delivery. A voice's own controlStates override these for that voice. A control and delivery with no entry are in the unknown state.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/controlState"
+          }
+        }
+      }
+    },
+    "controlState": {
+      "title": "SpeechControlState",
+      "description": "Whether one speech control works right now on one output delivery, and with which values (ADR 025). Entries are keyed by id and delivery: a list holds at most one entry per pair, and a provider whose playback and artifact paths differ states each. Absent available means unknown, and unknown is never support: a control satisfies a request only with available true and, for a number, a known range that contains the value. On a voice, every field present overrides the task's entry with the same id and delivery for that voice. playback.volume only ever has a 'playback' entry.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "delivery"
+      ],
+      "if": {
+        "properties": {
+          "id": {
+            "const": "playback.volume"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "then": {
+        "properties": {
+          "delivery": {
+            "const": "playback"
+          }
+        }
+      },
+      "properties": {
+        "id": {
+          "$ref": "provider-descriptor.schema.json#/$defs/speechControlId"
+        },
+        "delivery": {
+          "$ref": "provider-descriptor.schema.json#/$defs/controlDelivery"
+        },
+        "available": {
+          "description": "Whether the control works. Absent means unknown. Never null.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why the control does not work, when available is false.",
+          "type": "string",
+          "minLength": 1
+        },
+        "range": {
+          "title": "SpeechControlRange",
+          "description": "The values a number control accepts, in the shared control's units. On a voice it replaces the task's range.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "description": "Smallest accepted value, inclusive.",
+              "type": "number"
+            },
+            "max": {
+              "description": "Largest accepted value, inclusive.",
+              "type": "number"
+            },
+            "default": {
+              "description": "The value the provider uses when the request names none.",
+              "type": "number"
+            },
+            "step": {
+              "description": "An increment for a settings slider. A hint, not a quantization rule.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         }
       }
     },
@@ -2726,6 +3117,13 @@ export const providerDynamicCapabilitiesSchema = {
         "readiness": {
           "description": "How ready the voice is to speak. Absent means 'ready'.",
           "$ref": "#/$defs/readiness"
+        },
+        "controlStates": {
+          "description": "Sparse overrides of the task's controlStates for this voice (ADR 025), matched by id and delivery. A pair with no entry inherits the task's state for that pair; available false disables the control for this voice on that delivery; a range replaces the task's range for that delivery.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/controlState"
+          }
         }
       }
     },
@@ -3054,6 +3452,73 @@ export const taskOutputSchema = {
               "$ref": "provider-dynamic-capabilities.schema.json#/$defs/voiceGender"
             }
           }
+        },
+        "controls": {
+          "description": "One record per speech control the request named, and none for others (ADR 025). Application is reported, never inferred from the request. A successful run never reports a required control as not applied.",
+          "type": "array",
+          "items": {
+            "title": "SpeechControlOutcome",
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "id",
+              "requested",
+              "status"
+            ],
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "not_applied"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "reason"
+              ]
+            },
+            "properties": {
+              "id": {
+                "$ref": "provider-descriptor.schema.json#/$defs/speechControlId"
+              },
+              "requested": {
+                "description": "The value the request named.",
+                "type": "number"
+              },
+              "effective": {
+                "description": "The value the platform accepted, in the shared control's units. Absent when unknown. An accepted setting, not an acoustic measurement.",
+                "type": "number"
+              },
+              "status": {
+                "title": "SpeechControlStatus",
+                "description": "'applied': the provider set the value through the platform's documented path. 'not_applied': it did not; see reason.",
+                "enum": [
+                  "applied",
+                  "not_applied"
+                ]
+              },
+              "method": {
+                "title": "SpeechControlMethod",
+                "description": "How an applied control took effect: 'platform_synthesis' (the platform synthesized with it) or 'playback_attenuation' (this utterance's playback was attenuated).",
+                "enum": [
+                  "platform_synthesis",
+                  "playback_attenuation"
+                ]
+              },
+              "reason": {
+                "title": "SpeechControlOutcomeReason",
+                "description": "Why a control was not applied: a route-plan omission reason ('unsupported', 'out_of_range', 'range_unknown', 'availability_unknown'), 'provider_rejected' (the platform refused the value at run time), or 'not_reported' (the provider reported nothing, so the engine records it as not applied).",
+                "enum": [
+                  "unsupported",
+                  "out_of_range",
+                  "range_unknown",
+                  "availability_unknown",
+                  "provider_rejected",
+                  "not_reported"
+                ]
+              }
+            }
+          }
         }
       }
     }
@@ -3136,7 +3601,7 @@ export const executionProvenanceSchema = {
   "properties": {
     "schemaVersion": {
       "description": "Contract schema version used to interpret this provenance record.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "modelProfile": {
       "description": "The model profile the request routed within; 'auto' when the request named none.",
@@ -3255,7 +3720,9 @@ export const executionProvenanceSchema = {
                 "locale_not_supported",
                 "voice_not_available",
                 "prepare_not_supported",
-                "not_ready"
+                "not_ready",
+                "speech_control_unsupported",
+                "speech_control_out_of_range"
               ]
             }
           }

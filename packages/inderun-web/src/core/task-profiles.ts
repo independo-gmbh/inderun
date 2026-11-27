@@ -62,11 +62,37 @@ const textToSpeech: TaskProfile = {
               requirement: speech.voice.requirement ?? "preferred"
             }
           }
-        : {})
+        : {}),
+      ...controlRequirements(request)
     };
   },
   delivery: (request) => request.delivery!.mode
 };
+
+type ControlRequirement = NonNullable<SharedRoutePlannerInput["task"]["controls"]>[number];
+
+/**
+ * The request's speech controls in the planner's fixed order (rate, pitch, volume), or nothing
+ * when it names none, so a request without controls projects exactly as before (ADR 025).
+ */
+function controlRequirements(request: TaskRequest): { controls?: ControlRequirement[] } {
+  const named: Array<
+    [
+      ControlRequirement["id"],
+      { value: number; requirement?: ControlRequirement["requirement"] } | undefined
+    ]
+  > = [
+    ["speech.speakingRate", request.speech?.controls?.speakingRate],
+    ["speech.pitch", request.speech?.controls?.pitch],
+    ["playback.volume", request.delivery?.playback?.volume]
+  ];
+  const controls = named.flatMap(([id, control]) =>
+    control === undefined
+      ? []
+      : [{ id, value: control.value, requirement: control.requirement ?? "preferred" }]
+  );
+  return controls.length > 0 ? { controls } : {};
+}
 
 const taskProfiles = new Map<string, TaskProfile>([
   [textToText.kind, textToText],

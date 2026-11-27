@@ -581,7 +581,7 @@ export class IndeRun implements IndeRunApi {
 
     const handle: StreamRunHandle = {
       runId,
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       startedAt: startTime,
       providerId: providers[0]!.describe().id
     };
@@ -613,7 +613,7 @@ export class IndeRun implements IndeRunApi {
         return {
           outcome: "cancelled",
           runId,
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           // A text run reports what it delivered; committed playback reports that it played; an
           // artifact already written to its destination is reported, since the application
           // owns those bytes now. An uncommitted non-text run produced nothing to report.
@@ -738,7 +738,7 @@ export class IndeRun implements IndeRunApi {
             const outcome: StreamTerminalOutcome = {
               outcome: "completed",
               runId,
-              schemaVersion: "1.0",
+              schemaVersion: "1.1",
               ...(ev.kind === "done"
                 ? { finalText: ev.finalText }
                 : output.type === "text"
@@ -820,7 +820,7 @@ export class IndeRun implements IndeRunApi {
           const outcome: StreamTerminalOutcome = {
             outcome: "error",
             runId,
-            schemaVersion: "1.0",
+            schemaVersion: "1.1",
             error: exception.toContractError(),
             ...(textRun ? { partialText } : {}),
             provenance: provenance.build(provider.describe())
@@ -865,7 +865,7 @@ export class IndeRun implements IndeRunApi {
       const outcome: StreamTerminalOutcome = {
         outcome: "error",
         runId,
-        schemaVersion: "1.0",
+        schemaVersion: "1.1",
         error: exception.toContractError(),
         ...(textRun ? { partialText: "" } : {}),
         provenance: provenance.build()
@@ -938,7 +938,7 @@ export class IndeRun implements IndeRunApi {
         if (!controller.signal.aborted) {
           const exception = toIndeRunException(error, { runId });
           const terminal = gate.terminate(
-            { outcome: "error", runId, schemaVersion: "1.0", error: exception.toContractError() },
+            { outcome: "error", runId, schemaVersion: "1.1", error: exception.toContractError() },
             now()
           );
           if (terminal) yield terminal;
@@ -950,7 +950,7 @@ export class IndeRun implements IndeRunApi {
         const reason =
           typeof controller.signal.reason === "string" ? controller.signal.reason : undefined;
         const terminal = gate.terminate(
-          { outcome: "cancelled", runId, schemaVersion: "1.0", ...(reason ? { reason } : {}) },
+          { outcome: "cancelled", runId, schemaVersion: "1.1", ...(reason ? { reason } : {}) },
           now()
         );
         if (terminal) yield terminal;
@@ -968,7 +968,7 @@ export class IndeRun implements IndeRunApi {
         {
           outcome: "completed",
           runId,
-          schemaVersion: "1.0",
+          schemaVersion: "1.1",
           output: { type: "prepared", preparation },
           finishReason: "stop"
         },
@@ -977,7 +977,7 @@ export class IndeRun implements IndeRunApi {
       if (terminal) yield terminal;
     }
 
-    const handle: StreamRunHandle = { runId, schemaVersion: "1.0", startedAt: startTime };
+    const handle: StreamRunHandle = { runId, schemaVersion: "1.1", startedAt: startTime };
     return this.inFlight.trackRun({
       handle,
       events: run(),

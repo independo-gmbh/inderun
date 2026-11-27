@@ -12,8 +12,8 @@ final class ThirdTaskOutputTests: XCTestCase {
     private func artifactRequest(accepting mediaTypes: [String]) -> TaskRequest {
         TaskRequest(
             task: TaskDescriptor(kind: .textToSpeech),
-            speech: SpeechInput(locale: "de-AT", localeMatch: nil, text: "Hallo", voice: nil),
-            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: mediaTypes, mode: .artifact)
+            speech: SpeechInput(controls: nil, locale: "de-AT", localeMatch: nil, text: "Hallo", voice: nil),
+            delivery: OutputDeliveryRequest(destinationRef: nil, mediaTypes: mediaTypes, mode: .artifact, playback: nil)
         )
     }
 

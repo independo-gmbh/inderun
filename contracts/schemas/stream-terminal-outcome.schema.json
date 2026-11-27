@@ -12,7 +12,7 @@
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this outcome payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
@@ -88,7 +88,7 @@
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this outcome payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",
@@ -107,7 +107,7 @@
           "properties": {
             "schemaVersion": {
               "description": "Contract schema version used to interpret the error payload.",
-              "const": "1.0"
+              "const": "1.1"
             },
             "errorClass": {
               "description": "Normalized error taxonomy, identical to IndeRunError.errorClass: CapabilityMismatch (request needs something no eligible provider supports), Offline/Unavailable (provider unreachable or not ready), AuthError (credential/auth failure), RateLimited (provider throttled the request), Timeout (provider exceeded its execution budget), Internal (unexpected engine-side failure).",
@@ -168,7 +168,7 @@
       "properties": {
         "schemaVersion": {
           "description": "Contract schema version used to interpret this outcome payload.",
-          "const": "1.0"
+          "const": "1.1"
         },
         "runId": {
           "description": "The stream run this outcome terminates, matching StreamRunHandle.runId and every StreamEvent.runId for the run.",

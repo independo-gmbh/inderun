@@ -647,7 +647,7 @@ private struct ResolvedVoice {
 
     /// The locale and voice actually used, as the run's output reports them.
     var output: SpeechOutput {
-        SpeechOutput(locale: locale, voice: SpeechOutputVoice(gender: nil, id: voice.id, name: voice.name))
+        SpeechOutput(controls: nil, locale: locale, voice: SpeechOutputVoice(gender: nil, id: voice.id, name: voice.name))
     }
 }
 

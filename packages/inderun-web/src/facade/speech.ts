@@ -27,11 +27,20 @@ import { applyEnvelopeOptions, exceptionFromOutcome, type TextExecutionOptions }
 type SpeechInput = NonNullable<TaskRequest["speech"]>;
 type SpeechVoice = NonNullable<SpeechInput["voice"]>;
 type Delivery = NonNullable<TaskRequest["delivery"]>;
+/** Relative speaking rate and pitch (ADR 025). */
+export type SpeechControls = NonNullable<SpeechInput["controls"]>;
+/** Playback-only settings of one utterance (ADR 025). */
+export type SpeechPlaybackControls = NonNullable<Delivery["playback"]>;
 
 /** The same policy object as the text API, so a constraint means the same in both. */
 export type SpeechExecutionOptions = TextExecutionOptions;
 
-interface SpeechCommonOptions {
+/**
+ * What every speech call takes: the text, its locale, the voice, the synthesis controls and the
+ * execution policy. {@link SpeakOptions} adds playback-only settings; {@link GenerateSpeechOptions}
+ * adds the artifact's. Swift and Kotlin have the same three types.
+ */
+export interface SpeechOptions {
   /** The text to speak. Plain text; markup such as SSML is out of scope. */
   text: string;
   /** BCP 47 tag, e.g. `"de-AT"`. */
@@ -48,6 +57,11 @@ interface SpeechCommonOptions {
    */
   voice?: SpeechVoice | (SpeechVoiceInfo & Pick<SpeechVoice, "requirement">);
   /**
+   * Relative speaking rate and pitch. Each is preferred unless marked `"required"`; a required
+   * one is met or the call is refused. `output.speech.controls` reports what was applied.
+   */
+  controls?: SpeechControls;
+  /**
    * Model profile to route within, as configured on the engine. Omitted or `"auto"` routes
    * across every registered target. Never a vendor model or voice id.
    */
@@ -61,14 +75,23 @@ interface SpeechCommonOptions {
 }
 
 /** Options for {@link speak}. */
-export type SpeakOptions = SpeechCommonOptions;
+export interface SpeakOptions extends SpeechOptions {
+  /** Playback volume of this utterance, 0 to 1. Never the device volume. */
+  playback?: SpeechPlaybackControls;
+}
 
 /** Options for {@link generateSpeech}. */
-export interface GenerateSpeechOptions extends SpeechCommonOptions {
+export interface GenerateSpeechOptions extends SpeechOptions {
   /** Acceptable media types; always a hard requirement. Absent lets the provider choose. */
   mediaTypes?: string[];
   /** Opaque application destination, resolved by the host. Never a path or URL. */
   destinationRef?: string;
+  /**
+   * Never valid: an artifact is not played, so it has no playback volume. Typed `never` so a
+   * {@link SpeakOptions} value with `playback` does not type-check here; a JavaScript caller that
+   * passes one anyway gets the request's validation error, never a silently dropped control.
+   */
+  playback?: never;
 }
 
 /** How a {@link speak} run ended, when it did not fail. */
@@ -149,15 +172,16 @@ export interface SpeechVoiceInfo {
 
 /** The canonical `TaskRequest` a speech call compiles to. */
 export function toSpeechRequest(
-  options: SpeechCommonOptions,
+  options: SpeechOptions,
   delivery: Delivery["mode"] | Delivery
 ): TaskRequest {
   const speech: SpeechInput = { text: options.text, locale: options.locale };
   if (options.localeMatch !== undefined) speech.localeMatch = options.localeMatch;
   if (options.voice !== undefined) speech.voice = toRequestVoice(options.voice);
+  if (options.controls !== undefined) speech.controls = options.controls;
 
   const request: TaskRequest = {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     task: { kind: "text_to_speech" },
     speech,
     delivery: typeof delivery === "string" ? { mode: delivery } : delivery
@@ -170,7 +194,7 @@ export function toSpeechRequest(
 }
 
 /** Keeps what a request can carry, so a {@link SpeechVoiceInfo} can be passed as it is. */
-function toRequestVoice(voice: NonNullable<SpeechCommonOptions["voice"]>): SpeechVoice {
+function toRequestVoice(voice: NonNullable<SpeechOptions["voice"]>): SpeechVoice {
   const { id, providerId, gender, requirement } = voice;
   return {
     ...(id !== undefined ? { id } : {}),
@@ -187,7 +211,9 @@ function toRequestVoice(voice: NonNullable<SpeechCommonOptions["voice"]>): Speec
  *   here, before any audio could start.
  */
 export async function speak(inderun: IndeRunApi, options: SpeakOptions): Promise<SpeechPlayback> {
-  const run = await inderun.stream(toSpeechRequest(options, "playback"));
+  const delivery: Delivery = { mode: "playback" };
+  if (options.playback !== undefined) delivery.playback = options.playback;
+  const run = await inderun.stream(toSpeechRequest(options, delivery));
   const runId = run.handle.runId;
 
   const result = (async (): Promise<SpokenSpeech> => {
@@ -227,6 +253,10 @@ export async function generateSpeech(
     delivery.mediaTypes = options.mediaTypes as NonNullable<Delivery["mediaTypes"]>;
   }
   if (options.destinationRef !== undefined) delivery.destinationRef = options.destinationRef;
+  // Forwarded, not dropped: the canonical request then fails validation the same way on every
+  // SDK (delivery.playback is only valid with playback delivery, ADR 025).
+  const playback = (options as { playback?: unknown }).playback;
+  if (playback !== undefined) delivery.playback = playback as NonNullable<Delivery["playback"]>;
 
   const taskResult = await inderun.run(toSpeechRequest(options, delivery));
   const { output } = taskResult;

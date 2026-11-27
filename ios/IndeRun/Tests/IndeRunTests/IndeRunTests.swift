@@ -502,8 +502,8 @@ final class IndeRunTests: XCTestCase {
             planner: MockRoutePlanner(
                 plan: SharedPlannerRoutePlan(
                     candidates: [
-                        Candidate(order: 0, providerId: "local_b", voice: nil),
-                        Candidate(order: 1, providerId: "local_a", voice: nil)
+                        Candidate(controls: nil,order: 0, providerId: "local_b", voice: nil),
+                        Candidate(controls: nil,order: 1, providerId: "local_a", voice: nil)
                     ],
                     explanation: SharedPlannerExplanation(
                         selectedProviderId: "local_b",
@@ -634,7 +634,7 @@ final class IndeRunTests: XCTestCase {
                         )
                     )
                 ],
-                task: SharedPlannerTask(delivery: nil, inputs: nil, kind: "text_to_text", locale: nil, voice: nil)
+                task: SharedPlannerTask(controls: nil,delivery: nil, inputs: nil, kind: "text_to_text", locale: nil, voice: nil)
             )
         )
 
@@ -649,7 +649,7 @@ final class IndeRunTests: XCTestCase {
 
         let planner = CapturingRoutePlanner(
             plan: SharedPlannerRoutePlan(
-                candidates: [Candidate(order: 0, providerId: "local_a", voice: nil)],
+                candidates: [Candidate(controls: nil,order: 0, providerId: "local_a", voice: nil)],
                 explanation: SharedPlannerExplanation(
                     selectedProviderId: "local_a",
                     summary: "Selected provider 'local_a'."
@@ -838,7 +838,7 @@ final class IndeRunTests: XCTestCase {
 
         let requestJSON = """
         {
-          "schemaVersion": "1.0",
+          "schemaVersion": "1.1",
           "task": { "kind": "text_to_text" },
           "prompt": "Hello",
           "constraints": { "privacy": "cloud_required" },
@@ -846,14 +846,14 @@ final class IndeRunTests: XCTestCase {
         }
         """
         let request = try decoder.decode(TaskRequest.self, from: Data(requestJSON.utf8))
-        XCTAssertEqual(request.schemaVersion, .the10)
+        XCTAssertEqual(request.schemaVersion, .the11)
         XCTAssertEqual(request.task.kind, .textToText)
         XCTAssertEqual(request.constraints?.privacy, .cloudRequired)
         XCTAssertEqual(request.authContextRef, "openai/main")
 
         let resultJSON = """
         {
-          "schemaVersion": "1.0",
+          "schemaVersion": "1.1",
           "runId": "run_123",
           "output": { "type": "text", "text": "Hi" },
           "finishReason": "stop",

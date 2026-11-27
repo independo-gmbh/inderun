@@ -97,7 +97,7 @@ function runEnding(
 }
 
 const provenance = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   modelProfile: "auto",
   providerId: "tts",
   locality: "on_device",
@@ -264,6 +264,34 @@ describe("speak", () => {
 });
 
 describe("generateSpeech", () => {
+  // ADR 025 / review of #312: an artifact has no playback volume. A SpeakOptions value is
+  // structurally close to GenerateSpeechOptions, and a JavaScript caller skips the types
+  // entirely, so a supplied playback control must reach validation rather than vanish.
+  const withPlayback = {
+    text: "Hallo",
+    locale: "de-AT",
+    playback: { volume: { value: 0.5, requirement: "required" } }
+  } as unknown as GenerateSpeechOptions;
+
+  it("forwards a stray playback control into the request instead of dropping it", async () => {
+    const api = fakeApi({});
+    await expect(generateSpeech(api, withPlayback)).rejects.toThrow("run not scripted");
+    expect(api.requests[0]?.delivery).toEqual({
+      mode: "artifact",
+      playback: { volume: { value: 0.5, requirement: "required" } }
+    });
+  });
+
+  it("fails validation on the engine when an artifact call carries playback", async () => {
+    const registry = new ProviderRegistry();
+    registry.register(createFakeStreamProvider("tts", { task: "text_to_speech", script: [] }));
+    const inderun = new IndeRun(registry, createBrowserHostServices());
+
+    const failure = await generateSpeech(inderun, withPlayback).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(IndeRunException);
+    expect((failure as IndeRunException).message).toContain("/delivery");
+  });
+
   it("returns the artifact reference with what was used", async () => {
     const artifact: MediaArtifact = {
       id: "art_1",

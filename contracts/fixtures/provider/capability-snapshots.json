@@ -162,6 +162,152 @@
           ]
         }
       }
+    },
+    {
+      "id": "speech_controls_by_delivery_with_voice_overrides",
+      "description": "ADR 025: declared controls; live states keyed by id and delivery, with a narrower rate range for artifacts than for playback; and sparse per-voice overrides on the en-GB voice (pitch disabled on playback, artifact rate narrowed further). Every other pair inherits the task's state.",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
     }
   ],
   "invalid": [
@@ -286,6 +432,1474 @@
         },
         "capabilities": {
           "available": true
+        }
+      }
+    },
+    {
+      "id": "unknown_control_id",
+      "description": "ADR 025: control ids are a closed set.",
+      "path": "/descriptor/taskCapabilities/0/controls/0/id",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "vendor.style",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "volume_declared_on_artifact",
+      "description": "ADR 025: a playback-phase control lists only the playback delivery.",
+      "path": "/descriptor/taskCapabilities/0/controls/2/deliveries/1",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "volume_declared_as_synthesis",
+      "description": "ADR 025: playback.volume is a playback-phase control.",
+      "path": "/descriptor/taskCapabilities/0/controls/2/phase",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "rate_declared_as_playback",
+      "description": "ADR 025: speech.speakingRate is a synthesis-phase control.",
+      "path": "/descriptor/taskCapabilities/0/controls/0/phase",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "rate_declared_as_choice",
+      "description": "ADR 025: the shared controls take a number.",
+      "path": "/descriptor/taskCapabilities/0/controls/0/valueKind",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "choice",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "control_declared_on_inline",
+      "description": "ADR 025: speech controls never apply to inline text output.",
+      "path": "/descriptor/taskCapabilities/0/controls/0/deliveries/0",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["inline"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "control_state_without_delivery",
+      "description": "ADR 025: a control state names the delivery it describes.",
+      "path": "/capabilities/taskCapabilities/0/controlStates/0",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "volume_state_on_artifact",
+      "description": "ADR 025: playback.volume only has a playback state.",
+      "path": "/capabilities/taskCapabilities/0/controlStates/3/delivery",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "control_state_range_without_max",
+      "description": "ADR 025: a range names min and max.",
+      "path": "/capabilities/taskCapabilities/0/controlStates/0/range",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": false,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "voice_control_state_null_available",
+      "description": "ADR 025: available is true, false or absent, never null.",
+      "path": "/capabilities/taskCapabilities/0/voices/1/controlStates/0/available",
+      "snapshot": {
+        "providerId": "apple_system_speech",
+        "descriptor": {
+          "id": "apple_system_speech",
+          "type": "local",
+          "transport": "system_service",
+          "supports": {
+            "run": true,
+            "streaming": true,
+            "realtime": false,
+            "tools": false,
+            "reasoningEvents": false,
+            "structuredOutput": false,
+            "multimodal": false
+          },
+          "cancel": "hard",
+          "tasks": ["text_to_speech"],
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "inputs": ["text"],
+              "interaction": {
+                "run": true,
+                "stream": true
+              },
+              "cancel": "hard",
+              "outputs": [
+                {
+                  "delivery": "playback"
+                },
+                {
+                  "delivery": "artifact",
+                  "mediaTypes": ["audio/wav"]
+                }
+              ],
+              "controls": [
+                {
+                  "id": "speech.speakingRate",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback", "artifact"]
+                },
+                {
+                  "id": "speech.pitch",
+                  "valueKind": "number",
+                  "phase": "synthesis",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                },
+                {
+                  "id": "playback.volume",
+                  "valueKind": "number",
+                  "phase": "playback",
+                  "lifetime": "utterance",
+                  "deliveries": ["playback"]
+                }
+              ]
+            }
+          ],
+          "privacy": {
+            "dataLeavesDevice": false
+          }
+        },
+        "capabilities": {
+          "available": true,
+          "taskCapabilities": [
+            {
+              "kind": "text_to_speech",
+              "voices": [
+                {
+                  "locale": "de-DE",
+                  "gender": "female",
+                  "networkRequired": false
+                },
+                {
+                  "locale": "en-GB",
+                  "controlStates": [
+                    {
+                      "id": "speech.pitch",
+                      "delivery": "playback",
+                      "available": null,
+                      "reason": "voice ignores pitch"
+                    },
+                    {
+                      "id": "speech.speakingRate",
+                      "delivery": "artifact",
+                      "range": {
+                        "min": 0.9,
+                        "max": 1.1
+                      }
+                    }
+                  ]
+                }
+              ],
+              "controlStates": [
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1,
+                    "step": 0.05
+                  }
+                },
+                {
+                  "id": "speech.speakingRate",
+                  "delivery": "artifact",
+                  "available": true,
+                  "range": {
+                    "min": 0.8,
+                    "max": 1.2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "speech.pitch",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0.5,
+                    "max": 2,
+                    "default": 1
+                  }
+                },
+                {
+                  "id": "playback.volume",
+                  "delivery": "playback",
+                  "available": true,
+                  "range": {
+                    "min": 0,
+                    "max": 1,
+                    "default": 1
+                  }
+                }
+              ]
+            }
+          ]
         }
       }
     }

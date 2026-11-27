@@ -78,13 +78,13 @@ class TaskCapabilityRoutingTest {
     )
 
     private val textRequest = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         prompt = "Hello",
         task = TaskRequestTask(),
     )
 
     private val speechRequest = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(TaskKind.TEXT_TO_SPEECH),
         speech = SpeechInput(text = "Hallo", locale = "de-AT", voice = SpeechVoice(gender = VoiceGender.Female)),
         delivery = OutputDeliveryRequest(mode = OutputDelivery.Playback),
@@ -302,7 +302,7 @@ class TaskCapabilityRoutingTest {
                 finishReason = FinishReason.STOP,
                 output = TaskOutput(type = TaskOutputType.PLAYBACK, playback = PlaybackOutput()),
                 runId = context.runId,
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 telemetry = TaskResultTelemetry(providerUsed = id, totalMs = 0.0),
             )
         }
@@ -381,7 +381,7 @@ class TaskCapabilityRoutingTest {
             finishReason = FinishReason.STOP,
             output = TaskOutput(type = TaskOutputType.TEXT, text = "Hello"),
             runId = context.runId,
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             telemetry = TaskResultTelemetry(providerUsed = "z_text", totalMs = 0.0),
         )
     }

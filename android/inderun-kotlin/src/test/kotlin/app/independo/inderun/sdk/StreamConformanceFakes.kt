@@ -67,7 +67,7 @@ internal fun conformanceRequest(
     requestId: String? = null,
     privacy: Privacy? = null,
 ) = TaskRequest(
-    schemaVersion = SchemaVersion.V1_0,
+    schemaVersion = SchemaVersion.V1_1,
     requestId = requestId,
     prompt = "Hello",
     task = TaskRequestTask(),
@@ -79,7 +79,7 @@ internal fun conformanceRequest(
  * back on the device.
  */
 internal fun speechConformanceRequest(delivery: OutputDeliveryRequest = OutputDeliveryRequest(mode = OutputDelivery.Playback)) = TaskRequest(
-    schemaVersion = SchemaVersion.V1_0,
+    schemaVersion = SchemaVersion.V1_1,
     task = TaskRequestTask(TaskKind.TEXT_TO_SPEECH),
     speech = SpeechInput(text = "Hallo", locale = "de-AT"),
     delivery = delivery,
@@ -174,7 +174,7 @@ internal class FakeStreamProvider(
     )
 
     override suspend fun run(request: TaskRequest, context: RunContext): TaskResult = TaskResult(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         runId = context.runId,
         output = TaskOutput(type = TaskOutputType.TEXT, text = "unused"),
         finishReason = FinishReason.STOP,
@@ -233,7 +233,7 @@ internal class FakeRunOnlyProvider(
     override suspend fun run(request: TaskRequest, context: RunContext): TaskResult {
         callCount += 1
         return TaskResult(
-            schemaVersion = SchemaVersion.V1_0,
+            schemaVersion = SchemaVersion.V1_1,
             runId = context.runId,
             output = TaskOutput(type = TaskOutputType.TEXT, text = "ran"),
             finishReason = FinishReason.STOP,

@@ -95,8 +95,8 @@ public final class IndeRun: IndeRunApi {
     /// The per-kind rules live in the kind's task profile.
     private func validate(request: TaskRequest) -> [String] {
         var validationIssues: [String] = []
-        if request.schemaVersion.rawValue != "1.0" {
-            validationIssues.append("schemaVersion must be '1.0'")
+        if request.schemaVersion.rawValue != "1.1" {
+            validationIssues.append("schemaVersion must be '1.1'")
         }
         if let requestId = request.requestId, requestId.isEmpty {
             validationIssues.append("requestId must be non-empty when provided.")
@@ -417,7 +417,7 @@ public final class IndeRun: IndeRunApi {
         let handle = StreamRunHandle(
             providerId: first.describe().id,
             runId: runId,
-            schemaVersion: .the10,
+            schemaVersion: .the11,
             startedAt: Double(startTime)
         )
 
@@ -978,7 +978,7 @@ public final class IndeRun: IndeRunApi {
         let preparer = self.preparer
         let kinds = preparer.preparableKinds(request.tasks)
         let provenance = ProvenanceRecorder(modelProfile: nil).build()
-        let handle = StreamRunHandle(providerId: nil, runId: runId, schemaVersion: .the10, startedAt: now())
+        let handle = StreamRunHandle(providerId: nil, runId: runId, schemaVersion: .the11, startedAt: now())
 
         let (events, continuation) = AsyncThrowingStream<StreamEvent, Error>.makeStream()
         let worker = Task {
@@ -1005,7 +1005,7 @@ public final class IndeRun: IndeRunApi {
                     output: TaskOutput(preparation: items),
                     provenance: provenance,
                     runId: runId,
-                    schemaVersion: .the10,
+                    schemaVersion: .the11,
                     telemetry: nil,
                     usage: nil,
                     error: nil,

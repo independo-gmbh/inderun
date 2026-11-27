@@ -32,7 +32,7 @@ export const kotlinEnumOverrides = {
     kotlinName: "IndeRunErrorClass"
   },
   SchemaVersion: {
-    constants: { The10: "V1_0" }
+    constants: { The11: "V1_1" }
   },
   FinishReason: {
     constants: { Cancelled: "CANCELLED", Error: "ERROR", Length: "LENGTH", Stop: "STOP" }

@@ -62,7 +62,7 @@ class AndroidMlKitGenAiProviderTest {
 
         val result = provider.run(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -84,7 +84,7 @@ class AndroidMlKitGenAiProviderTest {
 
         provider.run(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 messages = listOf(
                     Message(MessageRole.SYSTEM, "Be concise"),
                     Message(MessageRole.USER, "Hello"),
@@ -110,7 +110,7 @@ class AndroidMlKitGenAiProviderTest {
         try {
             provider.run(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(),
                     constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -138,7 +138,7 @@ class AndroidMlKitGenAiProviderTest {
         try {
             provider.run(
                 request = TaskRequest(
-                    schemaVersion = SchemaVersion.V1_0,
+                    schemaVersion = SchemaVersion.V1_1,
                     prompt = "Hello",
                     task = TaskRequestTask(),
                     constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -165,7 +165,7 @@ class AndroidMlKitGenAiProviderTest {
 
         val result = provider.run(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -188,7 +188,7 @@ class AndroidMlKitGenAiProviderTest {
 
         val result = provider.run(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),
@@ -208,7 +208,7 @@ class AndroidMlKitGenAiProviderTest {
 
         val result = provider.run(
             request = TaskRequest(
-                schemaVersion = SchemaVersion.V1_0,
+                schemaVersion = SchemaVersion.V1_1,
                 prompt = "Hello",
                 task = TaskRequestTask(),
                 constraints = TaskRequestConstraints(privacy = Privacy.LocalRequired),

@@ -107,7 +107,7 @@ class AndroidSystemSpeechProviderTest {
         privacy: Privacy? = null,
         text: String = "Hallo",
     ) = TaskRequest(
-        schemaVersion = SchemaVersion.V1_0,
+        schemaVersion = SchemaVersion.V1_1,
         task = TaskRequestTask(kind = TaskKind.TEXT_TO_SPEECH),
         speech = SpeechInput(locale = locale, text = text),
         delivery = OutputDeliveryRequest(mode = delivery),
