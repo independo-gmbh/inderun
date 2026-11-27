@@ -72,6 +72,8 @@ function setup(stream: IndeRunApi["stream"], extra: Partial<IndeRunApi> = {}) {
   };
 }
 
+type SentRequest = { delivery: unknown; speech: { controls?: unknown } };
+
 describe("speech panel", () => {
   it("shows the voices for the selected language", async () => {
     const panel = setup(vi.fn());
@@ -311,5 +313,149 @@ describe("speech panel", () => {
     expect(panel.status.textContent).toBe(
       "audio/wav · 6 bytes · 1200 ms of audio · native_speech · on_device"
     );
+  });
+
+  describe("speech controls", () => {
+    const state = (id: string, delivery: string, extra: Record<string, unknown>) => ({
+      id,
+      delivery,
+      ...extra
+    });
+    const withControls = [
+      {
+        providerId: "web_system_speech",
+        descriptor: {
+          id: "web_system_speech",
+          taskCapabilities: [
+            {
+              kind: "text_to_speech",
+              outputs: [{ delivery: "playback" }],
+              controls: [
+                {
+                  id: "speech.speakingRate",
+                  valueKind: "number",
+                  phase: "synthesis",
+                  lifetime: "utterance",
+                  deliveries: ["playback"]
+                },
+                {
+                  id: "playback.volume",
+                  valueKind: "number",
+                  phase: "playback",
+                  lifetime: "utterance",
+                  deliveries: ["playback"]
+                }
+              ]
+            }
+          ]
+        },
+        capabilities: {
+          available: true,
+          taskCapabilities: [
+            {
+              kind: "text_to_speech",
+              controlStates: [
+                state("speech.speakingRate", "playback", {
+                  available: true,
+                  range: { min: 0.5, max: 2, default: 1, step: 0.1 }
+                }),
+                state("playback.volume", "playback", { available: false, reason: "no gain" })
+              ],
+              voices: [{ id: "anna", name: "Anna", locale: "de-DE" }]
+            }
+          ]
+        }
+      }
+    ] as unknown as ProviderCapabilitySnapshot[];
+
+    const mount = (stream: IndeRunApi["stream"]) => {
+      const panel = setup(stream, { checkCapabilities: async () => withControls });
+      const root = panel.speak.closest("section")!;
+      return {
+        ...panel,
+        box: (id: string) =>
+          root.querySelector<HTMLInputElement>(`input[type=checkbox][data-id="${id}"]`)!,
+        slider: (id: string) =>
+          root.querySelector<HTMLInputElement>(`input[type=range][data-id="${id}"]`)!,
+        requireRate: root.querySelector<HTMLInputElement>("#speech-require-rate")!,
+        rows: root.querySelector("#speech-control-rows")!
+      };
+    };
+
+    it("sends no controls until one is turned on", async () => {
+      const stream = vi.fn(async () =>
+        terminal({ outcome: "completed", output: { type: "playback" } })
+      );
+      const panel = mount(stream);
+      await flush();
+      panel.voice.value = "0";
+      panel.voice.dispatchEvent(new Event("change"));
+
+      panel.speak.click();
+      await flush();
+
+      const [request] = stream.mock.calls[0] as unknown as [SentRequest];
+      expect(request.delivery).toEqual({ mode: "playback" });
+      expect(request.speech.controls).toBeUndefined();
+    });
+
+    it("builds the slider from the voice's range and disables an unavailable control", async () => {
+      const panel = mount(vi.fn());
+      await flush();
+      panel.voice.value = "0";
+      panel.voice.dispatchEvent(new Event("change"));
+
+      expect(panel.slider("speech.speakingRate").min).toBe("0.5");
+      expect(panel.slider("speech.speakingRate").max).toBe("2");
+      expect(panel.box("speech.speakingRate").disabled).toBe(false);
+      expect(panel.box("speech.pitch").disabled).toBe(true);
+      expect(panel.box("playback.volume").disabled).toBe(true);
+      expect(panel.rows.textContent).toContain("no gain");
+      expect(panel.rows.textContent).toContain("not offered");
+    });
+
+    it("sends the chosen rate as required and shows what was applied", async () => {
+      const stream = vi.fn(async () =>
+        terminal({
+          outcome: "completed",
+          finishReason: "stop",
+          output: {
+            type: "playback",
+            speech: {
+              locale: "de-DE",
+              controls: [
+                {
+                  id: "speech.speakingRate",
+                  requested: 1.5,
+                  effective: 1.5,
+                  status: "applied",
+                  method: "platform_synthesis"
+                },
+                { id: "speech.pitch", requested: 1.2, status: "not_applied", reason: "unsupported" }
+              ]
+            }
+          }
+        })
+      );
+      const panel = mount(stream);
+      await flush();
+      panel.voice.value = "0";
+      panel.voice.dispatchEvent(new Event("change"));
+      panel.box("speech.speakingRate").checked = true;
+      panel.box("speech.speakingRate").dispatchEvent(new Event("change"));
+      panel.slider("speech.speakingRate").value = "1.5";
+      panel.requireRate.checked = true;
+
+      panel.speak.click();
+      await flush();
+
+      const [request] = stream.mock.calls[0] as unknown as [SentRequest];
+      expect(request.speech.controls).toEqual({
+        speakingRate: { value: 1.5, requirement: "required" }
+      });
+      expect(panel.status.textContent).toContain(
+        "speech.speakingRate applied 1.5 (platform_synthesis); speech.pitch not applied: unsupported"
+      );
+    });
   });
 });

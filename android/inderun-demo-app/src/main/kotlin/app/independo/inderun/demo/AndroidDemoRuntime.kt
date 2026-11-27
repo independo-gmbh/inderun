@@ -71,7 +71,7 @@ internal class AndroidDemoRuntime(
     private val telemetryService = DemoTelemetryService()
     private val speechProvider = AndroidSystemSpeechProvider(context)
 
-    override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = makeIndeRun(settings).listVoices(locale)
+    override suspend fun listVoices(locale: String, settings: DemoSettings): List<SpeechVoiceInfo> = makeIndeRun(settings).listVoices(locale, includeControls = true)
 
     override suspend fun prepareSpeech(request: PrepareRequest, settings: DemoSettings, scope: CoroutineScope) {
         makeIndeRun(settings).prepare(scope, request).result.await()
@@ -88,7 +88,8 @@ internal class AndroidDemoRuntime(
         val header = first.bytes.copyOf(4).decodeToString()
         inderun.disposeArtifact(speech.artifact)
         return "${speech.artifact.mediaType} · $header · ${first.totalBytes} bytes · ${speech.artifact.durationMs} ms · " +
-            "rendered in $renderedMs ms · ${speech.provenance?.locality?.rawValue}"
+            "rendered in $renderedMs ms · ${speech.provenance?.locality?.rawValue}" +
+            (speech.speech?.controls.describeControls()?.let { " · $it" } ?: "")
     }
 
     override suspend fun checkCapabilities(settings: DemoSettings): List<ProviderCapabilitySnapshot> = makeIndeRun(settings).checkCapabilities()

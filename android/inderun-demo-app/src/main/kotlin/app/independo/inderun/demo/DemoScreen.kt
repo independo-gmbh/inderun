@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -25,6 +26,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -40,8 +42,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.independo.inderun.contracts.ControlDelivery
 import app.independo.inderun.contracts.Outcome
 import app.independo.inderun.contracts.ProviderReadiness
+import app.independo.inderun.contracts.SpeechControlId
 
 @Composable
 internal fun DemoScreen(
@@ -58,6 +62,8 @@ internal fun DemoScreen(
     onSpeechTextChange: (String) -> Unit = {},
     onSpeechLocaleChange: (String) -> Unit = {},
     onSpeechVoiceChange: (String?) -> Unit = {},
+    onSpeechControlChange: (SpeechControlId, Double?) -> Unit = { _, _ -> },
+    onRequireRateChange: (Boolean) -> Unit = {},
     onSpeakClick: () -> Unit = {},
     onStopSpeakingClick: () -> Unit = {},
     onSynthesizeClick: () -> Unit = {},
@@ -164,6 +170,8 @@ internal fun DemoScreen(
                 onTextChange = onSpeechTextChange,
                 onLocaleChange = onSpeechLocaleChange,
                 onVoiceChange = onSpeechVoiceChange,
+                onControlChange = onSpeechControlChange,
+                onRequireRateChange = onRequireRateChange,
                 onSpeakClick = onSpeakClick,
                 onStopClick = onStopSpeakingClick,
                 onSynthesizeClick = onSynthesizeClick,
@@ -367,6 +375,8 @@ private fun SpeechSection(
     onTextChange: (String) -> Unit,
     onLocaleChange: (String) -> Unit,
     onVoiceChange: (String?) -> Unit,
+    onControlChange: (SpeechControlId, Double?) -> Unit,
+    onRequireRateChange: (Boolean) -> Unit,
     onSpeakClick: () -> Unit,
     onStopClick: () -> Unit,
     onSynthesizeClick: () -> Unit,
@@ -388,6 +398,7 @@ private fun SpeechSection(
             }
         }
         VoicePicker(uiState, onVoiceChange)
+        SpeechControlsSection(uiState, onControlChange, onRequireRateChange)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = onSpeakClick, enabled = !uiState.isSpeaking && uiState.speechText.isNotBlank()) {
                 Text("Speak")
@@ -400,6 +411,52 @@ private fun SpeechSection(
             }
         }
         uiState.speechOutcome?.let { Text(it) }
+    }
+}
+
+/** One row per control: a checkbox turns it on, a slider sets it; an unusable control says why. */
+@Composable
+private fun SpeechControlsSection(
+    uiState: DemoUiState,
+    onControlChange: (SpeechControlId, Double?) -> Unit,
+    onRequireRateChange: (Boolean) -> Unit,
+) {
+    Text("Speech controls", style = MaterialTheme.typography.titleSmall)
+    val voice = uiState.selectedSpeechVoice
+    listOf(
+        Triple("Rate", SpeechControlId.SpeechSpeakingRate, uiState.speechControls.rate),
+        Triple("Pitch", SpeechControlId.SpeechPitch, uiState.speechControls.pitch),
+        Triple("Volume", SpeechControlId.PlaybackVolume, uiState.speechControls.volume),
+    ).forEach { (label, id, value) ->
+        val speak = voice.controlSlider(id, ControlDelivery.Playback)
+        val generate = if (id == SpeechControlId.PlaybackVolume) null else voice.controlSlider(id, ControlDelivery.Artifact)
+        val slider = if (speak.usable || generate == null) speak else generate
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = value != null,
+                enabled = slider.usable,
+                onCheckedChange = { on -> onControlChange(id, if (on) slider.initial else null) },
+            )
+            Text(label + (value?.let { " %.2f".format(it) } ?: ""))
+        }
+        if (value != null && slider.usable) {
+            Slider(
+                value = value.toFloat(),
+                onValueChange = { onControlChange(id, it.toDouble()) },
+                valueRange = slider.min.toFloat()..slider.max.toFloat(),
+            )
+        }
+        Text(
+            listOfNotNull(
+                "Speak: ${voice.deliveryNote(id, ControlDelivery.Playback, value)}",
+                if (generate != null) "Generate: ${voice.deliveryNote(id, ControlDelivery.Artifact, value)}" else null,
+            ).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = uiState.speechControls.requireRate, onCheckedChange = onRequireRateChange)
+        Text("Require rate")
     }
 }
 

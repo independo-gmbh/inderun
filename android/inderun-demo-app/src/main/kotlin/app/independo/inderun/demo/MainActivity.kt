@@ -47,6 +47,8 @@ class MainActivity : ComponentActivity() {
                     onSpeechTextChange = demoViewModel::updateSpeechText,
                     onSpeechLocaleChange = demoViewModel::updateSpeechLocale,
                     onSpeechVoiceChange = demoViewModel::updateSpeechVoice,
+                    onSpeechControlChange = demoViewModel::updateSpeechControl,
+                    onRequireRateChange = demoViewModel::updateRequireRate,
                     onSpeakClick = demoViewModel::speak,
                     onStopSpeakingClick = demoViewModel::stopSpeaking,
                     onSynthesizeClick = demoViewModel::synthesizeSpeech,
